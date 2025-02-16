@@ -7,7 +7,8 @@ describe('PipelineBuilder', () => {
 
   beforeEach(() => {
     props = {
-      project: 'TestProject',
+      project: 'Project',
+      organization: 'Organization',
     };
   });
   test('Synthesizes the way we expect', () => {

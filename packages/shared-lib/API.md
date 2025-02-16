@@ -131,7 +131,20 @@ const pipelineBuilderProps: PipelineBuilderProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
+| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.organization">organization</a></code> | <code>string</code> | Organization name. |
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.project">project</a></code> | <code>string</code> | Project name. |
+
+---
+
+##### `organization`<sup>Required</sup> <a name="organization" id="@pipeline-builder/shared-lib.PipelineBuilderProps.property.organization"></a>
+
+```typescript
+public readonly organization: string;
+```
+
+- *Type:* string
+
+Organization name.
 
 ---
 
