@@ -1,12 +1,44 @@
-import { typescript } from 'projen';
-const project = new typescript.TypeScriptProject({
-  defaultReleaseBranch: 'main',
-  name: 'pipeline-builder',
-  projenrcTs: true,
+import { TypeScriptProject } from 'projen/lib/typescript';
+import { NodePackageManager } from 'projen/lib/javascript';
+import { PnpmWorkspace } from './projenrc/pnpm';
+import { VscodeSettings } from './projenrc/vscode';
+import { Nx } from './projenrc/nx';
+import { Workflow } from './projenrc/workflow';
 
-  // deps: [],                /* Runtime dependencies of this module. */
-  // description: undefined,  /* The description is just a string that helps people understand the purpose of the package. */
-  // devDeps: [],             /* Build dependencies for this module. */
-  // packageName: undefined,  /* The "name" in package.json. */
+let branch = 'main';
+let pnpmVersion = '10.4.0';
+let esbuildVersion = '0.25.0'
+let constructsVersion = '10.4.2';
+
+let root = new TypeScriptProject({
+  name: '@pipeline-builder/root',
+  defaultReleaseBranch: branch,
+  projenVersion: '0.91.11',
+  minNodeVersion: '22.13.0',
+  packageManager: NodePackageManager.PNPM,
+  projenCommand: 'pnpm dlx projen',
+  depsUpgradeOptions: { workflow: false },
+  gitignore: ['.DS_Store', '.nx', '.vscode'],
+  licensed: true,
+  projenrcTs: true,
+  eslint: false,
+  jest: false,
+  buildWorkflow: false,
+  release: false,
+  sampleCode: false,
+  devDeps: [
+    `esbuild@${esbuildVersion}`,
+    `constructs@${constructsVersion}`,
+    'npm-check-updates@17.1.14'
+  ]
 });
-project.synth();
+
+new Nx(root);
+new PnpmWorkspace(root);
+new VscodeSettings(root);
+new Workflow(root, { pnpmVersion });
+root.addScripts({
+  'npm-check': 'npx npm-check-updates'
+});
+root.package.addField('packageManager', `pnpm@${pnpmVersion}`);
+root.synth();
