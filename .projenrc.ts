@@ -1,14 +1,18 @@
 import { TypeScriptProject } from 'projen/lib/typescript';
-import { NodePackageManager } from 'projen/lib/javascript';
+import { NodePackageManager, NpmAccess } from 'projen/lib/javascript';
 import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
+import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
 
 let branch = 'main';
 let pnpmVersion = '10.4.0';
 let esbuildVersion = '0.25.0'
 let constructsVersion = '10.4.2';
+let cdkVersion = '2.157.0';
+let jsiiVersion = '5.7.4';
+let typescriptVersion = '5.7.3';
 
 let root = new TypeScriptProject({
   name: '@pipeline-builder/root',
@@ -33,6 +37,32 @@ let root = new TypeScriptProject({
   ]
 });
 
+new AwsCdkConstructLibrary({
+  parent: root,
+  name: '@pipeline-builder/shared-lib',
+  outdir: './packages/shared-lib',
+  author: 'mark washburn',
+  authorAddress: 'mwashburn160@gmail.com',
+  defaultReleaseBranch: 'main',
+  repositoryUrl: 'https://github.com/mrwconsulting/ci-flex.git',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  npmAccess: NpmAccess.PUBLIC,
+  licensed: false,
+  buildWorkflow: false,
+  release: false,
+  cdkVersion: cdkVersion,
+  jsiiVersion: jsiiVersion,
+  typescriptVersion: typescriptVersion,
+  constructsVersion: constructsVersion,
+  devDeps: [
+    '@types/node@20.9.0',
+    `constructs@${constructsVersion}`,
+    `aws-cdk-lib@${cdkVersion}`
+  ],
+});
+
 new Nx(root);
 new PnpmWorkspace(root);
 new VscodeSettings(root);
@@ -40,5 +70,4 @@ new Workflow(root, { pnpmVersion });
 root.addScripts({
   'npm-check': 'npx npm-check-updates'
 });
-root.package.addField('packageManager', `pnpm@${pnpmVersion}`);
 root.synth();
