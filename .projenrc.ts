@@ -49,7 +49,7 @@ new AwsCdkConstructLibrary({
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
   npmAccess: NpmAccess.PUBLIC,
-  licensed: false,
+  licensed: true,
   buildWorkflow: false,
   release: false,
   cdkVersion: cdkVersion,

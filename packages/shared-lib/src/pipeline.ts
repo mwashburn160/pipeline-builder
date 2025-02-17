@@ -1,5 +1,6 @@
 import { Pipeline } from 'aws-cdk-lib/aws-codepipeline';
 import { Construct } from 'constructs';
+import { generateId } from './utils';
 
 export interface PipelineBuilderProps {
   /**
@@ -17,8 +18,7 @@ export class PipelineBuilder extends Construct {
   constructor(scope: Construct, id: string, props: PipelineBuilderProps) {
     super(scope, id);
     let str = props.organization.concat('/').concat(props.project).toUpperCase();
-    let b64 = Buffer.from(str, 'utf-8').toString('base64');
-    this._pipeline = new Pipeline(this, `${b64}-pipeline`, {
+    this._pipeline = new Pipeline(this, generateId(str), {
       pipelineName: props.project,
     });
     console.log('props: ', JSON.stringify(props));
