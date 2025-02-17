@@ -14,8 +14,9 @@ describe('PipelineBuilder', () => {
   test('Synthesizes the way we expect', () => {
     let app = new App();
     let stack = new Stack(app);
-    let template = Template.fromStack(stack);
     new PipelineBuilder(stack, 'PipelineBuilder', props);
+
+    let template = Template.fromStack(stack);
     expect(template.toJSON()).toMatchSnapshot();
   });
 });
