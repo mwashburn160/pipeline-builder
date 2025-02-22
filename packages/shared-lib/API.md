@@ -9,14 +9,13 @@
 ```typescript
 import { PipelineBuilder } from '@pipeline-builder/shared-lib'
 
-new PipelineBuilder(scope: Construct, id: string, props: PipelineBuilderProps)
+new PipelineBuilder(scope: Construct, id: string)
 ```
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilder.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilder.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilder.Initializer.parameter.props">props</a></code> | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps">PipelineBuilderProps</a></code> | *No description.* |
 
 ---
 
@@ -29,12 +28,6 @@ new PipelineBuilder(scope: Construct, id: string, props: PipelineBuilderProps)
 ##### `id`<sup>Required</sup> <a name="id" id="@pipeline-builder/shared-lib.PipelineBuilder.Initializer.parameter.id"></a>
 
 - *Type:* string
-
----
-
-##### `props`<sup>Required</sup> <a name="props" id="@pipeline-builder/shared-lib.PipelineBuilder.Initializer.parameter.props"></a>
-
-- *Type:* <a href="#@pipeline-builder/shared-lib.PipelineBuilderProps">PipelineBuilderProps</a>
 
 ---
 
@@ -131,8 +124,8 @@ const pipelineBuilderProps: PipelineBuilderProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.organization">organization</a></code> | <code>string</code> | Organization name. |
-| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.project">project</a></code> | <code>string</code> | Project name. |
+| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.organization">organization</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.project">project</a></code> | <code>string</code> | *No description.* |
 
 ---
 
@@ -144,8 +137,6 @@ public readonly organization: string;
 
 - *Type:* string
 
-Organization name.
-
 ---
 
 ##### `project`<sup>Required</sup> <a name="project" id="@pipeline-builder/shared-lib.PipelineBuilderProps.property.project"></a>
@@ -155,8 +146,6 @@ public readonly project: string;
 ```
 
 - *Type:* string
-
-Project name.
 
 ---
 
