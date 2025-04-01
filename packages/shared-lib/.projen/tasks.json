@@ -127,22 +127,7 @@
     },
     "test": {
       "name": "test",
-      "description": "Run tests",
-      "steps": [
-        {
-          "exec": "jest --passWithNoTests --updateSnapshot",
-          "receiveArgs": true
-        }
-      ]
-    },
-    "test:watch": {
-      "name": "test:watch",
-      "description": "Run jest in watch mode",
-      "steps": [
-        {
-          "exec": "jest --watch"
-        }
-      ]
+      "description": "Run tests"
     },
     "upgrade": {
       "name": "upgrade",
@@ -152,13 +137,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@types/jest,jest,jsii-diff,jsii-pacmak,ts-jest"
+          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=jsii-diff,jsii-pacmak"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @jest/globals @types/aws-lambda @types/jest @types/node aws-cdk-lib jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii ts-jest typescript constructs"
+          "exec": "pnpm update @jest/globals @types/aws-lambda @types/node aws-cdk-lib jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii typescript constructs"
         },
         {
           "exec": "pnpm dlx projen"

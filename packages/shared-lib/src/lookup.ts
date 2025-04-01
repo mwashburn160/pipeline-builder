@@ -1,4 +1,4 @@
-import { CustomResource } from 'aws-cdk-lib';
+import { CustomResource, Token } from 'aws-cdk-lib';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
@@ -50,7 +50,9 @@ export class Lookup extends Construct {
           pluginName: pluginName,
         },
       });
-      this._config = JSON.parse(custom.getAttString('PluginConfig'))
+      if (!Token.isUnresolved(custom.getAttString('PluginConfig'))) {
+        this._config = JSON.parse(custom.getAttString('PluginConfig'))
+      }
     } catch (error) {
       console.log(error)
     }

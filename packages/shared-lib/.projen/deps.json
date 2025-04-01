@@ -11,10 +11,6 @@
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "type": "build"
-    },
-    {
       "name": "@types/node",
       "version": "20.9.0",
       "type": "build"
@@ -22,15 +18,6 @@
     {
       "name": "aws-cdk-lib",
       "version": "2.185.0",
-      "type": "build"
-    },
-    {
-      "name": "jest",
-      "type": "build"
-    },
-    {
-      "name": "jest-junit",
-      "version": "^16",
       "type": "build"
     },
     {
@@ -54,10 +41,6 @@
     {
       "name": "jsii",
       "version": "5.8.1",
-      "type": "build"
-    },
-    {
-      "name": "ts-jest",
       "type": "build"
     },
     {

@@ -53,6 +53,7 @@ let shared = new AwsCdkConstructLibrary({
   buildWorkflow: false,
   release: false,
   eslint: false,
+  jest: false,
   cdkVersion: cdkVersion,
   jsiiVersion: jsiiVersion,
   typescriptVersion: typescriptVersion,
