@@ -6,6 +6,7 @@ import { InputProps } from './props';
 import { Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import { PluginConfig } from './plugin-config';
 import { Constants } from './constants';
+import { Tags } from 'aws-cdk-lib';
 
 export interface PipelineBuilderProps {
   readonly project: string;
@@ -57,7 +58,8 @@ export class PipelineBuilder extends Construct {
     this._pipeline = new CodePipeline(this, this._uniqueId.generate('pipeline'), {
       synth: this.shellStep(this._uniqueId.generate('pipeline::synth'), config, input)
     });
-    console.log('props: ', this._pipeline);
+    Tags.of(this._pipeline).add("project", props.project);
+    Tags.of(this._pipeline).add("organization", props.organization);
   }
 
   private shellStep(id: string, config: PluginConfig, input?: IFileSetProducer): ShellStep {

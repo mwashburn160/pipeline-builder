@@ -284,6 +284,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
@@ -408,6 +418,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
             "Name": "UpdatePipeline",
           },
         ],
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::CodePipeline::Pipeline",
     },
@@ -429,6 +449,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           "IgnorePublicAcls": true,
           "RestrictPublicBuckets": true,
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::S3::Bucket",
       "UpdateReplacePolicy": "Retain",
@@ -514,6 +544,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
 }",
           "Type": "CODEPIPELINE",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::CodeBuild::Project",
     },
@@ -531,6 +571,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
@@ -692,6 +742,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
@@ -787,6 +847,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
@@ -915,6 +985,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
 }",
           "Type": "CODEPIPELINE",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::CodeBuild::Project",
     },
@@ -932,6 +1012,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
       },
       "Type": "AWS::IAM::Role",
     },
