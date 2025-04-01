@@ -17,6 +17,7 @@ describe('PipelineBuilder', () => {
             input: {
                 inputType: 'S3',
                 s3Options: {
+                    objectKey: '/',
                     bucketName: 'TestBucket'
                 }
             }

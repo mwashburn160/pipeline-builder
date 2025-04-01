@@ -1,4 +1,4 @@
-import * as cdk from 'aws-cdk-lib';
+import { CustomResource } from 'aws-cdk-lib';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
@@ -35,7 +35,7 @@ export class Lookup extends Construct {
 
   config(pluginName: string): PluginConfig {
     try {
-      let custom = new cdk.CustomResource(this, this._uniqueId.generate(pluginName), {
+      let custom = new CustomResource(this, this._uniqueId.generate(pluginName), {
         serviceTimeout: Constants.DEFAULT_TIMEOUT,
         serviceToken: this._provider.serviceToken,
         resourceType: "Custom::PluginConfig",

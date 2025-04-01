@@ -21,7 +21,7 @@ export let handler = async (event: CloudFormationCustomResourceEvent): Promise<C
       ...resp,
       Status: 'SUCCESS',
       Reason: 'Plugin config lookup successful.',
-      Data: { PluginConfig: JSON.stringify(config) }
+      Data: { PluginConfig: config }
     }
   } catch (error) {
     if (error instanceof Error) {
