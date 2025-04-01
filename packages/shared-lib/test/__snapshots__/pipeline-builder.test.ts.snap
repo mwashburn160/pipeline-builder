@@ -1119,7 +1119,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "9d768024cecdabd118e8ba374cd930e64056eeb568cb274a5985070db7471125.zip",
+          "S3Key": "83b3cefc09fb7759d4bf4715225fc19761596aed197214b65d00bbc7a1524819.zip",
         },
         "Handler": "index.handler",
         "MemorySize": 4,
