@@ -1,8 +1,13 @@
 {
   "dependencies": [
     {
-      "name": "@stylistic/eslint-plugin",
-      "version": "^2",
+      "name": "@jest/globals",
+      "version": "29.7.0",
+      "type": "build"
+    },
+    {
+      "name": "@types/aws-lambda",
+      "version": "8.10.147",
       "type": "build"
     },
     {
@@ -15,31 +20,8 @@
       "type": "build"
     },
     {
-      "name": "@typescript-eslint/eslint-plugin",
-      "version": "^8",
-      "type": "build"
-    },
-    {
-      "name": "@typescript-eslint/parser",
-      "version": "^8",
-      "type": "build"
-    },
-    {
       "name": "aws-cdk-lib",
-      "version": "2.157.0",
-      "type": "build"
-    },
-    {
-      "name": "eslint-import-resolver-typescript",
-      "type": "build"
-    },
-    {
-      "name": "eslint-plugin-import",
-      "type": "build"
-    },
-    {
-      "name": "eslint",
-      "version": "^9",
+      "version": "2.185.0",
       "type": "build"
     },
     {
@@ -66,12 +48,12 @@
     },
     {
       "name": "jsii-rosetta",
-      "version": "5.7.4",
+      "version": "5.8.1",
       "type": "build"
     },
     {
       "name": "jsii",
-      "version": "5.7.4",
+      "version": "5.8.1",
       "type": "build"
     },
     {
@@ -80,12 +62,12 @@
     },
     {
       "name": "typescript",
-      "version": "5.7.3",
+      "version": "5.8.2",
       "type": "build"
     },
     {
       "name": "aws-cdk-lib",
-      "version": "^2.157.0",
+      "version": "^2.185.0",
       "type": "peer"
     },
     {

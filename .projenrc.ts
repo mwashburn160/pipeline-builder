@@ -8,16 +8,16 @@ import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
 
 let branch = 'main';
 let pnpmVersion = '10.4.0';
-let esbuildVersion = '0.25.0'
+let esbuildVersion = '0.25.2'
 let constructsVersion = '10.4.2';
-let cdkVersion = '2.157.0';
-let jsiiVersion = '5.7.4';
-let typescriptVersion = '5.7.3';
+let cdkVersion = '2.185.0';
+let jsiiVersion = '5.8.1';
+let typescriptVersion = '5.8.2';
 
 let root = new TypeScriptProject({
   name: '@pipeline-builder/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.91.11',
+  projenVersion: '0.91.18',
   minNodeVersion: '22.13.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
@@ -25,19 +25,19 @@ let root = new TypeScriptProject({
   gitignore: ['.DS_Store', '.nx', '.vscode'],
   licensed: true,
   projenrcTs: true,
-  eslint: false,
   jest: false,
+  eslint: false,
   buildWorkflow: false,
   release: false,
   sampleCode: false,
   devDeps: [
     `esbuild@${esbuildVersion}`,
     `constructs@${constructsVersion}`,
-    'npm-check-updates@17.1.14'
+    'npm-check-updates@17.1.16'
   ]
 });
 
-new AwsCdkConstructLibrary({
+let shared = new AwsCdkConstructLibrary({
   parent: root,
   name: '@pipeline-builder/shared-lib',
   outdir: './packages/shared-lib',
@@ -52,16 +52,20 @@ new AwsCdkConstructLibrary({
   licensed: true,
   buildWorkflow: false,
   release: false,
+  eslint: false,
   cdkVersion: cdkVersion,
   jsiiVersion: jsiiVersion,
   typescriptVersion: typescriptVersion,
   constructsVersion: constructsVersion,
   devDeps: [
     '@types/node@20.9.0',
+    '@types/aws-lambda@8.10.147',
+    '@jest/globals@29.7.0',
     `constructs@${constructsVersion}`,
     `aws-cdk-lib@${cdkVersion}`
   ],
 });
+shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
 new Nx(root);
 new PnpmWorkspace(root);
