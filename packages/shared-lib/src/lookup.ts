@@ -5,6 +5,7 @@ import { Construct } from 'constructs';
 import { Constants } from './constants';
 import { UniqueId } from './unique-id';
 import { PluginConfig } from './plugin-config';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 export class Lookup extends Construct {
   private _uniqueId: UniqueId;
@@ -27,9 +28,15 @@ export class Lookup extends Construct {
       architecture: Constants.DEFAULT_ARCHITECTURE,
       entry: `${__dirname}/lambda/index.ts`,
     });
+
+    onEventHandler.addToRolePolicy(new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: ['*']
+    }))
     this._provider = new Provider(this, this._uniqueId.generate('resource-provider'), {
       onEventHandler: onEventHandler,
-      logRetention: Constants.DEFAULT_LOG_RETENTION,
+      logRetention: Constants.DEFAULT_LOG_RETENTION
     });
   }
 

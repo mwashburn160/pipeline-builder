@@ -544,7 +544,8 @@ const pipelineBuilderProps: PipelineBuilderProps = { ... }
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.input">input</a></code> | <code><a href="#@pipeline-builder/shared-lib.InputProps">InputProps</a></code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.organization">organization</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.project">project</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.synthPluginName">synthPluginName</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.metadata">metadata</a></code> | <code>{[ key: string ]: any}</code> | *No description.* |
+| <code><a href="#@pipeline-builder/shared-lib.PipelineBuilderProps.property.pipelineName">pipelineName</a></code> | <code>string</code> | *No description.* |
 
 ---
 
@@ -578,10 +579,20 @@ public readonly project: string;
 
 ---
 
-##### `synthPluginName`<sup>Optional</sup> <a name="synthPluginName" id="@pipeline-builder/shared-lib.PipelineBuilderProps.property.synthPluginName"></a>
+##### `metadata`<sup>Optional</sup> <a name="metadata" id="@pipeline-builder/shared-lib.PipelineBuilderProps.property.metadata"></a>
 
 ```typescript
-public readonly synthPluginName: string;
+public readonly metadata: {[ key: string ]: any};
+```
+
+- *Type:* {[ key: string ]: any}
+
+---
+
+##### `pipelineName`<sup>Optional</sup> <a name="pipelineName" id="@pipeline-builder/shared-lib.PipelineBuilderProps.property.pipelineName"></a>
+
+```typescript
+public readonly pipelineName: string;
 ```
 
 - *Type:* string
@@ -773,7 +784,8 @@ new Constants()
 | <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_ARCHITECTURE">DEFAULT_ARCHITECTURE</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_LOG_RETENTION">DEFAULT_LOG_RETENTION</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_MEMORY_SIZE">DEFAULT_MEMORY_SIZE</a></code> | <code>number</code> | *No description.* |
-| <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_SYNTH_PLUGIN_NAME">DEFAULT_SYNTH_PLUGIN_NAME</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_PIPELINETYPE">DEFAULT_PIPELINETYPE</a></code> | <code>aws-cdk-lib.aws_codepipeline.PipelineType</code> | *No description.* |
+| <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_SYNTH_PLUGINNAME">DEFAULT_SYNTH_PLUGINNAME</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.Constants.property.DEFAULT_TIMEOUT">DEFAULT_TIMEOUT</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
 | <code><a href="#@pipeline-builder/shared-lib.Constants.property.NODEJS_VERSION">NODEJS_VERSION</a></code> | <code>aws-cdk-lib.aws_lambda.Runtime</code> | *No description.* |
 
@@ -809,10 +821,20 @@ public readonly DEFAULT_MEMORY_SIZE: number;
 
 ---
 
-##### `DEFAULT_SYNTH_PLUGIN_NAME`<sup>Required</sup> <a name="DEFAULT_SYNTH_PLUGIN_NAME" id="@pipeline-builder/shared-lib.Constants.property.DEFAULT_SYNTH_PLUGIN_NAME"></a>
+##### `DEFAULT_PIPELINETYPE`<sup>Required</sup> <a name="DEFAULT_PIPELINETYPE" id="@pipeline-builder/shared-lib.Constants.property.DEFAULT_PIPELINETYPE"></a>
 
 ```typescript
-public readonly DEFAULT_SYNTH_PLUGIN_NAME: string;
+public readonly DEFAULT_PIPELINETYPE: PipelineType;
+```
+
+- *Type:* aws-cdk-lib.aws_codepipeline.PipelineType
+
+---
+
+##### `DEFAULT_SYNTH_PLUGINNAME`<sup>Required</sup> <a name="DEFAULT_SYNTH_PLUGINNAME" id="@pipeline-builder/shared-lib.Constants.property.DEFAULT_SYNTH_PLUGINNAME"></a>
+
+```typescript
+public readonly DEFAULT_SYNTH_PLUGINNAME: string;
 ```
 
 - *Type:* string

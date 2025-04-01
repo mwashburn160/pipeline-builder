@@ -221,99 +221,33 @@ exports[`PipelineBuilder match the snapshot 1`] = `
       },
       "Type": "AWS::IAM::Policy",
     },
-    "TestBuilder34F6B29ECodeBuildActionRoleDefaultPolicy068F47B7": {
-      "Properties": {
-        "PolicyDocument": {
-          "Statement": [
-            {
-              "Action": [
-                "codebuild:BatchGetBuilds",
-                "codebuild:StartBuild",
-                "codebuild:StopBuild",
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Fn::GetAtt": [
-                  "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D",
-                  "Arn",
-                ],
-              },
-            },
-            {
-              "Action": [
-                "codebuild:BatchGetBuilds",
-                "codebuild:StartBuild",
-                "codebuild:StopBuild",
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Fn::GetAtt": [
-                  "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0",
-                  "Arn",
-                ],
-              },
-            },
-          ],
-          "Version": "2012-10-17",
-        },
-        "PolicyName": "TestBuilder34F6B29ECodeBuildActionRoleDefaultPolicy068F47B7",
-        "Roles": [
-          {
-            "Ref": "TestBuilder34F6B29ECodeBuildActionRoleF1E46DF7",
-          },
-        ],
-      },
-      "Type": "AWS::IAM::Policy",
-    },
-    "TestBuilder34F6B29ECodeBuildActionRoleF1E46DF7": {
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Action": "sts:AssumeRole",
-              "Effect": "Allow",
-              "Principal": {
-                "AWS": {
-                  "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineRoleB37E18EB",
-                    "Arn",
-                  ],
-                },
-              },
-            },
-          ],
-          "Version": "2012-10-17",
-        },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
-      },
-      "Type": "AWS::IAM::Role",
-    },
-    "TestBuilder34F6B29EPipeline0787EACA": {
+    "TestBuilder34F6B29E8F137809": {
       "DependsOn": [
-        "TestBuilder34F6B29EPipelineRoleDefaultPolicy1E16189C",
-        "TestBuilder34F6B29EPipelineRoleB37E18EB",
+        "TestBuilder34F6B29ERoleDefaultPolicyBD60358D",
+        "TestBuilder34F6B29ERole5E2ED70E",
       ],
       "Properties": {
         "ArtifactStore": {
+          "EncryptionKey": {
+            "Id": {
+              "Fn::GetAtt": [
+                "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                "Arn",
+              ],
+            },
+            "Type": "KMS",
+          },
           "Location": {
-            "Ref": "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+            "Ref": "TestBuilder34F6B29EArtifactsBucketAE237CE1",
           },
           "Type": "S3",
         },
-        "PipelineType": "V1",
+        "Name": "organization-project-pipeline",
+        "PipelineType": "V2",
         "RestartExecutionOnUpdate": true,
         "RoleArn": {
           "Fn::GetAtt": [
-            "TestBuilder34F6B29EPipelineRoleB37E18EB",
+            "TestBuilder34F6B29ERole5E2ED70E",
             "Arn",
           ],
         },
@@ -339,7 +273,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 ],
                 "RoleArn": {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRole116B674F",
+                    "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleC09B1744",
                     "Arn",
                   ],
                 },
@@ -360,7 +294,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 "Configuration": {
                   "EnvironmentVariables": "[{"name":"_PROJECT_CONFIG_HASH","type":"PLAINTEXT","value":"7ddee8597509d34c87708ccbd4454438c8329993dc6fce2c2c216329278b67da"}]",
                   "ProjectName": {
-                    "Ref": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D",
+                    "Ref": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B",
                   },
                 },
                 "InputArtifacts": [
@@ -376,7 +310,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 ],
                 "RoleArn": {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29ECodeBuildActionRoleF1E46DF7",
+                    "TestBuilder3A9C1AF0CodeBuildActionRoleA6CCC793",
                     "Arn",
                   ],
                 },
@@ -397,7 +331,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 "Configuration": {
                   "EnvironmentVariables": "[{"name":"_PROJECT_CONFIG_HASH","type":"PLAINTEXT","value":"6e52560ad23ef6c419849797819192f770b365fdfddc2b118c2b1d16ad5a4e27"}]",
                   "ProjectName": {
-                    "Ref": "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0",
+                    "Ref": "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE",
                   },
                 },
                 "InputArtifacts": [
@@ -408,7 +342,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 "Name": "SelfMutate",
                 "RoleArn": {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29ECodeBuildActionRoleF1E46DF7",
+                    "TestBuilder3A9C1AF0CodeBuildActionRoleA6CCC793",
                     "Arn",
                   ],
                 },
@@ -418,26 +352,22 @@ exports[`PipelineBuilder match the snapshot 1`] = `
             "Name": "UpdatePipeline",
           },
         ],
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::CodePipeline::Pipeline",
     },
-    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331": {
+    "TestBuilder34F6B29EArtifactsBucketAE237CE1": {
       "DeletionPolicy": "Retain",
       "Properties": {
         "BucketEncryption": {
           "ServerSideEncryptionConfiguration": [
             {
               "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                    "Arn",
+                  ],
+                },
                 "SSEAlgorithm": "aws:kms",
               },
             },
@@ -449,24 +379,63 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           "IgnorePublicAcls": true,
           "RestrictPublicBuckets": true,
         },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::S3::Bucket",
       "UpdateReplacePolicy": "Retain",
     },
-    "TestBuilder34F6B29EPipelineArtifactsBucketPolicyE10B27D6": {
+    "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "KeyPolicy": {
+          "Statement": [
+            {
+              "Action": "kms:*",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":iam::",
+                      {
+                        "Ref": "AWS::AccountId",
+                      },
+                      ":root",
+                    ],
+                  ],
+                },
+              },
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::KMS::Key",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "TestBuilder34F6B29EArtifactsBucketEncryptionKeyAlias1F5C1E02": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AliasName": "alias/codepipeline-teststacktestbuilder34f6b29e30193ca6",
+        "TargetKeyId": {
+          "Fn::GetAtt": [
+            "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::KMS::Alias",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "TestBuilder34F6B29EArtifactsBucketPolicy10DB1018": {
       "Properties": {
         "Bucket": {
-          "Ref": "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+          "Ref": "TestBuilder34F6B29EArtifactsBucketAE237CE1",
         },
         "PolicyDocument": {
           "Statement": [
@@ -484,7 +453,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                    "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                     "Arn",
                   ],
                 },
@@ -494,7 +463,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     [
                       {
                         "Fn::GetAtt": [
-                          "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                          "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                           "Arn",
                         ],
                       },
@@ -510,7 +479,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
       },
       "Type": "AWS::S3::BucketPolicy",
     },
-    "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D": {
+    "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B": {
       "Properties": {
         "Artifacts": {
           "Type": "CODEPIPELINE",
@@ -518,8 +487,13 @@ exports[`PipelineBuilder match the snapshot 1`] = `
         "Cache": {
           "Type": "NO_CACHE",
         },
-        "Description": "Pipeline step TestStack/Pipeline/Build/91D87BA4",
-        "EncryptionKey": "alias/aws/s3",
+        "Description": "Pipeline step TestStack/34F6B29E/Build/91D87BA4",
+        "EncryptionKey": {
+          "Fn::GetAtt": [
+            "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+            "Arn",
+          ],
+        },
         "Environment": {
           "ComputeType": "BUILD_GENERAL1_SMALL",
           "Image": "aws/codebuild/standard:7.0",
@@ -529,7 +503,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
         },
         "ServiceRole": {
           "Fn::GetAtt": [
-            "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectRoleD663AE70",
+            "TestBuilder34F6B29EBuild91D87BA4CdkBuildProjectRoleC5CD915A",
             "Arn",
           ],
         },
@@ -544,20 +518,10 @@ exports[`PipelineBuilder match the snapshot 1`] = `
 }",
           "Type": "CODEPIPELINE",
         },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::CodeBuild::Project",
     },
-    "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectRoleD663AE70": {
+    "TestBuilder34F6B29EBuild91D87BA4CdkBuildProjectRoleC5CD915A": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -571,20 +535,10 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::IAM::Role",
     },
-    "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectRoleDefaultPolicyAD59881A": {
+    "TestBuilder34F6B29EBuild91D87BA4CdkBuildProjectRoleDefaultPolicy7F414B6F": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -614,7 +568,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                       },
                       ":log-group:/aws/codebuild/",
                       {
-                        "Ref": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D",
+                        "Ref": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B",
                       },
                     ],
                   ],
@@ -637,7 +591,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                       },
                       ":log-group:/aws/codebuild/",
                       {
-                        "Ref": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D",
+                        "Ref": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B",
                       },
                       ":*",
                     ],
@@ -672,7 +626,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     },
                     ":report-group/",
                     {
-                      "Ref": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectCD4CED0D",
+                      "Ref": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B",
                     },
                     "-*",
                   ],
@@ -696,7 +650,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                    "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                     "Arn",
                   ],
                 },
@@ -706,7 +660,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     [
                       {
                         "Fn::GetAtt": [
-                          "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                          "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                           "Arn",
                         ],
                       },
@@ -716,19 +670,50 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 },
               ],
             },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                  "Arn",
+                ],
+              },
+            },
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectRoleDefaultPolicyAD59881A",
+        "PolicyName": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProjectRoleDefaultPolicy7F414B6F",
         "Roles": [
           {
-            "Ref": "TestBuilder34F6B29EPipelineBuild91D87BA4CdkBuildProjectRoleD663AE70",
+            "Ref": "TestBuilder34F6B29EBuild91D87BA4CdkBuildProjectRoleC5CD915A",
           },
         ],
       },
       "Type": "AWS::IAM::Policy",
     },
-    "TestBuilder34F6B29EPipelineRoleB37E18EB": {
+    "TestBuilder34F6B29ERole5E2ED70E": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -742,20 +727,10 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::IAM::Role",
     },
-    "TestBuilder34F6B29EPipelineRoleDefaultPolicy1E16189C": {
+    "TestBuilder34F6B29ERoleDefaultPolicyBD60358D": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -776,7 +751,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                    "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                     "Arn",
                   ],
                 },
@@ -786,7 +761,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     [
                       {
                         "Fn::GetAtt": [
-                          "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                          "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                           "Arn",
                         ],
                       },
@@ -797,11 +772,17 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               ],
             },
             {
-              "Action": "sts:AssumeRole",
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
               "Effect": "Allow",
               "Resource": {
                 "Fn::GetAtt": [
-                  "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRole116B674F",
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
                   "Arn",
                 ],
               },
@@ -811,7 +792,17 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Effect": "Allow",
               "Resource": {
                 "Fn::GetAtt": [
-                  "TestBuilder34F6B29ECodeBuildActionRoleF1E46DF7",
+                  "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleC09B1744",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder3A9C1AF0CodeBuildActionRoleA6CCC793",
                   "Arn",
                 ],
               },
@@ -819,16 +810,16 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "TestBuilder34F6B29EPipelineRoleDefaultPolicy1E16189C",
+        "PolicyName": "TestBuilder34F6B29ERoleDefaultPolicyBD60358D",
         "Roles": [
           {
-            "Ref": "TestBuilder34F6B29EPipelineRoleB37E18EB",
+            "Ref": "TestBuilder34F6B29ERole5E2ED70E",
           },
         ],
       },
       "Type": "AWS::IAM::Policy",
     },
-    "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRole116B674F": {
+    "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleC09B1744": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -838,7 +829,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Principal": {
                 "AWS": {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineRoleB37E18EB",
+                    "TestBuilder34F6B29ERole5E2ED70E",
                     "Arn",
                   ],
                 },
@@ -847,20 +838,10 @@ exports[`PipelineBuilder match the snapshot 1`] = `
           ],
           "Version": "2012-10-17",
         },
-        "Tags": [
-          {
-            "Key": "organization",
-            "Value": "organization",
-          },
-          {
-            "Key": "project",
-            "Value": "project",
-          },
-        ],
       },
       "Type": "AWS::IAM::Role",
     },
-    "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRoleDefaultPolicyA18859E7": {
+    "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleDefaultPolicy5D52008F": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -912,7 +893,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                    "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                     "Arn",
                   ],
                 },
@@ -922,7 +903,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     [
                       {
                         "Fn::GetAtt": [
-                          "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                          "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                           "Arn",
                         ],
                       },
@@ -932,19 +913,110 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 },
               ],
             },
+            {
+              "Action": [
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:Decrypt",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                  "Arn",
+                ],
+              },
+            },
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRoleDefaultPolicyA18859E7",
+        "PolicyName": "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleDefaultPolicy5D52008F",
         "Roles": [
           {
-            "Ref": "TestBuilder34F6B29EPipelineSourceTestBucketCodePipelineActionRole116B674F",
+            "Ref": "TestBuilder34F6B29ESourceTestBucketCodePipelineActionRoleC09B1744",
           },
         ],
       },
       "Type": "AWS::IAM::Policy",
     },
-    "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0": {
+    "TestBuilder3A9C1AF0CodeBuildActionRoleA6CCC793": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "TestBuilder34F6B29ERole5E2ED70E",
+                    "Arn",
+                  ],
+                },
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Tags": [
+          {
+            "Key": "organization",
+            "Value": "organization",
+          },
+          {
+            "Key": "project",
+            "Value": "project",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "TestBuilder3A9C1AF0CodeBuildActionRoleDefaultPolicy35E82D28": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "codebuild:BatchGetBuilds",
+                "codebuild:StartBuild",
+                "codebuild:StopBuild",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EBuild91D87BA4CdkBuildProject22A8642B",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "codebuild:BatchGetBuilds",
+                "codebuild:StartBuild",
+                "codebuild:StopBuild",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "TestBuilder3A9C1AF0CodeBuildActionRoleDefaultPolicy35E82D28",
+        "Roles": [
+          {
+            "Ref": "TestBuilder3A9C1AF0CodeBuildActionRoleA6CCC793",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE": {
       "Properties": {
         "Artifacts": {
           "Type": "CODEPIPELINE",
@@ -952,8 +1024,13 @@ exports[`PipelineBuilder match the snapshot 1`] = `
         "Cache": {
           "Type": "NO_CACHE",
         },
-        "Description": "Pipeline step TestStack/Pipeline/UpdatePipeline/SelfMutate",
-        "EncryptionKey": "alias/aws/s3",
+        "Description": "Pipeline step TestStack/34F6B29E/UpdatePipeline/SelfMutate",
+        "EncryptionKey": {
+          "Fn::GetAtt": [
+            "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+            "Arn",
+          ],
+        },
         "Environment": {
           "ComputeType": "BUILD_GENERAL1_SMALL",
           "Image": "aws/codebuild/standard:7.0",
@@ -963,7 +1040,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
         },
         "ServiceRole": {
           "Fn::GetAtt": [
-            "TestBuilder34F6B29EUpdatePipelineSelfMutationRoleA5A46529",
+            "TestBuilder3A9C1AF0UpdatePipelineSelfMutationRole2C7FAE98",
             "Arn",
           ],
         },
@@ -998,7 +1075,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
       },
       "Type": "AWS::CodeBuild::Project",
     },
-    "TestBuilder34F6B29EUpdatePipelineSelfMutationRoleA5A46529": {
+    "TestBuilder3A9C1AF0UpdatePipelineSelfMutationRole2C7FAE98": {
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -1025,7 +1102,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
       },
       "Type": "AWS::IAM::Role",
     },
-    "TestBuilder34F6B29EUpdatePipelineSelfMutationRoleDefaultPolicyBA8B230A": {
+    "TestBuilder3A9C1AF0UpdatePipelineSelfMutationRoleDefaultPolicyE3EC8C9F": {
       "Properties": {
         "PolicyDocument": {
           "Statement": [
@@ -1055,7 +1132,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                       },
                       ":log-group:/aws/codebuild/",
                       {
-                        "Ref": "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0",
+                        "Ref": "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE",
                       },
                     ],
                   ],
@@ -1078,7 +1155,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                       },
                       ":log-group:/aws/codebuild/",
                       {
-                        "Ref": "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0",
+                        "Ref": "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE",
                       },
                       ":*",
                     ],
@@ -1113,7 +1190,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     },
                     ":report-group/",
                     {
-                      "Ref": "TestBuilder34F6B29EUpdatePipelineSelfMutation9570F6F0",
+                      "Ref": "TestBuilder3A9C1AF0UpdatePipelineSelfMutation94CE24DE",
                     },
                     "-*",
                   ],
@@ -1165,7 +1242,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
               "Resource": [
                 {
                   "Fn::GetAtt": [
-                    "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                    "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                     "Arn",
                   ],
                 },
@@ -1175,7 +1252,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                     [
                       {
                         "Fn::GetAtt": [
-                          "TestBuilder34F6B29EPipelineArtifactsBucket22DE3331",
+                          "TestBuilder34F6B29EArtifactsBucketAE237CE1",
                           "Arn",
                         ],
                       },
@@ -1185,13 +1262,41 @@ exports[`PipelineBuilder match the snapshot 1`] = `
                 },
               ],
             },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "TestBuilder34F6B29EArtifactsBucketEncryptionKeyA8181E78",
+                  "Arn",
+                ],
+              },
+            },
           ],
           "Version": "2012-10-17",
         },
-        "PolicyName": "TestBuilder34F6B29EUpdatePipelineSelfMutationRoleDefaultPolicyBA8B230A",
+        "PolicyName": "TestBuilder3A9C1AF0UpdatePipelineSelfMutationRoleDefaultPolicyE3EC8C9F",
         "Roles": [
           {
-            "Ref": "TestBuilder34F6B29EUpdatePipelineSelfMutationRoleA5A46529",
+            "Ref": "TestBuilder3A9C1AF0UpdatePipelineSelfMutationRole2C7FAE98",
           },
         ],
       },
@@ -1199,6 +1304,7 @@ exports[`PipelineBuilder match the snapshot 1`] = `
     },
     "TestBuilder5A4BCE2A4F59618F54EF9665": {
       "DependsOn": [
+        "TestBuilder5A4BCE2A4F59618FServiceRoleDefaultPolicyEFAE03D4",
         "TestBuilder5A4BCE2A4F59618FServiceRoleA66171CF",
       ],
       "Properties": {
@@ -1254,6 +1360,31 @@ exports[`PipelineBuilder match the snapshot 1`] = `
         ],
       },
       "Type": "AWS::IAM::Role",
+    },
+    "TestBuilder5A4BCE2A4F59618FServiceRoleDefaultPolicyEFAE03D4": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "TestBuilder5A4BCE2A4F59618FServiceRoleDefaultPolicyEFAE03D4",
+        "Roles": [
+          {
+            "Ref": "TestBuilder5A4BCE2A4F59618FServiceRoleA66171CF",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
     },
     "TestBuilder5A4BCE2A8C518A02frameworkonEvent62BB3A68": {
       "DependsOn": [

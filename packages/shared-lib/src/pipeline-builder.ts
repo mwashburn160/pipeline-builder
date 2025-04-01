@@ -7,17 +7,19 @@ import { Bucket, IBucket } from 'aws-cdk-lib/aws-s3';
 import { PluginConfig } from './plugin-config';
 import { Constants } from './constants';
 import { Tags } from 'aws-cdk-lib';
+import { Pipeline } from 'aws-cdk-lib/aws-codepipeline';
 
 export interface PipelineBuilderProps {
   readonly project: string;
   readonly organization: string;
-  readonly synthPluginName?: string;
+  readonly metadata?: { [key: string]: any };
+  readonly pipelineName?: string,
   readonly input: InputProps;
 }
 
 export class PipelineBuilder extends Construct {
   private _uniqueId: UniqueId;
-  private _pipeline: CodePipeline;
+  private _codepipeline: CodePipeline;
   private _lookup: Lookup;
 
   constructor(scope: Construct, id: string, props: PipelineBuilderProps) {
@@ -54,12 +56,18 @@ export class PipelineBuilder extends Construct {
         break
       }
     }
-    let config = this._lookup.config(props.synthPluginName || Constants.DEFAULT_SYNTH_PLUGIN_NAME)
-    this._pipeline = new CodePipeline(this, this._uniqueId.generate('pipeline'), {
+    let config = this._lookup.config(props.metadata?.SYNTH_PLUGINNAME || Constants.DEFAULT_SYNTH_PLUGINNAME)
+    let pipeline = new Pipeline(this, this._uniqueId.generate('pipeline'), {
+      pipelineName: props.pipelineName || props.organization.concat(`-${props.project}-pipeline`),
+      pipelineType: props.metadata?.PIPELINETYPE || Constants.DEFAULT_PIPELINETYPE,
+      restartExecutionOnUpdate: true
+    });
+    this._codepipeline = new CodePipeline(this, this._uniqueId.generate('codepipeline'), {
+      codePipeline: pipeline,
       synth: this.shellStep(this._uniqueId.generate('pipeline::synth'), config, input)
     });
-    Tags.of(this._pipeline).add("project", props.project);
-    Tags.of(this._pipeline).add("organization", props.organization);
+    Tags.of(this._codepipeline).add("project", props.project);
+    Tags.of(this._codepipeline).add("organization", props.organization);
   }
 
   private shellStep(id: string, config: PluginConfig, input?: IFileSetProducer): ShellStep {
