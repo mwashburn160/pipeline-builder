@@ -20,6 +20,8 @@
     "@nx/devkit": "^20",
     "@nx/js": "^20",
     "@nx/workspace": "^20",
+    "@swc-node/core": "1.13.3",
+    "@swc-node/register": "1.10.10",
     "@types/node": "^22",
     "constructs": "10.4.2",
     "esbuild": "0.25.2",

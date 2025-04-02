@@ -32,7 +32,7 @@
     ],
     "projectsRelationship": "fixed",
     "changelog": {
-      "workspaceChangelogs": true
+      "workspaceChangelogs": false
     },
     "git": {
       "tag": true,

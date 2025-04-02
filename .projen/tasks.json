@@ -146,7 +146,7 @@
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @nx/devkit @nx/js @nx/workspace @types/node constructs esbuild npm-check-updates nx projen ts-node typescript"
+          "exec": "pnpm update @nx/devkit @nx/js @nx/workspace @swc-node/core @swc-node/register @types/node constructs esbuild npm-check-updates nx projen ts-node typescript"
         },
         {
           "exec": "pnpm dlx projen"
