@@ -42,8 +42,7 @@ export class Workflow extends Component {
                         name: 'Publish packages',
                         run: 'pnpm nx release publish',
                         env: {
-                            NPM_CONFIG_PROVENANCE: 'true',
-                            NODE_AUTH_TOKEN: '${{ secrets.NPM_ACCESS_TOKEN }}'
+                            NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
                         }
                     },
                     {
@@ -76,8 +75,9 @@ export class Workflow extends Component {
                 uses: 'actions/setup-node@v4',
                 with: {
                     cache: 'pnpm',
+                    scope: '@octocat',
                     'node-version': project.minNodeVersion,
-                    'registry-url': 'https://registry.npmjs.org/'
+                    'registry-url': 'https://npm.pkg.github.com'
                 }
             },
             {
