@@ -43,8 +43,8 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Run build target
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
-  publish:
-    name: publish
+  version:
+    name: version
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -84,6 +84,6 @@ jobs:
       - name: Version packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
-        run: pnpm nx release --skip-publish
+        run: pnpm nx release --skip-publish --first-release
       - name: Push new tag to the repository
         run: git push && git push --tags

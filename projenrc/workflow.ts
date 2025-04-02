@@ -28,8 +28,8 @@ export class Workflow extends Component {
                     }
                 ],
             },
-            publish: {
-                name: 'publish',
+            version: {
+                name: 'version',
                 needs: ['build'],
                 runsOn: ['ubuntu-latest'],
                 permissions: {
@@ -40,7 +40,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Version packages',
-                        run: 'pnpm nx release --skip-publish',
+                        run: 'pnpm nx release --skip-publish --first-release',
                         env: {
                             NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
                         }
