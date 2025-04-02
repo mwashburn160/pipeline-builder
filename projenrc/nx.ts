@@ -33,9 +33,9 @@ export class Nx extends Component {
                 },
                 release: {
                     projects: ['packages/*'],
-                    projectsRelationship: 'fixed',
+                    projectsRelationship: 'independent',
                     changelog: {
-                        workspaceChangelogs: false
+                        workspaceChangelogs: true
                     },
                     git: {
                         tag: true,
