@@ -47,7 +47,7 @@ export class Nx extends Component {
                             specifierSource: 'conventional-commits'
                         }
                     },
-                    releaseTagPattern: 'v{version}',
+                    releaseTagPattern: 'release/{projectName}/{version}'
                 },
                 affected: { defaultBase: 'origin/main' }
             },
