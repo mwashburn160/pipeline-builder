@@ -47,7 +47,7 @@ export class Workflow extends Component {
                         }
                     },
                     {
-                        name: 'Push new tag to the remote repository',
+                        name: 'Push new tag to the repository',
                         run: 'git push && git push --tags'
                     }
                 ]
