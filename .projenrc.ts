@@ -31,6 +31,8 @@ let root = new TypeScriptProject({
   release: false,
   sampleCode: false,
   devDeps: [
+    '@swc-node/core@1.13.3',
+    '@swc-node/register@1.10.10',
     `esbuild@${esbuildVersion}`,
     `constructs@${constructsVersion}`,
     'npm-check-updates@17.1.16'
