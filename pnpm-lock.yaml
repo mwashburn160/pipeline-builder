@@ -42,6 +42,42 @@ importers:
         specifier: ^5.8.2
         version: 5.8.2
 
+  packages/pipeline-lib:
+    devDependencies:
+      '@jest/globals':
+        specifier: 29.7.0
+        version: 29.7.0
+      '@types/aws-lambda':
+        specifier: 8.10.147
+        version: 8.10.147
+      '@types/node':
+        specifier: 20.9.0
+        version: 20.9.0
+      aws-cdk-lib:
+        specifier: 2.185.0
+        version: 2.185.0(constructs@10.4.2)
+      constructs:
+        specifier: 10.4.2
+        version: 10.4.2
+      jsii:
+        specifier: 5.8.1
+        version: 5.8.1
+      jsii-diff:
+        specifier: ^1.106.0
+        version: 1.106.0
+      jsii-docgen:
+        specifier: ^10.5.0
+        version: 10.6.6(jsii-rosetta@5.8.1)
+      jsii-pacmak:
+        specifier: ^1.106.0
+        version: 1.106.0(jsii-rosetta@5.8.1)
+      jsii-rosetta:
+        specifier: 5.8.1
+        version: 5.8.1
+      typescript:
+        specifier: 5.8.2
+        version: 5.8.2
+
   packages/shared-lib:
     devDependencies:
       '@jest/globals':

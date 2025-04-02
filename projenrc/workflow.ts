@@ -10,9 +10,9 @@ export class Workflow extends Component {
         super(root);
         this.pnpmVersion = options.pnpmVersion;
 
-        let build = new GithubWorkflow(root.github!, 'build');
-        build.on({ workflowDispatch: {} })
-        build.addJobs({
+        let wf = new GithubWorkflow(root.github!, 'release');
+        wf.on({ workflowDispatch: {} })
+        wf.addJobs({
             build: {
                 name: 'build',
                 runsOn: ['ubuntu-latest'],
@@ -27,6 +27,30 @@ export class Workflow extends Component {
                         run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose'
                     }
                 ],
+            },
+            publish: {
+                name: 'publish',
+                needs: ['build'],
+                runsOn: ['ubuntu-latest'],
+                permissions: {
+                    actions: JobPermission.READ,
+                    contents: JobPermission.WRITE
+                },
+                steps: [
+                    ...this.bootstrapSteps(),
+                    {
+                        name: 'Publish packages',
+                        run: 'pnpm nx release publish',
+                        env: {
+                            NPM_CONFIG_PROVENANCE: 'true',
+                            NODE_AUTH_TOKEN: '${{ secrets.NPM_ACCESS_TOKEN }}'
+                        }
+                    },
+                    {
+                        name: 'Push new tag to the remote repository',
+                        run: 'git push && git push --tags'
+                    }
+                ]
             }
         })
     }
@@ -51,8 +75,9 @@ export class Workflow extends Component {
                 name: 'Setup node',
                 uses: 'actions/setup-node@v4',
                 with: {
-                    'node-version': project.minNodeVersion,
                     cache: 'pnpm',
+                    'node-version': project.minNodeVersion,
+                    'registry-url': 'https://registry.npmjs.org/'
                 }
             },
             {

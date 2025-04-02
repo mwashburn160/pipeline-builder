@@ -39,12 +39,12 @@ let root = new TypeScriptProject({
 
 let shared = new AwsCdkConstructLibrary({
   parent: root,
-  name: '@pipeline-builder/shared-lib',
-  outdir: './packages/shared-lib',
+  name: '@pipeline-builder/pipeline-lib',
+  outdir: './packages/pipeline-lib',
   author: 'mark washburn',
   authorAddress: 'mwashburn160@gmail.com',
   defaultReleaseBranch: 'main',
-  repositoryUrl: 'https://github.com/mrwconsulting/ci-flex.git',
+  repositoryUrl: 'https://github.com/mwashburn160/pipeline-builder.git',
   packageManager: root.package.packageManager,
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
@@ -61,9 +61,7 @@ let shared = new AwsCdkConstructLibrary({
   devDeps: [
     '@types/node@20.9.0',
     '@types/aws-lambda@8.10.147',
-    '@jest/globals@29.7.0',
-    `constructs@${constructsVersion}`,
-    `aws-cdk-lib@${cdkVersion}`
+    '@jest/globals@29.7.0'
   ],
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });

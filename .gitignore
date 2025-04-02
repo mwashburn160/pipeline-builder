@@ -44,5 +44,5 @@ jspm_packages/
 !/nx.json
 !/pnpm-workspace.yaml
 !/.vscode/settings.json
-!/.github/workflows/build.yml
+!/.github/workflows/release.yml
 !/.projenrc.ts

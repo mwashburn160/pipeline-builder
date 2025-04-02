@@ -16,11 +16,6 @@
       "type": "build"
     },
     {
-      "name": "aws-cdk-lib",
-      "version": "2.185.0",
-      "type": "build"
-    },
-    {
       "name": "jsii-diff",
       "type": "build"
     },

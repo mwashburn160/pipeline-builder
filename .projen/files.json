@@ -2,8 +2,8 @@
   "files": [
     ".gitattributes",
     ".github/pull_request_template.md",
-    ".github/workflows/build.yml",
     ".github/workflows/pull-request-lint.yml",
+    ".github/workflows/release.yml",
     ".gitignore",
     ".npmignore",
     ".npmrc",
