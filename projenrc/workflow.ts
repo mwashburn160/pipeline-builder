@@ -39,8 +39,8 @@ export class Workflow extends Component {
                 steps: [
                     ...this.bootstrapSteps(),
                     {
-                        name: 'Publish packages',
-                        run: 'pnpm nx release publish',
+                        name: 'Version packages',
+                        run: 'pnpm nx release --skip-publish',
                         env: {
                             NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
                         }
