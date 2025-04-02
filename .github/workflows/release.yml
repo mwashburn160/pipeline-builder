@@ -81,6 +81,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
+      - name: Install swc
+        run: pnpm install @swc-node/core @swc-node/register
       - name: Version packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}

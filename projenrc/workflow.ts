@@ -39,6 +39,10 @@ export class Workflow extends Component {
                 steps: [
                     ...this.bootstrapSteps(),
                     {
+                        name: 'Install swc',
+                        run: 'pnpm install @swc-node/core @swc-node/register'
+                    },
+                    {
                         name: 'Version packages',
                         run: 'pnpm nx release --skip-publish --first-release',
                         env: {
