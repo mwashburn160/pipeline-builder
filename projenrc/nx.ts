@@ -33,9 +33,9 @@ export class Nx extends Component {
                 },
                 release: {
                     projects: ['packages/*'],
-                    projectsRelationship: 'independent',
+                    projectsRelationship: 'fixed',
                     changelog: {
-                        projectChangelogs: true
+                        workspaceChangelogs: true
                     },
                     git: {
                         tag: true,
@@ -47,7 +47,7 @@ export class Nx extends Component {
                             specifierSource: 'conventional-commits'
                         }
                     },
-                    releaseTagPattern: 'release/{projectName}/{version}'
+                    releaseTagPattern: 'v{version}'
                 },
                 affected: { defaultBase: 'origin/main' }
             },

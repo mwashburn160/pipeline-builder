@@ -30,9 +30,9 @@
     "projects": [
       "packages/*"
     ],
-    "projectsRelationship": "independent",
+    "projectsRelationship": "fixed",
     "changelog": {
-      "projectChangelogs": true
+      "workspaceChangelogs": true
     },
     "git": {
       "tag": true,
@@ -44,7 +44,7 @@
         "specifierSource": "conventional-commits"
       }
     },
-    "releaseTagPattern": "release/{projectName}/{version}"
+    "releaseTagPattern": "v{version}"
   },
   "affected": {
     "defaultBase": "origin/main"
