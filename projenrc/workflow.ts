@@ -75,10 +75,7 @@ export class Workflow extends Component {
                 uses: 'actions/setup-node@v4',
                 with: {
                     cache: 'pnpm',
-                    scope: '@organizationName',
-                    'always-auth': true,
-                    'node-version': project.minNodeVersion,
-                    'registry-url': 'https://npm.pkg.github.com'
+                    'node-version': project.minNodeVersion
                 }
             },
             {
