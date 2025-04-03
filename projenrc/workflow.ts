@@ -40,7 +40,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Semantic version',
-                        run: 'pnpm nx release --first-release',
+                        run: 'pnpm nx release publish --first-release',
                         env: {
                             NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
                         }
@@ -76,6 +76,7 @@ export class Workflow extends Component {
                 with: {
                     cache: 'pnpm',
                     scope: '@organizationName',
+                    'always-auth': true,
                     'node-version': project.minNodeVersion,
                     'registry-url': 'https://npm.pkg.github.com'
                 }

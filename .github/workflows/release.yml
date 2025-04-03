@@ -25,6 +25,7 @@ jobs:
         with:
           cache: pnpm
           scope: "@organizationName"
+          always-auth: true
           node-version: 22.13.0
           registry-url: https://npm.pkg.github.com
       - name: Nx cache
@@ -65,6 +66,7 @@ jobs:
         with:
           cache: pnpm
           scope: "@organizationName"
+          always-auth: true
           node-version: 22.13.0
           registry-url: https://npm.pkg.github.com
       - name: Nx cache
@@ -84,6 +86,6 @@ jobs:
       - name: Semantic version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
-        run: pnpm nx release --first-release
+        run: pnpm nx release publish --first-release
       - name: Push new tag to the repository
         run: git push && git push --tags
