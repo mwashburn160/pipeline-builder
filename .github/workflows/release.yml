@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           cache: pnpm
-          scope: "@octocat"
+          scope: "@organizationName"
           node-version: 22.13.0
           registry-url: https://npm.pkg.github.com
       - name: Nx cache
@@ -64,7 +64,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           cache: pnpm
-          scope: "@octocat"
+          scope: "@organizationName"
           node-version: 22.13.0
           registry-url: https://npm.pkg.github.com
       - name: Nx cache
@@ -81,9 +81,9 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Version packages
+      - name: Semantic version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
-        run: pnpm nx release --skip-publish --first-release
+        run: pnpm nx release --first-release
       - name: Push new tag to the repository
         run: git push && git push --tags

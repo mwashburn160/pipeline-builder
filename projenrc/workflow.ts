@@ -39,8 +39,8 @@ export class Workflow extends Component {
                 steps: [
                     ...this.bootstrapSteps(),
                     {
-                        name: 'Version packages',
-                        run: 'pnpm nx release --skip-publish --first-release',
+                        name: 'Semantic version',
+                        run: 'pnpm nx release --first-release',
                         env: {
                             NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
                         }
@@ -75,7 +75,7 @@ export class Workflow extends Component {
                 uses: 'actions/setup-node@v4',
                 with: {
                     cache: 'pnpm',
-                    scope: '@octocat',
+                    scope: '@organizationName',
                     'node-version': project.minNodeVersion,
                     'registry-url': 'https://npm.pkg.github.com'
                 }
