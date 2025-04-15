@@ -35,17 +35,14 @@ export class Nx extends Component {
                     projects: ['packages/*'],
                     projectsRelationship: 'fixed',
                     changelog: {
-                        workspaceChangelogs: {
-                            createRelease: 'github'
+                        renderOptions: {
+                            authors: 'true',
+                            commitReferences: 'true',
+                            versionTitleDate: 'true'
                         }
                     },
                     version: {
-                        generatorOptions: {
-                            currentVersionResolverMetadata: {
-                                registry: 'https://npm.pkg.github.com/',
-                                tag: 'next'
-                            }
-                        }
+                        conventionalCommits: 'true'
                     }
                 },
                 affected: { defaultBase: 'origin/main' }

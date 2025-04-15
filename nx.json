@@ -32,17 +32,14 @@
     ],
     "projectsRelationship": "fixed",
     "changelog": {
-      "workspaceChangelogs": {
-        "createRelease": "github"
+      "renderOptions": {
+        "authors": "true",
+        "commitReferences": "true",
+        "versionTitleDate": "true"
       }
     },
     "version": {
-      "generatorOptions": {
-        "currentVersionResolverMetadata": {
-          "registry": "https://npm.pkg.github.com/",
-          "tag": "next"
-        }
-      }
+      "conventionalCommits": "true"
     }
   },
   "affected": {
