@@ -68,7 +68,7 @@ export class PipelineBuilder extends Construct {
     });
     Tags.of(this._codepipeline).add("project", props.project);
     Tags.of(this._codepipeline).add("organization", props.organization);
-    console.log('hello.......')
+    console.log('hello....')
   }
 
   private shellStep(id: string, config: PluginConfig, input?: IFileSetProducer): ShellStep {
