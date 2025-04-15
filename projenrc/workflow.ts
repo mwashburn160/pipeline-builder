@@ -40,7 +40,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Semantic version',
-                        run: 'pnpm nx release publish --first-release',
+                        run: 'pnpm nx release --first-release',
                         env: {
                             PAT_TOKEN: '${{ secrets.PAT_TOKEN }}'
                         }

@@ -29,12 +29,6 @@ export class Nx extends Component {
                             '{projectRoot}/lib'
                         ],
                         cache: true
-                    },
-                    'nx-release-publish': {
-                        options: {
-                            registry: 'https://npm.pkg.github.com/',
-                            tag: 'next'
-                        }
                     }
                 },
                 release: {

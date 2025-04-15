@@ -80,6 +80,6 @@ jobs:
       - name: Semantic version
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: pnpm nx release publish --first-release
+        run: pnpm nx release --first-release
       - name: Push new tag to the repository
         run: git push && git push --tags
