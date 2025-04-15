@@ -40,7 +40,12 @@ export class Nx extends Component {
                         }
                     },
                     version: {
-                        conventionalCommits: true
+                        generatorOptions: {
+                            currentVersionResolverMetadata: {
+                                registry: 'https://npm.pkg.github.com/',
+                                tag: 'next'
+                            }
+                        }
                     }
                 },
                 affected: { defaultBase: 'origin/main' }
