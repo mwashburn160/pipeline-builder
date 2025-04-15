@@ -42,7 +42,7 @@ export class Workflow extends Component {
                         name: 'Semantic version',
                         run: 'pnpm nx release publish --first-release',
                         env: {
-                            NODE_AUTH_TOKEN: '${{ secrets.NODE_AUTH_TOKEN }}'
+                            PAT_TOKEN: '${{ secrets.PAT_TOKEN }}'
                         }
                     },
                     {

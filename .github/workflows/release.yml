@@ -79,7 +79,7 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Semantic version
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: pnpm nx release publish --first-release
       - name: Push new tag to the repository
         run: git push && git push --tags
