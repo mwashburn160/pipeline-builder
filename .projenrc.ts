@@ -38,6 +38,9 @@ let root = new TypeScriptProject({
     'npm-check-updates@17.1.16'
   ]
 });
+root.npmrc.addConfig('always-auth','true')
+root.npmrc.addConfig('@mwashburn160:registry', 'https://npm.pkg.github.com/')
+root.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${GITHUB_TOKEN}')
 root.addScripts({
   'npm-check': 'npx npm-check-updates'
 });
@@ -69,9 +72,6 @@ let shared = new AwsCdkConstructLibrary({
     '@jest/globals@29.7.0'
   ],
 });
-shared.npmrc.addConfig('always-auth','true')
-shared.npmrc.addConfig('@mwashburn160:registry', 'https://npm.pkg.github.com/')
-shared.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${GITHUB_TOKEN}')
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
 new Nx(root);
