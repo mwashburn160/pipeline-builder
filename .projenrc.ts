@@ -71,7 +71,7 @@ let shared = new AwsCdkConstructLibrary({
 });
 shared.npmrc.addConfig('always-auth','true')
 shared.npmrc.addConfig('@mwashburn160:registry', 'https://npm.pkg.github.com/')
-shared.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${PAT_TOKEN}')
+shared.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${GITHUB_TOKEN}')
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
 new Nx(root);
