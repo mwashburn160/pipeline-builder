@@ -11,11 +11,14 @@ export class Workflow extends Component {
         this.pnpmVersion = options.pnpmVersion;
 
         let wf = new GithubWorkflow(root.github!, 'release');
-        wf.on({ workflowDispatch: {} })
+        wf.on({
+            workflowDispatch: {
+                runsOn: ['ubuntu-latest']
+            }
+        })
         wf.addJobs({
             build: {
                 name: 'build',
-                runsOn: ['ubuntu-latest'],
                 permissions: {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
@@ -31,7 +34,6 @@ export class Workflow extends Component {
             version: {
                 name: 'version',
                 needs: ['build'],
-                runsOn: ['ubuntu-latest'],
                 permissions: {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
@@ -50,6 +52,15 @@ export class Workflow extends Component {
                         run: 'git push && git push --tags'
                     }
                 ]
+            },
+            publish: {
+                name: 'publish',
+                needs: ['version'],
+                permissions: {
+                    actions: JobPermission.READ,
+                    contents: JobPermission.WRITE
+                },
+                steps: []
             }
         })
     }

@@ -2,11 +2,12 @@
 
 name: release
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    runs_on:
+      - ubuntu-latest
 jobs:
   build:
     name: build
-    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
@@ -44,7 +45,6 @@ jobs:
   version:
     name: version
     needs: build
-    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
@@ -83,3 +83,10 @@ jobs:
         run: pnpm nx release --first-release  --skip-publish --verbose
       - name: Push new tag to the repository
         run: git push && git push --tags
+  publish:
+    name: publish
+    needs: version
+    permissions:
+      actions: read
+      contents: write
+    steps: []
