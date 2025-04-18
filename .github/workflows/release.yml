@@ -25,6 +25,7 @@ jobs:
         with:
           cache: pnpm
           node-version: 22.13.0
+          registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -63,6 +64,7 @@ jobs:
         with:
           cache: pnpm
           node-version: 22.13.0
+          registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -105,6 +107,7 @@ jobs:
         with:
           cache: pnpm
           node-version: 22.13.0
+          registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4
         with:
