@@ -90,4 +90,32 @@ jobs:
     permissions:
       actions: read
       contents: write
-    steps: []
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.0
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 22.13.0
+      - name: Nx cache
+        uses: actions/cache@v4
+        with:
+          fail-on-cache-miss: false
+          path: node_modules/.cache/nx
+          key: nx-${{ github.repository_id }}-${{ github.sha }}
+      - name: Derive SHAs for nx affected commands
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Set git user
+        run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"

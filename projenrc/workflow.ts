@@ -59,7 +59,9 @@ export class Workflow extends Component {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
                 },
-                steps: []
+                steps: [
+                    ...this.bootstrapSteps()
+                ]
             }
         })
     }
