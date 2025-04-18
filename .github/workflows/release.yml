@@ -22,6 +22,8 @@ jobs:
           version: 10.4.0
       - name: Setup node
         uses: actions/setup-node@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
           node-version: 22.13.0
@@ -61,6 +63,8 @@ jobs:
           version: 10.4.0
       - name: Setup node
         uses: actions/setup-node@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
           node-version: 22.13.0
@@ -104,6 +108,8 @@ jobs:
           version: 10.4.0
       - name: Setup node
         uses: actions/setup-node@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
           node-version: 22.13.0
