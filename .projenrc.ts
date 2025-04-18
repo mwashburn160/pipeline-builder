@@ -15,7 +15,7 @@ let jsiiVersion = '5.8.1';
 let typescriptVersion = '5.8.2';
 
 let root = new TypeScriptProject({
-  name: '@pipeline-builder/root',
+  name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
   projenVersion: '0.91.18',
   minNodeVersion: '22.13.0',
@@ -47,7 +47,7 @@ root.addScripts({
 
 let shared = new AwsCdkConstructLibrary({
   parent: root,
-  name: '@pipeline-builder/pipeline-lib',
+  name: '@mwashburn160/pipeline-lib',
   outdir: './packages/pipeline-lib',
   author: 'mark washburn',
   authorAddress: 'mwashburn160@gmail.com',

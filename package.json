@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/root",
+  "name": "@mwashburn160/root",
   "scripts": {
     "build": "pnpm dlx projen build",
     "clobber": "pnpm dlx projen clobber",

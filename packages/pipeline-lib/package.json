@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/pipeline-lib",
+  "name": "@mwashburn160/pipeline-lib",
   "repository": {
     "type": "git",
     "url": "https://github.com/mwashburn160/pipeline-builder.git"
@@ -51,7 +51,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "0.0.13",
+  "version": "0.0.0",
   "types": "lib/index.d.ts",
   "stability": "stable",
   "jsii": {
