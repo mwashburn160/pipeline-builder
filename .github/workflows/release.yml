@@ -44,6 +44,8 @@ jobs:
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Run build target
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
   version:
     name: version

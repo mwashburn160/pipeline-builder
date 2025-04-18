@@ -24,7 +24,10 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Run build target',
-                        run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose'
+                        run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
+                        env: {
+                            GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}'
+                        }
                     }
                 ],
             },
