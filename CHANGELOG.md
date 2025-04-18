@@ -1,3 +1,14 @@
+## 0.0.8 (2025-04-18)
+
+### 🩹 Fixes
+
+- workflow cleanup ([2935124](https://github.com/mwashburn160/pipeline-builder/commit/2935124))
+- cleanup ([2722b9b](https://github.com/mwashburn160/pipeline-builder/commit/2722b9b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.7 (2025-04-18)
 
 ### 🩹 Fixes
