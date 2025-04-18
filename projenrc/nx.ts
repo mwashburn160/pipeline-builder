@@ -21,12 +21,12 @@ export class Nx extends Component {
                     build: {
                         dependsOn: ['^build'],
                         inputs: [
-                            '!{projectRoot}/dist/**/*',
-                            '!{projectRoot}/lib/**/*'
+                            '!{projectRoot}/lib/**/*',
+                            '!{projectRoot}/dist/**/*'
                         ],
                         outputs: [
-                            '{projectRoot}/dist',
-                            '{projectRoot}/lib'
+                            '{projectRoot}/lib',
+                            '{projectRoot}/dist'
                         ],
                         cache: true
                     }
