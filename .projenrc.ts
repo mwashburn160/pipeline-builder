@@ -10,7 +10,7 @@ let branch = 'main';
 let pnpmVersion = '10.8.1';
 let esbuildVersion = '0.25.2'
 let constructsVersion = '10.4.2';
-let cdkVersion = '2.1010.0';
+let cdkVersion = '2.190.0';
 let jsiiVersion = '5.8.3';
 let typescriptVersion = '5.8.3';
 

@@ -30,7 +30,7 @@
     "@jest/globals": "29.7.0",
     "@types/aws-lambda": "8.10.147",
     "@types/node": "20.9.0",
-    "aws-cdk-lib": "2.1010.0",
+    "aws-cdk-lib": "2.190.0",
     "constructs": "10.4.2",
     "jsii": "5.8.3",
     "jsii-diff": "^1.106.0",
@@ -40,7 +40,7 @@
     "typescript": "5.8.3"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.1010.0",
+    "aws-cdk-lib": "^2.190.0",
     "constructs": "^10.4.2"
   },
   "keywords": [
