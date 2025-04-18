@@ -38,6 +38,9 @@
         "versionTitleDate": "true"
       }
     },
+    "git": {
+      "commitMessage": "chore: updated version"
+    },
     "version": {
       "conventionalCommits": "true"
     }

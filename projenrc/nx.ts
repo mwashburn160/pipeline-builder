@@ -41,6 +41,9 @@ export class Nx extends Component {
                             versionTitleDate: 'true'
                         }
                     },
+                    git: {
+                        commitMessage: 'chore: updated version'
+                    },
                     version: {
                         conventionalCommits: 'true'
                     }
