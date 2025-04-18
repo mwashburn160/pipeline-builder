@@ -98,6 +98,7 @@ export class Workflow extends Component {
                     'registry-url': 'https://npm.pkg.github.com/'
                 },
                 env: {
+                    GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}',
                     NODE_AUTH_TOKEN: '${{ secrets.PAT_TOKEN }}'
                 }
             },
