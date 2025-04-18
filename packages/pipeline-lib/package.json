@@ -30,17 +30,17 @@
     "@jest/globals": "29.7.0",
     "@types/aws-lambda": "8.10.147",
     "@types/node": "20.9.0",
-    "aws-cdk-lib": "2.185.0",
+    "aws-cdk-lib": "2.1010.0",
     "constructs": "10.4.2",
-    "jsii": "5.8.1",
+    "jsii": "5.8.3",
     "jsii-diff": "^1.106.0",
     "jsii-docgen": "^10.5.0",
     "jsii-pacmak": "^1.106.0",
-    "jsii-rosetta": "5.8.1",
-    "typescript": "5.8.2"
+    "jsii-rosetta": "5.8.3",
+    "typescript": "5.8.3"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.185.0",
+    "aws-cdk-lib": "^2.1010.0",
     "constructs": "^10.4.2"
   },
   "keywords": [
@@ -51,7 +51,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "0.0.18",
+  "version": "0.0.0",
   "types": "lib/index.d.ts",
   "stability": "stable",
   "jsii": {

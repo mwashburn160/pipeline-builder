@@ -42,7 +42,7 @@
     },
     {
       "name": "npm-check-updates",
-      "version": "17.1.16",
+      "version": "17.1.18",
       "type": "build"
     },
     {
@@ -52,7 +52,7 @@
     },
     {
       "name": "projen",
-      "version": "0.91.18",
+      "version": "0.91.20",
       "type": "build"
     },
     {

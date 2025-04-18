@@ -25,9 +25,9 @@
     "@types/node": "^22",
     "constructs": "10.4.2",
     "esbuild": "0.25.2",
-    "npm-check-updates": "17.1.16",
+    "npm-check-updates": "17.1.18",
     "nx": "^20",
-    "projen": "0.91.18",
+    "projen": "0.91.20",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },

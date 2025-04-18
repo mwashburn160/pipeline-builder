@@ -19,7 +19,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.4.0
+          version: 10.8.1
       - name: Setup node
         uses: actions/setup-node@v4
         env:
@@ -61,7 +61,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.4.0
+          version: 10.8.1
       - name: Setup node
         uses: actions/setup-node@v4
         env:
@@ -107,7 +107,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.4.0
+          version: 10.8.1
       - name: Setup node
         uses: actions/setup-node@v4
         env:

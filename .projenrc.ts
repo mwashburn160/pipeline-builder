@@ -7,17 +7,17 @@ import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
 
 let branch = 'main';
-let pnpmVersion = '10.4.0';
+let pnpmVersion = '10.8.1';
 let esbuildVersion = '0.25.2'
 let constructsVersion = '10.4.2';
-let cdkVersion = '2.185.0';
-let jsiiVersion = '5.8.1';
-let typescriptVersion = '5.8.2';
+let cdkVersion = '2.1010.0';
+let jsiiVersion = '5.8.3';
+let typescriptVersion = '5.8.3';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.91.18',
+  projenVersion: '0.91.20',
   minNodeVersion: '22.13.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
@@ -35,7 +35,7 @@ let root = new TypeScriptProject({
     '@swc-node/register@1.10.10',
     `esbuild@${esbuildVersion}`,
     `constructs@${constructsVersion}`,
-    'npm-check-updates@17.1.16'
+    'npm-check-updates@17.1.18'
   ]
 });
 root.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${GITHUB_TOKEN}')
