@@ -60,7 +60,11 @@ export class Workflow extends Component {
                     contents: JobPermission.WRITE
                 },
                 steps: [
-                    ...this.bootstrapSteps()
+                    ...this.bootstrapSteps(),
+                    {
+                        name: 'Publish packages',
+                        run: 'pnpm nx release publish'
+                    }
                 ]
             }
         })

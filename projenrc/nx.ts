@@ -35,10 +35,9 @@ export class Nx extends Component {
                     projects: ['packages/*'],
                     projectsRelationship: 'fixed',
                     changelog: {
-                        renderOptions: {
-                            authors: 'true',
-                            commitReferences: 'true',
-                            versionTitleDate: 'true'
+                        projectChangelogs: {
+                            file: 'false',
+                            createRelease: 'github'
                         }
                     },
                     git: {

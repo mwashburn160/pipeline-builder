@@ -16,12 +16,12 @@
         "^build"
       ],
       "inputs": [
-        "!{projectRoot}/dist/**/*",
-        "!{projectRoot}/lib/**/*"
+        "!{projectRoot}/lib/**/*",
+        "!{projectRoot}/dist/**/*"
       ],
       "outputs": [
-        "{projectRoot}/dist",
-        "{projectRoot}/lib"
+        "{projectRoot}/lib",
+        "{projectRoot}/dist"
       ],
       "cache": true
     }
@@ -32,10 +32,9 @@
     ],
     "projectsRelationship": "fixed",
     "changelog": {
-      "renderOptions": {
-        "authors": "true",
-        "commitReferences": "true",
-        "versionTitleDate": "true"
+      "projectChangelogs": {
+        "file": "false",
+        "createRelease": "github"
       }
     },
     "git": {
