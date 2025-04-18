@@ -120,4 +120,6 @@ jobs:
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Publish packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: pnpm nx release publish
