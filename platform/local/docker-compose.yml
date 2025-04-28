@@ -1,0 +1,35 @@
+version: '3'
+services:
+  database:
+    image: 'postgres:17.4'
+    restart: always
+    ports:
+      - '15432:5432'
+    env_file:
+      - .config
+    networks:
+      - postgres-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready
+      interval: 60s
+      timeout: 30s
+      retries: 5
+    volumes:
+      - '${PWD}/local/db-data/:/var/lib/postgresql/data/'
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - '15433:80'
+    env_file:
+      - .config
+    depends_on:
+      - database
+    networks:
+      - postgres-network
+    volumes:
+      - '${PWD}/local/pgadmin-data/:/var/lib/pgadmin/'
+networks:
+  postgres-network:
+    driver: bridge

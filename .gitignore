@@ -33,6 +33,8 @@ jspm_packages/
 .DS_Store
 .nx
 .vscode
+db-data
+pgadmin-data
 !/.github/pull_request_template.md
 !/.npmrc
 !/test/

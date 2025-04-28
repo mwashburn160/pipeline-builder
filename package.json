@@ -24,10 +24,10 @@
     "@swc-node/register": "1.10.10",
     "@types/node": "^22",
     "constructs": "10.4.2",
-    "esbuild": "0.25.2",
-    "npm-check-updates": "17.1.18",
+    "esbuild": "0.25.3",
+    "npm-check-updates": "18.0.1",
     "nx": "^20",
-    "projen": "0.91.20",
+    "projen": "0.91.26",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },

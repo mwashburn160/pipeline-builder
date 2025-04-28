@@ -37,12 +37,12 @@
     },
     {
       "name": "esbuild",
-      "version": "0.25.2",
+      "version": "0.25.3",
       "type": "build"
     },
     {
       "name": "npm-check-updates",
-      "version": "17.1.18",
+      "version": "18.0.1",
       "type": "build"
     },
     {
@@ -52,7 +52,7 @@
     },
     {
       "name": "projen",
-      "version": "0.91.20",
+      "version": "0.91.26",
       "type": "build"
     },
     {
