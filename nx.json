@@ -28,7 +28,7 @@
   },
   "release": {
     "projects": [
-      "packages/*"
+      "packages/pipeline-lib"
     ],
     "projectsRelationship": "fixed",
     "changelog": {

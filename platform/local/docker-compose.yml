@@ -2,6 +2,7 @@ version: '3.7'
 services:
   database:
     image: 'postgres:17.4'
+    container_name: postgres
     ports:
       - '15432:5432'
     restart: always
@@ -9,17 +10,20 @@ services:
       - .config
     networks:
       - postgres-network
+    command: postgres -c listen_addresses='*' 
     healthcheck:
       test:
         - CMD-SHELL
         - pg_isready
-      interval: 60s
-      timeout: 30s
-      retries: 5
+      interval: 15s
+      timeout: 5s
+      retries: 3
     volumes:
-      - '${PWD}/local/db-data/:/var/lib/postgresql/data/'
+      - './init.sql:/docker-entrypoint-initdb.d/init.sql'
+      - './db-data/:/var/lib/postgresql/data/'
   pgadmin:
-    image: dpage/pgadmin4
+    image: 'dpage/pgadmin4:2025-04-28-1'
+    container_name: pgadmin
     ports:
       - '15433:80'
     env_file:
@@ -29,7 +33,7 @@ services:
     networks:
       - postgres-network
     volumes:
-      - '${PWD}/local/pgadmin-data/:/var/lib/pgadmin/'
+      - './pgadmin-data/:/var/lib/pgadmin/'
 networks:
   postgres-network:
     driver: bridge
