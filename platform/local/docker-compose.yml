@@ -6,18 +6,13 @@ services:
     ports:
       - '15432:5432'
     restart: always
-    env_file:
-      - .config
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pipeline_builder
     networks:
       - postgres-network
-    command: postgres -c listen_addresses='*' 
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - pg_isready
-      interval: 15s
-      timeout: 5s
-      retries: 3
+    command: postgres -c listen_addresses='*'
     volumes:
       - './init.sql:/docker-entrypoint-initdb.d/init.sql'
       - './db-data/:/var/lib/postgresql/data/'
@@ -26,8 +21,9 @@ services:
     container_name: pgadmin
     ports:
       - '15433:80'
-    env_file:
-      - .config
+    environment:
+      PGADMIN_DEFAULT_PASSWORD: password
+      PGADMIN_DEFAULT_EMAIL: mwashburn160@gmail.com
     depends_on:
       - database
     networks:
