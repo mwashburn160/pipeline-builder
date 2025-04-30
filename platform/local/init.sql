@@ -6,5 +6,5 @@ create table if not exists pipeline_builder (
     updated_by text not null default current_user,
     updated_at timestamp not null default current_timestamp,
     description text,
-    is_active boolean default true
+    is_default boolean default false
 )
