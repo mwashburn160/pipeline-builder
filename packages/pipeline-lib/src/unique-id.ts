@@ -4,7 +4,7 @@ export class UniqueId {
   private _length: number;
   private _prefix: string;
 
-  constructor(organization: string, project: string, length: number = 8) {
+  constructor(organization: string, project: string, length: number = 12) {
     this._length = length;
     this._prefix = organization.concat(`-${project}`);
   }
