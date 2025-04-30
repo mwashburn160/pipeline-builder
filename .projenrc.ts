@@ -17,8 +17,8 @@ let typescriptVersion = '5.8.3';
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.91.26',
-  minNodeVersion: '22.13.0',
+  projenVersion: '0.91.28',
+  minNodeVersion: '22.15.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
@@ -67,8 +67,8 @@ let shared = new AwsCdkConstructLibrary({
   typescriptVersion: typescriptVersion,
   constructsVersion: constructsVersion,
   devDeps: [
-    '@types/node@20.9.0',
-    '@types/aws-lambda@8.10.147',
+    '@types/node@22.15.3',
+    '@types/aws-lambda@8.10.149',
     '@jest/globals@29.7.0'
   ],
 });

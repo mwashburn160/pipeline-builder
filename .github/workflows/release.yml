@@ -27,7 +27,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
-          node-version: 22.13.0
+          node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4
@@ -71,7 +71,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
-          node-version: 22.13.0
+          node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4
@@ -117,7 +117,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PAT_TOKEN }}
         with:
           cache: pnpm
-          node-version: 22.13.0
+          node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
       - name: Nx cache
         uses: actions/cache@v4

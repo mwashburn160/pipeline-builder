@@ -27,13 +27,13 @@
     "esbuild": "0.25.3",
     "npm-check-updates": "18.0.1",
     "nx": "^20",
-    "projen": "0.91.26",
+    "projen": "0.91.28",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },
   "pnpm": {},
   "engines": {
-    "node": ">= 22.13.0"
+    "node": ">= 22.15.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
