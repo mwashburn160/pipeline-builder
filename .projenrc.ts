@@ -38,9 +38,6 @@ let root = new TypeScriptProject({
     'npm-check-updates@18.0.1'
   ]
 });
-root.npmrc.addConfig('//npm.pkg.github.com/:_authToken', '${GITHUB_TOKEN}')
-root.npmrc.addConfig('@mwashburn160:registry', 'https://npm.pkg.github.com/')
-root.npmrc.addConfig('always-auth', 'true')
 root.addScripts({
   'npm-check': 'npx npm-check-updates'
 });

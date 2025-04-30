@@ -26,7 +26,7 @@ export class Lookup extends Construct {
       timeout: Constants.DEFAULT_TIMEOUT,
       memorySize: Constants.DEFAULT_MEMORY_SIZE,
       architecture: Constants.DEFAULT_ARCHITECTURE,
-      entry: `${__dirname}/lambda/index.ts`,
+      entry: `${__dirname}/custom-resource/index.ts`,
     });
 
     onEventHandler.addToRolePolicy(new PolicyStatement({
