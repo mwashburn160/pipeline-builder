@@ -5,6 +5,7 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
+import { LambdaFunction } from './projenrc/lambda';
 
 let branch = 'main';
 let pnpmVersion = '10.10.0';
@@ -22,7 +23,7 @@ let root = new TypeScriptProject({
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
-  gitignore: ['.DS_Store', '.nx', '.vscode','db-data','pgadmin-data'],
+  gitignore: ['.DS_Store', '.nx', '.vscode','db-data','pgadmin-data','.aws-sam'],
   licensed: true,
   projenrcTs: true,
   jest: false,
@@ -44,8 +45,8 @@ root.addScripts({
 
 let shared = new AwsCdkConstructLibrary({
   parent: root,
-  name: '@mwashburn160/pipeline-lib',
   outdir: './packages/pipeline-lib',
+  name: '@mwashburn160/pipeline-lib',
   author: 'mark washburn',
   authorAddress: 'mwashburn160@gmail.com',
   defaultReleaseBranch: 'main',
@@ -71,6 +72,20 @@ let shared = new AwsCdkConstructLibrary({
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
+let listPlugins = new LambdaFunction({
+  parent: root,
+  outdir: './lambdas/list-plugins',
+  name: '@mwashburn160/list-plugins',
+  functionName: 'list-plugins',
+  defaultReleaseBranch: branch,
+  devDeps: [
+    '@types/node@22.15.3',
+    '@types/aws-lambda@8.10.149',
+    '@jest/globals@29.7.0'
+  ],
+})
+listPlugins.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
+ 
 new Nx(root);
 new PnpmWorkspace(root);
 new VscodeSettings(root);
