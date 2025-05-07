@@ -4,7 +4,7 @@ import { TypeScriptProject } from 'projen/lib/typescript';
 export class Nx extends Component {
     constructor(root: TypeScriptProject) {
         super(root);
-        root.addDevDeps('nx@^20', '@nx/devkit@^20', '@nx/workspace@^20', '@nx/js@^20');
+        root.addDevDeps('nx@^21', '@nx/devkit@^21', '@nx/workspace@^21', '@nx/js@^21');
 
         new JsonFile(root, 'nx.json', {
             obj: {

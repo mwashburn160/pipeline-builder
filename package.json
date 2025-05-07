@@ -17,17 +17,17 @@
     "npm-check": "npx npm-check-updates"
   },
   "devDependencies": {
-    "@nx/devkit": "^20",
-    "@nx/js": "^20",
-    "@nx/workspace": "^20",
+    "@nx/devkit": "^21",
+    "@nx/js": "^21",
+    "@nx/workspace": "^21",
     "@swc-node/core": "1.13.3",
     "@swc-node/register": "1.10.10",
     "@types/node": "^22",
     "constructs": "10.4.2",
-    "esbuild": "0.25.3",
+    "esbuild": "0.25.4",
     "npm-check-updates": "18.0.1",
-    "nx": "^20",
-    "projen": "0.91.28",
+    "nx": "^21",
+    "projen": "0.92.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },
