@@ -48,6 +48,8 @@ importers:
         specifier: ^5.8.2
         version: 5.8.2
 
+  lambdas/add-plugin: {}
+
   packages/pipeline-lib:
     devDependencies:
       '@jest/globals':
