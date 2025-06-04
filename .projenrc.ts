@@ -69,9 +69,6 @@ let shared = new AwsCdkConstructLibrary({
     '@types/node@22.15.3',
     '@types/aws-lambda@8.10.149',
     '@jest/globals@29.7.0'
-  ],
-  deps: [
-    `typeorm@${ormVersion}`
   ]
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });

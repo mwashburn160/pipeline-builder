@@ -11,7 +11,16 @@ export class LambdaFunction extends TypeScriptProject {
     private _location: string = '../templates/nodejs22.x'
 
     constructor(options: LambdaFunctionOptions) {
-        super(options)
+        super({
+            ...options,
+            tsconfig: {
+                compilerOptions: {
+                    rootDir: 'service'
+                },
+                include: ['service/**/*.ts'],
+                exclude: ['node_modules','lib']
+            }
+        })
         this._name = options.functionName
         this.addScripts({'serve-functions': 'npx sam build && npx sam local start-api'})
         this.addScripts({'deploy-functions': `npx sam build && npx sam deploy --stack-name ${this._name}-stack`})
