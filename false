@@ -1,3 +1,16 @@
+## 0.0.24 (2025-06-04)
+
+### 🩹 Fixes
+
+- upgraded lib ([5d06e85](https://github.com/mwashburn160/pipeline-builder/commit/5d06e85))
+- cleanup ([e6d503e](https://github.com/mwashburn160/pipeline-builder/commit/e6d503e))
+- lambda cleanup ([306f6db](https://github.com/mwashburn160/pipeline-builder/commit/306f6db))
+- projen template cleanup ([8f4720c](https://github.com/mwashburn160/pipeline-builder/commit/8f4720c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.23 (2025-05-07)
 
 ### 🩹 Fixes
