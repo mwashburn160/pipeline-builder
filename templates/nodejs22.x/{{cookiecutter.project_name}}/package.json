@@ -5,5 +5,9 @@
     "serve-functions": "npx sam build && npx sam local start-api",
     "deploy-functions": "npx sam build && npx sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
   },
+  "pnpm": {},
+  "engines": {
+    "node": ">= 22.15.0"
+  },
   "version": "0.0.0"
 }
