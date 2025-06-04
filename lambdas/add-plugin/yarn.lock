@@ -641,6 +641,11 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
+"@mwashburn160/pipeline-lib@0.0.24":
+  version "0.0.24"
+  resolved "https://npm.pkg.github.com/download/@mwashburn160/pipeline-lib/0.0.24/f37ac32075be86c84acf8457ee5a0730584d7829#f37ac32075be86c84acf8457ee5a0730584d7829"
+  integrity sha512-9WDDTUuCydcKEPCqRdySf37J3awrw2L8R3ZOpDThkoJo6ad9XE5Amer8x1zP1i/QUVPZICqtcu0VzS+p3fXaIA==
+
 "@napi-rs/wasm-runtime@^0.2.10":
   version "0.2.10"
   resolved "https://registry.yarnpkg.com/@napi-rs/wasm-runtime/-/wasm-runtime-0.2.10.tgz#f3b7109419c6670000b2401e0c778b98afc25f84"

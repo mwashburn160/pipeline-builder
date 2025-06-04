@@ -131,7 +131,7 @@
           "exec": "yarn install --check-files"
         },
         {
-          "exec": "yarn upgrade @jest/globals @stylistic/eslint-plugin @types/aws-lambda @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit ts-jest typescript typeorm"
+          "exec": "yarn upgrade @jest/globals @stylistic/eslint-plugin @types/aws-lambda @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit ts-jest typescript @mwashburn160/pipeline-lib typeorm"
         },
         {
           "exec": "npx projen"

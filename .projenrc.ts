@@ -85,7 +85,8 @@ new LambdaFunction({
     '@jest/globals@29.7.0'
   ],
   deps: [
-    `typeorm@${ormVersion}`
+    `typeorm@${ormVersion}`,
+    '@mwashburn160/pipeline-lib@0.0.24'
   ]
 })
  

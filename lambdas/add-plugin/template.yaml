@@ -10,7 +10,7 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: prod
+      StageName: stage
 
   LambdaFunction:
     Type: AWS::Serverless::Function
@@ -39,7 +39,7 @@ Resources:
 Outputs:
   Api:
     Description: "API Gateway endpoint URL for function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/stage/hello/"
   LambdaFunction:
     Description: "Lambda Function ARN"
     Value: !GetAtt LambdaFunction.Arn
