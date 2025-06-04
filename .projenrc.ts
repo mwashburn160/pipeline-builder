@@ -14,6 +14,7 @@ let constructsVersion = '10.4.2';
 let cdkVersion = '2.190.0';
 let jsiiVersion = '5.8.3';
 let typescriptVersion = '5.8.3';
+let ormVersion = '0.3.24';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -69,6 +70,9 @@ let shared = new AwsCdkConstructLibrary({
     '@types/aws-lambda@8.10.149',
     '@jest/globals@29.7.0'
   ],
+  deps: [
+    `typeorm@${ormVersion}`
+  ]
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
@@ -83,6 +87,9 @@ new LambdaFunction({
     '@types/aws-lambda@8.10.149',
     '@jest/globals@29.7.0'
   ],
+  deps: [
+    `typeorm@${ormVersion}`
+  ]
 })
  
 new Nx(root);
