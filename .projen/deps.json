@@ -37,7 +37,7 @@
     },
     {
       "name": "esbuild",
-      "version": "0.25.4",
+      "version": "0.25.5",
       "type": "build"
     },
     {
@@ -52,7 +52,7 @@
     },
     {
       "name": "projen",
-      "version": "0.92.0",
+      "version": "0.92.9",
       "type": "build"
     },
     {
