@@ -26,6 +26,7 @@ export class LambdaFunction extends TypeScriptProject {
     postSynthesize(): void {
         execSync(`if [ -d ./lambdas/${this._name}/src ]; then rm -rf ./lambdas/${this._name}/src;fi`)
         execSync(`if [ -d ./lambdas/${this._name}/test ]; then rm -rf ./lambdas/${this._name}/test;fi`)
+        execSync(`if [ -d ./lambdas/${this._name}/service/tests ]; then rm -rf ./lambdas/${this._name}/service/tests;fi`)
     }
 
 }
