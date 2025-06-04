@@ -14,7 +14,6 @@ let constructsVersion = '10.4.2';
 let cdkVersion = '2.190.0';
 let jsiiVersion = '5.8.3';
 let typescriptVersion = '5.8.3';
-let ormVersion = '0.3.24';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -77,17 +76,7 @@ new LambdaFunction({
   parent: root,
   outdir: './lambdas/add-plugin',
   name: '@mwashburn160/add-plugin',
-  functionName: 'add-plugin',
-  defaultReleaseBranch: branch,
-  devDeps: [
-    '@types/node@22.15.3',
-    '@types/aws-lambda@8.10.149',
-    '@jest/globals@29.7.0'
-  ],
-  deps: [
-    `typeorm@${ormVersion}`,
-    '@mwashburn160/pipeline-lib@0.0.24'
-  ]
+  functionName: 'add-plugin'
 })
  
 new Nx(root);

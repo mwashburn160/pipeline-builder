@@ -1,30 +1,18 @@
 import { execSync } from "node:child_process";
-import { TypeScriptProject, TypeScriptProjectOptions } from "projen/lib/typescript";
+import { Project, ProjectOptions } from "projen/lib/project";
 
-export interface LambdaFunctionOptions extends TypeScriptProjectOptions {
+export interface LambdaFunctionOptions extends ProjectOptions {
     readonly functionName: string;
 }
 
-export class LambdaFunction extends TypeScriptProject {
+export class LambdaFunction extends Project {
     private _name: string
     private _architecture: string = 'x86_64'
     private _location: string = '../templates/nodejs22.x'
 
     constructor(options: LambdaFunctionOptions) {
-        super({
-            ...options,
-            tsconfig: {
-                compilerOptions: {
-                    rootDir: 'service'
-                },
-                include: ['service/**/*.ts'],
-                exclude: ['node_modules','lib']
-            }
-        })
+        super(options)
         this._name = options.functionName
-        this.addScripts({'serve-functions': 'npx sam build && npx sam local start-api'})
-        this.addScripts({'deploy-functions': `npx sam build && npx sam deploy --stack-name ${this._name}-stack`})
-        this.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
     }
 
     preSynthesize(): void {
@@ -35,7 +23,6 @@ export class LambdaFunction extends TypeScriptProject {
     postSynthesize(): void {
         execSync(`if [ -d ./lambdas/${this._name}/src ]; then rm -rf ./lambdas/${this._name}/src;fi`)
         execSync(`if [ -d ./lambdas/${this._name}/test ]; then rm -rf ./lambdas/${this._name}/test;fi`)
-        execSync(`if [ -d ./lambdas/${this._name}/service/tests ]; then rm -rf ./lambdas/${this._name}/service/tests;fi`)
     }
 
 }

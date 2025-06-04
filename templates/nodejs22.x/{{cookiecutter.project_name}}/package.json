@@ -1,0 +1,9 @@
+{
+  "name": "{{ cookiecutter.project_name }}",
+  "scripts": {
+    "build": "npx sam build",
+    "serve-functions": "npx sam build && npx sam local start-api",
+    "deploy-functions": "npx sam build && npx sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
+  },
+  "version": "0.0.0"
+}
