@@ -32,7 +32,7 @@ export class Nx extends Component {
                     }
                 },
                 release: {
-                    projects: ['*'],
+                    projects: ['@mwashburn160/pipeline-lib'],
                     projectsRelationship: 'fixed',
                     changelog: {
                         workspaceChangelog: {
