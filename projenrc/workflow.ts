@@ -109,9 +109,9 @@ export class Workflow extends Component {
                 name: 'Setup AWS SAM Cli',
                 uses: 'aws-actions/setup-sam@v2',
                 with: {
-                    'version': '1.139.0',
+                    version: '1.139.0',
                     'use-installer': true,
-                    GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}'
+                    token: '${{ secrets.PAT_TOKEN }}'
                 }
             },
             {

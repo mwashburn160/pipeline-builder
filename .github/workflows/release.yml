@@ -34,7 +34,7 @@ jobs:
         with:
           version: 1.139.0
           use-installer: true
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -84,7 +84,7 @@ jobs:
         with:
           version: 1.139.0
           use-installer: true
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -136,7 +136,7 @@ jobs:
         with:
           version: 1.139.0
           use-installer: true
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:
