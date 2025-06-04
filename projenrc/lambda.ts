@@ -15,6 +15,7 @@ export class LambdaFunction extends TypeScriptProject {
         this._name = options.functionName
         this.addScripts({'serve-functions': 'npx sam build && npx sam local start-api'})
         this.addScripts({'deploy-functions': `npx sam build && npx sam deploy --stack-name ${this._name}-stack`})
+        this.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
     }
 
     preSynthesize(): void {

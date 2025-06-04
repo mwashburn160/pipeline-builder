@@ -3,7 +3,7 @@
 version = 0.1
 
 [default.global.parameters]
-stack_name = "list-plugins"
+stack_name = "add-plugin"
 
 [default.build.parameters]
 cached = true

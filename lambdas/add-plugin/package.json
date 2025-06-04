@@ -1,5 +1,5 @@
 {
-  "name": "@mwashburn160/list-plugins",
+  "name": "@mwashburn160/add-plugin",
   "scripts": {
     "build": "npx projen build",
     "compile": "npx projen compile",
@@ -15,7 +15,7 @@
     "watch": "npx projen watch",
     "projen": "npx projen",
     "serve-functions": "npx sam build && npx sam local start-api",
-    "deploy-functions": "npx sam build && npx sam deploy --stack-name list-plugins-stack"
+    "deploy-functions": "npx sam build && npx sam deploy --stack-name add-plugin-stack"
   },
   "devDependencies": {
     "@jest/globals": "29.7.0",

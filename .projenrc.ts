@@ -72,11 +72,11 @@ let shared = new AwsCdkConstructLibrary({
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
-let listPlugins = new LambdaFunction({
+new LambdaFunction({
   parent: root,
-  outdir: './lambdas/list-plugins',
-  name: '@mwashburn160/list-plugins',
-  functionName: 'list-plugins',
+  outdir: './lambdas/add-plugin',
+  name: '@mwashburn160/add-plugin',
+  functionName: 'add-plugin',
   defaultReleaseBranch: branch,
   devDeps: [
     '@types/node@22.15.3',
@@ -84,7 +84,6 @@ let listPlugins = new LambdaFunction({
     '@jest/globals@29.7.0'
   ],
 })
-listPlugins.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
  
 new Nx(root);
 new PnpmWorkspace(root);

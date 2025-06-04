@@ -23,7 +23,7 @@ Resources:
         HttpApiEvent:
           Type: HttpApi
           Properties:
-            Path: /list-plugins
+            Path: /add-plugin
             Method: get
             ApiId:
               Ref: HttpApi
