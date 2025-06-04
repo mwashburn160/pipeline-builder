@@ -16,7 +16,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Install pnpm
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.11.1
@@ -29,6 +29,11 @@ jobs:
           cache: pnpm
           node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
+      - name: Setup AWS SAM Cli
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -60,7 +65,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Install pnpm
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.11.1
@@ -73,6 +78,11 @@ jobs:
           cache: pnpm
           node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
+      - name: Setup AWS SAM Cli
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:
@@ -106,7 +116,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Install pnpm
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.11.1
@@ -119,6 +129,11 @@ jobs:
           cache: pnpm
           node-version: 22.15.0
           registry-url: https://npm.pkg.github.com/
+      - name: Setup AWS SAM Cli
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       - name: Nx cache
         uses: actions/cache@v4
         with:

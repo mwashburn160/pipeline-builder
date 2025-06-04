@@ -88,7 +88,7 @@ export class Workflow extends Component {
                 },
             },
             {
-                name: 'Install pnpm',
+                name: 'Setup pnpm',
                 uses: 'pnpm/action-setup@v4',
                 with: { version: this.pnpmVersion },
             },
@@ -103,6 +103,14 @@ export class Workflow extends Component {
                 env: {
                     GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}',
                     NODE_AUTH_TOKEN: '${{ secrets.PAT_TOKEN }}'
+                }
+            },
+            {
+                name: 'Setup AWS SAM Cli',
+                uses: 'aws-actions/setup-sam@v2',
+                with: {
+                    'use-installer': true,
+                    GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}'
                 }
             },
             {
