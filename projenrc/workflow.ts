@@ -74,13 +74,11 @@ export class Workflow extends Component {
                 name: 'publish',
                 needs: ['version'],
                 runsOn: ['ubuntu-latest'],
-                env: {
-                    AFFECTED_PROJECTS: '${{ needs.init.outputs.AFFECTED_PROJECTS }}'
-                },
                 permissions: {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
                 },
+                if: 'contains(fromJSON(${{ needs.init.outputs.AFFECTED_PROJECTS }}), @mwashburn160/pipeline-lib )',
                 steps: [
                     ...this.bootstrapSteps(),
                     {

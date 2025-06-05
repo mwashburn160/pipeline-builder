@@ -160,8 +160,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    env:
-      AFFECTED_PROJECTS: ${{ needs.init.outputs.AFFECTED_PROJECTS }}
+    if: contains(fromJSON(${{ needs.init.outputs.AFFECTED_PROJECTS }}), @mwashburn160/pipeline-lib )
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
