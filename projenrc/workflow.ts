@@ -78,7 +78,7 @@ export class Workflow extends Component {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
                 },
-                if: 'contains(fromJSON(${{ needs.init.outputs.AFFECTED_PROJECTS }}), @mwashburn160/pipeline-lib )',
+                if: 'contains(fromJSON(\'${{ needs.init.outputs.AFFECTED_PROJECTS }}\'), \'@mwashburn160/pipeline-lib\' )',
                 steps: [
                     ...this.bootstrapSteps(),
                     {
