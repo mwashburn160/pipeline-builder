@@ -28,7 +28,7 @@
   },
   "release": {
     "projects": [
-      "@mwashburn160/pipeline-lib"
+      "*"
     ],
     "projectsRelationship": "fixed",
     "changelog": {

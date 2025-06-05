@@ -45,8 +45,6 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
-      - name: Update path
-        run: export PATH=$PATH:`which sam`
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -97,8 +95,6 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
-      - name: Update path
-        run: export PATH=$PATH:`which sam`
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -151,8 +147,6 @@ jobs:
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
-      - name: Update path
-        run: export PATH=$PATH:`which sam`
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -160,4 +154,4 @@ jobs:
       - name: Publish packages
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: pnpm nx release publish
+        run: pnpm nx release publish --projects @mwashburn160/pipeline-lib
