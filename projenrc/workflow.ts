@@ -129,10 +129,6 @@ export class Workflow extends Component {
                 with: { 'main-branch-name': 'main' },
             },
             {
-                name: 'Update path',
-                run: 'export PATH=$PATH:`which sam`'
-            },
-            {
                 name: 'Install dependencies',
                 run: 'pnpm install --no-frozen-lockfile',
             },

@@ -1,9 +1,9 @@
 {
   "name": "{{ cookiecutter.project_name }}",
   "scripts": {
-    "build": "npx sam build",
-    "local-api": "npx sam build && npx sam local start-api",
-    "deploy": "npx sam build && npx sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
+    "build": "export PATH=$PATH:`which sam` && sam build",
+    "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
+    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
   },
   "pnpm": {},
   "engines": {

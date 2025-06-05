@@ -2,7 +2,7 @@
   "name": "add-plugin",
   "scripts": {
     "build": "export PATH=$PATH:`which sam` && sam build",
-    "local-api": "export PATH=$PATH:`which sam` && sam build && sam local start-api",
+    "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
     "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name add-plugin-stack"
   },
   "pnpm": {},
