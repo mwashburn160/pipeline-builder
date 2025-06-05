@@ -107,7 +107,16 @@ export class Workflow extends Component {
             },
             {
                 name: 'Setup AWS SAM Cli',
-                run: 'curl -L "https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip" -o aws-sam-cli-linux-x86_64.zip && unzip aws-sam-cli-linux-x86_64.zip -d sam-installation && ./sam-installation/install'
+                uses: 'aws-actions/setup-sam@v2',
+                with: {
+                    version: '1.139.0',
+                    'use-installer': true,
+                    token: '${{ secrets.PAT_TOKEN }}'
+                }
+            },
+            {
+                name: 'debug',
+                run: 'which sam'
             },
             {
                 name: 'Nx cache',
