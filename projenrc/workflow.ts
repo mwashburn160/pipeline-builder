@@ -115,10 +115,6 @@ export class Workflow extends Component {
                 }
             },
             {
-                name: 'debug',
-                run: 'which sam'
-            },
-            {
                 name: 'Nx cache',
                 uses: 'actions/cache@v4',
                 with: {
@@ -131,6 +127,10 @@ export class Workflow extends Component {
                 name: 'Derive SHAs for nx affected commands',
                 uses: 'nrwl/nx-set-shas@v4',
                 with: { 'main-branch-name': 'main' },
+            },
+            {
+                name: 'Update path',
+                run: 'export PATH=$PATH:`which sam`'
             },
             {
                 name: 'Install dependencies',
