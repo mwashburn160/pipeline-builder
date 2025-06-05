@@ -135,6 +135,10 @@ export class Workflow extends Component {
             {
                 name: 'Set git user',
                 run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"'
+            },
+            {
+                name: 'Affected projects',
+                run: 'echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
             }
         ]
     }

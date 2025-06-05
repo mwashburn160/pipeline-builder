@@ -49,6 +49,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
+      - name: Affected projects
+        run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
       - name: Run build target
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -99,6 +101,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
+      - name: Affected projects
+        run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
       - name: Semantic version
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -151,6 +155,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
+      - name: Affected projects
+        run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
       - name: Publish packages
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
