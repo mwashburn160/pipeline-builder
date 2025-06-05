@@ -24,7 +24,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Affected projects',
-                        run: 'echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
+                        run: 'echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
                     }
                 ]
             },
@@ -74,6 +74,9 @@ export class Workflow extends Component {
                 name: 'publish',
                 needs: ['version'],
                 runsOn: ['ubuntu-latest'],
+                env: {
+                    AFFECTED_PROJECTS: '${{ needs.init.outputs.AFFECTED_PROJECTS }}'
+                },
                 permissions: {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
