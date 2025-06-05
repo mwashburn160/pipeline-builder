@@ -59,7 +59,7 @@ export class Workflow extends Component {
                     actions: JobPermission.READ,
                     contents: JobPermission.WRITE
                 },
-                if: '${{ needs.init.outputs.TOTAL_AFFECTED > 0 }}',
+                if: '${{ needs.init.outputs.TOTAL_AFFECTED != "0" }}',
                 steps: [
                     ...this.bootstrapSteps(),
                     {
