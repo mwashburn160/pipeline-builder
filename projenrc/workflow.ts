@@ -13,6 +13,21 @@ export class Workflow extends Component {
         let wf = new GithubWorkflow(root.github!, 'release');
         wf.on({ workflowDispatch: {} })
         wf.addJobs({
+            init: {
+                name: 'build',
+                runsOn: ['ubuntu-latest'],
+                permissions: {
+                    actions: JobPermission.READ,
+                    contents: JobPermission.WRITE
+                },
+                steps: [
+                    ...this.bootstrapSteps(),
+                    {
+                        name: 'Affected projects',
+                        run: 'echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
+                    }
+                ]
+            },
             build: {
                 name: 'build',
                 runsOn: ['ubuntu-latest'],
@@ -135,10 +150,6 @@ export class Workflow extends Component {
             {
                 name: 'Set git user',
                 run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"'
-            },
-            {
-                name: 'Affected projects',
-                run: 'echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
             }
         ]
     }

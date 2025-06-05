@@ -4,7 +4,7 @@ name: release
 on:
   workflow_dispatch: {}
 jobs:
-  build:
+  init:
     name: build
     runs-on: ubuntu-latest
     permissions:
@@ -51,6 +51,51 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Affected projects
         run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.1
+      - name: Setup node
+        uses: actions/setup-node@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        with:
+          cache: pnpm
+          node-version: 22.15.0
+          registry-url: https://npm.pkg.github.com/
+      - name: Setup AWS SAM Cli
+        uses: aws-actions/setup-sam@v2
+        with:
+          version: 1.139.0
+          use-installer: true
+          token: ${{ secrets.PAT_TOKEN }}
+      - name: Nx cache
+        uses: actions/cache@v4
+        with:
+          fail-on-cache-miss: false
+          path: node_modules/.cache/nx
+          key: nx-${{ github.repository_id }}-${{ github.sha }}
+      - name: Derive SHAs for nx affected commands
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Set git user
+        run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Run build target
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -101,8 +146,6 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Affected projects
-        run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
       - name: Semantic version
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -155,8 +198,6 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Affected projects
-        run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
       - name: Publish packages
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
