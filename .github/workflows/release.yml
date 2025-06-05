@@ -50,7 +50,7 @@ jobs:
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Affected projects
-        run: echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
+        run: echo TOTAL_AFFECTED=$(nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
   build:
     name: build
     needs: init
@@ -108,6 +108,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+    if: ${{ needs.init.outputs.TOTAL_AFFECTED > 0 }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
