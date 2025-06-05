@@ -5,7 +5,7 @@ on:
   workflow_dispatch: {}
 jobs:
   init:
-    name: build
+    name: init
     runs-on: ubuntu-latest
     permissions:
       actions: read

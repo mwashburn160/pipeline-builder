@@ -14,7 +14,7 @@ export class Workflow extends Component {
         wf.on({ workflowDispatch: {} })
         wf.addJobs({
             init: {
-                name: 'build',
+                name: 'init',
                 runsOn: ['ubuntu-latest'],
                 permissions: {
                     actions: JobPermission.READ,
