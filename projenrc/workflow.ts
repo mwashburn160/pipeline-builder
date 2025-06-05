@@ -30,6 +30,7 @@ export class Workflow extends Component {
             },
             build: {
                 name: 'build',
+                needs: ['init'],
                 runsOn: ['ubuntu-latest'],
                 permissions: {
                     actions: JobPermission.READ,

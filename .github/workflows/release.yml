@@ -53,6 +53,7 @@ jobs:
         run: echo PROJECTS_AFFECTED=$(nx show projects --affected --json) >> $GITHUB_OUTPUT
   build:
     name: build
+    needs: init
     runs-on: ubuntu-latest
     permissions:
       actions: read
