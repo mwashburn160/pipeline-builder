@@ -24,7 +24,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Affected projects',
-                        run: 'echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
+                        run: 'echo TOTAL_AFFECTED=$(nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
                     }
                 ]
             },
