@@ -1,9 +1,9 @@
 {
   "name": "add-plugin",
   "scripts": {
-    "build": "export PATH=$PATH:`which sam`&& npx sam build",
-    "local-api": "export PATH=$PATH:`which sam` && npx sam build && npx sam local start-api",
-    "deploy": "export PATH=$PATH:`which sam` && npx sam build && npx sam deploy --stack-name add-plugin-stack"
+    "build": "export PATH=$PATH:`which sam` && sam build",
+    "local-api": "export PATH=$PATH:`which sam` && sam build && sam local start-api",
+    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name add-plugin-stack"
   },
   "pnpm": {},
   "engines": {
