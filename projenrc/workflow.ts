@@ -66,7 +66,7 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Publish packages',
-                        run: 'pnpm nx release publish --projects @mwashburn160/pipeline-lib',
+                        run: 'pnpm nx release publish',
                         env: {
                             GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}'
                         }
