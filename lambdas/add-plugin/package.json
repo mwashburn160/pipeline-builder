@@ -2,8 +2,8 @@
   "name": "add-plugin",
   "scripts": {
     "build": "npx sam build",
-    "serve-functions": "npx sam build && npx sam local start-api",
-    "deploy-functions": "npx sam build && npx sam deploy --stack-name add-plugin-stack"
+    "local-api": "npx sam build && npx sam local start-api",
+    "deploy": "npx sam build && npx sam deploy --stack-name add-plugin-stack"
   },
   "pnpm": {},
   "engines": {
