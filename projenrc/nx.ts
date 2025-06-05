@@ -33,7 +33,8 @@ export class Nx extends Component {
                 },
                 release: {
                     projects: ['*'],
-                    projectsRelationship: 'fixed',
+                    projectsRelationship: 'independent',
+                    releaseTagPattern: 'release/{projectName}/{version}',
                     changelog: {
                         workspaceChangelog: {
                             file: 'false',
