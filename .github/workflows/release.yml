@@ -203,4 +203,4 @@ jobs:
       - name: Publish packages
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: pnpm nx release publish --projects @mwashburn160/pipeline-lib
+        run: pnpm nx release publish --projects=@mwashburn160/pipeline-lib
