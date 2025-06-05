@@ -24,11 +24,11 @@ export class Workflow extends Component {
                     ...this.bootstrapSteps(),
                     {
                         name: 'Affected projects',
-                        run: 'echo TOTAL_AFFECTED=$(nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(nx show projects --affected --json) >> $GITHUB_OUTPUT'
+                        run: 'echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json) >> $GITHUB_OUTPUT'
                     },
                     {
                         name: 'Affected info',
-                        run: 'echo TOTAL_AFFECTED=$(nx show projects --affected --json | jq length) && echo AFFECTED_PROJECTS=$(nx show projects --affected --json)'
+                        run: 'echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json)'
                     }
                 ]
             },
