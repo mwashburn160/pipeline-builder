@@ -51,7 +51,7 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Affected projects
         run: echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json) >> $GITHUB_OUTPUT
-      - name: Affected info
+      - name: Affected details
         run: echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json)
   build:
     name: build

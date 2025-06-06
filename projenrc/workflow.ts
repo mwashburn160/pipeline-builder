@@ -27,7 +27,7 @@ export class Workflow extends Component {
                         run: 'echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) >> $GITHUB_OUTPUT && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json) >> $GITHUB_OUTPUT'
                     },
                     {
-                        name: 'Affected info',
+                        name: 'Affected details',
                         run: 'echo TOTAL_AFFECTED=$(pnpm nx show projects --affected --json | jq length) && echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json)'
                     }
                 ]
