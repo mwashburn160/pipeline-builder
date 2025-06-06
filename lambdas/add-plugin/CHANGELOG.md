@@ -1,3 +1,13 @@
+## 0.0.5 (2025-06-06)
+
+### 🩹 Fixes
+
+- updated lambda ([3761dba](https://github.com/mwashburn160/pipeline-builder/commit/3761dba))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.4 (2025-06-06)
 
 ### 🩹 Fixes
