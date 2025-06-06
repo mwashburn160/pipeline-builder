@@ -1,5 +1,5 @@
 {
-  "name": "add-plugin",
+  "name": "lambdas/add-plugin",
   "scripts": {
     "build": "export PATH=$PATH:`which sam` && sam build",
     "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
