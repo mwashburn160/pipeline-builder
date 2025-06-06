@@ -36,10 +36,7 @@ export class Nx extends Component {
                     projectsRelationship: 'independent',
                     releaseTagPattern: 'release/{projectName}/{version}',
                     changelog: {
-                        workspaceChangelog: {
-                            file: 'false',
-                            createRelease: 'github'
-                        }
+                        workspaceChangelog: true
                     },
                     git: {
                         commitMessage: 'chore: updated version'
