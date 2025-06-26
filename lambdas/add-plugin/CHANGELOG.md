@@ -1,3 +1,13 @@
+## 0.0.6 (2025-06-26)
+
+### 🩹 Fixes
+
+- upgrade node type ([9de3a83](https://github.com/mwashburn160/pipeline-builder/commit/9de3a83))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.5 (2025-06-06)
 
 ### 🩹 Fixes
