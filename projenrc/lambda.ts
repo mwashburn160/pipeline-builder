@@ -1,16 +1,16 @@
 import { execSync } from "node:child_process";
 import { Project, ProjectOptions } from "projen/lib/project";
 
-export interface LambdaFunctionOptions extends ProjectOptions {
+export interface LambdaProjectOptions extends ProjectOptions {
     readonly functionName: string;
 }
 
-export class LambdaFunction extends Project {
+export class LambdaProject extends Project {
     private _name: string
     private _architecture: string = 'x86_64'
     private _location: string = '../templates/nodejs22.x'
 
-    constructor(options: LambdaFunctionOptions) {
+    constructor(options: LambdaProjectOptions) {
         super(options)
         this._name = options.functionName
     }

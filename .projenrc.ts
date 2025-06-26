@@ -5,7 +5,7 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
-import { LambdaFunction } from './projenrc/lambda';
+import { LambdaProject } from './projenrc/lambda';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
@@ -18,12 +18,12 @@ let typescriptVersion = '5.8.3';
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.92.9',
+  projenVersion: '0.94.0',
   minNodeVersion: '22.15.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
-  gitignore: ['.DS_Store', '.nx', '.vscode','db-data','pgadmin-data','.aws-sam'],
+  gitignore: ['.DS_Store', '.nx', '.vscode', 'db-data', 'pgadmin-data', '.aws-sam'],
   licensed: true,
   projenrcTs: true,
   jest: false,
@@ -65,20 +65,20 @@ let shared = new AwsCdkConstructLibrary({
   typescriptVersion: typescriptVersion,
   constructsVersion: constructsVersion,
   devDeps: [
-    '@types/node@22.15.3',
+    '@types/node@24.0.4',
     '@types/aws-lambda@8.10.149',
     '@jest/globals@29.7.0'
   ]
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
-new LambdaFunction({
+new LambdaProject({
   parent: root,
   outdir: './lambdas/add-plugin',
   name: '@mwashburn160/add-plugin',
   functionName: 'add-plugin'
 })
- 
+
 new Nx(root);
 new PnpmWorkspace(root);
 new VscodeSettings(root);
