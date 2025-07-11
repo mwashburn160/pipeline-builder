@@ -2,4 +2,4 @@
 
 packages:
   - packages/pipeline-lib
-  - lambdas/add-plugin
+  - api

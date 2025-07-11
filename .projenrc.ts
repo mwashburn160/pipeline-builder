@@ -5,7 +5,7 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
-import { LambdaProject } from './projenrc/lambda';
+import { SAMProject } from './projenrc/sam';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
@@ -72,11 +72,10 @@ let shared = new AwsCdkConstructLibrary({
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
-new LambdaProject({
+new SAMProject({
   parent: root,
-  outdir: './lambdas/add-plugin',
-  name: '@mwashburn160/add-plugin',
-  functionName: 'add-plugin'
+  outdir: './api',
+  name: 'api'
 })
 
 new Nx(root);

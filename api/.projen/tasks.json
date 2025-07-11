@@ -31,7 +31,7 @@
       "steps": [
         {
           "exec": "npx projen default",
-          "cwd": "../.."
+          "cwd": ".."
         }
       ]
     },

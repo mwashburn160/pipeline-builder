@@ -1,13 +1,13 @@
 {
-  "name": "lambdas/add-plugin",
+  "name": "lambdas/api",
   "scripts": {
     "build": "export PATH=$PATH:`which sam` && sam build",
     "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
-    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name add-plugin-stack"
+    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name api-stack"
   },
   "pnpm": {},
   "engines": {
     "node": ">= 22.15.0"
   },
-  "version": "0.0.6"
+  "version": "0.0.0"
 }

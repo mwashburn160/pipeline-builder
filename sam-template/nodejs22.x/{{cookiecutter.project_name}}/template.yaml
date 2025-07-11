@@ -1,29 +1,48 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: AWS::Serverless-2016-10-31
+Transform: 'AWS::Serverless-2016-10-31'
 Globals:
   Function:
-    Timeout: 15
-    MemorySize: 128
+    Layers:
+      - !Ref CommonUtils
     Runtime: nodejs22.x
-
+    MemorySize: 128
+    Timeout: 15
+  
 Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: stage
 
+  CommonUtils:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: {{cookiecutter.project_name}}-dependencies
+      CompatibleRuntimes:
+        - nodejs22.x
+      ContentUri: ../../common-utils
+    Metadata:
+      Minify: true
+      Target: 'es2020'
+      EntryPoints:
+        - index.ts
+
   LambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: service/
+      CodeUri: ./service/
       Handler: app.handler
+      {%- if cookiecutter.architectures.value != []%}
       Architectures:
-        - x86_64
+      {%- for arch in cookiecutter.architectures.value %}
+        - {{arch}}
+      {%- endfor %}
+      {%- endif %}
       Events:
         HttpApiEvent:
           Type: HttpApi
           Properties:
-            Path: /add-plugin
+            Path: /{{ cookiecutter.project_name }}
             Method: get
             ApiId:
               Ref: HttpApi
