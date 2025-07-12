@@ -1,5 +1,5 @@
 {
-  "name": "lambdas/{{ cookiecutter.project_name }}",
+  "name": "{{ cookiecutter.project_name }}",
   "scripts": {
     "build": "export PATH=$PATH:`which sam` && sam build",
     "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
