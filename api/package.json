@@ -9,5 +9,9 @@
   "engines": {
     "node": ">= 22.15.0"
   },
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "esbuild": "0.25.6"
+  }
 }
