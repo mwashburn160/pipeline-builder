@@ -5,8 +5,10 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
-import { SAMProject } from './projenrc/sam';
-import { LayerProject } from './projenrc/layers';
+import { BackEndProject } from './projenrc/backend';
+import { LayerProject } from './projenrc/layer';
+import { FunctionProject } from './projenrc/function';
+import { FrontEndProject } from './projenrc/frontend';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
@@ -73,9 +75,14 @@ let shared = new AwsCdkConstructLibrary({
 });
 shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
-new SAMProject({
+new FrontEndProject({
   parent: root,
-  outdir: './api/backend',
+  name: 'frontend',
+  defaultReleaseBranch: 'main'
+})
+
+new BackEndProject({
+  parent: root,
   name: 'backend'
 })
 
@@ -83,6 +90,20 @@ new LayerProject({
   parent: root,
   outdir: './api/backend/src/layers/common-utils/nodejs',
   name: 'common-utils',
+  defaultReleaseBranch: 'main',
+})
+
+new FunctionProject({
+  parent: root,
+  outdir: './api/backend/src/functions/add-plugin',
+  name: 'add-plugin',
+  defaultReleaseBranch: 'main',
+})
+
+new FunctionProject({
+  parent: root,
+  outdir: './api/backend/src/functions/get-plugin',
+  name: 'get-plugin',
   defaultReleaseBranch: 'main',
 })
 
