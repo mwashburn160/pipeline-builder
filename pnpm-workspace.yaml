@@ -2,4 +2,5 @@
 
 packages:
   - packages/pipeline-lib
-  - api
+  - api/backend
+  - api/backend/src/layers/common-utils/nodejs

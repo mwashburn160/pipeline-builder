@@ -6,6 +6,7 @@ import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
 import { SAMProject } from './projenrc/sam';
+import { LayerProject } from './projenrc/layers';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
@@ -74,8 +75,15 @@ shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'pack
 
 new SAMProject({
   parent: root,
-  outdir: './api',
-  name: 'api'
+  outdir: './api/backend',
+  name: 'backend'
+})
+
+new LayerProject({
+  parent: root,
+  outdir: './api/backend/src/layers/common-utils/nodejs',
+  name: 'common-utils',
+  defaultReleaseBranch: 'main',
 })
 
 new Nx(root);

@@ -2,15 +2,17 @@ import { execSync } from "node:child_process";
 import { TypeScriptProject, TypeScriptProjectOptions } from "projen/lib/typescript";
 
 export class LayerProject extends TypeScriptProject {
-    private _home: string = './layers'
+    private _home: string = './api/backend/src/layers'
 
     constructor(options: TypeScriptProjectOptions) {
         super(options)
     }
 
     preSynthesize(): void {
-        execSync(`if [ ! -d ${this._home} ];then mkdir ${this._home};fi`)
+        execSync(`if [ ! -d ${this._home} ];then mkdir -p ${this._home};fi`)
     }
 
-    postSynthesize(): void { }
+    postSynthesize(): void { 
+        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
+    }
 }

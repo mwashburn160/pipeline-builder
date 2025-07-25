@@ -17,20 +17,20 @@ Resources:
   CommonUtils:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: api-dependencies
+      LayerName: backend-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: ../../common-utils
+      ContentUri: src/layers/common-utils/
     Metadata:
       Minify: true
       Target: 'es2020'
       EntryPoints:
         - index.ts
 
-  LambdaFunction:
+  AddPlugin:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ./service/
+      CodeUri: src/functions/add-plugins/
       Handler: app.handler
       Architectures:
         - x86_64
@@ -38,7 +38,7 @@ Resources:
         HttpApiEvent:
           Type: HttpApi
           Properties:
-            Path: /api
+            Path: /backend
             Method: get
             ApiId:
               Ref: HttpApi
