@@ -32,7 +32,14 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/functions/add-plugin
-
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true,
+        Target: 'es2020'
+        SourceMap: true
+        EntryPoints:
+        - index.ts
 
 Outputs:
   Api:
