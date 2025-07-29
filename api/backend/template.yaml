@@ -33,6 +33,7 @@ Resources:
     Properties:
       CodeUri: src/functions/add-plugin
 
+
 Outputs:
   Api:
     Description: "API Gateway endpoint URL for function"
