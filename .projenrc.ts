@@ -48,8 +48,8 @@ root.addScripts({
 
 let shared = new AwsCdkConstructLibrary({
   parent: root,
-  outdir: './packages/pipeline-lib',
   name: '@mwashburn160/pipeline-lib',
+  outdir: './packages/pipeline-lib',
   author: 'mark washburn',
   authorAddress: 'mwashburn160@gmail.com',
   defaultReleaseBranch: 'main',
@@ -88,23 +88,19 @@ new BackEndProject({
 
 new LayerProject({
   parent: root,
-  outdir: './api/backend/src/layers/common-utils/nodejs',
-  name: 'common-utils',
+  name: 'shared',
+  outdir: './api/backend/src/layers/shared/nodejs',
   defaultReleaseBranch: 'main',
 })
 
 new FunctionProject({
   parent: root,
-  outdir: './api/backend/src/functions/add-plugin',
   name: 'add-plugin',
+  outdir: './api/backend/src/functions/add-plugin',
   defaultReleaseBranch: 'main',
-})
-
-new FunctionProject({
-  parent: root,
-  outdir: './api/backend/src/functions/get-plugin',
-  name: 'get-plugin',
-  defaultReleaseBranch: 'main',
+  devDeps: [
+    '@types/aws-lambda@8.10.149'
+  ]
 })
 
 new Nx(root);

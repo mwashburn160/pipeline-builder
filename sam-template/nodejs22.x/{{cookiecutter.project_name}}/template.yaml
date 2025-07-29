@@ -3,7 +3,7 @@ Transform: 'AWS::Serverless-2016-10-31'
 Globals:
   Function:
     Layers:
-      - !Ref CommonUtils
+      - !Ref Shared
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
@@ -14,46 +14,18 @@ Resources:
     Properties:
       StageName: stage
 
-  CommonUtils:
+  Shared:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: {{cookiecutter.project_name}}-dependencies
+      LayerName: shared-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/common-utils/
+      ContentUri: src/layers/shared/
     Metadata:
       Minify: true
       Target: 'es2020'
       EntryPoints:
         - index.ts
-
-  AddPlugin:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/functions/add-plugins/
-      Handler: app.handler
-      {%- if cookiecutter.architectures.value != []%}
-      Architectures:
-      {%- for arch in cookiecutter.architectures.value %}
-        - {{arch}}
-      {%- endfor %}
-      {%- endif %}
-      Events:
-        HttpApiEvent:
-          Type: HttpApi
-          Properties:
-            Path: /{{ cookiecutter.project_name }}
-            Method: get
-            ApiId:
-              Ref: HttpApi
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: "es2020"
-        Sourcemap: true
-        EntryPoints: 
-        - app.ts
 
 Outputs:
   Api:

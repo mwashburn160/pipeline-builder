@@ -5,7 +5,10 @@ export class FunctionProject extends TypeScriptProject {
     private _home: string = './api/backend/src/functions'
 
     constructor(options: TypeScriptProjectOptions) {
-        super(options)
+        super({
+            ...options,
+            gitignore: ['.aws-sam']
+        })
     }
 
     preSynthesize(): void {

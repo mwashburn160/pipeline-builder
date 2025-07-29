@@ -4,6 +4,5 @@ packages:
   - packages/pipeline-lib
   - api/frontend
   - api/backend
-  - api/backend/src/layers/common-utils/nodejs
+  - api/backend/src/layers/shared/nodejs
   - api/backend/src/functions/add-plugin
-  - api/backend/src/functions/get-plugin

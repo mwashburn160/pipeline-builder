@@ -20,7 +20,6 @@ export class BackEndProject extends Project {
             architecture: options.architecture || 'x86_64',
             location: options.location || '../sam-template/nodejs22.x'
         }
-
     }
 
     preSynthesize(): void {
@@ -29,5 +28,5 @@ export class BackEndProject extends Project {
         execSync(`if [ ! -f '${checkFile}' ];then cd ${this._home};sam init --name ${this.name} --architecture ${this._options.architecture} --location ${this._options.location} --no-tracing --no-application-insights --no-structured-logging --no-input;fi`)
     }
 
-    postSynthesize(): void { }
+    postSynthesize(): void {}
 }

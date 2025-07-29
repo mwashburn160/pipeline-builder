@@ -1,5 +1,5 @@
 {
-  "name": "get-plugin",
+  "name": "shared",
   "scripts": {
     "build": "npx projen build",
     "compile": "npx projen compile",
