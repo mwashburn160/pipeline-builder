@@ -10,10 +10,6 @@ Globals:
     Timeout: 15
   
 Resources:
-  HttpApi:
-    Type: AWS::Serverless::HttpApi
-    Properties:
-      StageName: prod
 
   Shared:
     Type: AWS::Serverless::LayerVersion
@@ -38,7 +34,6 @@ Resources:
         Properties:
           Path: /addPlugin
           Method: Post
-          ApiId: !Ref HttpApi
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
