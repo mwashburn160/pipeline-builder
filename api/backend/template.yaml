@@ -13,7 +13,7 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: stage
+      StageName: prod
 
   Shared:
     Type: AWS::Serverless::LayerVersion
@@ -36,8 +36,9 @@ Resources:
       ApiEvent:
         Type: HttpApi
         Properties:
-            Path: /addPlugin
-            Method: Post
+          Path: /addPlugin
+          Method: Post
+          ApiId: !Ref HttpApi
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
