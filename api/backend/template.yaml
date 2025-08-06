@@ -10,7 +10,6 @@ Globals:
     Timeout: 15
   
 Resources:
-
   HttpApi:
     Type: AWS::Serverless::HttpApi
 
