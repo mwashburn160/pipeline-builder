@@ -20,6 +20,7 @@ Resources:
       CompatibleRuntimes:
         - nodejs22.x
       ContentUri: src/layers/shared/
+      RetentionPolicy: Retain
     Metadata:
       Minify: true
       Target: 'es2020'
