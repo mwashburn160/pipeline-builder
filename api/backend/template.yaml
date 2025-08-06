@@ -28,12 +28,12 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/functions/add-plugin/src/
-    Events:
-      ApiEvent:
-        Type: HttpApi
-        Properties:
-          Path: /addPlugin
-          Method: Post
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /addPlugin
+            Method: Post
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
