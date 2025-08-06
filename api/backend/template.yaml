@@ -26,7 +26,7 @@ Resources:
       Minify: true
       Target: 'es2020'
       EntryPoints:
-        - index.ts
+      - index.ts
 
   AddPluginFunction:
     Type: AWS::Serverless::Function
