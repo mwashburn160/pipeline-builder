@@ -2,9 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Globals:
   Function:
-    Handler: index.handler
     Layers:
-      - !Ref Shared
+      - !Ref CommonUtils
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
@@ -15,37 +14,42 @@ Resources:
     Properties:
       StageName: stage
 
-  Shared:
+  CommonUtils:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: shared-dependencies
+      LayerName: api-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/shared/
+      ContentUri: src/layers/common-utils/
     Metadata:
       Minify: true
       Target: 'es2020'
       EntryPoints:
         - index.ts
 
-  AddPluginFunction:
+  AddPlugin:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/functions/add-plugin/src/
-    Events:
-      ApiEvent:
-        Type: HttpApi
-        Properties:
-            Path: /addPlugin
-            Method: Post
+      CodeUri: src/functions/add-plugins/
+      Handler: app.handler
+      Architectures:
+        - x86_64
+      Events:
+        HttpApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /api
+            Method: get
+            ApiId:
+              Ref: HttpApi
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         Minify: true
-        Target: 'es2020'
+        Target: "es2020"
         Sourcemap: true
-        EntryPoints:
-        - index.ts
+        EntryPoints: 
+        - app.ts
 
 Outputs:
   Api:
