@@ -37,8 +37,8 @@ Resources:
         ApiEvent:
           Type: HttpApi
           Properties:
-            ApiId: !Ref HttpApi
             Path: /addPlugin
+            ApiId: !Ref HttpApi
             Method: Post
     Metadata:
       BuildMethod: esbuild
