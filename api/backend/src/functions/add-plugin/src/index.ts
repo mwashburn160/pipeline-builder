@@ -6,7 +6,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         resp = {
             statusCode: 200,
             body: JSON.stringify({
-                message: 'hello SAM',
+                message: 'hello world....',
             }),
         };
     } catch (error) {
