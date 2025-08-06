@@ -11,6 +11,11 @@ Globals:
   
 Resources:
 
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: Prod
+
   Shared:
     Type: AWS::Serverless::LayerVersion
     Properties:
@@ -32,6 +37,7 @@ Resources:
         ApiEvent:
           Type: HttpApi
           Properties:
+            ApiId: !Ref HttpApi
             Path: /addPlugin
             Method: Post
     Metadata:
