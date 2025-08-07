@@ -3,7 +3,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   try {
     const message = 'Hello World....';
-    console.log('Event: ', event.isBase64Encoded)
+    console.log('Event: ', event.isBase64Encoded);
     return {
       statusCode: 200,
       body: JSON.stringify({ message }),

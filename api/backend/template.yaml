@@ -19,7 +19,7 @@ Resources:
       LayerName: shared-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/shared/nodejs/
+      ContentUri: src/layers/shared/
     Metadata:
       BuildMethod: nodejs22.x
 
