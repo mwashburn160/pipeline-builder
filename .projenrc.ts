@@ -89,7 +89,7 @@ new BackEndProject({
 new LayerProject({
   parent: root,
   name: 'shared',
-  outdir: './api/backend/src/layers/shared/nodejs',
+  outdir: './api/backend/src/layers/shared',
   defaultReleaseBranch: 'main',
 })
 
