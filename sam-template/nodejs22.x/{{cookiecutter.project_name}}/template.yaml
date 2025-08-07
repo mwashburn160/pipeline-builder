@@ -4,37 +4,26 @@ Globals:
   Function:
     Handler: index.handler
     Layers:
-      - !Ref Shared
+      - !Ref shared
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
   
 Resources:
-  HttpApi:
+  api:
     Type: AWS::Serverless::HttpApi
-    Properties:
-      StageName: stage
 
-  Shared:
+  shared:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: shared-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/shared/
+      ContentUri: src/layers/shared/nodejs/
     Metadata:
-      Minify: true
-      Target: 'es2020'
-      EntryPoints:
-        - index.ts
+      BuildMethod: nodejs22.x
 
 Outputs:
   Api:
-    Description: "API Gateway endpoint URL for function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/stage/hello/"
-  LambdaFunction:
-    Description: "Lambda Function ARN"
-    Value: !GetAtt LambdaFunction.Arn
-  LambdaFunctionIamRole:
-    Description: "Implicit IAM Role created for function"
-    Value: !GetAtt LambdaFunctionRole.Arn
+    Description: "API Gateway URL for function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/hello/"

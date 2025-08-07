@@ -11,7 +11,7 @@
   },
   "version": "0.0.0",
   "devDependencies": {
-    "typescript": "5.8.3",
-    "esbuild": "0.25.6"
+    "tsc": "2.0.4",
+    "typescript": "5.8.3"
   }
 }
