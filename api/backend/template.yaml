@@ -10,7 +10,7 @@ Globals:
     Timeout: 15
   
 Resources:
-  api:
+  apigw:
     Type: AWS::Serverless::HttpApi
 
   shared:
@@ -22,6 +22,20 @@ Resources:
       ContentUri: src/layers/shared/nodejs/
     Metadata:
       BuildMethod: nodejs22.x
+
+  addPluginFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/add-plugin/
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /addPlugin
+            ApiId: !Ref apigw
+            Method: Post
+    Metadata:
+      BuildMethod: makefile
 
 Outputs:
   Api:
