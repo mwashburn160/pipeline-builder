@@ -13,7 +13,8 @@ export class LayerProject extends TypeScriptProject {
                     paths: {
                         '/opt/nodejs/*': ['./*']
                     }
-                }
+                },
+                exclude: ['node_modules']
             },
             gitignore: ['.aws-sam']
         })

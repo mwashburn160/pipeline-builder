@@ -12,16 +12,16 @@ import { FrontEndProject } from './projenrc/frontend';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
-let esbuildVersion = '0.25.5'
+let esbuildVersion = '0.25.8'
 let constructsVersion = '10.4.2';
 let cdkVersion = '2.190.0';
-let jsiiVersion = '5.8.3';
-let typescriptVersion = '5.8.3';
+let jsiiVersion = '5.9.1';
+let typescriptVersion = '5.9.2';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.94.0',
+  projenVersion: '0.95.2',
   minNodeVersion: '22.15.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
@@ -39,7 +39,7 @@ let root = new TypeScriptProject({
     '@swc-node/register@1.10.10',
     `esbuild@${esbuildVersion}`,
     `constructs@${constructsVersion}`,
-    'npm-check-updates@18.0.1'
+    'npm-check-updates@18.0.2'
   ]
 });
 root.addScripts({
@@ -98,7 +98,7 @@ new FunctionProject({
   name: 'add-plugin',
   outdir: './api/backend/src/functions/add-plugin',
   defaultReleaseBranch: 'main',
-  devDeps: [
+  deps: [
     '@types/aws-lambda@8.10.149'
   ]
 })
