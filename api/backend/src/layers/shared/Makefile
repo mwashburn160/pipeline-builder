@@ -1,3 +1,3 @@
 build-shared:
 	npm install
-	npm run build
+	npm run-script build
