@@ -14,7 +14,6 @@ export class LayerProject extends TypeScriptProject {
                         '/opt/nodejs/*': ['./*']
                     }
                 },
-                include: ['src/**/*.js','src/**/*.ts'],
                 exclude: ['node_modules']
             },
             gitignore: ['.aws-sam']
