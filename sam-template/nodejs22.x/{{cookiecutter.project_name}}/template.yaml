@@ -8,9 +8,14 @@ Globals:
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
-  
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    TracingEnabled: true
+
 Resources:
-  api:
+  apigw:
     Type: AWS::Serverless::HttpApi
 
   shared:
@@ -24,6 +29,6 @@ Resources:
       BuildMethod: nodejs22.x
 
 Outputs:
-  Api:
+  URL:
     Description: "API Gateway URL for function"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/hello/"

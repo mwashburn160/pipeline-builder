@@ -5,7 +5,17 @@ export class LayerProject extends TypeScriptProject {
     private _home: string = './api/backend/src/layers'
 
     constructor(options: TypeScriptProjectOptions) {
-        super(options)
+        super({
+            ...options,
+            tsconfig: {
+                compilerOptions: {
+                    outDir: './dist',
+                    paths: {
+                        '/opt/nodejs/*': ['./*']
+                    }
+                }
+            }
+        })
     }
 
     preSynthesize(): void {
