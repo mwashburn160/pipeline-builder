@@ -7,6 +7,14 @@ export class FunctionProject extends TypeScriptProject {
     constructor(options: TypeScriptProjectOptions) {
         super({
             ...options,
+            tsconfig: {
+                compilerOptions: {
+                    outDir: 'dist',
+                    paths: {
+                        '/opt/nodejs/*': ['./*']
+                    }
+                }
+            },
             gitignore: ['.aws-sam']
         })
     }

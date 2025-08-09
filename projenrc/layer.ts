@@ -14,7 +14,8 @@ export class LayerProject extends TypeScriptProject {
                         '/opt/nodejs/*': ['./*']
                     }
                 }
-            }
+            },
+            gitignore: ['.aws-sam']
         })
     }
 
