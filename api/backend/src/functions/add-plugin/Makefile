@@ -1,3 +1,3 @@
 build-addPluginFunction:
-	cp -R * $(ARTIFACTS_DIR)/
-	npm run build
+	npm install
+	npm run-script build
