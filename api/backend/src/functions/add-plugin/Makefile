@@ -1,7 +1,5 @@
 build-addPluginFunction:
-	mkdir -p $(ARTIFACTS_DIR)/nodejs
-	cp package.json $(ARTIFACTS_DIR)/nodejs/
-	npm install --prefix $(ARTIFACTS_DIR)/nodejs/
-	npm run-script build
-	rm -rf $(ARTIFACTS_DIR)/nodejs/package.json
-	cp -r dist $(ARTIFACTS_DIR)/
+	cp package.json $(ARTIFACTS_DIR)/
+	npm install --prefix $(ARTIFACTS_DIR)/
+	npm run-script build --prefix $(ARTIFACTS_DIR)/
+	rm -rf $(ARTIFACTS_DIR)/package.json

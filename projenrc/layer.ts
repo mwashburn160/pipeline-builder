@@ -9,7 +9,6 @@ export class LayerProject extends TypeScriptProject {
             ...options,
             tsconfig: {
                 compilerOptions: {
-                    outDir: 'dist',
                     paths: {
                         '/opt/nodejs/*': ['./*']
                     }

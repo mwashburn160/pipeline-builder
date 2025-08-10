@@ -2,7 +2,7 @@
 {
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist",
+    "outDir": "lib",
     "alwaysStrict": true,
     "declaration": true,
     "esModuleInterop": true,
