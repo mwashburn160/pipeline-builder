@@ -2,33 +2,66 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Globals:
   Function:
-    Handler: index.handler
     Layers:
-      - !Ref shared
+      - !Ref CommonUtils
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
-    Tracing: Active
-    LoggingConfig:
-      LogFormat: JSON
-  Api:
-    TracingEnabled: true
-
+  
 Resources:
-  apigw:
+  HttpApi:
     Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: stage
 
-  shared:
+  CommonUtils:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: shared-dependencies
+      LayerName: {{cookiecutter.project_name}}-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/shared/nodejs/
+      ContentUri: src/layers/common-utils/
     Metadata:
-      BuildMethod: nodejs22.x
+      Minify: true
+      Target: 'es2020'
+      EntryPoints:
+        - index.ts
+
+  AddPlugin:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/add-plugins/
+      Handler: app.handler
+      {%- if cookiecutter.architectures.value != []%}
+      Architectures:
+      {%- for arch in cookiecutter.architectures.value %}
+        - {{arch}}
+      {%- endfor %}
+      {%- endif %}
+      Events:
+        HttpApiEvent:
+          Type: HttpApi
+          Properties:
+            Path: /{{ cookiecutter.project_name }}
+            Method: get
+            ApiId:
+              Ref: HttpApi
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        EntryPoints: 
+        - app.ts
 
 Outputs:
-  URL:
-    Description: "API Gateway URL for function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/hello/"
+  Api:
+    Description: "API Gateway endpoint URL for function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/stage/hello/"
+  LambdaFunction:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt LambdaFunction.Arn
+  LambdaFunctionIamRole:
+    Description: "Implicit IAM Role created for function"
+    Value: !GetAtt LambdaFunctionRole.Arn

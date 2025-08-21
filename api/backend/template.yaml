@@ -4,7 +4,7 @@ Globals:
   Function:
     Handler: index.handler
     Layers:
-      - !Ref shared
+      - !Ref common
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
@@ -18,13 +18,13 @@ Resources:
   apigw:
     Type: AWS::Serverless::HttpApi
 
-  shared:
+  common:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      LayerName: shared-dependencies
+      LayerName: common-dependencies
       CompatibleRuntimes:
         - nodejs22.x
-      ContentUri: src/layers/shared/
+      ContentUri: src/layers/common/
     Metadata:
       BuildMethod: makefile
 

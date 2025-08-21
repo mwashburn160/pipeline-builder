@@ -1,4 +1,4 @@
-build-shared:
+build-common:
 	cp package.json $(ARTIFACTS_DIR)/
 	npm install --prefix $(ARTIFACTS_DIR)/
 	npm run-script build --prefix $(ARTIFACTS_DIR)/
