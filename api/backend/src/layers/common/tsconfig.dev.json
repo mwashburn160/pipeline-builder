@@ -28,7 +28,9 @@
       "/opt/nodejs/*": [
         "./*"
       ]
-    }
+    },
+    "outDir": "./lib",
+    "rootDir": "./src"
   },
   "include": [
     "src/**/*.ts",
