@@ -8,11 +8,6 @@ Globals:
     Runtime: nodejs22.x
     MemorySize: 128
     Timeout: 15
-    Tracing: Active
-    LoggingConfig:
-      LogFormat: JSON
-  Api:
-    TracingEnabled: true
   
 Resources:
   apigw:
@@ -27,6 +22,7 @@ Resources:
       ContentUri: src/layers/common/
     Metadata:
       BuildMethod: makefile
+      BuildArchitecture: x86_64 
 
   addPluginFunction:
     Type: AWS::Serverless::Function
@@ -41,6 +37,7 @@ Resources:
             Method: Post
     Metadata:
       BuildMethod: makefile
+      BuildArchitecture: x86_64 
 
 Outputs:
   URL:
