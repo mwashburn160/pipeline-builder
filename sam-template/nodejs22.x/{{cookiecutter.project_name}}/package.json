@@ -1,9 +1,9 @@
 {
   "name": "{{ cookiecutter.project_name }}",
   "scripts": {
-    "build": "export PATH=$PATH:`which sam` && sam build",
+    "build": "export PATH=$PATH:`which sam` && sam build --build-in-source",
     "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
-    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
+    "deploy": "export PATH=$PATH:`which sam` && sam build --build-in-source && sam deploy --stack-name {{ cookiecutter.project_name }}-stack"
   },
   "pnpm": {},
   "engines": {

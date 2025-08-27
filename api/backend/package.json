@@ -1,9 +1,9 @@
 {
   "name": "backend",
   "scripts": {
-    "build": "export PATH=$PATH:`which sam` && sam build",
+    "build": "export PATH=$PATH:`which sam` && sam build --build-in-source",
     "local-api": "export PATH=$PATH:`which sam` && sam local start-api",
-    "deploy": "export PATH=$PATH:`which sam` && sam build && sam deploy --stack-name backend-stack"
+    "deploy": "export PATH=$PATH:`which sam` && sam build --build-in-source && sam deploy --stack-name backend-stack"
   },
   "pnpm": {},
   "engines": {
