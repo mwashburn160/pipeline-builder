@@ -91,6 +91,7 @@ new LayerProject({
   name: 'common',
   outdir: './api/backend/src/layers/common',
   defaultReleaseBranch: 'main',
+  gitignore: ['package-lock.json']
 })
 
 new FunctionProject({
@@ -98,6 +99,7 @@ new FunctionProject({
   name: 'add-plugin',
   outdir: './api/backend/src/functions/add-plugin',
   defaultReleaseBranch: 'main',
+  gitignore: ['package-lock.json'],
   deps: [
     '@types/aws-lambda@8.10.149'
   ]
