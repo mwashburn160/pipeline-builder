@@ -3,7 +3,6 @@ Transform: 'AWS::Serverless-2016-10-31'
 Globals:
   Function:
     Handler: index.handler
-    PackageType: Zip
     Layers:
       - !Ref common
     Runtime: nodejs22.x
