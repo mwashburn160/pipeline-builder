@@ -36,7 +36,7 @@
       "steps": [
         {
           "exec": "npx projen default",
-          "cwd": "../../../../.."
+          "cwd": "../../.."
         }
       ]
     },
@@ -73,15 +73,7 @@
     },
     "package": {
       "name": "package",
-      "description": "Creates the distribution package",
-      "steps": [
-        {
-          "exec": "mkdir -p dist/js"
-        },
-        {
-          "exec": "npm pack --pack-destination dist/js"
-        }
-      ]
+      "description": "Creates the distribution package"
     },
     "post-compile": {
       "name": "post-compile",
@@ -131,7 +123,7 @@
           "exec": "yarn install --check-files"
         },
         {
-          "exec": "yarn upgrade @stylistic/eslint-plugin @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit ts-jest typescript @types/aws-lambda"
+          "exec": "yarn upgrade @stylistic/eslint-plugin @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit ts-jest typescript"
         },
         {
           "exec": "npx projen"

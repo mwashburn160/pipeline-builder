@@ -6,7 +6,7 @@ export class FrontEndProject extends NextJsTypeScriptProject {
     constructor(options: NextJsTypeScriptProjectOptions) {
         super({
             ...options,
-            outdir: options.outdir || './api/frontend'
+            outdir: options.outdir || 'api/frontend'
         })
     }
 

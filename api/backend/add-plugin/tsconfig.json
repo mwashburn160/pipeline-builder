@@ -2,7 +2,7 @@
 {
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist",
+    "outDir": "lib",
     "alwaysStrict": true,
     "declaration": true,
     "esModuleInterop": true,
@@ -25,17 +25,10 @@
     "strictNullChecks": true,
     "strictPropertyInitialization": true,
     "stripInternal": true,
-    "target": "ES2020",
-    "paths": {
-      "/opt/nodejs/*": [
-        "./*"
-      ]
-    }
+    "target": "ES2020"
   },
   "include": [
     "src/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": []
 }

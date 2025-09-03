@@ -1,30 +1,24 @@
 import { execSync } from "node:child_process";
-import { TypeScriptProject, TypeScriptProjectOptions } from "projen/lib/typescript";
+import { TypeScriptAppProject,TypeScriptProjectOptions } from "projen/lib/typescript";
 
-export class FunctionProject extends TypeScriptProject {
-    private _home: string = './api/backend/src/functions'
+export class FunctionProject extends TypeScriptAppProject {
+    private _home: string = 'api/backend'
 
     constructor(options: TypeScriptProjectOptions) {
         super({
             ...options,
-            tsconfig: {
-                compilerOptions: {
-                    outDir: 'dist',
-                    paths: {
-                        '/opt/nodejs/*': ['./*']
-                    }
-                },
-                exclude: ['node_modules']
-            },
-            gitignore: ['.aws-sam']
+            outdir: `api/backend/${options.name}`
         })
     }
 
     preSynthesize(): void {
         execSync(`if [ ! -d ${this._home} ];then mkdir -p ${this._home};fi`)
+        this.addScripts({
+            'docker:build': `docker build -t ${this.name}:latest .`
+        })
     }
 
     postSynthesize(): void { 
-        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
+        execSync(`if [ -d ${this._home}/${this.name}/test ];then rm -rf ${this._home}/${this.name}/test;fi`)
     }
 }

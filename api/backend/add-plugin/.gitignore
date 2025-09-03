@@ -29,7 +29,6 @@ jspm_packages/
 *.tgz
 .yarn-integrity
 .cache
-.aws-sam
 /test-reports/
 junit.xml
 /coverage/

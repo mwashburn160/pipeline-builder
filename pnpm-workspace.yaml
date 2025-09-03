@@ -3,6 +3,4 @@
 packages:
   - packages/pipeline-lib
   - api/frontend
-  - api/backend
-  - api/backend/src/layers/common
-  - api/backend/src/functions/add-plugin
+  - api/backend/add-plugin

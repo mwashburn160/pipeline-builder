@@ -5,10 +5,8 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
-import { BackEndProject } from './projenrc/backend';
-import { LayerProject } from './projenrc/layer';
-import { FunctionProject } from './projenrc/function';
 import { FrontEndProject } from './projenrc/frontend';
+import { FunctionProject } from './projenrc/function';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
@@ -81,28 +79,10 @@ new FrontEndProject({
   defaultReleaseBranch: 'main'
 })
 
-new BackEndProject({
-  parent: root,
-  name: 'backend'
-})
-
-new LayerProject({
-  parent: root,
-  name: 'common',
-  outdir: './api/backend/src/layers/common',
-  defaultReleaseBranch: 'main',
-  gitignore: ['package-lock.json']
-})
-
 new FunctionProject({
   parent: root,
   name: 'add-plugin',
-  outdir: './api/backend/src/functions/add-plugin',
-  defaultReleaseBranch: 'main',
-  gitignore: ['package-lock.json'],
-  deps: [
-    '@types/aws-lambda@8.10.149'
-  ]
+  defaultReleaseBranch: 'main'
 })
 
 new Nx(root);

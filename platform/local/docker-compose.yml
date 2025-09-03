@@ -11,13 +11,13 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: pipeline_builder
     networks:
-      - postgres-network
+      - pipeline-builder
     command: postgres -c listen_addresses='*'
     volumes:
       - './init.sql:/docker-entrypoint-initdb.d/init.sql'
       - './db-data/:/var/lib/postgresql/data/'
   pgadmin:
-    image: 'dpage/pgadmin4:2025-04-28-1'
+    image: 'dpage/pgadmin4:latest'
     container_name: pgadmin
     ports:
       - '15433:80'
@@ -27,9 +27,9 @@ services:
     depends_on:
       - database
     networks:
-      - postgres-network
+      - pipeline-builder
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
 networks:
-  postgres-network:
+  pipeline-builder:
     driver: bridge
