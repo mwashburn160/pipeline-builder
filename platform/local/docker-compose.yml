@@ -41,9 +41,12 @@ services:
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
   add-plugin:
+    container_name: add-plugin
     build:
       context: '../../api/backend/add-plugin'
       dockerfile: Dockerfile
+    privileged: true
+    depends_on: nginx
     ports:
       - 3000:3000
 networks:
