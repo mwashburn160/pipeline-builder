@@ -15,6 +15,8 @@ let constructsVersion = '10.4.2';
 let cdkVersion = '2.190.0';
 let jsiiVersion = '5.9.1';
 let typescriptVersion = '5.9.2';
+let expressVersion = '5.1.0';
+let typeExpressVersion = '5.0.3';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -82,7 +84,13 @@ new FrontEndProject({
 new FunctionProject({
   parent: root,
   name: 'add-plugin',
-  defaultReleaseBranch: 'main'
+  defaultReleaseBranch: 'main',
+  devDeps:[
+    `@types/express@${typeExpressVersion}`,
+  ],
+  deps: [
+    `express@${expressVersion}`
+  ]
 })
 
 new Nx(root);
