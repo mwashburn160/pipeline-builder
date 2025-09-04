@@ -46,7 +46,6 @@ services:
       context: '../../api/backend/add-plugin'
       dockerfile: Dockerfile
     privileged: true
-    depends_on: nginx
     ports:
       - 3000:3000
 networks:
