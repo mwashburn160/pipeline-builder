@@ -14,7 +14,7 @@
     "upgrade": "npx projen upgrade",
     "watch": "npx projen watch",
     "projen": "npx projen",
-    "docker:build": "docker build -t add-plugin:latest ."
+    "docker:build": "docker build -t add-plugin:${IMAGE_TAG:-latest} ."
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2",

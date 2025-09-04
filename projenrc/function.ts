@@ -14,7 +14,7 @@ export class FunctionProject extends TypeScriptAppProject {
     preSynthesize(): void {
         execSync(`if [ ! -d ${this._home} ];then mkdir -p ${this._home};fi`)
         this.addScripts({
-            'docker:build': `docker build -t ${this.name}:latest .`
+            'docker:build': `docker build -t ${this.name}:$\{IMAGE_TAG:-latest\} .`
         })
     }
 
