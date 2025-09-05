@@ -1,13 +1,12 @@
-version: '3.7'
 services:
   nginx:
     image: 'nginx:latest'
     container_name: nginx
     ports:
-      - '80:80'
-      - '443:443'
+      - '8080:80'
     volumes:
       - './nginx.conf:/etc/nginx/nginx.conf'
+      - './api.conf:/etc/nginx/conf.d/api.conf'
   database:
     image: 'postgres:latest'
     container_name: postgres
@@ -33,10 +32,10 @@ services:
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
   add-plugin:
-    build:
-      context: ../../api/backend/add-plugin
-      dockerfile: Dockerfile
-    container_name: add-plugin
-    privileged: true
-    ports:
-      - '3000:3000'
+      build:
+        context: ../../api/backend/add-plugin
+        dockerfile: Dockerfile
+      container_name: add-plugin
+      privileged: true
+      ports:
+        - '3000:3000'

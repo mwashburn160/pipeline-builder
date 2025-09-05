@@ -14,8 +14,8 @@
     "upgrade": "npx projen upgrade",
     "watch": "npx projen watch",
     "projen": "npx projen",
-    "docker:build": "docker build -t add-plugin:${IMAGE_TAG:-latest} .",
-    "docker:run": "docker run add-plugin:${IMAGE_TAG:-latest}"
+    "docker:build": "docker build -t ${REPOSITORY_NAME:-add-plugin}:${REPOSITORY_TAG:-latest} .",
+    "docker:run": "docker run -p ${EXPRESS_PORT:-3000}:3000 ${REPOSITORY_NAME:-add-plugin}:${REPOSITORY_TAG:-latest}"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2",
