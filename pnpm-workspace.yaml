@@ -2,5 +2,4 @@
 
 packages:
   - packages/pipeline-lib
-  - api/frontend
   - api/backend/add-plugin

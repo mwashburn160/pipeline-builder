@@ -5,7 +5,6 @@ import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { AwsCdkConstructLibrary } from 'projen/lib/awscdk';
-import { FrontEndProject } from './projenrc/frontend';
 import { FunctionProject } from './projenrc/function';
 
 let branch = 'main';
@@ -79,12 +78,6 @@ let lib = new AwsCdkConstructLibrary({
   ]
 });
 lib.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
-
-new FrontEndProject({
-  parent: root,
-  name: 'frontend',
-  defaultReleaseBranch: 'main'
-})
 
 new FunctionProject({
   parent: root,
