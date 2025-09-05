@@ -2,7 +2,122 @@
 
 ## Constructs <a name="Constructs" id="Constructs"></a>
 
+### Builder <a name="Builder" id="@mwashburn160/pipeline-lib.Builder"></a>
+
+#### Initializers <a name="Initializers" id="@mwashburn160/pipeline-lib.Builder.Initializer"></a>
+
+```typescript
+import { Builder } from '@mwashburn160/pipeline-lib'
+
+new Builder(scope: Construct, id: string, props: BuilderProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.Initializer.parameter.props">props</a></code> | <code><a href="#@mwashburn160/pipeline-lib.BuilderProps">BuilderProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="@mwashburn160/pipeline-lib.Builder.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="@mwashburn160/pipeline-lib.Builder.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="@mwashburn160/pipeline-lib.Builder.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#@mwashburn160/pipeline-lib.BuilderProps">BuilderProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.toString">toString</a></code> | Returns a string representation of this construct. |
+
+---
+
+##### `toString` <a name="toString" id="@mwashburn160/pipeline-lib.Builder.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+
+---
+
+##### `isConstruct` <a name="isConstruct" id="@mwashburn160/pipeline-lib.Builder.isConstruct"></a>
+
+```typescript
+import { Builder } from '@mwashburn160/pipeline-lib'
+
+Builder.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
+
+###### `x`<sup>Required</sup> <a name="x" id="@mwashburn160/pipeline-lib.Builder.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@mwashburn160/pipeline-lib.Builder.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="@mwashburn160/pipeline-lib.Builder.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+
 ### Lookup <a name="Lookup" id="@mwashburn160/pipeline-lib.Lookup"></a>
+
+A construct that creates a custom resource to fetch PluginConfig data using a Lambda-backed provider.
 
 #### Initializers <a name="Initializers" id="@mwashburn160/pipeline-lib.Lookup.Initializer"></a>
 
@@ -14,10 +129,10 @@ new Lookup(scope: Construct, id: string, organization: string, project: string)
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.organization">organization</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.project">project</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | - The parent construct. |
+| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.id">id</a></code> | <code>string</code> | - The construct ID. |
+| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.organization">organization</a></code> | <code>string</code> | - The organization name. |
+| <code><a href="#@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.project">project</a></code> | <code>string</code> | - The project name. |
 
 ---
 
@@ -25,11 +140,15 @@ new Lookup(scope: Construct, id: string, organization: string, project: string)
 
 - *Type:* constructs.Construct
 
+The parent construct.
+
 ---
 
 ##### `id`<sup>Required</sup> <a name="id" id="@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.id"></a>
 
 - *Type:* string
+
+The construct ID.
 
 ---
 
@@ -37,11 +156,15 @@ new Lookup(scope: Construct, id: string, organization: string, project: string)
 
 - *Type:* string
 
+The organization name.
+
 ---
 
 ##### `project`<sup>Required</sup> <a name="project" id="@mwashburn160/pipeline-lib.Lookup.Initializer.parameter.project"></a>
 
 - *Type:* string
+
+The project name.
 
 ---
 
@@ -50,7 +173,7 @@ new Lookup(scope: Construct, id: string, organization: string, project: string)
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#@mwashburn160/pipeline-lib.Lookup.toString">toString</a></code> | Returns a string representation of this construct. |
-| <code><a href="#@mwashburn160/pipeline-lib.Lookup.config">config</a></code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.Lookup.config">config</a></code> | Fetches a PluginConfig for the given pluginName using a custom resource. |
 
 ---
 
@@ -68,9 +191,13 @@ Returns a string representation of this construct.
 public config(pluginName: string): PluginConfig
 ```
 
+Fetches a PluginConfig for the given pluginName using a custom resource.
+
 ###### `pluginName`<sup>Required</sup> <a name="pluginName" id="@mwashburn160/pipeline-lib.Lookup.config.parameter.pluginName"></a>
 
 - *Type:* string
+
+The name of the plugin to fetch configuration for.
 
 ---
 
@@ -135,120 +262,79 @@ The tree node.
 ---
 
 
-### PipelineBuilder <a name="PipelineBuilder" id="@mwashburn160/pipeline-lib.PipelineBuilder"></a>
+## Structs <a name="Structs" id="Structs"></a>
 
-#### Initializers <a name="Initializers" id="@mwashburn160/pipeline-lib.PipelineBuilder.Initializer"></a>
+### BuilderProps <a name="BuilderProps" id="@mwashburn160/pipeline-lib.BuilderProps"></a>
 
-```typescript
-import { PipelineBuilder } from '@mwashburn160/pipeline-lib'
-
-new PipelineBuilder(scope: Construct, id: string, props: PipelineBuilderProps)
-```
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.props">props</a></code> | <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps">PipelineBuilderProps</a></code> | *No description.* |
-
----
-
-##### `scope`<sup>Required</sup> <a name="scope" id="@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.scope"></a>
-
-- *Type:* constructs.Construct
-
----
-
-##### `id`<sup>Required</sup> <a name="id" id="@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.id"></a>
-
-- *Type:* string
-
----
-
-##### `props`<sup>Required</sup> <a name="props" id="@mwashburn160/pipeline-lib.PipelineBuilder.Initializer.parameter.props"></a>
-
-- *Type:* <a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps">PipelineBuilderProps</a>
-
----
-
-#### Methods <a name="Methods" id="Methods"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.toString">toString</a></code> | Returns a string representation of this construct. |
-
----
-
-##### `toString` <a name="toString" id="@mwashburn160/pipeline-lib.PipelineBuilder.toString"></a>
+#### Initializer <a name="Initializer" id="@mwashburn160/pipeline-lib.BuilderProps.Initializer"></a>
 
 ```typescript
-public toString(): string
+import { BuilderProps } from '@mwashburn160/pipeline-lib'
+
+const builderProps: BuilderProps = { ... }
 ```
-
-Returns a string representation of this construct.
-
-#### Static Functions <a name="Static Functions" id="Static Functions"></a>
-
-| **Name** | **Description** |
-| --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
-
----
-
-##### `isConstruct` <a name="isConstruct" id="@mwashburn160/pipeline-lib.PipelineBuilder.isConstruct"></a>
-
-```typescript
-import { PipelineBuilder } from '@mwashburn160/pipeline-lib'
-
-PipelineBuilder.isConstruct(x: any)
-```
-
-Checks if `x` is a construct.
-
-Use this method instead of `instanceof` to properly detect `Construct`
-instances, even when the construct library is symlinked.
-
-Explanation: in JavaScript, multiple copies of the `constructs` library on
-disk are seen as independent, completely different libraries. As a
-consequence, the class `Construct` in each copy of the `constructs` library
-is seen as a different class, and an instance of one class will not test as
-`instanceof` the other class. `npm install` will not create installations
-like this, but users may manually symlink construct libraries together or
-use a monorepo tool: in those cases, multiple copies of the `constructs`
-library can be accidentally installed, and `instanceof` will behave
-unpredictably. It is safest to avoid using `instanceof`, and using
-this type-testing method instead.
-
-###### `x`<sup>Required</sup> <a name="x" id="@mwashburn160/pipeline-lib.PipelineBuilder.isConstruct.parameter.x"></a>
-
-- *Type:* any
-
-Any object.
-
----
 
 #### Properties <a name="Properties" id="Properties"></a>
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilder.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#@mwashburn160/pipeline-lib.BuilderProps.property.input">input</a></code> | <code><a href="#@mwashburn160/pipeline-lib.InputProps">InputProps</a></code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.BuilderProps.property.organization">organization</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.BuilderProps.property.project">project</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.BuilderProps.property.metadata">metadata</a></code> | <code>{[ key: string ]: any}</code> | *No description.* |
+| <code><a href="#@mwashburn160/pipeline-lib.BuilderProps.property.pipelineName">pipelineName</a></code> | <code>string</code> | *No description.* |
 
 ---
 
-##### `node`<sup>Required</sup> <a name="node" id="@mwashburn160/pipeline-lib.PipelineBuilder.property.node"></a>
+##### `input`<sup>Required</sup> <a name="input" id="@mwashburn160/pipeline-lib.BuilderProps.property.input"></a>
 
 ```typescript
-public readonly node: Node;
+public readonly input: InputProps;
 ```
 
-- *Type:* constructs.Node
-
-The tree node.
+- *Type:* <a href="#@mwashburn160/pipeline-lib.InputProps">InputProps</a>
 
 ---
 
+##### `organization`<sup>Required</sup> <a name="organization" id="@mwashburn160/pipeline-lib.BuilderProps.property.organization"></a>
 
-## Structs <a name="Structs" id="Structs"></a>
+```typescript
+public readonly organization: string;
+```
+
+- *Type:* string
+
+---
+
+##### `project`<sup>Required</sup> <a name="project" id="@mwashburn160/pipeline-lib.BuilderProps.property.project"></a>
+
+```typescript
+public readonly project: string;
+```
+
+- *Type:* string
+
+---
+
+##### `metadata`<sup>Optional</sup> <a name="metadata" id="@mwashburn160/pipeline-lib.BuilderProps.property.metadata"></a>
+
+```typescript
+public readonly metadata: {[ key: string ]: any};
+```
+
+- *Type:* {[ key: string ]: any}
+
+---
+
+##### `pipelineName`<sup>Optional</sup> <a name="pipelineName" id="@mwashburn160/pipeline-lib.BuilderProps.property.pipelineName"></a>
+
+```typescript
+public readonly pipelineName: string;
+```
+
+- *Type:* string
+
+---
 
 ### ConnectionOptions <a name="ConnectionOptions" id="@mwashburn160/pipeline-lib.ConnectionOptions"></a>
 
@@ -524,78 +610,6 @@ public readonly s3Options: S3Options;
 ```
 
 - *Type:* <a href="#@mwashburn160/pipeline-lib.S3Options">S3Options</a>
-
----
-
-### PipelineBuilderProps <a name="PipelineBuilderProps" id="@mwashburn160/pipeline-lib.PipelineBuilderProps"></a>
-
-#### Initializer <a name="Initializer" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.Initializer"></a>
-
-```typescript
-import { PipelineBuilderProps } from '@mwashburn160/pipeline-lib'
-
-const pipelineBuilderProps: PipelineBuilderProps = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps.property.input">input</a></code> | <code><a href="#@mwashburn160/pipeline-lib.InputProps">InputProps</a></code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps.property.organization">organization</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps.property.project">project</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps.property.metadata">metadata</a></code> | <code>{[ key: string ]: any}</code> | *No description.* |
-| <code><a href="#@mwashburn160/pipeline-lib.PipelineBuilderProps.property.pipelineName">pipelineName</a></code> | <code>string</code> | *No description.* |
-
----
-
-##### `input`<sup>Required</sup> <a name="input" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.property.input"></a>
-
-```typescript
-public readonly input: InputProps;
-```
-
-- *Type:* <a href="#@mwashburn160/pipeline-lib.InputProps">InputProps</a>
-
----
-
-##### `organization`<sup>Required</sup> <a name="organization" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.property.organization"></a>
-
-```typescript
-public readonly organization: string;
-```
-
-- *Type:* string
-
----
-
-##### `project`<sup>Required</sup> <a name="project" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.property.project"></a>
-
-```typescript
-public readonly project: string;
-```
-
-- *Type:* string
-
----
-
-##### `metadata`<sup>Optional</sup> <a name="metadata" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.property.metadata"></a>
-
-```typescript
-public readonly metadata: {[ key: string ]: any};
-```
-
-- *Type:* {[ key: string ]: any}
-
----
-
-##### `pipelineName`<sup>Optional</sup> <a name="pipelineName" id="@mwashburn160/pipeline-lib.PipelineBuilderProps.property.pipelineName"></a>
-
-```typescript
-public readonly pipelineName: string;
-```
-
-- *Type:* string
 
 ---
 

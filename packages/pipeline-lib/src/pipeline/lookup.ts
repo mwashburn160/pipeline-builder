@@ -39,13 +39,13 @@ export class Lookup extends Construct {
             timeout: Constants.DEFAULT_TIMEOUT,
             memorySize: Constants.DEFAULT_MEMORY_SIZE,
             architecture: Constants.DEFAULT_ARCHITECTURE,
-            entry: Constants.LAMBDA_ENTRY_PATH || `${__dirname}/custom-resource/index.ts`,
+            entry: `${__dirname}/custom-resource/index.ts`
         });
 
         onEventHandler.addToRolePolicy(new PolicyStatement({
             effect: Effect.ALLOW,
             actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-            resources: [`arn:aws:logs:${this.stack.region}:${this.stack.account}:log-group:/aws/lambda/${onEventHandler.functionName}:*`],
+            resources: ['*'],
         }));
 
         this._provider = new Provider(this, this._uniqueId.generate('resource-provider'), {

@@ -1,5 +1,5 @@
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
-import { PluginConfig } from '../plugin-config';
+import { PluginConfig } from '../pipeline/plugin-config';
 
 export let handler = async (event: CloudFormationCustomResourceEvent): Promise<CloudFormationCustomResourceResponse> => {
   let config: PluginConfig = {
