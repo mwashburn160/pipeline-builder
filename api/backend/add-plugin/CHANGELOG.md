@@ -1,3 +1,13 @@
+## 0.0.5 (2025-09-05)
+
+### 🩹 Fixes
+
+- projen tasks ([f0442d5](https://github.com/mwashburn160/pipeline-builder/commit/f0442d5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.4 (2025-09-05)
 
 ### 🩹 Fixes
