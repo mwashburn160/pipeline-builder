@@ -10,7 +10,7 @@ import { FunctionProject } from './projenrc/function';
 
 let branch = 'main';
 let pnpmVersion = '10.11.1';
-let esbuildVersion = '0.25.8'
+let esbuildVersion = '0.25.9'
 let constructsVersion = '10.4.2';
 let cdkVersion = '2.190.0';
 let jsiiVersion = '5.9.1';
@@ -21,8 +21,8 @@ let typeExpressVersion = '5.0.3';
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.95.2',
-  minNodeVersion: '22.15.0',
+  projenVersion: '0.95.6',
+  minNodeVersion: '24.7.0',
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
@@ -35,11 +35,11 @@ let root = new TypeScriptProject({
   release: false,
   sampleCode: false,
   devDeps: [
-    '@swc-node/core@1.13.3',
-    '@swc-node/register@1.10.10',
+    '@swc-node/core@1.14.1',
+    '@swc-node/register@1.11.1',
     `esbuild@${esbuildVersion}`,
     `constructs@${constructsVersion}`,
-    'npm-check-updates@18.0.2'
+    'npm-check-updates@18.0.3'
   ]
 });
 root.addScripts({
@@ -68,7 +68,7 @@ let lib = new AwsCdkConstructLibrary({
   typescriptVersion: typescriptVersion,
   constructsVersion: constructsVersion,
   devDeps: [
-    '@types/node@24.0.4',
+    '@types/node@24.3.1',
     '@types/aws-lambda@8.10.149',
     '@types/pg@8.15.5',
     '@types/dotenv@8.2.3',

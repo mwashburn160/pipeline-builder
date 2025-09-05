@@ -20,20 +20,20 @@
     "@nx/devkit": "^21",
     "@nx/js": "^21",
     "@nx/workspace": "^21",
-    "@swc-node/core": "1.13.3",
-    "@swc-node/register": "1.10.10",
-    "@types/node": "^22",
+    "@swc-node/core": "1.14.1",
+    "@swc-node/register": "1.11.1",
+    "@types/node": "^24",
     "constructs": "10.4.2",
-    "esbuild": "0.25.8",
-    "npm-check-updates": "18.0.2",
+    "esbuild": "0.25.9",
+    "npm-check-updates": "18.0.3",
     "nx": "^21",
-    "projen": "0.95.2",
+    "projen": "0.95.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },
   "pnpm": {},
   "engines": {
-    "node": ">= 22.15.0"
+    "node": ">= 24.7.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",

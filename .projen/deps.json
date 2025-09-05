@@ -17,17 +17,17 @@
     },
     {
       "name": "@swc-node/core",
-      "version": "1.13.3",
+      "version": "1.14.1",
       "type": "build"
     },
     {
       "name": "@swc-node/register",
-      "version": "1.10.10",
+      "version": "1.11.1",
       "type": "build"
     },
     {
       "name": "@types/node",
-      "version": "^22",
+      "version": "^24",
       "type": "build"
     },
     {
@@ -37,12 +37,12 @@
     },
     {
       "name": "esbuild",
-      "version": "0.25.8",
+      "version": "0.25.9",
       "type": "build"
     },
     {
       "name": "npm-check-updates",
-      "version": "18.0.2",
+      "version": "18.0.3",
       "type": "build"
     },
     {
@@ -52,7 +52,7 @@
     },
     {
       "name": "projen",
-      "version": "0.95.2",
+      "version": "0.95.6",
       "type": "build"
     },
     {
