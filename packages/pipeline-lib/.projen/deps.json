@@ -11,8 +11,28 @@
       "type": "build"
     },
     {
+      "name": "@types/dotenv",
+      "version": "8.2.3",
+      "type": "build"
+    },
+    {
       "name": "@types/node",
       "version": "24.0.4",
+      "type": "build"
+    },
+    {
+      "name": "@types/pg",
+      "version": "8.15.5",
+      "type": "build"
+    },
+    {
+      "name": "dotenv",
+      "version": "17.2.2",
+      "type": "build"
+    },
+    {
+      "name": "drizzle-orm",
+      "version": "0.44.5",
       "type": "build"
     },
     {
@@ -36,6 +56,11 @@
     {
       "name": "jsii",
       "version": "5.9.1",
+      "type": "build"
+    },
+    {
+      "name": "pg",
+      "version": "8.16.3",
       "type": "build"
     },
     {

@@ -46,7 +46,7 @@ root.addScripts({
   'npm-check': 'npx npm-check-updates'
 });
 
-let shared = new AwsCdkConstructLibrary({
+let lib = new AwsCdkConstructLibrary({
   parent: root,
   name: '@mwashburn160/pipeline-lib',
   outdir: './packages/pipeline-lib',
@@ -70,10 +70,15 @@ let shared = new AwsCdkConstructLibrary({
   devDeps: [
     '@types/node@24.0.4',
     '@types/aws-lambda@8.10.149',
-    '@jest/globals@29.7.0'
+    '@types/pg@8.15.5',
+    '@types/dotenv@8.2.3',
+    '@jest/globals@29.7.0',
+    'dotenv@17.2.2',
+    'pg@8.16.3',
+    'drizzle-orm@0.44.5'
   ]
 });
-shared.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
+lib.eslint?.addRules({ 'import/no-extraneous-dependencies': ['error', { 'packageDir': './', 'devDependencies': false, 'optionalDependencies': false, 'peerDependencies': false }] });
 
 new FrontEndProject({
   parent: root,

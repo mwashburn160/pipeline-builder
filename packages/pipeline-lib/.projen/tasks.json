@@ -143,7 +143,7 @@
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @jest/globals @types/aws-lambda @types/node jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii typescript aws-cdk-lib constructs"
+          "exec": "pnpm update @jest/globals @types/aws-lambda @types/dotenv @types/node @types/pg dotenv drizzle-orm jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii pg typescript aws-cdk-lib constructs"
         },
         {
           "exec": "pnpm dlx projen"

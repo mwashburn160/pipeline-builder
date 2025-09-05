@@ -29,14 +29,19 @@
   "devDependencies": {
     "@jest/globals": "29.7.0",
     "@types/aws-lambda": "8.10.149",
+    "@types/dotenv": "8.2.3",
     "@types/node": "24.0.4",
+    "@types/pg": "8.15.5",
     "aws-cdk-lib": "2.190.0",
     "constructs": "10.4.2",
+    "dotenv": "17.2.2",
+    "drizzle-orm": "0.44.5",
     "jsii": "5.9.1",
     "jsii-diff": "^1.106.0",
     "jsii-docgen": "^10.5.0",
     "jsii-pacmak": "^1.106.0",
     "jsii-rosetta": "5.9.1",
+    "pg": "8.16.3",
     "typescript": "5.9.2"
   },
   "peerDependencies": {
@@ -51,7 +56,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "0.0.7",
+  "version": "0.0.0",
   "types": "lib/index.d.ts",
   "stability": "stable",
   "jsii": {
