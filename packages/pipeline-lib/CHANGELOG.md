@@ -1,3 +1,15 @@
+## 0.0.6 (2025-09-05)
+
+### 🩹 Fixes
+
+- refactored folders ([946acf7](https://github.com/mwashburn160/pipeline-builder/commit/946acf7))
+- updated projen ([0a0fcf8](https://github.com/mwashburn160/pipeline-builder/commit/0a0fcf8))
+- general cleanup ([4b74ebf](https://github.com/mwashburn160/pipeline-builder/commit/4b74ebf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.0.5 (2025-06-26)
 
 ### 🩹 Fixes
