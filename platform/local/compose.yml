@@ -2,33 +2,41 @@ services:
   nginx:
     image: 'nginx:latest'
     container_name: nginx
+    depends_on:
+      - add-plugin
     ports:
       - '8080:80'
     volumes:
-      - './nginx.conf:/etc/nginx/nginx.conf'
-      - './api.conf:/etc/nginx/conf.d/api.conf'
+      - './nginx.conf:/etc/nginx/nginx.conf:ro'
+      - './api.conf:/etc/nginx/conf.d/api.conf:ro'
   database:
     image: 'postgres:latest'
     container_name: postgres
+    env_file:
+      - ./pipeline.config
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     ports:
       - '15432:5432'
     restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: pipeline_builder
     command: postgres -c listen_addresses='*'
     volumes:
-      - './init.sql:/docker-entrypoint-initdb.d/init.sql'
       - './db-data/:/var/lib/postgresql/data/'
+      - './init.sql:/docker-entrypoint-initdb.d/init.sql'
   pgadmin:
     image: 'dpage/pgadmin4:latest'
     container_name: pgadmin
+    env_file:
+      - ./pipeline.config
+    depends_on:
+      database:
+        condition: service_healthy
     ports:
       - '15433:80'
-    environment:
-      PGADMIN_DEFAULT_PASSWORD: password
-      PGADMIN_DEFAULT_EMAIL: mwashburn160@gmail.com
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
   add-plugin:
@@ -37,5 +45,10 @@ services:
         dockerfile: Dockerfile
       container_name: add-plugin
       privileged: true
+      depends_on:
+        database:
+          condition: service_healthy
       ports:
         - '3000:3000'
+      volumes:
+        - './pipeline.config:/app/pipeline.config'
