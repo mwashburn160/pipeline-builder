@@ -24,7 +24,7 @@ services:
       retries: 5
       start_period: 10s
     ports:
-      - '15432:5432'
+      - '5432:5432'
     restart: always
     command: postgres -c listen_addresses='*'
     volumes:
@@ -39,19 +39,18 @@ services:
       database:
         condition: service_healthy
     ports:
-      - '15433:80'
+      - '5433:80'
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
   add-plugin:
     image: add-plugin
     build:
       context: ../../api/backend/add-plugin
-      dockerfile: Dockerfile
+    env_file:
+      - ./pipeline.config
     privileged: true
     depends_on:
       database:
         condition: service_healthy
     ports:
       - '3000:3000'
-    volumes:
-      - './pipeline.config:/app/pipeline.config'
