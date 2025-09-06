@@ -70,9 +70,7 @@ let lib = new AwsCdkConstructLibrary({
     '@types/node@24.3.1',
     '@types/aws-lambda@8.10.149',
     '@types/pg@8.15.5',
-    '@types/dotenv@8.2.3',
     '@jest/globals@29.7.0',
-    'dotenv@17.2.2',
     'pg@8.16.3',
     'drizzle-orm@0.44.5'
   ]
