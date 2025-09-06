@@ -6,6 +6,7 @@ services:
       - add-plugin
     ports:
       - '8080:80'
+    restart: always
     volumes:
       - './nginx.conf:/etc/nginx/nginx.conf:ro'
       - './api.conf:/etc/nginx/conf.d/api.conf:ro'
@@ -15,7 +16,9 @@ services:
     env_file:
       - ./pipeline.config
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
+      test:
+        - CMD-SHELL
+        - pg_isready
       interval: 5s
       timeout: 5s
       retries: 5
@@ -40,15 +43,15 @@ services:
     volumes:
       - './pgadmin-data/:/var/lib/pgadmin/'
   add-plugin:
-      build:
-        context: ../../api/backend/add-plugin
-        dockerfile: Dockerfile
-      container_name: add-plugin
-      privileged: true
-      depends_on:
-        database:
-          condition: service_healthy
-      ports:
-        - '3000:3000'
-      volumes:
-        - './pipeline.config:/app/pipeline.config'
+    image: add-plugin
+    build:
+      context: ../../api/backend/add-plugin
+      dockerfile: Dockerfile
+    privileged: true
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    volumes:
+      - './pipeline.config:/app/pipeline.config'
