@@ -64,7 +64,7 @@ let lib = new PackageProject({
     `aws-cdk-lib@${cdkVersion}`,
     `express@${expressVersion}`,
     'jsonwebtoken@9.0.3',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'axios@1.13.3',
     'uuid@13.0.0'
@@ -139,7 +139,7 @@ let platform = new WebTokenProject({
     'mongoose@9.1.5',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2',
@@ -182,7 +182,7 @@ let upload_plugin = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2',
@@ -223,7 +223,7 @@ let get_plugin = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0'
   ],
@@ -259,7 +259,7 @@ let list_plugins = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0'
   ],
@@ -295,7 +295,7 @@ let create_pipeline = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'
@@ -332,7 +332,7 @@ let get_pipeline = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'
@@ -369,7 +369,7 @@ let list_pipelines = new FunctionProject({
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
     'cors@2.8.6',
-    'pg@8.17.2',
+    'pg@8.16.3',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'

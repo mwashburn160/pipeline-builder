@@ -48,7 +48,7 @@
     "helmet": "8.1.0",
     "jsonwebtoken": "9.0.3",
     "multer": "2.0.2",
-    "pg": "8.17.2",
+    "pg": "8.16.3",
     "uuid": "13.0.0",
     "yaml": "2.8.2"
   },
@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.1.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
