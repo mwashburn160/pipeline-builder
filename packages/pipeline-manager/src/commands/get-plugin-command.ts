@@ -5,50 +5,38 @@ import { assert, ERROR_CODES, handleError } from '../utils/error-handler';
 import { outputData, printInfo, printSuccess } from '../utils/output-utils';
 
 /**
- * Get plugin by name command
+ * Get plugin by ID command
  *
  * Usage:
- *   cli get-plugin --name nodejs-build
- *   cli get-plugin --name nodejs-build --version 1.0.0
+ *   cli get-plugin --id 01936f8e-8c3a-7890-b1c2-d3e4f5a6b7c8
  */
 export function get_plugin(program: Command): void {
   program
     .command('get-plugin')
-    .description('Get a single plugin by name')
-    .requiredOption('-n, --name <n>', 'Plugin name')
-    .option('--version <version>', 'Plugin version (optional)')
+    .description('Get a single plugin by ID')
+    .requiredOption('-i, --id <id>', 'Plugin ID')
     .option('-f, --format <format>', 'Output format (json, yaml, table)', 'json')
     .option('-o, --output <file>', 'Save output to file')
     .action(async (options) => {
       try {
         printInfo('Fetching plugin', {
-          name: options.name,
-          version: options.version || 'latest',
+          id: options.id,
         });
 
         // Load configuration
         const config = getConfig();
 
-        // Validate plugin name
-        assert(options.name, 'Plugin name is required', 'name');
-
-        // Build query parameters
-        const params: Record<string, string> = {
-          name: options.name,
-        };
-        if (options.version) {
-          params.version = options.version;
-        }
+        // Validate plugin ID
+        assert(options.id, 'Plugin ID is required', 'id');
 
         // Make API request
         printInfo('Sending request to API', {
-          endpoint: `${config.api.baseUrl}${config.api.pluginUrl}`,
+          endpoint: `${config.api.baseUrl}${config.api.pluginUrl}/${options.id}`,
         });
 
         const client = new ApiClient(config);
         const plugin = await client.get(
-          config.api.pluginUrl,
-          params,
+          `${config.api.pluginUrl}/${options.id}`,
         );
 
         printSuccess('Plugin retrieved successfully', {
@@ -70,8 +58,7 @@ export function get_plugin(program: Command): void {
           exit: true,
           context: {
             command: 'get-plugin',
-            name: options.name,
-            version: options.version,
+            id: options.id,
           },
         });
       }

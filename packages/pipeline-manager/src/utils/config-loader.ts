@@ -26,17 +26,27 @@ export interface Config {
 
 /**
  * Default configuration
+ * 
+ * IMPORTANT: These URLs must match the nginx routes:
+ * - GET /api/pipeline/:id -> Get single pipeline
+ * - GET /api/pipelines -> List pipelines
+ * - POST /api/pipeline -> Create pipeline
+ * - GET /api/plugin/:id -> Get single plugin (NOTE: requires ID in path, not query)
+ * - GET /api/plugins -> List plugins
+ * - POST /api/plugin/upload -> Upload plugin
  */
 const defaultConfig: Config = {
   api: {
-    baseUrl: 'https://localhost:8443/',
+    baseUrl: 'https://localhost:8443',
     timeout: 30000,
-    pipelineUrl: '/pipeline',
-    pipelineListUrl: '/pipelines',
-    pluginUrl: '/plugin',
-    pluginListUrl: '/plugins',
-    pipelinePostUrl: '/pipeline',
-    pluginUploadUrl: '/plugin/upload',
+    // Query endpoints (these need IDs appended or query params)
+    pipelineUrl: '/api/pipeline',        // Use as: /api/pipeline/:id
+    pipelineListUrl: '/api/pipelines',   // Use as: /api/pipelines?filters
+    pluginUrl: '/api/plugin',            // Use as: /api/plugin/:id (NOT /api/plugin?name=x)
+    pluginListUrl: '/api/plugins',       // Use as: /api/plugins?filters
+    // Create/Upload endpoints
+    pipelinePostUrl: '/api/pipeline',
+    pluginUploadUrl: '/api/plugin/upload',
   },
   auth: {
     token: '',
