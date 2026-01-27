@@ -15,7 +15,7 @@ let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 let expressVersion = '5.2.1'
 let cdkVersion = '2.236.0';
-let libVersion = '0.1.4';
+let libVersion = '0.1.6';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',

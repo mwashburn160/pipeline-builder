@@ -63,7 +63,7 @@ export class Config {
             : '*',
         },
         trustProxy: process.env.TRUST_PROXY || '0',
-        platformUrl: process.env.PLATFORM_URL || 'https://localhost:8443'
+        platformUrl: process.env.PLATFORM_URL || 'https://localhost:8443',
       },
       auth: {
         jwt: {
