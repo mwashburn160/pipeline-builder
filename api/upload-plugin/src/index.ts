@@ -157,14 +157,14 @@ const getOrgId = (req: TypedRequest): string | undefined => {
  * - If accessModifier is 'public', returns 'system' (public plugin)
  * - If accessModifier is 'private' or undefined, returns the user's orgId
  */
-function getEffectiveOrgId(accessModifier: 'public' | 'private', userOrgId: string): string {
+function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string): string {
   switch (accessModifier) {
     case 'public':
       return 'system';
 
     case 'private':
     default:
-      return userOrgId.toLowerCase();
+      return orgId.toLowerCase();
   }
 }
 

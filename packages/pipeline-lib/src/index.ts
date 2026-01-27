@@ -2,7 +2,6 @@ export * from './custom-resource/index';
 export * from './db/connection';
 export * from './db/props-filters';
 export * from './db/schema';
-export * from './express/request-helper';
 export * from './express/sse-manager';
 export * from './pipeline/unique-id';
 export * from './pipeline/builder';

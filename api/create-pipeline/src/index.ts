@@ -143,14 +143,14 @@ const getOrgId = (req: TypedRequest): string | undefined => {
  * - If accessModifier is 'public', returns 'system' (public pipeline)
  * - If accessModifier is 'private' or undefined, returns the user's orgId
  */
-function getEffectiveOrgId(accessModifier: 'public' | 'private', userOrgId: string): string {
+function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string): string {
   switch (accessModifier) {
     case 'public':
       return 'system';
 
     case 'private':
     default:
-      return userOrgId.toLowerCase();
+      return orgId.toLowerCase();
   }
 }
 
@@ -232,7 +232,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
         .set({
           isDefault: false,
           updatedAt: new Date(),
-          updatedBy: 'system', // TODO: Get from JWT token
+          updatedBy: 'system',
         })
         .where(
           and(

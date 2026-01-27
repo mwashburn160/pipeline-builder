@@ -115,7 +115,7 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 
 /**
  * Builds SQL conditions from plugin filter and orgId
- * 
+ *
  * NEW BEHAVIOR:
  * - If accessModifier is explicitly set to 'public', only return system records
  * - If accessModifier is set to 'private', only return orgId records
@@ -128,8 +128,8 @@ function buildConditions(pluginFilter: Partial<PluginFilter>, orgId: string): SQ
   // Determine access modifier behavior
   const accessModifier = pluginFilter.accessModifier !== undefined
     ? (typeof pluginFilter.accessModifier === 'string'
-        ? pluginFilter.accessModifier.toLowerCase()
-        : String(pluginFilter.accessModifier).toLowerCase())
+      ? pluginFilter.accessModifier.toLowerCase()
+      : String(pluginFilter.accessModifier).toLowerCase())
     : undefined;
 
   // Organization filter logic using switch/case
@@ -138,20 +138,20 @@ function buildConditions(pluginFilter: Partial<PluginFilter>, orgId: string): SQ
       // Explicitly requesting public records only
       conditions.push(eq(schema.plugin.orgId, 'system'));
       break;
-    
+
     case 'private':
       // Explicitly requesting private records only
       conditions.push(eq(schema.plugin.orgId, normalizedOrgId));
       break;
-    
+
     default:
       // No accessModifier specified OR other value
       // Return both organization records AND public (system) records
       conditions.push(
         or(
           eq(schema.plugin.orgId, normalizedOrgId),
-          eq(schema.plugin.orgId, 'system')
-        )!
+          eq(schema.plugin.orgId, 'system'),
+        )!,
       );
       break;
   }
@@ -218,7 +218,7 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 /**
  * Query plugins with filters
  * GET /?name=nodejs-build&version=1.0.0
- * 
+ *
  * NEW BEHAVIOR:
  * - GET / returns all plugins for orgId + public plugins
  * - GET /?accessModifier=public returns only public plugins
@@ -245,9 +245,9 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       });
     }
 
-    log('INFO', 'Organization ID validated', { 
-      orgId, 
-      accessModifier: pluginFilter.accessModifier || 'not specified (will return org + public)' 
+    log('INFO', 'Organization ID validated', {
+      orgId,
+      accessModifier: pluginFilter.accessModifier || 'not specified (will return org + public)',
     });
 
     // Validate filter
@@ -266,11 +266,11 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       filterCount: where.length,
       filters: pluginFilter,
       orgId,
-      behavior: pluginFilter.accessModifier === 'public' 
+      behavior: pluginFilter.accessModifier === 'public'
         ? 'public only'
         : pluginFilter.accessModifier === 'private'
-        ? 'private only'
-        : 'org + public'
+          ? 'private only'
+          : 'org + public',
     });
 
     const [result] = await db
@@ -284,9 +284,9 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       return res.status(404).json({ message: 'Plugin not found.' });
     }
 
-    log('COMPLETED', 'Successfully retrieved plugin', { 
-      id: result.id, 
-      orgId: result.orgId 
+    log('COMPLETED', 'Successfully retrieved plugin', {
+      id: result.id,
+      orgId: result.orgId,
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -302,7 +302,7 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
 /**
  * Get plugin by ID
  * GET /:id
- * 
+ *
  * NEW BEHAVIOR:
  * - Returns plugin if it belongs to orgId OR is public (system)
  */
@@ -342,7 +342,7 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
     log('INFO', 'Executing database query', {
       id,
       orgId,
-      behavior: 'org + public'
+      behavior: 'org + public',
     });
 
     const [result] = await db
@@ -355,9 +355,9 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
       return res.status(404).json({ message: 'Plugin not found.' });
     }
 
-    log('COMPLETED', 'Successfully retrieved plugin', { 
-      id: result.id, 
-      orgId: result.orgId 
+    log('COMPLETED', 'Successfully retrieved plugin', {
+      id: result.id,
+      orgId: result.orgId,
     });
     return res.status(200).json(result);
   } catch (error) {
