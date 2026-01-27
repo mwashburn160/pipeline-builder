@@ -1,3 +1,14 @@
+## 0.1.4 (2026-01-27)
+
+### 🩹 Fixes
+
+- updated where clause ([cf95999](https://github.com/mwashburn160/pipeline-builder/commit/cf95999))
+- added metrics ([d3a0533](https://github.com/mwashburn160/pipeline-builder/commit/d3a0533))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.3 (2026-01-27)
 
 ### 🩹 Fixes
