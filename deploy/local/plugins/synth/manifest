@@ -1,0 +1,24 @@
+name: synth
+description: >-
+  pipeline automatically updates itself when changes are made to the pipeline
+  definition
+version: 1.0.0
+metadata:
+  crossAccountKeys: false
+  dockerEnabledForSelfMutation: false
+  enableKeyRotation: false
+  publishAssetsInParallel: false
+  reuseCrossRegionSupportStacks: false
+  selfMutation: true
+  useChangeSets: false
+  usePipelineRoleForActions: false
+pluginType: CodeBuildStep
+computeType: SMALL
+dockerfile: ./Dockerfile
+privileged: false
+env:
+installCommands: []
+commands:
+  - npm install --omit=dev
+  - npm run build
+  - npx cdk synth

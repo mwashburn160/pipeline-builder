@@ -1,0 +1,31 @@
+{
+  "keywords": ["aws"],
+  "accessModifier": "private",
+  "props": {
+    "project": "TestProject",
+    "organization": "Acme Corp",
+    "pipelineName": "TestPipeline",
+    "global": {},
+    "synth": {
+      "source": {
+        "type": "codestar",
+        "options": {
+          "repo": "mwashburn160/pipeline-builder",
+          "branch": "main",
+          "connectionArn": "arn:aws:codestar-connections:us-east-1:123456789012:connection/abcd1234-ef56-7890-ab12-cd34ef56gh78",
+          "triggerOnPush": true,
+          "codeBuildCloneOutput": true
+        }
+      },
+      "plugin": {
+        "name": "synth",
+        "alias": "synth-alias",
+        "filter": {
+          "name": "synth",
+          "isDefault": true
+        },
+        "metadata": {}
+      }
+    }
+  }
+}

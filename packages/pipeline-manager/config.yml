@@ -1,0 +1,183 @@
+# ============================================================================
+# Pipeline Manager CLI Configuration
+# ============================================================================
+# This file configures the CLI to connect to your Pipeline Manager API.
+# Save this file as 'cli-config.yaml' in your project directory.
+#
+# REQUIRED: PLATFORM_TOKEN environment variable must be set
+# OPTIONAL: PLATFORM_URL environment variable can override api.baseUrl
+# ============================================================================
+
+api:
+  # Base URL - Can be overridden by PLATFORM_URL environment variable
+  # If PLATFORM_URL is not set, this value will be used
+  # Default:  https://localhost:8443
+  baseUrl:  https://localhost:8443
+  
+  # Request timeout in milliseconds
+  timeout: 30000
+  
+  # API Endpoints
+  pipelineUrl: /pipeline
+  pipelineListUrl: /pipelines
+  pluginUrl: /plugin
+  pluginListUrl: /plugins
+  pipelinePostUrl: /pipeline
+  pluginUploadUrl: /plugin/upload
+
+auth:
+  # Token field is NOT used - kept for backward compatibility
+  # PLATFORM_TOKEN environment variable is REQUIRED
+  token: not-used-see-environment-variable
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+#
+# PLATFORM_TOKEN (REQUIRED)
+#   JWT authentication token
+#   Must be set before running any CLI commands
+#   Example: export PLATFORM_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+#
+# PLATFORM_URL (OPTIONAL)
+#   API base URL - overrides api.baseUrl in this file
+#   Example: export PLATFORM_URL=https://api.example.com
+#
+# CLI_CONFIG_PATH (OPTIONAL)
+#   Custom path to this config file
+#   Example: export CLI_CONFIG_PATH=/path/to/custom-config.yaml
+
+# ============================================================================
+# Quick Start
+# ============================================================================
+#
+# 1. Set required environment variable:
+#    export PLATFORM_TOKEN=your-jwt-token-here
+#
+# 2. (Optional) Override base URL:
+#    export PLATFORM_URL=https://api.example.com
+#
+# 3. Run CLI commands:
+#    cli list-pipelines
+#    cli get-pipeline --id pipeline-123
+
+# ============================================================================
+# Configuration Priority
+# ============================================================================
+#
+# For Token (REQUIRED):
+#   1. PLATFORM_TOKEN environment variable (always used)
+#   2. Error if not set
+#
+# For Base URL (OPTIONAL):
+#   1. PLATFORM_URL environment variable (if set)
+#   2. api.baseUrl in this file
+#   3. Default:  https://localhost:8443
+
+# ============================================================================
+# Environment Examples
+# ============================================================================
+
+# Local Development:
+#   export PLATFORM_TOKEN=dev-token-123456
+#   export PLATFORM_URL= https://localhost:8443  # optional
+#   cli list-pipelines
+
+# Staging:
+#   export PLATFORM_TOKEN=staging-jwt-token
+#   export PLATFORM_URL=https://staging-api.example.com
+#   cli list-pipelines
+
+# Production:
+#   export PLATFORM_TOKEN=prod-jwt-token
+#   export PLATFORM_URL=https://api.example.com
+#   cli deploy --id pipeline-123
+
+# ============================================================================
+# CI/CD Integration
+# ============================================================================
+
+# GitHub Actions:
+#   - name: Deploy Pipeline
+#     env:
+#       PLATFORM_TOKEN: ${{ secrets.PLATFORM_TOKEN }}
+#       PLATFORM_URL: ${{ secrets.PLATFORM_URL }}
+#     run: cli create-pipeline -p my-app -o acme -f pipeline.json
+
+# GitLab CI:
+#   deploy:
+#     variables:
+#       PLATFORM_TOKEN: $PLATFORM_TOKEN
+#       PLATFORM_URL: $PLATFORM_URL
+#     script:
+#       - cli create-pipeline -p my-app -o acme -f pipeline.json
+
+# Jenkins:
+#   environment {
+#     PLATFORM_TOKEN = credentials('platform-token')
+#     PLATFORM_URL = credentials('platform-url')
+#   }
+
+# Docker:
+#   docker run -e PLATFORM_TOKEN=your-token \
+#              -e PLATFORM_URL=https://api.example.com \
+#              pipeline-cli list-pipelines
+
+# ============================================================================
+# Secret Management
+# ============================================================================
+
+# AWS Secrets Manager:
+#   export PLATFORM_TOKEN=$(aws secretsmanager get-secret-value \
+#     --secret-id platform-token \
+#     --query SecretString \
+#     --output text)
+
+# HashiCorp Vault:
+#   export PLATFORM_TOKEN=$(vault kv get -field=token secret/platform)
+
+# Azure Key Vault:
+#   export PLATFORM_TOKEN=$(az keyvault secret show \
+#     --name platform-token \
+#     --vault-name my-vault \
+#     --query value -o tsv)
+
+# Google Secret Manager:
+#   export PLATFORM_TOKEN=$(gcloud secrets versions access latest \
+#     --secret=platform-token)
+
+# ============================================================================
+# Security Best Practices
+# ============================================================================
+#
+# 1. Never commit PLATFORM_TOKEN to version control
+# 2. Add this file to .gitignore if it contains sensitive data
+# 3. Use different tokens for dev/staging/prod
+# 4. Rotate tokens regularly
+# 5. Use secret management systems in production
+# 6. Limit token permissions to minimum required
+# 7. Set token expiration dates
+
+# ============================================================================
+# Troubleshooting
+# ============================================================================
+
+# PLATFORM_TOKEN not set:
+#   Error: PLATFORM_TOKEN environment variable is required
+#   Solution: export PLATFORM_TOKEN=your-token
+
+# Check environment variables:
+#   echo $PLATFORM_TOKEN
+#   echo $PLATFORM_URL
+#   env | grep PLATFORM
+
+# Verify token is valid:
+#   curl -H "Authorization: Bearer $PLATFORM_TOKEN" \
+#        $PLATFORM_URL/health
+
+# Test configuration:
+#   cli version --verbose
+
+# For more help:
+#   cli --help
+#   cli <command> --help

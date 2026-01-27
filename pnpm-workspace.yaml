@@ -2,3 +2,11 @@
 
 packages:
   - packages/pipeline-lib
+  - packages/pipeline-manager
+  - platform
+  - api/upload-plugin
+  - api/get-plugin
+  - api/list-plugins
+  - api/create-pipeline
+  - api/get-pipeline
+  - api/list-pipelines
