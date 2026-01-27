@@ -115,7 +115,7 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 
 /**
  * Builds SQL conditions from pipeline filter and orgId
- *
+ * 
  * NEW BEHAVIOR:
  * - If accessModifier is explicitly set to 'public', only return system records
  * - If accessModifier is set to 'private', only return orgId records
@@ -128,8 +128,8 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
   // Determine access modifier behavior
   const accessModifier = pipelineFilter.accessModifier !== undefined
     ? (typeof pipelineFilter.accessModifier === 'string'
-      ? pipelineFilter.accessModifier.toLowerCase()
-      : String(pipelineFilter.accessModifier).toLowerCase())
+        ? pipelineFilter.accessModifier.toLowerCase()
+        : String(pipelineFilter.accessModifier).toLowerCase())
     : undefined;
 
   // Organization filter logic using switch/case
@@ -138,20 +138,20 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
       // Explicitly requesting public records only
       conditions.push(eq(schema.pipeline.organization, 'system'));
       break;
-
+    
     case 'private':
       // Explicitly requesting private records only
       conditions.push(eq(schema.pipeline.organization, normalizedOrgId));
       break;
-
+    
     default:
       // No accessModifier specified OR other value
       // Return both organization records AND public (system) records
       conditions.push(
         or(
           eq(schema.pipeline.organization, normalizedOrgId),
-          eq(schema.pipeline.organization, 'system'),
-        )!,
+          eq(schema.pipeline.organization, 'system')
+        )!
       );
       break;
   }
@@ -210,7 +210,7 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 /**
  * Query pipelines with filters (returns multiple results)
  * GET /?project=my-app&organization=my-org
- *
+ * 
  * NEW BEHAVIOR:
  * - GET / returns all pipelines for orgId + public pipelines
  * - GET /?accessModifier=public returns only public pipelines
@@ -237,9 +237,9 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       });
     }
 
-    log('INFO', 'Organization ID validated', {
-      orgId,
-      accessModifier: pipelineFilter.accessModifier || 'not specified (will return org + public)',
+    log('INFO', 'Organization ID validated', { 
+      orgId, 
+      accessModifier: pipelineFilter.accessModifier || 'not specified (will return org + public)' 
     });
 
     // Validate filter
@@ -258,11 +258,11 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       filterCount: where.length,
       filters: pipelineFilter,
       orgId,
-      behavior: pipelineFilter.accessModifier === 'public'
+      behavior: pipelineFilter.accessModifier === 'public' 
         ? 'public only'
         : pipelineFilter.accessModifier === 'private'
-          ? 'private only'
-          : 'org + public',
+        ? 'private only'
+        : 'org + public'
     });
 
     // Apply limit from filter or use default
@@ -285,11 +285,11 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       });
     }
 
-    log('COMPLETED', 'Successfully retrieved pipelines', {
+    log('COMPLETED', 'Successfully retrieved pipelines', { 
       count: results.length,
-      organizations: [...new Set(results.map(r => r.organization))],
+      organizations: [...new Set(results.map(r => r.organization))]
     });
-
+    
     return res.status(200).json({
       message: 'Pipelines retrieved successfully',
       data: results,

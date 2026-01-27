@@ -151,6 +151,24 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 };
 
 /**
+ * Determine effective organization ID based on access modifier
+ *
+ * BEHAVIOR:
+ * - If accessModifier is 'public', returns 'system' (public plugin)
+ * - If accessModifier is 'private' or undefined, returns the user's orgId
+ */
+function getEffectiveOrgId(accessModifier: 'public' | 'private', userOrgId: string): string {
+  switch (accessModifier) {
+    case 'public':
+      return 'system';
+
+    case 'private':
+    default:
+      return userOrgId.toLowerCase();
+  }
+}
+
+/**
  * Upload and deploy plugin
  * POST /
  *
@@ -160,6 +178,10 @@ const getOrgId = (req: TypedRequest): string | undefined => {
  * - source code and dependencies
  *
  * Builds Docker image and pushes to registry
+ *
+ * ACCESS CONTROL:
+ * - accessModifier='public' creates plugin with orgId='system' (public, accessible to all)
+ * - accessModifier='private' or undefined creates plugin with user's orgId (private, org-only)
  */
 app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedRequest, res: Response) => {
   const requestId = uuid();
@@ -193,10 +215,14 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
 
     const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
 
-    // For public plugins, use 'system' as orgId, otherwise use the provided orgId
-    const effectiveOrgId = accessModifier === 'public' ? 'system' : orgId;
+    // Determine effective organization ID using switch/case pattern
+    const effectiveOrgId = getEffectiveOrgId(accessModifier, orgId);
 
-    log('INFO', 'Access policy set', { accessModifier, effectiveOrgId });
+    log('INFO', 'Access policy determined', {
+      accessModifier,
+      effectiveOrgId,
+      behavior: accessModifier === 'public' ? 'public (system)' : 'private (org-specific)',
+    });
 
     zipPath = req.file.path;
     log('INFO', 'Upload received', {
@@ -276,16 +302,23 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       name: manifest.name,
       version: manifest.version,
       orgId: effectiveOrgId,
+      accessModifier,
     });
+
     const result = await db.transaction(async (tx) => {
       // Unset current default for this plugin name
-      await tx
+      const updateResult = await tx
         .update(schema.plugin)
         .set({
           isDefault: false,
           updatedAt: new Date(),
         })
         .where(eq(schema.plugin.name, manifest.name));
+
+      log('INFO', 'Unmarked previous default plugins', {
+        pluginName: manifest.name,
+        affected: updateResult ? 'success' : 'none',
+      });
 
       // Insert new plugin as default
       const [inserted] = await tx
@@ -308,14 +341,22 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
         })
         .returning();
 
+      log('INFO', 'New plugin created in database', {
+        id: inserted.id,
+        orgId: effectiveOrgId,
+        accessModifier: inserted.accessModifier,
+      });
+
       return inserted;
     });
 
-    log('COMPLETED', 'Plugin deployed', {
+    log('COMPLETED', 'Plugin deployed successfully', {
       id: result.id,
       name: result.name,
       version: result.version,
       orgId: effectiveOrgId,
+      accessModifier: result.accessModifier,
+      imageTag: result.imageTag,
     });
 
     return res.status(201).json({
@@ -327,6 +368,9 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       accessModifier: result.accessModifier,
       isDefault: result.isDefault,
       isActive: result.isActive,
+      message: accessModifier === 'public'
+        ? 'Public plugin deployed successfully (accessible to all organizations)'
+        : `Private plugin deployed successfully (accessible to ${orgId} only)`,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

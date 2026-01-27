@@ -137,11 +137,33 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 };
 
 /**
+ * Determine effective organization ID based on access modifier
+ *
+ * BEHAVIOR:
+ * - If accessModifier is 'public', returns 'system' (public pipeline)
+ * - If accessModifier is 'private' or undefined, returns the user's orgId
+ */
+function getEffectiveOrgId(accessModifier: 'public' | 'private', userOrgId: string): string {
+  switch (accessModifier) {
+    case 'public':
+      return 'system';
+
+    case 'private':
+    default:
+      return userOrgId.toLowerCase();
+  }
+}
+
+/**
  * Create or update pipeline configuration
  * POST /
  *
  * Creates a new pipeline or updates existing one. Sets the new pipeline as default
  * and marks all other pipelines for the same project/org as non-default.
+ *
+ * ACCESS CONTROL:
+ * - accessModifier='public' creates pipeline with organization='system' (public)
+ * - accessModifier='private' or undefined creates pipeline with user's organization (private)
  */
 app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
   const requestId = uuid();
@@ -191,16 +213,21 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
       });
     }
 
-    // For public pipelines, use 'system' as orgId, otherwise use the provided orgId
-    const effectiveOrgId = accessModifier === 'public' ? 'system' : orgId;
+    // Determine effective organization ID using switch/case pattern
+    const effectiveOrgId = getEffectiveOrgId(accessModifier, orgId);
 
-    log('INFO', 'Access policy set', { accessModifier, effectiveOrgId });
+    log('INFO', 'Access policy determined', {
+      accessModifier,
+      effectiveOrgId,
+      behavior: accessModifier === 'public' ? 'public (system)' : 'private (org-specific)',
+    });
+
     log('INFO', 'Starting database transaction');
 
     // Use transaction to ensure atomicity
     const result = await db.transaction(async (tx) => {
       // Unset current default pipeline(s) for this project/org
-      await tx
+      const updateResult = await tx
         .update(schema.pipeline)
         .set({
           isDefault: false,
@@ -215,7 +242,9 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
           ),
         );
 
-      log('INFO', 'Unmarked previous default pipelines');
+      log('INFO', 'Unmarked previous default pipelines', {
+        affected: updateResult ? 'success' : 'none',
+      });
 
       // Insert new pipeline as default
       const [inserted] = await tx
@@ -231,7 +260,11 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
         })
         .returning();
 
-      log('INFO', 'New pipeline created', { id: inserted.id, orgId: effectiveOrgId });
+      log('INFO', 'New pipeline created', {
+        id: inserted.id,
+        orgId: effectiveOrgId,
+        accessModifier: inserted.accessModifier,
+      });
 
       return inserted;
     });
@@ -241,6 +274,8 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
       project: result.project,
       organization: result.organization,
       orgId: effectiveOrgId,
+      accessModifier: result.accessModifier,
+      isDefault: result.isDefault,
     });
 
     return res.status(201).json({
@@ -252,6 +287,9 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
       isDefault: result.isDefault,
       isActive: result.isActive,
       createdAt: result.createdAt,
+      message: accessModifier === 'public'
+        ? 'Public pipeline created successfully (accessible to all organizations)'
+        : `Private pipeline created successfully (accessible to ${orgId} only)`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
