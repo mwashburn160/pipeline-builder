@@ -1,3 +1,13 @@
+## 0.1.7 (2026-01-27)
+
+### 🩹 Fixes
+
+- upgraded lib to 0.1.8 ([d36069b](https://github.com/mwashburn160/pipeline-builder/commit/d36069b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.6 (2026-01-27)
 
 ### 🩹 Fixes
