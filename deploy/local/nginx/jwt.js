@@ -45,7 +45,7 @@ function verify_token(r, token) {
     var dataToVerify = parts[0] + '.' + parts[1];
     var hmac = crypto.createHmac('sha256', secret);
     hmac.update(dataToVerify);
-    
+
     return hmac.digest('base64url') === parts[2];
 }
 
@@ -61,14 +61,14 @@ function validate_timing(r, payload) {
  */
 function get_org_id(r) {
     var payload = get_payload(r);
-    if (!payload) return "";
+    if (!payload) return undefined;
     var orgId = payload.organizationId || payload.orgId || payload.org_id || payload.organization || "";
     return orgId.toString();
 }
 
 function get_user_id(r) {
     var payload = get_payload(r);
-    if (!payload || !payload.sub) return "";
+    if (!payload || !payload.sub) return undefined;
     return payload.sub.toString();
 }
 
