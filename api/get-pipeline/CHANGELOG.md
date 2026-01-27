@@ -1,3 +1,13 @@
+## 0.1.8 (2026-01-27)
+
+### 🩹 Fixes
+
+- refactored getOrgId to getIddentity ([8006763](https://github.com/mwashburn160/pipeline-builder/commit/8006763))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.7 (2026-01-27)
 
 ### 🩹 Fixes
