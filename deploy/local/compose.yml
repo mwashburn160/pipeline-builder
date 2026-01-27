@@ -268,7 +268,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.8'
+    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.9'
     container_name: upload-plugin
     privileged: true
     depends_on:
@@ -311,7 +311,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.8'
+    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.9'
     container_name: create-pipeline
     depends_on:
       postgres:
