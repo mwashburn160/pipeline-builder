@@ -10,12 +10,10 @@ export interface Config {
   api: {
     baseUrl: string;
     timeout?: number;
-    // Query endpoints
     pipelineUrl: string;
     pipelineListUrl: string;
     pluginUrl: string;
     pluginListUrl: string;
-    // Create/Upload endpoints
     pipelinePostUrl: string;
     pluginUploadUrl: string;
   };
@@ -39,18 +37,16 @@ const defaultConfig: Config = {
   api: {
     baseUrl: 'https://localhost:8443',
     timeout: 30000,
-    // Query endpoints (these need IDs appended or query params)
-    pipelineUrl: '/api/pipeline', // Use as: /api/pipeline/:id
-    pipelineListUrl: '/api/pipelines', // Use as: /api/pipelines?filters
-    pluginUrl: '/api/plugin', // Use as: /api/plugin/:id (NOT /api/plugin?name=x)
-    pluginListUrl: '/api/plugins', // Use as: /api/plugins?filters
-    // Create/Upload endpoints
+    pipelineUrl: '/api/pipeline',
+    pipelineListUrl: '/api/pipelines',
+    pluginUrl: '/api/plugin',
+    pluginListUrl: '/api/plugins',
     pipelinePostUrl: '/api/pipeline',
     pluginUploadUrl: '/api/plugin/upload',
   },
   auth: {
-    token: '',
-  },
+    token: ''
+  }
 };
 
 /**
