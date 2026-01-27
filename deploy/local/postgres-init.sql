@@ -49,8 +49,7 @@ CREATE TABLE IF NOT EXISTS plugins (
     -- Build Configuration
     plugin_type         VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
     compute_type        VARCHAR(20) NOT NULL DEFAULT 'SMALL',
-    privileged          BOOLEAN NOT NULL DEFAULT false,
-    dockerfile          VARCHAR(100),
+    dockerfile          TEXT,
     
     -- Runtime Configuration
     env                 JSONB NOT NULL DEFAULT '{}',

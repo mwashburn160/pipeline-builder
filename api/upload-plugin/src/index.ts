@@ -260,7 +260,28 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
 
     // Generate image tag
     const imageTag = `p-${manifest.name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
-    const dockerfile = manifest.dockerfile || 'Dockerfile';
+    const dockerfileName = manifest.dockerfile || 'Dockerfile';
+
+    // Read dockerfile content for database storage (after ZIP extraction)
+    const dockerfilePath = path.join(destinationDir, dockerfileName);
+    let dockerfileContent: string | null = null;
+    try {
+      if (fs.existsSync(dockerfilePath)) {
+        dockerfileContent = fs.readFileSync(dockerfilePath, 'utf-8');
+        log('INFO', 'Dockerfile content read successfully', {
+          path: dockerfilePath,
+          sizeBytes: dockerfileContent.length,
+        });
+      } else {
+        log('INFO', 'Dockerfile not found at expected path', {
+          expectedPath: dockerfilePath,
+        });
+      }
+    } catch (readErr) {
+      log('INFO', 'Failed to read Dockerfile content', {
+        error: readErr instanceof Error ? readErr.message : String(readErr),
+      });
+    }
 
     // Get registry config
     const registry = config.registry;
@@ -278,8 +299,8 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     );
     log('INFO', 'Docker login successful');
 
-    log('INFO', 'Starting Docker build', { dockerfile, context: '.' });
-    execSync(`docker build -f ${dockerfile} -t plugin:${imageTag} .`, { stdio: 'inherit' });
+    log('INFO', 'Starting Docker build', { dockerfile: dockerfileName, context: '.' });
+    execSync(`docker build -f ${dockerfileName} -t plugin:${imageTag} .`, { stdio: 'inherit' });
     log('INFO', 'Docker build completed successfully');
 
     log('INFO', 'Tagging image for registry', { localTag: `plugin:${imageTag}`, fullImage });
@@ -324,6 +345,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
           metadata: manifest.metadata || {},
           pluginType: (manifest.pluginType || 'CodeBuildStep') as any,
           computeType: (manifest.computeType || 'SMALL') as any,
+          dockerfile: dockerfileContent,
           env: manifest.env || {},
           installCommands: manifest.installCommands || [],
           commands: manifest.commands,
