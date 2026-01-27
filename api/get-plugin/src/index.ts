@@ -1,6 +1,6 @@
 import { Config, db, getConnection, PluginFilter, schema, SSEEventType, SSEManager, validatePluginFilter } from '@mwashburn160/pipeline-lib';
 import cors from 'cors';
-import { and, eq, sql, SQL } from 'drizzle-orm';
+import { and, eq, or, sql, SQL } from 'drizzle-orm';
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
@@ -115,28 +115,58 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 
 /**
  * Builds SQL conditions from plugin filter and orgId
+ *
+ * NEW BEHAVIOR:
+ * - If accessModifier is explicitly set to 'public', only return system records
+ * - If accessModifier is set to 'private', only return orgId records
+ * - If accessModifier is NOT set, return both orgId records AND system (public) records
  */
 function buildConditions(pluginFilter: Partial<PluginFilter>, orgId: string): SQL[] {
   const conditions: SQL[] = [];
+  const normalizedOrgId = orgId.toLowerCase();
 
-  // Check if accessModifier is set to 'public'
-  const isPublicAccess = pluginFilter.accessModifier !== undefined &&
-    (typeof pluginFilter.accessModifier === 'string'
-      ? pluginFilter.accessModifier.toLowerCase() === 'public'
-      : String(pluginFilter.accessModifier).toLowerCase() === 'public');
+  // Determine access modifier behavior
+  const accessModifier = pluginFilter.accessModifier !== undefined
+    ? (typeof pluginFilter.accessModifier === 'string'
+      ? pluginFilter.accessModifier.toLowerCase()
+      : String(pluginFilter.accessModifier).toLowerCase())
+    : undefined;
 
-  // If public access, use 'system' as orgId, otherwise use provided orgId
-  const effectiveOrgId = isPublicAccess ? 'system' : orgId;
-  conditions.push(eq(schema.plugin.orgId, effectiveOrgId));
+  // Organization filter logic using switch/case
+  switch (accessModifier) {
+    case 'public':
+      // Explicitly requesting public records only
+      conditions.push(eq(schema.plugin.orgId, 'system'));
+      break;
 
+    case 'private':
+      // Explicitly requesting private records only
+      conditions.push(eq(schema.plugin.orgId, normalizedOrgId));
+      break;
+
+    default:
+      // No accessModifier specified OR other value
+      // Return both organization records AND public (system) records
+      conditions.push(
+        or(
+          eq(schema.plugin.orgId, normalizedOrgId),
+          eq(schema.plugin.orgId, 'system'),
+        )!,
+      );
+      break;
+  }
+
+  // Other filters
   if (pluginFilter.id !== undefined) {
     conditions.push(eq(schema.plugin.id, pluginFilter.id as string));
   }
 
   if (pluginFilter.orgId !== undefined) {
-    // This will create an AND condition with the orgId condition above
-    // Only useful if you want to allow filtering by orgId within the user's scope
-    conditions.push(eq(schema.plugin.orgId, pluginFilter.orgId as string));
+    // Allow explicit orgId filtering
+    const value = typeof pluginFilter.orgId === 'string'
+      ? pluginFilter.orgId.toLowerCase()
+      : pluginFilter.orgId;
+    conditions.push(eq(schema.plugin.orgId, value as string));
   }
 
   if (pluginFilter.name !== undefined) {
@@ -169,10 +199,7 @@ function buildConditions(pluginFilter: Partial<PluginFilter>, orgId: string): SQ
   }
 
   if (pluginFilter.accessModifier !== undefined) {
-    const value = typeof pluginFilter.accessModifier === 'string'
-      ? pluginFilter.accessModifier.toLowerCase()
-      : String(pluginFilter.accessModifier).toLowerCase();
-    conditions.push(sql`${schema.plugin.accessModifier} = ${value}`);
+    conditions.push(sql`${schema.plugin.accessModifier} = ${accessModifier}`);
   }
 
   return conditions;
@@ -191,6 +218,11 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 /**
  * Query plugins with filters
  * GET /?name=nodejs-build&version=1.0.0
+ *
+ * NEW BEHAVIOR:
+ * - GET / returns all plugins for orgId + public plugins
+ * - GET /?accessModifier=public returns only public plugins
+ * - GET /?accessModifier=private returns only org-specific plugins
  */
 app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilter>>, res: Response) => {
   const requestId = uuid();
@@ -203,26 +235,20 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
 
   try {
     const pluginFilter = req.query;
-
-    // Check if this is a public access request
-    const isPublicAccess = pluginFilter.accessModifier !== undefined &&
-      (typeof pluginFilter.accessModifier === 'string'
-        ? pluginFilter.accessModifier.toLowerCase() === 'public'
-        : String(pluginFilter.accessModifier).toLowerCase() === 'public');
-
     const orgId = getOrgId(req);
 
-    // Validate that orgId is present only if not public access
-    if (!isPublicAccess && !orgId) {
+    // orgId is required for authenticated requests
+    if (!orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    // Use 'system' for public access, actual orgId otherwise
-    const effectiveOrgId = isPublicAccess ? 'system' : orgId!;
-    log('INFO', 'Organization ID validated', { orgId: effectiveOrgId, isPublicAccess });
+    log('INFO', 'Organization ID validated', {
+      orgId,
+      accessModifier: pluginFilter.accessModifier || 'not specified (will return org + public)',
+    });
 
     // Validate filter
     try {
@@ -234,12 +260,17 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       });
     }
 
-    const where = buildConditions(pluginFilter, effectiveOrgId);
+    const where = buildConditions(pluginFilter, orgId);
 
     log('INFO', 'Executing database query', {
       filterCount: where.length,
       filters: pluginFilter,
-      orgId: effectiveOrgId,
+      orgId,
+      behavior: pluginFilter.accessModifier === 'public'
+        ? 'public only'
+        : pluginFilter.accessModifier === 'private'
+          ? 'private only'
+          : 'org + public',
     });
 
     const [result] = await db
@@ -253,7 +284,10 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       return res.status(404).json({ message: 'Plugin not found.' });
     }
 
-    log('COMPLETED', 'Successfully retrieved plugin', { id: result.id });
+    log('COMPLETED', 'Successfully retrieved plugin', {
+      id: result.id,
+      orgId: result.orgId,
+    });
     return res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';
@@ -268,6 +302,9 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
 /**
  * Get plugin by ID
  * GET /:id
+ *
+ * NEW BEHAVIOR:
+ * - Returns plugin if it belongs to orgId OR is public (system)
  */
 app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
   const requestId = uuid();
@@ -288,20 +325,24 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
   try {
     const orgId = getOrgId(req);
 
-    // For /:id endpoint, allow optional orgId and default to 'system' if not provided
-    // This allows fetching public plugins without orgId
-    const effectiveOrgId = orgId || 'system';
+    // orgId is required
+    if (!orgId) {
+      log('ERROR', 'Organization ID is missing from request headers');
+      return res.status(400).json({
+        message: 'Organization ID is required. Please provide x-org-id header.',
+      });
+    }
 
-    log('INFO', 'Organization ID determined', { orgId: effectiveOrgId, providedOrgId: orgId });
+    log('INFO', 'Organization ID validated', { orgId });
 
-    // Build conditions using the same function for consistency
+    // Build conditions - will return org records OR system records
     const pluginFilter: Partial<PluginFilter> = { id };
-    const where = buildConditions(pluginFilter, effectiveOrgId);
+    const where = buildConditions(pluginFilter, orgId);
 
     log('INFO', 'Executing database query', {
       id,
-      orgId: effectiveOrgId,
-      filterCount: where.length,
+      orgId,
+      behavior: 'org + public',
     });
 
     const [result] = await db
@@ -314,7 +355,10 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
       return res.status(404).json({ message: 'Plugin not found.' });
     }
 
-    log('COMPLETED', 'Successfully retrieved plugin', { id: result.id });
+    log('COMPLETED', 'Successfully retrieved plugin', {
+      id: result.id,
+      orgId: result.orgId,
+    });
     return res.status(200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';

@@ -1,6 +1,6 @@
 import { Config, db, getConnection, PipelineFilter, schema, SSEEventType, SSEManager, validatePipelineFilter } from '@mwashburn160/pipeline-lib';
 import cors from 'cors';
-import { and, eq, sql, SQL } from 'drizzle-orm';
+import { and, eq, or, sql, SQL } from 'drizzle-orm';
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
@@ -115,20 +115,48 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 
 /**
  * Builds SQL conditions from pipeline filter and orgId
+ *
+ * NEW BEHAVIOR:
+ * - If accessModifier is explicitly set to 'public', only return system records
+ * - If accessModifier is set to 'private', only return orgId records
+ * - If accessModifier is NOT set, return both orgId records AND system (public) records
  */
 function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string): SQL[] {
   const conditions: SQL[] = [];
+  const normalizedOrgId = orgId.toLowerCase();
 
-  // Check if accessModifier is set to 'public'
-  const isPublicAccess = pipelineFilter.accessModifier !== undefined &&
-    (typeof pipelineFilter.accessModifier === 'string'
-      ? pipelineFilter.accessModifier.toLowerCase() === 'public'
-      : String(pipelineFilter.accessModifier).toLowerCase() === 'public');
+  // Determine access modifier behavior
+  const accessModifier = pipelineFilter.accessModifier !== undefined
+    ? (typeof pipelineFilter.accessModifier === 'string'
+      ? pipelineFilter.accessModifier.toLowerCase()
+      : String(pipelineFilter.accessModifier).toLowerCase())
+    : undefined;
 
-  // If public access, use 'system' as orgId, otherwise use provided orgId
-  const effectiveOrgId = isPublicAccess ? 'system' : orgId.toLowerCase();
-  conditions.push(eq(schema.pipeline.organization, effectiveOrgId));
+  // Organization filter logic using switch/case
+  switch (accessModifier) {
+    case 'public':
+      // Explicitly requesting public records only
+      conditions.push(eq(schema.pipeline.organization, 'system'));
+      break;
 
+    case 'private':
+      // Explicitly requesting private records only
+      conditions.push(eq(schema.pipeline.organization, normalizedOrgId));
+      break;
+
+    default:
+      // No accessModifier specified OR other value
+      // Return both organization records AND public (system) records
+      conditions.push(
+        or(
+          eq(schema.pipeline.organization, normalizedOrgId),
+          eq(schema.pipeline.organization, 'system'),
+        )!,
+      );
+      break;
+  }
+
+  // Other filters
   if (pipelineFilter.id !== undefined) {
     conditions.push(eq(schema.pipeline.id, pipelineFilter.id as string));
   }
@@ -141,11 +169,10 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
   }
 
   if (pipelineFilter.organization !== undefined) {
+    // Allow explicit organization filtering
     const value = typeof pipelineFilter.organization === 'string'
       ? pipelineFilter.organization.toLowerCase()
       : pipelineFilter.organization;
-    // This will create an AND condition with the orgId condition above
-    // Only useful if you want to allow filtering by org within the user's scope
     conditions.push(eq(schema.pipeline.organization, value as string));
   }
 
@@ -164,10 +191,7 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
   }
 
   if (pipelineFilter.accessModifier !== undefined) {
-    const value = typeof pipelineFilter.accessModifier === 'string'
-      ? pipelineFilter.accessModifier.toLowerCase()
-      : String(pipelineFilter.accessModifier).toLowerCase();
-    conditions.push(sql`${schema.pipeline.accessModifier} = ${value}`);
+    conditions.push(sql`${schema.pipeline.accessModifier} = ${accessModifier}`);
   }
 
   return conditions;
@@ -186,6 +210,11 @@ const getOrgId = (req: TypedRequest): string | undefined => {
 /**
  * Query pipelines with filters (returns multiple results)
  * GET /?project=my-app&organization=my-org
+ *
+ * NEW BEHAVIOR:
+ * - GET / returns all pipelines for orgId + public pipelines
+ * - GET /?accessModifier=public returns only public pipelines
+ * - GET /?accessModifier=private returns only org-specific pipelines
  */
 app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFilter>>, res: Response) => {
   const requestId = uuid();
@@ -198,26 +227,20 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
 
   try {
     const pipelineFilter = req.query;
-
-    // Check if this is a public access request
-    const isPublicAccess = pipelineFilter.accessModifier !== undefined &&
-      (typeof pipelineFilter.accessModifier === 'string'
-        ? pipelineFilter.accessModifier.toLowerCase() === 'public'
-        : String(pipelineFilter.accessModifier).toLowerCase() === 'public');
-
     const orgId = getOrgId(req);
 
-    // Validate that orgId is present only if not public access
-    if (!isPublicAccess && !orgId) {
+    // orgId is required for authenticated requests
+    if (!orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    // Use 'system' for public access, actual orgId otherwise
-    const effectiveOrgId = isPublicAccess ? 'system' : orgId!;
-    log('INFO', 'Organization ID validated', { orgId: effectiveOrgId, isPublicAccess });
+    log('INFO', 'Organization ID validated', {
+      orgId,
+      accessModifier: pipelineFilter.accessModifier || 'not specified (will return org + public)',
+    });
 
     // Validate filter
     try {
@@ -229,12 +252,17 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       });
     }
 
-    const where = buildConditions(pipelineFilter, effectiveOrgId);
+    const where = buildConditions(pipelineFilter, orgId);
 
     log('INFO', 'Executing database query', {
       filterCount: where.length,
       filters: pipelineFilter,
-      orgId: effectiveOrgId,
+      orgId,
+      behavior: pipelineFilter.accessModifier === 'public'
+        ? 'public only'
+        : pipelineFilter.accessModifier === 'private'
+          ? 'private only'
+          : 'org + public',
     });
 
     // Apply limit from filter or use default
@@ -257,7 +285,11 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       });
     }
 
-    log('COMPLETED', 'Successfully retrieved pipelines', { count: results.length });
+    log('COMPLETED', 'Successfully retrieved pipelines', {
+      count: results.length,
+      organizations: [...new Set(results.map(r => r.organization))],
+    });
+
     return res.status(200).json({
       message: 'Pipelines retrieved successfully',
       data: results,
