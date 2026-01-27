@@ -1,3 +1,13 @@
+## 0.1.10 (2026-01-27)
+
+### 🩹 Fixes
+
+- upgraded lib to 0.1.9 ([851099c](https://github.com/mwashburn160/pipeline-builder/commit/851099c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.9 (2026-01-27)
 
 ### 🩹 Fixes
