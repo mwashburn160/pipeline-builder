@@ -44,7 +44,6 @@ services:
       - './certs/nginx.crt:/etc/nginx/certs/nginx.crt:ro'
       - './certs/nginx.key:/etc/nginx/certs/nginx.key:ro'
       - './nginx/nginx.conf:/etc/nginx/nginx.conf:ro'
-      - './nginx/proxy_params:/etc/nginx/proxy_params:ro'
       - './nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
     networks:
       - proxy-network
