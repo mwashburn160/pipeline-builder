@@ -1,3 +1,13 @@
+## 0.1.5 (2026-01-27)
+
+### 🩹 Fixes
+
+- applied consistent patterns ([d0997cb](https://github.com/mwashburn160/pipeline-builder/commit/d0997cb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.4 (2026-01-27)
 
 ### 🩹 Fixes
