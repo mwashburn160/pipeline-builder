@@ -68,7 +68,7 @@ export class Config {
         jwt: {
           secret: process.env.JWT_SECRET || 'no-secret',
           expiresIn: process.env.JWT_EXPIRES_IN || '7200',
-          algorithm: (process.env.JWT_ALGORITHM as Algorithm) || 'HS256',
+          algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
           saltRounds: process.env.JWT_SALT_ROUNDS || '12',
         },
         refreshToken: {
@@ -78,14 +78,14 @@ export class Config {
       },
       database: {
         postgres: {
-          host: this.requireEnvVar('DB_HOST'),
+          host: process.env.DB_HOST || 'postgres',
           port: process.env.DB_PORT || '5432',
-          database: this.requireEnvVar('DATABASE'),
-          user: this.requireEnvVar('DB_USER'),
-          password: this.requireEnvVar('DB_PASSWORD'),
+          database: process.env.DATABASE || 'pipeline_builder',
+          user: process.env.DB_USER || 'postgres',
+          password: process.env.DB_PASSWORD || 'passsword',
         },
         mongodb: {
-          uri: this.requireEnvVar('MONGODB_URI'),
+          uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
         },
         drizzle: {
           maxPoolSize: process.env.DRIZZLE_MAX_POOL_SIZE || '20',
@@ -94,10 +94,10 @@ export class Config {
         },
       },
       registry: {
-        host: this.requireEnvVar('IMAGE_REGISTRY_HOST'),
+        host: process.env.IMAGE_REGISTRY_HOST || 'registry',
         port: process.env.IMAGE_REGISTRY_PORT || '5000',
-        user: this.requireEnvVar('IMAGE_REGISTRY_USER'),
-        token: this.requireEnvVar('IMAGE_REGISTRY_TOKEN'),
+        user: process.env.IMAGE_REGISTRY_USER || 'admin',
+        token: process.env.IMAGE_REGISTRY_TOKEN || 'password',
       },
       aws: {
         lambda: {
@@ -126,20 +126,6 @@ export class Config {
         standardHeaders: true,
       },
     };
-  }
-
-  /**
-   * Require an environment variable or throw an error
-   */
-  private static requireEnvVar(name: string): string {
-    const value = process.env[name];
-    if (!value) {
-      throw new Error(
-        `❌ Required environment variable ${name} is not set. ` +
-        'Please set this variable before starting the application.',
-      );
-    }
-    return value;
   }
 
   /**
