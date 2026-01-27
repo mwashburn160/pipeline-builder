@@ -1,3 +1,13 @@
+## 0.1.4 (2026-01-27)
+
+### 🩹 Fixes
+
+- updated appconfig ([59ef257](https://github.com/mwashburn160/pipeline-builder/commit/59ef257))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.3 (2026-01-27)
 
 ### 🩹 Fixes
