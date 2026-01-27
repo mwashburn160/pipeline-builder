@@ -1,3 +1,13 @@
+## 0.1.9 (2026-01-27)
+
+### 🩹 Fixes
+
+- updated db error messages ([1433135](https://github.com/mwashburn160/pipeline-builder/commit/1433135))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.8 (2026-01-27)
 
 ### 🩹 Fixes

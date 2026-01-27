@@ -1,3 +1,14 @@
+## 0.1.5 (2026-01-27)
+
+### 🩹 Fixes
+
+- updated db error messages ([1433135](https://github.com/mwashburn160/pipeline-builder/commit/1433135))
+- updated cli plugin by id ([f4784f7](https://github.com/mwashburn160/pipeline-builder/commit/f4784f7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.4 (2026-01-27)
 
 ### 🩹 Fixes
