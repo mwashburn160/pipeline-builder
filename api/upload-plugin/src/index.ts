@@ -154,24 +154,6 @@ const getIdentity = (req: TypedRequest) => {
 };
 
 /**
- * Determine effective organization ID based on access modifier
- *
- * BEHAVIOR:
- * - If accessModifier is 'public', returns 'system' (public plugin)
- * - If accessModifier is 'private' or undefined, returns the user's orgId
- */
-function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string): string {
-  switch (accessModifier) {
-    case 'public':
-      return 'system';
-
-    case 'private':
-    default:
-      return orgId.toLowerCase();
-  }
-}
-
-/**
  * Upload and deploy plugin
  * POST /
  *
@@ -183,8 +165,9 @@ function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string):
  * Builds Docker image and pushes to registry
  *
  * ACCESS CONTROL:
- * - accessModifier='public' creates plugin with orgId='system' (public, accessible to all)
- * - accessModifier='private' or undefined creates plugin with user's orgId (private, org-only)
+ * - accessModifier='public' creates plugin accessible to all organizations
+ * - accessModifier='private' creates plugin accessible only to the creating organization
+ * - orgId always reflects the actual organization that created the plugin
  */
 app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedRequest, res: Response) => {
   // Extract identity from headers
@@ -217,21 +200,20 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       });
     }
 
+    const orgId = identity.orgId.toLowerCase();
+
     log('INFO', 'Identity validated', {
-      orgId: identity.orgId,
+      orgId: orgId,
       userId: identity.userId,
       requestId,
     });
 
     const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
 
-    // Determine effective organization ID using switch/case pattern
-    const effectiveOrgId = getEffectiveOrgId(accessModifier, identity.orgId);
-
     log('INFO', 'Access policy determined', {
       accessModifier,
-      effectiveOrgId,
-      behavior: accessModifier === 'public' ? 'public (system)' : 'private (org-specific)',
+      orgId: orgId,
+      behavior: accessModifier === 'public' ? 'public (accessible to all)' : 'private (org-specific)',
     });
 
     zipPath = req.file.path;
@@ -311,7 +293,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     log('INFO', 'Saving plugin to database', {
       name: manifest.name,
       version: manifest.version,
-      orgId: effectiveOrgId,
+      orgId: orgId,
       accessModifier,
     });
 
@@ -335,7 +317,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       const [inserted] = await tx
         .insert(schema.plugin)
         .values({
-          orgId: effectiveOrgId,
+          orgId: orgId,
           name: manifest.name,
           description: manifest.description || null,
           version: manifest.version,
@@ -355,7 +337,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
 
       log('INFO', 'New plugin created in database', {
         id: inserted.id,
-        orgId: effectiveOrgId,
+        orgId: inserted.orgId,
         accessModifier: inserted.accessModifier,
         createdBy: inserted.createdBy,
       });
@@ -367,7 +349,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       id: result.id,
       name: result.name,
       version: result.version,
-      orgId: effectiveOrgId,
+      orgId: result.orgId,
       accessModifier: result.accessModifier,
       imageTag: result.imageTag,
     });
@@ -384,7 +366,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       createdBy: result.createdBy,
       message: accessModifier === 'public'
         ? 'Public plugin deployed successfully (accessible to all organizations)'
-        : `Private plugin deployed successfully (accessible to ${identity.orgId} only)`,
+        : `Private plugin deployed successfully (accessible to ${orgId} only)`,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -133,9 +133,9 @@ const getIdentity = (req: TypedRequest) => {
  * Builds SQL conditions from pipeline filter and orgId
  *
  * NEW BEHAVIOR:
- * - If accessModifier is explicitly set to 'public', only return system records
- * - If accessModifier is NOT set, return both orgId records AND system (public) records
- * - If accessModifier is set to 'private', only return orgId records
+ * - If accessModifier is explicitly set to 'public', only return public records (any orgId)
+ * - If accessModifier is NOT set, return both user's orgId records AND public records
+ * - If accessModifier is set to 'private', only return user's orgId records
  */
 function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string): SQL[] {
   const conditions: SQL[] = [];
@@ -148,25 +148,25 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
       : String(pipelineFilter.accessModifier).toLowerCase())
     : undefined;
 
-  // Organization filter logic using switch/case
+  // Access control logic using switch/case
   switch (accessModifier) {
     case 'public':
       // Explicitly requesting public records only
-      conditions.push(eq(schema.pipeline.organization, 'system'));
+      conditions.push(eq(schema.pipeline.accessModifier, 'public'));
       break;
 
     case 'private':
-      // Explicitly requesting private records only
-      conditions.push(eq(schema.pipeline.organization, normalizedOrgId));
+      // Explicitly requesting private records only (user's org)
+      conditions.push(eq(schema.pipeline.orgId, normalizedOrgId));
       break;
 
     default:
-      // No accessModifier specified OR other value
-      // Return both organization records AND public (system) records
+      // No accessModifier specified
+      // Return both user's org records AND public records
       conditions.push(
         or(
-          eq(schema.pipeline.organization, normalizedOrgId),
-          eq(schema.pipeline.organization, 'system'),
+          eq(schema.pipeline.orgId, normalizedOrgId),
+          eq(schema.pipeline.accessModifier, 'public'),
         )!,
       );
       break;

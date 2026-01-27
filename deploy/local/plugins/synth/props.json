@@ -1,4 +1,6 @@
 {
+  "project": "TestProject",
+  "organization": "Acme Corp",
   "keywords": ["aws"],
   "accessModifier": "private",
   "props": {
