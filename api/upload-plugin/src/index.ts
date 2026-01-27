@@ -377,7 +377,6 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
 async function startServer(): Promise<void> {
   try {
     console.log('[Server] Starting plugin upload microservice...');
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
 
     // Test database connection
     const connection = getConnection();

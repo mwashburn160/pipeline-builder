@@ -332,7 +332,6 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
 async function startServer(): Promise<void> {
   try {
     console.log('[Server] Starting plugin microservice...');
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
 
     // Test database connection
     const connection = getConnection();

@@ -281,7 +281,6 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
 async function startServer(): Promise<void> {
   try {
     console.log('[Server] Starting pipeline microservice (multi-result)...');
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
 
     // Test database connection
     const connection = getConnection();
