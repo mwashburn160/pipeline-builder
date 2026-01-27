@@ -1,4 +1,4 @@
-import { BuilderProps, Config, db, getConnection, schema, SSEEventType, SSEManager } from '@mwashburn160/pipeline-lib';
+import { AccessModifier, BuilderProps, Config, db, getConnection, schema, SSEEventType, SSEManager } from '@mwashburn160/pipeline-lib';
 import cors from 'cors';
 import { and, eq } from 'drizzle-orm';
 import express, { Request, Response } from 'express';
@@ -13,8 +13,8 @@ import { v7 as uuid } from 'uuid';
 interface PipelineRequestBody {
   readonly project: string;
   readonly organization: string;
-  readonly accessModifier?: 'public' | 'private';
-  readonly props: Record<string, unknown>; // BuilderProps
+  readonly accessModifier?: AccessModifier;
+  readonly props: Record<string, BuilderProps>;
 }
 
 /**
@@ -124,16 +124,19 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 }
 
 /**
- * Extract orgId from request headers
+ * Extract identity information from request headers
  */
-const getOrgId = (req: TypedRequest): string | undefined => {
-  const orgId = req.headers['x-org-id'];
+const getIdentity = (req: TypedRequest) => {
+  const getHeader = (name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
 
-  if (Array.isArray(orgId)) {
-    return orgId[0];
-  }
-
-  return typeof orgId === 'string' ? orgId : undefined;
+  return {
+    orgId: getHeader('x-org-id'),
+    userId: getHeader('x-user-id'),
+    requestId: getHeader('x-request-id'),
+  };
 };
 
 /**
@@ -166,7 +169,11 @@ function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string):
  * - accessModifier='private' or undefined creates pipeline with user's organization (private)
  */
 app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
-  const requestId = uuid();
+  // Extract identity from headers
+  const identity = getIdentity(req);
+  const requestId = identity.requestId || uuid();
+
+  // Set X-Request-Id header on response for client-side tracing
   res.setHeader('X-Request-Id', requestId);
 
   const log = (type: SSEEventType, message: string, data?: unknown) => {
@@ -185,15 +192,18 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
     });
 
     // Validate orgId is present
-    const orgId = getOrgId(req);
-    if (!orgId) {
+    if (!identity.orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         error: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    log('INFO', 'Organization ID validated', { orgId });
+    log('INFO', 'Identity validated', {
+      orgId: identity.orgId,
+      userId: identity.userId,
+      requestId,
+    });
 
     // Validate required fields
     if (!project || !organization) {
@@ -214,7 +224,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
     }
 
     // Determine effective organization ID using switch/case pattern
-    const effectiveOrgId = getEffectiveOrgId(accessModifier, orgId);
+    const effectiveOrgId = getEffectiveOrgId(accessModifier, identity.orgId);
 
     log('INFO', 'Access policy determined', {
       accessModifier,
@@ -232,7 +242,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
         .set({
           isDefault: false,
           updatedAt: new Date(),
-          updatedBy: 'system',
+          updatedBy: identity.userId || 'system',
         })
         .where(
           and(
@@ -257,6 +267,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
           accessModifier: accessModifier as any,
           isDefault: true,
           isActive: true,
+          createdBy: identity.userId || 'system',
         })
         .returning();
 
@@ -264,6 +275,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
         id: inserted.id,
         orgId: effectiveOrgId,
         accessModifier: inserted.accessModifier,
+        createdBy: inserted.createdBy,
       });
 
       return inserted;
@@ -287,9 +299,10 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
       isDefault: result.isDefault,
       isActive: result.isActive,
       createdAt: result.createdAt,
+      createdBy: result.createdBy,
       message: accessModifier === 'public'
         ? 'Public pipeline created successfully (accessible to all organizations)'
-        : `Private pipeline created successfully (accessible to ${orgId} only)`,
+        : `Private pipeline created successfully (accessible to ${identity.orgId} only)`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

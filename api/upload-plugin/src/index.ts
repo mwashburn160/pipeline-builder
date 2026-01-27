@@ -138,16 +138,19 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 }
 
 /**
- * Extract orgId from request headers
+ * Extract identity information from request headers
  */
-const getOrgId = (req: TypedRequest): string | undefined => {
-  const orgId = req.headers['x-org-id'];
+const getIdentity = (req: TypedRequest) => {
+  const getHeader = (name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
 
-  if (Array.isArray(orgId)) {
-    return orgId[0];
-  }
-
-  return typeof orgId === 'string' ? orgId : undefined;
+  return {
+    orgId: getHeader('x-org-id'),
+    userId: getHeader('x-user-id'),
+    requestId: getHeader('x-request-id'),
+  };
 };
 
 /**
@@ -184,7 +187,11 @@ function getEffectiveOrgId(accessModifier: 'public' | 'private', orgId: string):
  * - accessModifier='private' or undefined creates plugin with user's orgId (private, org-only)
  */
 app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedRequest, res: Response) => {
-  const requestId = uuid();
+  // Extract identity from headers
+  const identity = getIdentity(req);
+  const requestId = identity.requestId || uuid();
+
+  // Set X-Request-Id header on response for client-side tracing
   res.setHeader('X-Request-Id', requestId);
 
   const log = (type: SSEEventType, message: string, data?: unknown) => {
@@ -203,20 +210,23 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     }
 
     // Validate orgId is present
-    const orgId = getOrgId(req);
-    if (!orgId) {
+    if (!identity.orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         error: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    log('INFO', 'Organization ID validated', { orgId });
+    log('INFO', 'Identity validated', {
+      orgId: identity.orgId,
+      userId: identity.userId,
+      requestId,
+    });
 
     const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
 
     // Determine effective organization ID using switch/case pattern
-    const effectiveOrgId = getEffectiveOrgId(accessModifier, orgId);
+    const effectiveOrgId = getEffectiveOrgId(accessModifier, identity.orgId);
 
     log('INFO', 'Access policy determined', {
       accessModifier,
@@ -312,6 +322,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
         .set({
           isDefault: false,
           updatedAt: new Date(),
+          updatedBy: identity.userId || 'system',
         })
         .where(eq(schema.plugin.name, manifest.name));
 
@@ -338,6 +349,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
           accessModifier: accessModifier as any,
           isDefault: true,
           isActive: true,
+          createdBy: identity.userId || 'system',
         })
         .returning();
 
@@ -345,6 +357,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
         id: inserted.id,
         orgId: effectiveOrgId,
         accessModifier: inserted.accessModifier,
+        createdBy: inserted.createdBy,
       });
 
       return inserted;
@@ -368,9 +381,10 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
       accessModifier: result.accessModifier,
       isDefault: result.isDefault,
       isActive: result.isActive,
+      createdBy: result.createdBy,
       message: accessModifier === 'public'
         ? 'Public plugin deployed successfully (accessible to all organizations)'
-        : `Private plugin deployed successfully (accessible to ${orgId} only)`,
+        : `Private plugin deployed successfully (accessible to ${identity.orgId} only)`,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

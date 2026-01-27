@@ -114,6 +114,22 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 }
 
 /**
+ * Extract identity information from request headers
+ */
+const getIdentity = (req: TypedRequest) => {
+  const getHeader = (name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  return {
+    orgId: getHeader('x-org-id'),
+    userId: getHeader('x-user-id'),
+    requestId: getHeader('x-request-id'),
+  };
+};
+
+/**
  * Builds SQL conditions from pipeline filter and orgId
  *
  * NEW BEHAVIOR:
@@ -197,16 +213,6 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
   return conditions;
 }
 
-const getOrgId = (req: TypedRequest): string | undefined => {
-  const orgId = req.headers['x-org-id'];
-
-  if (Array.isArray(orgId)) {
-    return orgId[0];
-  }
-
-  return typeof orgId === 'string' ? orgId : undefined;
-};
-
 /**
  * Query pipelines with filters
  * GET /?project=my-app&organization=my-org
@@ -217,7 +223,13 @@ const getOrgId = (req: TypedRequest): string | undefined => {
  * - GET /?accessModifier=private returns only org-specific pipelines
  */
 app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFilter>>, res: Response) => {
-  const requestId = uuid();
+  // Extract identity from headers
+  const identity = getIdentity(req);
+  const requestId = identity.requestId || uuid();
+
+  // Set X-Request-Id header on response for client-side tracing
+  res.setHeader('X-Request-Id', requestId);
+
   const log = (type: SSEEventType, message: string, data?: unknown) => {
     console.log(`[${requestId}] [${type}] ${message}`, data ?? '');
     sseManager.send(requestId, type, message, data);
@@ -227,18 +239,19 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
 
   try {
     const pipelineFilter = req.query;
-    const orgId = getOrgId(req);
 
     // orgId is required for authenticated requests
-    if (!orgId) {
+    if (!identity.orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    log('INFO', 'Organization ID validated', {
-      orgId,
+    log('INFO', 'Identity validated', {
+      orgId: identity.orgId,
+      userId: identity.userId,
+      requestId,
       accessModifier: pipelineFilter.accessModifier || 'not specified (will return org + public)',
     });
 
@@ -252,12 +265,12 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
       });
     }
 
-    const where = buildConditions(pipelineFilter, orgId);
+    const where = buildConditions(pipelineFilter, identity.orgId);
 
     log('INFO', 'Executing database query', {
       filterCount: where.length,
       filters: pipelineFilter,
-      orgId,
+      orgId: identity.orgId,
       behavior: pipelineFilter.accessModifier === 'public'
         ? 'public only'
         : pipelineFilter.accessModifier === 'private'
@@ -299,7 +312,13 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
  * - Returns pipeline if it belongs to orgId OR is public (system)
  */
 app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
-  const requestId = uuid();
+  // Extract identity from headers
+  const identity = getIdentity(req);
+  const requestId = identity.requestId || uuid();
+
+  // Set X-Request-Id header on response for client-side tracing
+  res.setHeader('X-Request-Id', requestId);
+
   const log = (type: SSEEventType, message: string, data?: unknown) => {
     console.log(`[${requestId}] [${type}] ${message}`, data ?? '');
     sseManager.send(requestId, type, message, data);
@@ -315,25 +334,27 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
   log('INFO', 'Pipeline query request received', { id });
 
   try {
-    const orgId = getOrgId(req);
-
     // orgId is required
-    if (!orgId) {
+    if (!identity.orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    log('INFO', 'Organization ID validated', { orgId });
+    log('INFO', 'Identity validated', {
+      orgId: identity.orgId,
+      userId: identity.userId,
+      requestId,
+    });
 
     // Build conditions - will return org records OR system records
     const pipelineFilter: Partial<PipelineFilter> = { id };
-    const where = buildConditions(pipelineFilter, orgId);
+    const where = buildConditions(pipelineFilter, identity.orgId);
 
     log('INFO', 'Executing database query', {
       id,
-      orgId,
+      orgId: identity.orgId,
       behavior: 'org + public',
     });
 

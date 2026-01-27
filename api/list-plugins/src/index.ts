@@ -114,6 +114,22 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
 }
 
 /**
+ * Extract identity information from request headers
+ */
+const getIdentity = (req: TypedRequest) => {
+  const getHeader = (name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  return {
+    orgId: getHeader('x-org-id'),
+    userId: getHeader('x-user-id'),
+    requestId: getHeader('x-request-id'),
+  };
+};
+
+/**
  * Builds SQL conditions from plugin filter and orgId
  *
  * NEW BEHAVIOR:
@@ -205,16 +221,6 @@ function buildConditions(pluginFilter: Partial<PluginFilter>, orgId: string): SQ
   return conditions;
 }
 
-const getOrgId = (req: TypedRequest): string | undefined => {
-  const orgId = req.headers['x-org-id'];
-
-  if (Array.isArray(orgId)) {
-    return orgId[0];
-  }
-
-  return typeof orgId === 'string' ? orgId : undefined;
-};
-
 /**
  * Query plugins with filters - returns multiple results
  * GET /?name=nodejs&isActive=true
@@ -225,7 +231,13 @@ const getOrgId = (req: TypedRequest): string | undefined => {
  * - GET /?accessModifier=private returns only org-specific plugins
  */
 app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilter>>, res: Response) => {
-  const requestId = uuid();
+  // Extract identity from headers
+  const identity = getIdentity(req);
+  const requestId = identity.requestId || uuid();
+
+  // Set X-Request-Id header on response for client-side tracing
+  res.setHeader('X-Request-Id', requestId);
+
   const log = (type: SSEEventType, message: string, data?: unknown) => {
     console.log(`[${requestId}] [${type}] ${message}`, data ?? '');
     sseManager.send(requestId, type, message, data);
@@ -235,18 +247,19 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
 
   try {
     const pluginFilter = req.query;
-    const orgId = getOrgId(req);
 
     // orgId is required for authenticated requests
-    if (!orgId) {
+    if (!identity.orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
 
-    log('INFO', 'Organization ID validated', {
-      orgId,
+    log('INFO', 'Identity validated', {
+      orgId: identity.orgId,
+      userId: identity.userId,
+      requestId,
       accessModifier: pluginFilter.accessModifier || 'not specified (will return org + public)',
     });
 
@@ -260,12 +273,12 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PluginFilte
       });
     }
 
-    const where = buildConditions(pluginFilter, orgId);
+    const where = buildConditions(pluginFilter, identity.orgId);
 
     log('INFO', 'Executing database query', {
       filterCount: where.length,
       filters: pluginFilter,
-      orgId,
+      orgId: identity.orgId,
       behavior: pluginFilter.accessModifier === 'public'
         ? 'public only'
         : pluginFilter.accessModifier === 'private'
