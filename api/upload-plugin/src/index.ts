@@ -372,12 +372,28 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
 
-    log('ERROR', 'Deployment failed', { error: msg, stack });
+    // Extract database error details if available
+    const dbError = error && typeof error === 'object' ? error as any : null;
+    const dbCode = dbError?.code;
+    const dbDetail = dbError?.detail;
+    const dbHint = dbError?.hint;
+    const dbConstraint = dbError?.constraint;
+
+    // Log full error details including any database-specific errors
+    log('ERROR', 'Deployment failed', {
+      error: msg,
+      stack,
+      ...(dbCode && { dbCode }),
+      ...(dbDetail && { dbDetail }),
+      ...(dbHint && { dbHint }),
+      ...(dbConstraint && { dbConstraint }),
+    });
     log('ROLLBACK', 'Transaction rolled back');
 
     return res.status(500).json({
       error: 'Failed to deploy plugin',
       message: msg,
+      ...(dbConstraint && { constraint: dbConstraint }),
     });
   } finally {
     // Restore original directory

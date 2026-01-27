@@ -290,12 +290,28 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const stack = error instanceof Error ? error.stack : undefined;
 
-    log('ERROR', 'Pipeline save failed', { message, stack });
+    // Extract database error details if available
+    const dbError = error && typeof error === 'object' ? error as any : null;
+    const dbCode = dbError?.code;
+    const dbDetail = dbError?.detail;
+    const dbHint = dbError?.hint;
+    const dbConstraint = dbError?.constraint;
+
+    // Log full error details including any database-specific errors
+    log('ERROR', 'Pipeline save failed', {
+      message,
+      stack,
+      ...(dbCode && { dbCode }),
+      ...(dbDetail && { dbDetail }),
+      ...(dbHint && { dbHint }),
+      ...(dbConstraint && { dbConstraint }),
+    });
     log('ROLLBACK', 'Transaction rolled back');
 
     return res.status(500).json({
       error: 'Failed to save pipeline configuration',
       message: message,
+      ...(dbConstraint && { constraint: dbConstraint }),
     });
   }
 });
