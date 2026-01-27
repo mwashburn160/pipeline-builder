@@ -37,7 +37,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "aws-cdk-lib": "2.236.0",
+    "aws-cdk-lib": "2.234.0",
     "axios": "1.13.2",
     "constructs": "10.4.5",
     "drizzle-orm": "0.45.1",
