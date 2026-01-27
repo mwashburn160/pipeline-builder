@@ -1,3 +1,14 @@
+## 0.1.3 (2026-01-27)
+
+### 🩹 Fixes
+
+- set trust proxy ([36c9557](https://github.com/mwashburn160/pipeline-builder/commit/36c9557))
+- upgraded lib to 0.1.6 ([3932c63](https://github.com/mwashburn160/pipeline-builder/commit/3932c63))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.2 (2026-01-27)
 
 ### 🩹 Fixes
