@@ -62,7 +62,8 @@ export class Config {
             ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
             : '*',
         },
-        platformUrl: process.env.PLATFORM_URL || 'https://localhost:8443',
+        trustProxy: process.env.TRUST_PROXY || '0',
+        platformUrl: process.env.PLATFORM_URL || 'https://localhost:8443'
       },
       auth: {
         jwt: {

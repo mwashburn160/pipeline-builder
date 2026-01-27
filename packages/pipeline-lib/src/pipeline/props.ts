@@ -329,6 +329,7 @@ export interface ServerConfig {
     credentials: boolean;
     origin: string | string[];
   };
+  trustProxy: string;
   platformUrl: string;
 }
 
