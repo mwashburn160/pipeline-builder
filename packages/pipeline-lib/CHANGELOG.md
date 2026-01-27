@@ -1,3 +1,13 @@
+## 0.1.6 (2026-01-27)
+
+### 🩹 Fixes
+
+- updated nginx ([1ba7994](https://github.com/mwashburn160/pipeline-builder/commit/1ba7994))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.5 (2026-01-27)
 
 ### 🩹 Fixes
