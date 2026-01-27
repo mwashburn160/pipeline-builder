@@ -107,7 +107,7 @@
     },
     {
       "name": "cors",
-      "version": "2.8.5",
+      "version": "2.8.6",
       "type": "runtime"
     },
     {
@@ -137,7 +137,7 @@
     },
     {
       "name": "mongoose",
-      "version": "9.1.4",
+      "version": "9.1.5",
       "type": "runtime"
     },
     {
@@ -147,7 +147,7 @@
     },
     {
       "name": "pg",
-      "version": "8.16.3",
+      "version": "8.17.2",
       "type": "runtime"
     },
     {

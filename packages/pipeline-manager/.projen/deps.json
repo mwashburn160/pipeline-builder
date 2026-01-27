@@ -72,7 +72,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-lib",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "type": "runtime"
     },
     {
@@ -82,7 +82,7 @@
     },
     {
       "name": "axios",
-      "version": "1.13.2",
+      "version": "1.13.3",
       "type": "runtime"
     },
     {
@@ -92,7 +92,7 @@
     },
     {
       "name": "figlet",
-      "version": "1.9.4",
+      "version": "1.10.0",
       "type": "runtime"
     },
     {
@@ -102,7 +102,7 @@
     },
     {
       "name": "ora",
-      "version": "9.0.0",
+      "version": "9.1.0",
       "type": "runtime"
     },
     {

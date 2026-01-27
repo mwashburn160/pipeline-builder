@@ -142,11 +142,11 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
  */
 const getOrgId = (req: TypedRequest): string | undefined => {
   const orgId = req.headers['x-org-id'];
-  
+
   if (Array.isArray(orgId)) {
     return orgId[0];
   }
-  
+
   return typeof orgId === 'string' ? orgId : undefined;
 };
 
@@ -192,10 +192,10 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     log('INFO', 'Organization ID validated', { orgId });
 
     const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
-    
+
     // For public plugins, use 'system' as orgId, otherwise use the provided orgId
     const effectiveOrgId = accessModifier === 'public' ? 'system' : orgId;
-    
+
     log('INFO', 'Access policy set', { accessModifier, effectiveOrgId });
 
     zipPath = req.file.path;
@@ -272,8 +272,8 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     log('INFO', 'Image push completed');
 
     // Save to database
-    log('INFO', 'Saving plugin to database', { 
-      name: manifest.name, 
+    log('INFO', 'Saving plugin to database', {
+      name: manifest.name,
       version: manifest.version,
       orgId: effectiveOrgId,
     });

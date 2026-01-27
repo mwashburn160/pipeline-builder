@@ -15,7 +15,7 @@ let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 let expressVersion = '5.2.1'
 let cdkVersion = '2.236.0';
-let libVersion = '0.1.1';
+let libVersion = '0.1.2';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -64,9 +64,9 @@ let lib = new PackageProject({
     `aws-cdk-lib@${cdkVersion}`,
     `express@${expressVersion}`,
     'jsonwebtoken@9.0.3',
-    'pg@8.16.3',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
-    'axios@1.13.2',
+    'axios@1.13.3',
     'uuid@13.0.0'
   ],
   devDeps: [
@@ -102,12 +102,12 @@ let manager = new ManagerProject({
     `aws-cdk-lib@${cdkVersion}`,
     'form-data@4.0.5',
     'commander@14.0.2',
-    'figlet@1.9.4',
-    'axios@1.13.2',
+    'figlet@1.10.0',
+    'axios@1.13.3',
     'progress@2.0.3',
     'picocolors@1.1.1',
     'yaml@2.8.2',
-    'ora@9.0.0'
+    'ora@9.1.0'
   ],
   devDeps: [
     '@types/figlet@1.7.0',
@@ -136,10 +136,10 @@ let platform = new WebTokenProject({
     'slugify@1.6.6',
     'winston@3.19.0',
     'bcryptjs@3.0.3',
-    'mongoose@9.1.4',
+    'mongoose@9.1.5',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2',
@@ -181,8 +181,8 @@ let upload_plugin = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2',
@@ -222,8 +222,8 @@ let get_plugin = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0'
   ],
@@ -258,8 +258,8 @@ let list_plugins = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0'
   ],
@@ -294,8 +294,8 @@ let create_pipeline = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'
@@ -331,8 +331,8 @@ let get_pipeline = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'
@@ -368,8 +368,8 @@ let list_pipelines = new FunctionProject({
     'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'helmet@8.1.0',
-    'cors@2.8.5',
-    'pg@8.16.3',
+    'cors@2.8.6',
+    'pg@8.17.2',
     'drizzle-orm@0.45.1',
     'uuid@13.0.0',
     'yaml@2.8.2'

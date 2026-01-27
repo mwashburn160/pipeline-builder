@@ -61,13 +61,13 @@ app.get('/health', async (_req: Request, res: Response) => {
     res.status(isHealthy ? 200 : 503).json({
       status: isHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
-      database: isHealthy ? 'connected' : 'disconnected'
+      database: isHealthy ? 'connected' : 'disconnected',
     });
   } catch (error) {
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -87,7 +87,7 @@ app.get('/metrics', (_req: Request, res: Response) => {
       totalConnections: stats.totalCount,
       idleConnections: stats.idleCount,
       waitingConnections: stats.waitingCount,
-    }
+    },
   });
 });
 
@@ -100,7 +100,7 @@ app.get('/logs/:requestId', sseManager.middleware());
  * JWT authentication middleware
  */
 function authenticateToken(req: Request, res: Response, next: Function): void {
-  const auth = req.headers['authorization'];
+  const auth = req.headers.authorization;
   const token = auth && auth.split(' ')[1];
 
   if (!token) {
@@ -128,18 +128,18 @@ function authenticateToken(req: Request, res: Response, next: Function): void {
  */
 const getOrgId = (req: TypedRequest): string | undefined => {
   const orgId = req.headers['x-org-id'];
-  
+
   if (Array.isArray(orgId)) {
     return orgId[0];
   }
-  
+
   return typeof orgId === 'string' ? orgId : undefined;
 };
 
 /**
  * Create or update pipeline configuration
  * POST /
- * 
+ *
  * Creates a new pipeline or updates existing one. Sets the new pipeline as default
  * and marks all other pipelines for the same project/org as non-default.
  */
@@ -155,7 +155,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
   try {
     const { project, organization, props } = req.body;
     const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
-    
+
     log('INFO', 'Pipeline creation request received', {
       project,
       organization,
@@ -175,19 +175,19 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
 
     // Validate required fields
     if (!project || !organization) {
-      log('ERROR', 'Missing required fields', { 
-        hasProject: !!project, 
-        hasOrganization: !!organization 
+      log('ERROR', 'Missing required fields', {
+        hasProject: !!project,
+        hasOrganization: !!organization,
       });
-      return res.status(400).json({ 
-        error: 'project and organization are required' 
+      return res.status(400).json({
+        error: 'project and organization are required',
       });
     }
 
     if (!props || typeof props !== 'object') {
       log('ERROR', 'Invalid or missing props');
-      return res.status(400).json({ 
-        error: 'props object is required' 
+      return res.status(400).json({
+        error: 'props object is required',
       });
     }
 
@@ -227,7 +227,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
           props: props as unknown as BuilderProps,
           accessModifier: accessModifier as any,
           isDefault: true,
-          isActive: true
+          isActive: true,
         })
         .returning();
 
@@ -236,7 +236,7 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
       return inserted;
     });
 
-    log('COMPLETED', 'Pipeline configuration saved successfully', { 
+    log('COMPLETED', 'Pipeline configuration saved successfully', {
       id: result.id,
       project: result.project,
       organization: result.organization,
@@ -256,11 +256,11 @@ app.post('/', authenticateToken, async (req: TypedRequest, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const stack = error instanceof Error ? error.stack : undefined;
-    
+
     log('ERROR', 'Pipeline save failed', { message, stack });
     log('ROLLBACK', 'Transaction rolled back');
-    
-    return res.status(500).json({ 
+
+    return res.status(500).json({
       error: 'Failed to save pipeline configuration',
       message: message,
     });

@@ -177,11 +177,11 @@ function buildConditions(pipelineFilter: Partial<PipelineFilter>, orgId: string)
 
 const getOrgId = (req: TypedRequest): string | undefined => {
   const orgId = req.headers['x-org-id'];
-  
+
   if (Array.isArray(orgId)) {
     return orgId[0];
   }
-  
+
   return typeof orgId === 'string' ? orgId : undefined;
 };
 
@@ -208,7 +208,7 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
         : String(pipelineFilter.accessModifier).toLowerCase() === 'public');
 
     const orgId = getOrgId(req);
-    
+
     // Validate that orgId is present only if not public access
     if (!isPublicAccess && !orgId) {
       log('ERROR', 'Organization ID is missing from request headers');
@@ -216,7 +216,7 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
-    
+
     // Use 'system' for public access, actual orgId otherwise
     const effectiveOrgId = isPublicAccess ? 'system' : orgId!;
     log('INFO', 'Organization ID validated', { orgId: effectiveOrgId, isPublicAccess });
@@ -284,12 +284,12 @@ app.get('/:id', authenticateToken, async (req: TypedRequest, res: Response) => {
 
   try {
     const orgId = getOrgId(req);
-    
+
     // For /:id endpoint, we need to check if the pipeline is public by querying first
     // Or require orgId. For simplicity, we'll allow optional orgId and default to 'system' if not provided
     // This allows fetching public pipelines without orgId
     const effectiveOrgId = orgId || 'system';
-    
+
     log('INFO', 'Organization ID determined', { orgId: effectiveOrgId, providedOrgId: orgId });
 
     // Build conditions using the same function for consistency
