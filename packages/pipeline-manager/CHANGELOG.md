@@ -1,3 +1,13 @@
+## 0.1.8 (2026-01-28)
+
+### 🩹 Fixes
+
+- updated api client ([2aae79e](https://github.com/mwashburn160/pipeline-builder/commit/2aae79e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.7 (2026-01-27)
 
 ### 🩹 Fixes
