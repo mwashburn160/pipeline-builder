@@ -1,3 +1,13 @@
+## 0.1.9 (2026-01-28)
+
+### 🩹 Fixes
+
+- updated create request context ([20828ac](https://github.com/mwashburn160/pipeline-builder/commit/20828ac))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.8 (2026-01-28)
 
 This was a version bump only for platform to align it with other projects, there were no code changes.
