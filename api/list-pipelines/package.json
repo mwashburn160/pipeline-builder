@@ -37,7 +37,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/pipeline-lib": "0.1.14",
+    "@mwashburn160/pipeline-lib": "0.1.15",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
