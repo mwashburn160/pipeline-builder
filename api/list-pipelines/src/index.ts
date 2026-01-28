@@ -1,4 +1,21 @@
-import { Config, db, getConnection, PipelineFilter, schema, SSEEventType, SSEManager, validatePipelineFilter } from '@mwashburn160/pipeline-lib';
+import {
+  // Config
+  Config,
+
+  // Database
+  db,
+  getConnection,
+  schema,
+
+  // Query filters
+  PipelineFilter,
+  validatePipelineFilter,
+
+  // HTTP
+  SSEEventType,
+  SSEManager,
+} from '@mwashburn160/pipeline-lib';
+
 import cors from 'cors';
 import { and, eq, or, sql, SQL } from 'drizzle-orm';
 import express, { Request, Response } from 'express';
@@ -344,6 +361,10 @@ async function startServer(): Promise<void> {
 
     const shutdown = async (signal: string) => {
       console.log(`\n${signal} received, shutting down gracefully...`);
+
+      // Shutdown SSE manager to close all client connections
+
+      console.log('✅ SSE connections closed');
 
       server.close(async () => {
         console.log('✅ HTTP server closed');

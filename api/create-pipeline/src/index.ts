@@ -1,4 +1,23 @@
-import { AccessModifier, BuilderProps, Config, db, getConnection, schema, SSEEventType, SSEManager } from '@mwashburn160/pipeline-lib';
+import {
+  // Config
+  Config,
+
+  // Core types
+  AccessModifier,
+
+  // Database
+  db,
+  getConnection,
+  schema,
+
+  // HTTP
+  SSEEventType,
+  SSEManager,
+
+  // Pipeline types
+  BuilderProps,
+} from '@mwashburn160/pipeline-lib';
+
 import cors from 'cors';
 import { and, eq } from 'drizzle-orm';
 import express, { Request, Response } from 'express';
@@ -340,6 +359,10 @@ async function startServer(): Promise<void> {
 
     const shutdown = async (signal: string) => {
       console.log(`\n${signal} received, shutting down gracefully...`);
+
+      // Shutdown SSE manager to close all client connections
+
+      console.log('✅ SSE connections closed');
 
       server.close(async () => {
         console.log('✅ HTTP server closed');

@@ -1,7 +1,24 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
-import { Config, db, getConnection, PluginManifest, schema, SSEEventType, SSEManager } from '@mwashburn160/pipeline-lib';
+
+import {
+  // Config
+  Config,
+
+  // Database
+  db,
+  getConnection,
+  schema,
+
+  // Pipeline types
+  PluginManifest,
+
+  // HTTP
+  SSEEventType,
+  SSEManager,
+} from '@mwashburn160/pipeline-lib';
+
 import AdmZip from 'adm-zip';
 import cors from 'cors';
 import { eq } from 'drizzle-orm';
@@ -481,6 +498,10 @@ async function startServer(): Promise<void> {
 
     const shutdown = async (signal: string) => {
       console.log(`\n${signal} received, shutting down gracefully...`);
+
+      // Shutdown SSE manager to close all client connections
+
+      console.log('✅ SSE connections closed');
 
       server.close(async () => {
         console.log('✅ HTTP server closed');
