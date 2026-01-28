@@ -1,3 +1,13 @@
+## 0.1.15 (2026-01-28)
+
+### 🩹 Fixes
+
+- updated filter ([c15a43d](https://github.com/mwashburn160/pipeline-builder/commit/c15a43d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.14 (2026-01-28)
 
 This was a version bump only for platform to align it with other projects, there were no code changes.

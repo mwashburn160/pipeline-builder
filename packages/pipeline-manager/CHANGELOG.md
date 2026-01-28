@@ -1,3 +1,14 @@
+## 0.1.20 (2026-01-28)
+
+### 🩹 Fixes
+
+- add pipeline name as filter option ([dccb38c](https://github.com/mwashburn160/pipeline-builder/commit/dccb38c))
+- updated filter ([c15a43d](https://github.com/mwashburn160/pipeline-builder/commit/c15a43d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.19 (2026-01-28)
 
 ### 🩹 Fixes
