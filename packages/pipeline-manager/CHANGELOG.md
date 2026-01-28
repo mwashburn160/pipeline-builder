@@ -1,3 +1,13 @@
+## 0.1.9 (2026-01-28)
+
+### 🩹 Fixes
+
+- renamed variable ([0191db0](https://github.com/mwashburn160/pipeline-builder/commit/0191db0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.8 (2026-01-28)
 
 ### 🩹 Fixes
