@@ -7,7 +7,7 @@ import { Algorithm } from 'jsonwebtoken';
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000'),
-    baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+    baseUrl: process.env.PLATFORM_URL || 'https://localhost:8443',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4200',
   },
   server: {
