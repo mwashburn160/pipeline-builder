@@ -1,3 +1,7 @@
+## 0.1.16 (2026-01-28)
+
+This was a version bump only for @mwashburn160/pipeline-lib to align it with other projects, there were no code changes.
+
 ## 0.1.15 (2026-01-28)
 
 ### 🩹 Fixes
