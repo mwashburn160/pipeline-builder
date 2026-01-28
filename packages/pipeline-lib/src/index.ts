@@ -15,6 +15,9 @@ export * from './database/postgres-connection';
 // HTTP
 export * from './http/sse-connection-manager';
 
+// API utilities
+export * from './api';
+
 // Handlers
 export * from './handlers/plugin-lookup-handler';
 

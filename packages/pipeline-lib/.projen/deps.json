@@ -16,6 +16,11 @@
       "type": "build"
     },
     {
+      "name": "@types/cors",
+      "version": "2.8.19",
+      "type": "build"
+    },
+    {
       "name": "@types/express",
       "version": "5.0.6",
       "type": "build"
@@ -96,13 +101,28 @@
       "type": "runtime"
     },
     {
+      "name": "cors",
+      "version": "2.8.6",
+      "type": "runtime"
+    },
+    {
       "name": "drizzle-orm",
       "version": "0.45.1",
       "type": "runtime"
     },
     {
+      "name": "express-rate-limit",
+      "version": "8.2.1",
+      "type": "runtime"
+    },
+    {
       "name": "express",
       "version": "5.2.1",
+      "type": "runtime"
+    },
+    {
+      "name": "helmet",
+      "version": "8.1.0",
       "type": "runtime"
     },
     {

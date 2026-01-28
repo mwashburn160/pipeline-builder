@@ -15,7 +15,7 @@ let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 let expressVersion = '5.2.1'
 let cdkVersion = '2.236.0';
-let libVersion = '0.1.11';
+let libVersion = '0.1.12';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -63,9 +63,12 @@ let lib = new PackageProject({
     `constructs@${constructsVersion}`,
     `aws-cdk-lib@${cdkVersion}`,
     `express@${expressVersion}`,
+    'express-rate-limit@8.2.1',
     'jsonwebtoken@9.0.3',
     'pg@8.16.3',
     'drizzle-orm@0.45.1',
+    'helmet@8.1.0',
+    'cors@2.8.6',
     'axios@1.13.3',
     'uuid@13.0.0'
   ],
@@ -74,6 +77,7 @@ let lib = new PackageProject({
     '@types/aws-lambda@8.10.159',
     '@types/express@5.0.6',
     '@types/jsonwebtoken@9.0.10',
+    '@types/cors@2.8.19',
     '@types/pg@8.16.0',
     '@jest/globals@30.2.0'
   ]
