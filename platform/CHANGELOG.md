@@ -1,3 +1,13 @@
+## 0.1.7 (2026-01-28)
+
+### 🩹 Fixes
+
+- lib version=0.1.11 ([076830d](https://github.com/mwashburn160/pipeline-builder/commit/076830d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.6 (2026-01-27)
 
 ### 🩹 Fixes
