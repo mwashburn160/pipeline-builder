@@ -34,11 +34,11 @@ export interface LogEntry {
 
 /**
  * Application logger with configurable log levels
- *
+ * 
  * @example
  * ```typescript
  * import { logger } from './logger';
- *
+ * 
  * logger.debug('Detailed info for debugging');
  * logger.info('General information');
  * logger.warn('Warning message');
@@ -146,7 +146,7 @@ class Logger {
 
   /**
    * Create a child logger with a specific prefix
-   *
+   * 
    * @example
    * ```typescript
    * const dbLogger = logger.child('Database');
@@ -192,7 +192,7 @@ export const logger = new Logger();
 
 /**
  * Create a child logger for a specific module
- *
+ * 
  * @example
  * ```typescript
  * const log = createLogger('Pipeline');

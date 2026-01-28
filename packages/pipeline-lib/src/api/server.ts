@@ -1,5 +1,5 @@
-import { Server } from 'http';
 import { Express } from 'express';
+import { Server } from 'http';
 import { Config } from '../config/app-config';
 import { getConnection, closeConnection } from '../database/postgres-connection';
 import { SSEManager } from '../http/sse-connection-manager';
@@ -36,23 +36,23 @@ export interface StartServerResult {
 
 /**
  * Start an Express server with graceful shutdown handling
- *
+ * 
  * Features:
  * - Automatic database connection testing
  * - Graceful shutdown on SIGINT/SIGTERM
  * - SSE connection cleanup
  * - Configurable shutdown timeout
- *
+ * 
  * @param app - Express application
  * @param options - Server options
  * @returns Server instance and control functions
- *
+ * 
  * @example
  * ```typescript
  * const { app, sseManager } = createApp();
- *
+ * 
  * app.post('/api/resource', authenticateToken, handler);
- *
+ * 
  * await startServer(app, {
  *   name: 'My Microservice',
  *   sseManager,
@@ -62,7 +62,7 @@ export interface StartServerResult {
  */
 export async function startServer(
   app: Express,
-  options: StartServerOptions = {},
+  options: StartServerOptions = {}
 ): Promise<StartServerResult> {
   const config = Config.get();
   const {
@@ -149,15 +149,15 @@ export async function startServer(
 
 /**
  * Simple server start wrapper with error handling
- *
+ * 
  * @param app - Express application
  * @param options - Server options
- *
+ * 
  * @example
  * ```typescript
  * const { app, sseManager } = createApp();
  * app.post('/api/resource', handler);
- *
+ * 
  * runServer(app, { name: 'My Service', sseManager });
  * ```
  */

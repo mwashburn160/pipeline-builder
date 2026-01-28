@@ -1,6 +1,6 @@
 ARG NODE_VERSION=24.9.0
 ARG CDK_VERSION=2.233.0
-ARG LIB_VERSION=0.1.11
+ARG LIB_VERSION=0.1.13
 FROM node:${NODE_VERSION}-alpine AS node
 RUN apk update && \
     apk add --no-cache aws-cli curl unzip

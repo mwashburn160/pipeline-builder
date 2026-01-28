@@ -1,6 +1,6 @@
 import { eq, or, sql, SQL } from 'drizzle-orm';
-import { PipelineFilter, PluginFilter } from '../core/query-filters';
 import { schema } from '../database/drizzle-schema';
+import { PipelineFilter, PluginFilter } from '../core/query-filters';
 
 /**
  * Access control behavior based on accessModifier filter
@@ -14,11 +14,11 @@ export function getAccessBehavior(accessModifier?: string): AccessBehavior {
   if (accessModifier === undefined) {
     return 'org-and-public';
   }
-
+  
   const normalized = typeof accessModifier === 'string'
     ? accessModifier.toLowerCase()
     : String(accessModifier).toLowerCase();
-
+    
   if (normalized === 'public') return 'public';
   if (normalized === 'private') return 'private';
   return 'org-and-public';
@@ -42,19 +42,19 @@ export function normalizeStringFilter(value: unknown): string {
 
 /**
  * Build SQL conditions for pipeline queries
- *
+ * 
  * Access control behavior:
  * - accessModifier='public': Only public records
  * - accessModifier='private': Only user's org records
  * - accessModifier not set: User's org records + public records
- *
+ * 
  * @param filter - Pipeline filter criteria
  * @param orgId - User's organization ID
  * @returns Array of SQL conditions
  */
 export function buildPipelineConditions(
   filter: Partial<PipelineFilter>,
-  orgId: string,
+  orgId: string
 ): SQL[] {
   const conditions: SQL[] = [];
   const normalizedOrgId = orgId.toLowerCase();
@@ -105,7 +105,7 @@ export function buildPipelineConditions(
   // Explicit accessModifier filter
   if (filter.accessModifier !== undefined) {
     conditions.push(
-      sql`${schema.pipeline.accessModifier} = ${normalizeStringFilter(filter.accessModifier)}`,
+      sql`${schema.pipeline.accessModifier} = ${normalizeStringFilter(filter.accessModifier)}`
     );
   }
 
@@ -114,19 +114,19 @@ export function buildPipelineConditions(
 
 /**
  * Build SQL conditions for plugin queries
- *
+ * 
  * Access control behavior:
  * - accessModifier='public': Only public records
  * - accessModifier='private': Only user's org records
  * - accessModifier not set: User's org records + public records
- *
+ * 
  * @param filter - Plugin filter criteria
  * @param orgId - User's organization ID
  * @returns Array of SQL conditions
  */
 export function buildPluginConditions(
   filter: Partial<PluginFilter>,
-  orgId: string,
+  orgId: string
 ): SQL[] {
   const conditions: SQL[] = [];
   const normalizedOrgId = orgId.toLowerCase();
@@ -187,7 +187,7 @@ export function buildPluginConditions(
   // Explicit accessModifier filter
   if (filter.accessModifier !== undefined) {
     conditions.push(
-      sql`${schema.plugin.accessModifier} = ${normalizeStringFilter(filter.accessModifier)}`,
+      sql`${schema.plugin.accessModifier} = ${normalizeStringFilter(filter.accessModifier)}`
     );
   }
 
@@ -199,10 +199,10 @@ export function buildPluginConditions(
  */
 export function parsePagination(
   filter: { limit?: number | string; offset?: number | string },
-  defaultLimit: number = 50,
+  defaultLimit: number = 50
 ): { limit: number; offset: number } {
   const limit = filter.limit ? parseInt(String(filter.limit)) : defaultLimit;
   const offset = filter.offset ? parseInt(String(filter.offset)) : 0;
-
+  
   return { limit, offset };
 }

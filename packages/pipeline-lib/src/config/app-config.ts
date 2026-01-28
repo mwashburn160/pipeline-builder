@@ -2,9 +2,9 @@ import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Algorithm } from 'jsonwebtoken';
-import { createLogger } from '../core/logger';
-import { ComputeType } from '../core/pipeline-types';
 import { AppConfig } from '../pipeline/pipeline-types';
+import { ComputeType } from '../core/pipeline-types';
+import { createLogger } from '../core/logger';
 
 const log = createLogger('Config');
 

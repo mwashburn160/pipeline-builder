@@ -3,12 +3,12 @@ import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipeline, CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipeline-types';
-import { PluginLookupConstruct } from './plugin-lookup-construct';
 import { CoreConstants } from '../config/app-config';
-import { UniqueId } from '../core/id-generator';
 import { createCodeBuildStep, getCustomKey, isTrue, merge } from '../core/pipeline-helpers';
+import { PluginLookupConstruct } from './plugin-lookup-construct';
+import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipeline-types';
 import { MetaDataType, TriggerType } from '../core/pipeline-types';
+import { UniqueId } from '../core/id-generator';
 
 /**
  * Configuration properties for the Builder construct

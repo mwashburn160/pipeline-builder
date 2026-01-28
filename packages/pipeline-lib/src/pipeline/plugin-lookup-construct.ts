@@ -6,12 +6,12 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
-import { PluginOptions } from './pipeline-types';
 import { Config } from '../config/app-config';
+import { PluginOptions } from './pipeline-types';
 import { UniqueId } from '../core/id-generator';
-import { createLogger } from '../core/logger';
 import { PluginFilter } from '../core/query-filters';
 import { Plugin } from '../database/drizzle-schema';
+import { createLogger } from '../core/logger';
 
 const log = createLogger('Lookup');
 
@@ -23,12 +23,12 @@ export interface InputProps {
 /**
  * CDK Construct responsible for looking up plugin configurations from an external platform
  * using AWS CloudFormation Custom Resources backed by a Lambda function.
- *
+ * 
  * This construct creates:
  * - A Lambda function (plugin-lookup-handler) that fetches plugin configs
  * - A CloudWatch Log Group for the Lambda
  * - A Custom Resource Provider that invokes the Lambda
- *
+ * 
  * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
 export class PluginLookupConstruct extends Construct {

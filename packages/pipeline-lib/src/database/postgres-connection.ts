@@ -387,11 +387,11 @@ function getDbInstance(): ReturnType<typeof drizzle> {
 /**
  * Proxy-based lazy database instance
  * The actual connection is only created when first accessed
- *
+ * 
  * @example
  * ```typescript
  * import { db } from './connection';
- *
+ * 
  * // Connection is created here on first use, not on import
  * const plugins = await db.select().from(schema.plugin);
  * ```
@@ -469,15 +469,15 @@ export async function testConnection(): Promise<boolean> {
 /**
  * Initialize the database connection explicitly
  * Call this during application startup after environment is configured
- *
+ * 
  * @example
  * ```typescript
  * import { initializeDatabase } from './connection';
- *
+ * 
  * async function bootstrap() {
  *   // Load environment variables first
  *   dotenv.config();
- *
+ *   
  *   // Then initialize database
  *   await initializeDatabase();
  * }

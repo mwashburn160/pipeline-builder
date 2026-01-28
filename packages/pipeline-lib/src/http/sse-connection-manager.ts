@@ -52,18 +52,18 @@ export interface SSEManagerStats {
 
 /**
  * SSE helper class with memory leak protection
- *
+ * 
  * Features:
  * - Client limits per request ID
  * - Automatic timeout for idle connections
  * - Periodic cleanup of stale connections
  * - Connection statistics
- *
+ * 
  * @example
  * ```typescript
  * const sseManager = new SSEManager({ maxClientsPerRequest: 5 });
  * app.get('/logs/:requestId', sseManager.middleware());
- *
+ * 
  * // Send events
  * sseManager.send('request-123', 'INFO', 'Processing...');
  * ```
@@ -77,14 +77,14 @@ export class SSEManager {
   constructor(options: SSEManagerOptions = {}) {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? 10;
     this.clientTimeoutMs = options.clientTimeoutMs ?? 30 * 60 * 1000; // 30 minutes
-
+    
     const cleanupIntervalMs = options.cleanupIntervalMs ?? 5 * 60 * 1000; // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
   }
 
   /**
    * Adds a client to the SSE manager
-   *
+   * 
    * @param requestId - Unique request ID
    * @param res - Express Response object
    * @returns true if client was added, false if rejected (limit reached)
@@ -131,7 +131,7 @@ export class SSEManager {
 
     existing.push(client);
     this.clients.set(requestId, existing);
-
+    
     log.debug(`Client ${clientId} connected for request ${requestId} (total: ${existing.length})`);
     return true;
   }
@@ -161,7 +161,7 @@ export class SSEManager {
 
   /**
    * Sends a message to all SSE clients for a requestId
-   *
+   * 
    * @param requestId - Request ID
    * @param type - Event type
    * @param message - Message string
@@ -194,7 +194,7 @@ export class SSEManager {
 
   /**
    * Broadcast a message to all connected clients across all requests
-   *
+   * 
    * @param type - Event type
    * @param message - Message string
    * @param data - Optional additional data
@@ -210,7 +210,7 @@ export class SSEManager {
 
   /**
    * Close all clients for a specific request
-   *
+   * 
    * @param requestId - Request ID to close
    * @param finalMessage - Optional final message to send before closing
    */
@@ -277,7 +277,7 @@ export class SSEManager {
 
   /**
    * Middleware to initialize SSE connection
-   *
+   * 
    * @example
    * ```typescript
    * app.get('/logs/:requestId', sseManager.middleware());
@@ -294,7 +294,7 @@ export class SSEManager {
       res.flushHeaders();
 
       const added = this.addClient(requestId, res);
-
+      
       if (!added) {
         res.status(429).end('Too many connections for this request');
       }

@@ -1,31 +1,43 @@
 import { Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
-import { getIdentity, RequestIdentity } from './identity';
 import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
+import { getIdentity, RequestIdentity } from './identity';
 
 /**
  * Generic typed request with body, query, and params
+ * 
+ * @example
+ * ```typescript
+ * // Request with body
+ * type CreateRequest = TypedRequest<{ name: string }>;
+ * 
+ * // Request with query params
+ * type SearchRequest = TypedRequest<{}, { q: string }>;
+ * 
+ * // Request with URL params
+ * type GetByIdRequest = TypedRequest<{}, {}, { id: string }>;
+ * ```
  */
 export type TypedRequest<
-  TBody = {},
-  TQuery = {},
-  TParams = { id?: string },
-> = Request<TParams, {}, TBody, TQuery>;
+  TBody = any,
+  TQuery = any,
+  TParams = any
+> = Request<TParams, any, TBody, TQuery>;
 
 /**
  * Request with only body typing
  */
-export type BodyRequest<TBody = {}> = TypedRequest<TBody, {}, {}>;
+export type BodyRequest<TBody = any> = Request<any, any, TBody, any>;
 
 /**
  * Request with only query typing
  */
-export type QueryRequest<TQuery = {}> = TypedRequest<{}, TQuery, {}>;
+export type QueryRequest<TQuery = any> = Request<any, any, any, TQuery>;
 
 /**
  * Request with only params typing
  */
-export type ParamsRequest<TParams = { id?: string }> = TypedRequest<{}, {}, TParams>;
+export type ParamsRequest<TParams = any> = Request<TParams, any, any, any>;
 
 /**
  * Standard API success response
@@ -78,36 +90,36 @@ export interface RequestContext {
 
 /**
  * Create a request context with identity and logging
- *
+ * 
  * Sets X-Request-Id header on response and creates a logger
  * that outputs to both console and SSE.
- *
+ * 
  * @param req - Express request
  * @param res - Express response
  * @param sseManager - SSE manager for real-time logs
  * @returns Request context with identity and logger
- *
+ * 
  * @example
  * ```typescript
  * app.post('/api/resource', authenticateToken, async (req, res) => {
  *   const ctx = createRequestContext(req, res, sseManager);
- *
+ *   
  *   ctx.log('INFO', 'Processing request', { data: req.body });
- *
+ *   
  *   if (!ctx.identity.orgId) {
  *     ctx.log('ERROR', 'Missing organization ID');
  *     return res.status(400).json({ error: 'x-org-id header required' });
  *   }
- *
+ *   
  *   // Process request...
  *   ctx.log('COMPLETED', 'Request processed successfully');
  * });
  * ```
  */
 export function createRequestContext(
-  req: Request,
+  req: Request<any, any, any, any>,
   res: Response,
-  sseManager: SSEManager,
+  sseManager: SSEManager
 ): RequestContext {
   const identity = getIdentity(req);
   const requestId = identity.requestId || uuid();
@@ -135,7 +147,7 @@ export function sendSuccess<T>(
   res: Response,
   data: T,
   message: string = 'Success',
-  statusCode: number = 200,
+  statusCode: number = 200
 ): Response {
   return res.status(statusCode).json({
     message,
@@ -150,7 +162,7 @@ export function sendError(
   res: Response,
   error: string,
   statusCode: number = 500,
-  details?: Record<string, unknown>,
+  details?: Record<string, unknown>
 ): Response {
   const response: ApiErrorResponse = { error };
   if (details) {
@@ -168,7 +180,7 @@ export function sendPaginated<T>(
   message: string,
   limit: number,
   offset: number,
-  statusCode: number = 200,
+  statusCode: number = 200
 ): Response {
   return res.status(statusCode).json({
     message,
