@@ -2,11 +2,6 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
-import { eq } from 'drizzle-orm';
-import AdmZip from 'adm-zip';
-import multer from 'multer';
-import YAML from 'yaml';
-
 import {
   // Config
   Config,
@@ -21,13 +16,17 @@ import {
   authenticateToken,
   createRequestContext,
   extractDbError,
-  TypedRequest,
 
   // Types
   PluginManifest,
 } from '@mwashburn160/pipeline-lib';
-
+import AdmZip from 'adm-zip';
+import { eq } from 'drizzle-orm';
+import { Request, Response } from 'express';
+import multer from 'multer';
 import { v7 as uuid } from 'uuid';
+import YAML from 'yaml';
+
 
 /**
  * Request body interface for plugin upload
@@ -56,9 +55,10 @@ const { app, sseManager } = createApp();
  * Upload and deploy plugin
  * POST /
  */
-app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedRequest<PluginRequestBody>, res) => {
+app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, res: Response) => {
   const ctx = createRequestContext(req, res, sseManager);
   const config = Config.get();
+  const body = req.body as PluginRequestBody;
 
   let zipPath: string | undefined;
   let destinationDir: string | undefined;
@@ -79,7 +79,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: TypedReque
     }
 
     const orgId = ctx.identity.orgId.toLowerCase();
-    const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
+    const accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
 
     ctx.log('INFO', 'Identity validated', { orgId, userId: ctx.identity.userId });
     ctx.log('INFO', 'Access policy determined', { accessModifier, orgId });
@@ -256,7 +256,7 @@ if (!fs.existsSync('uploads')) {
 runServer(app, {
   name: 'Plugin Upload microservice',
   sseManager,
-  onStart: (port) => {
+  onStart: () => {
     console.log(`✅ Registry: ${config.registry.host}:${config.registry.port}`);
   },
 });

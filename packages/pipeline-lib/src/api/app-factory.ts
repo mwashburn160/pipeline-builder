@@ -40,7 +40,7 @@ export interface CreateAppResult {
 
 /**
  * Create and configure an Express application with common middleware
- * 
+ *
  * Sets up:
  * - CORS with configured origins
  * - Helmet security headers
@@ -50,18 +50,18 @@ export interface CreateAppResult {
  * - Health check endpoint (/health)
  * - Metrics endpoint (/metrics)
  * - SSE logs endpoint (/logs/:requestId)
- * 
+ *
  * @param options - Configuration options
  * @returns Configured Express app and SSE manager
- * 
+ *
  * @example
  * ```typescript
  * const { app, sseManager } = createApp();
- * 
+ *
  * app.post('/api/resource', authenticateToken, async (req, res) => {
  *   // Your route handler
  * });
- * 
+ *
  * startServer(app, { name: 'My Service' });
  * ```
  */

@@ -4,9 +4,9 @@ import { Config } from '../config/app-config';
 
 /**
  * JWT authentication middleware
- * 
+ *
  * Validates Bearer token from Authorization header against configured secret.
- * 
+ *
  * @example
  * ```typescript
  * app.post('/api/resource', authenticateToken, async (req, res) => {
@@ -41,7 +41,7 @@ export function authenticateToken(req: Request, res: Response, next: Function): 
 
 /**
  * Creates a JWT authentication middleware with custom config
- * 
+ *
  * @param secret - JWT secret key
  * @param algorithm - JWT algorithm (default: HS256)
  * @returns Express middleware function

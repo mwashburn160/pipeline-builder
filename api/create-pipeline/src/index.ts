@@ -1,5 +1,3 @@
-import { and, eq } from 'drizzle-orm';
-
 import {
   // Database
   db,
@@ -11,12 +9,14 @@ import {
   authenticateToken,
   createRequestContext,
   extractDbError,
-  TypedRequest,
 
   // Types
   AccessModifier,
   BuilderProps,
 } from '@mwashburn160/pipeline-lib';
+import { and, eq } from 'drizzle-orm';
+import { Request, Response } from 'express';
+
 
 /**
  * Request body interface for pipeline creation/update
@@ -37,12 +37,13 @@ const { app, sseManager } = createApp();
  * Create or update pipeline configuration
  * POST /
  */
-app.post('/', authenticateToken, async (req: TypedRequest<PipelineRequestBody>, res) => {
+app.post('/', authenticateToken, async (req: Request, res: Response) => {
   const ctx = createRequestContext(req, res, sseManager);
+  const body = req.body as PipelineRequestBody;
 
   try {
-    const { project, organization, props } = req.body;
-    const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
+    const { project, organization, props } = body;
+    const accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
 
     ctx.log('INFO', 'Pipeline creation request received', { project, organization, accessModifier });
 

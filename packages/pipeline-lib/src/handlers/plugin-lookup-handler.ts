@@ -1,8 +1,8 @@
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { CoreConstants } from '../config/app-config';
 import { PluginFilter } from '../core/query-filters';
 import { Plugin } from '../database/drizzle-schema';
-import { CoreConstants } from '../config/app-config';
 
 /**
  * Simple structured logger for Lambda (outputs to CloudWatch)
@@ -57,11 +57,11 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
       throw new Error('Empty response data from API');
     }
 
-    lambdaLog.info('FETCH', `Plugin fetched successfully`, { 
-      status, 
-      plugin: data.name, 
-      version: data.version, 
-      id: data.id 
+    lambdaLog.info('FETCH', 'Plugin fetched successfully', {
+      status,
+      plugin: data.name,
+      version: data.version,
+      id: data.id,
     });
 
     return data;
@@ -179,7 +179,7 @@ export const handler = async (
 
     // Encode response
     const encoded = Buffer.from(JSON.stringify(plugin), 'utf-8').toString('base64');
-    lambdaLog.debug('ENCODE', `Encoded plugin data`, { length: encoded.length });
+    lambdaLog.debug('ENCODE', 'Encoded plugin data', { length: encoded.length });
 
     return {
       ...baseResponse,

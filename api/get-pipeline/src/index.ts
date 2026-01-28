@@ -1,5 +1,3 @@
-import { and } from 'drizzle-orm';
-
 import {
   // Database
   db,
@@ -11,13 +9,14 @@ import {
   authenticateToken,
   createRequestContext,
   buildPipelineConditions,
-  parsePagination,
-  TypedRequest,
 
   // Types
   PipelineFilter,
   validatePipelineFilter,
 } from '@mwashburn160/pipeline-lib';
+import { and } from 'drizzle-orm';
+import { Request, Response } from 'express';
+
 
 /**
  * Initialize app with common middleware
@@ -28,13 +27,13 @@ const { app, sseManager } = createApp();
  * Query pipelines with filters
  * GET /?project=my-app&organization=my-org
  */
-app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFilter>>, res) => {
+app.get('/', authenticateToken, async (req: Request, res: Response) => {
   const ctx = createRequestContext(req, res, sseManager);
 
   ctx.log('INFO', 'Pipeline query request received', { query: req.query });
 
   try {
-    const filter = req.query;
+    const filter = req.query as unknown as Partial<PipelineFilter>;
 
     // Validate orgId
     if (!ctx.identity.orgId) {
@@ -92,7 +91,7 @@ app.get('/', authenticateToken, async (req: TypedRequest<{}, Partial<PipelineFil
  * Get pipeline by ID
  * GET /:id
  */
-app.get('/:id', authenticateToken, async (req: TypedRequest<{}, {}, { id: string }>, res) => {
+app.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   const ctx = createRequestContext(req, res, sseManager);
   const { id } = req.params;
 
