@@ -1,3 +1,13 @@
+## 0.1.20 (2026-01-28)
+
+### 🩹 Fixes
+
+- version ([c42f920](https://github.com/mwashburn160/pipeline-builder/commit/c42f920))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.19 (2026-01-28)
 
 ### 🩹 Fixes
