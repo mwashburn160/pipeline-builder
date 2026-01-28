@@ -3,9 +3,9 @@ import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import { Algorithm } from 'jsonwebtoken';
-import type { ComputeType, PluginType, MetaDataType, SourceType, TriggerType } from './types';
-import { PluginFilter } from '../db/props-filters';
-import { Plugin } from '../db/schema';
+import type { ComputeType, PluginType, MetaDataType, SourceType, TriggerType } from '../core/pipeline-types';
+import { PluginFilter } from '../core/query-filters';
+import { Plugin } from '../database/drizzle-schema';
 
 /**
  * S3 source configuration for CodePipeline

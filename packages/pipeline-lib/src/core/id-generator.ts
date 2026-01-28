@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { CoreConstants } from './appconfig';
+import { CoreConstants } from '../config/app-config';
 
 /**
  * Options for configuring UniqueId generation

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
-import { BuilderProps } from '../pipeline/builder';
-import { AccessModifier, ComputeType, PluginType } from '../pipeline/types';
+import { AccessModifier, ComputeType, PluginType } from '../core/pipeline-types';
+import { BuilderProps } from '../pipeline/pipeline-builder';
 
 /**
  * Table for storing reusable plugin configurations.

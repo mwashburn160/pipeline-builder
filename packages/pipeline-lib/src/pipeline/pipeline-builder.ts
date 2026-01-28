@@ -3,12 +3,12 @@ import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipeline, CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { CoreConstants } from './appconfig';
-import { createCodeBuildStep, getCustomKey, isTrue, merge } from './helper';
-import { Lookup } from './lookup';
-import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './props';
-import { MetaDataType, TriggerType } from './types';
-import { UniqueId } from './unique-id';
+import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipeline-types';
+import { PluginLookupConstruct } from './plugin-lookup-construct';
+import { CoreConstants } from '../config/app-config';
+import { UniqueId } from '../core/id-generator';
+import { createCodeBuildStep, getCustomKey, isTrue, merge } from '../core/pipeline-helpers';
+import { MetaDataType, TriggerType } from '../core/pipeline-types';
 
 /**
  * Configuration properties for the Builder construct
@@ -63,7 +63,7 @@ export class Builder extends Construct {
     this.validateProps(props);
 
     const uniqueId = new UniqueId(props.organization, props.project);
-    const lookup = new Lookup(this, uniqueId.generate('lookup'), props.organization, props.project);
+    const pluginLookup = new PluginLookupConstruct(this, uniqueId.generate('plugin-lookup'), props.organization, props.project);
 
     // Merge metadata - merge() function already handles logging
     const global = merge('global', props.global ?? {}, init());
@@ -71,7 +71,7 @@ export class Builder extends Construct {
 
     // Create source and build step
     const source = this.createSource(props.synth.source, uniqueId);
-    const plugin = lookup.plugin(props.synth.plugin);
+    const plugin = pluginLookup.plugin(props.synth.plugin);
     const synth = createCodeBuildStep({
       id: uniqueId.generate('synth'),
       plugin,

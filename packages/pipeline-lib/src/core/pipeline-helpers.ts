@@ -1,27 +1,27 @@
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
-import { Config, CoreConstants } from './appconfig';
-import { CodeBuildStepOptions, CodeStarOptions, CodeStarSource, GitHubOptions, GitHubSource, PluginOptions, S3Options, S3Source, SynthOptions } from './props';
-import { PluginType, ComputeType, MetaDataType, SourceType } from './types';
+import { createLogger } from './logger';
+import { PluginType, ComputeType, MetaDataType, SourceType } from './pipeline-types';
+import { Config, CoreConstants } from '../config/app-config';
+import { CodeBuildStepOptions, CodeStarOptions, CodeStarSource, GitHubOptions, GitHubSource, PluginOptions, S3Options, S3Source, SynthOptions } from '../pipeline/pipeline-types';
+
+const log = createLogger('Helper');
 
 /**
  * Merge multiple metadata objects into one, with logging
  */
 export function merge(title: string, ...sources: Array<Partial<MetaDataType>>): MetaDataType {
-  console.group(`[${title}] Merged metadata`);
-
   const merged = sources.reduce((acc, curr) => ({ ...acc, ...curr }), {}) as MetaDataType;
 
-  if (Object.keys(merged).length > 0) {
-    for (const [key, value] of Object.entries(merged)) {
-      const str = `(${typeof value})`;
-      console.log(`  ${key}: ${value} ${str}`);
+  if (log.isDebugEnabled()) {
+    const entries = Object.entries(merged);
+    if (entries.length > 0) {
+      log.debug(`[${title}] Merged metadata:`, merged);
+    } else {
+      log.debug(`[${title}] Merged metadata: (empty)`);
     }
-  } else {
-    console.log('(empty after merge)');
   }
 
-  console.groupEnd();
   return merged;
 }
 
@@ -35,16 +35,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // Merge plugin metadata with provided metadata
   const merged = merge('codebuildstep', plugin.metadata ?? {}, metadata ?? {});
 
-  console.group('[CreateCodeBuildStep] Merged metadata');
-  if (Object.keys(merged).length > 0) {
-    for (const [key, value] of Object.entries(merged)) {
-      const str = `(${typeof value})`;
-      console.log(`  ${key}: ${value} ${str}`);
-    }
-  } else {
-    console.log('(empty after merge)');
-  }
-  console.groupEnd();
+  log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
   // Build environment variables
   const env = { ...(plugin.env ?? {}) };

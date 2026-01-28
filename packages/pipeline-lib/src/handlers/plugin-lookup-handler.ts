@@ -1,8 +1,27 @@
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { PluginFilter } from '../db/props-filters';
-import { Plugin } from '../db/schema';
-import { CoreConstants } from '../pipeline/appconfig';
+import { CoreConstants } from '../config/app-config';
+import { PluginFilter } from '../core/query-filters';
+import { Plugin } from '../database/drizzle-schema';
+
+/**
+ * Simple structured logger for Lambda (outputs to CloudWatch)
+ * Note: We use console.* directly in Lambda handlers as it integrates
+ * with CloudWatch Logs. The core logger is for the main application.
+ */
+const lambdaLog = {
+  info: (tag: string, message: string, data?: unknown) => {
+    console.log(JSON.stringify({ level: 'INFO', tag, message, data, ts: new Date().toISOString() }));
+  },
+  error: (tag: string, message: string, data?: unknown) => {
+    console.error(JSON.stringify({ level: 'ERROR', tag, message, data, ts: new Date().toISOString() }));
+  },
+  debug: (tag: string, message: string, data?: unknown) => {
+    if (process.env.LOG_LEVEL === 'debug') {
+      console.debug(JSON.stringify({ level: 'DEBUG', tag, message, data, ts: new Date().toISOString() }));
+    }
+  },
+};
 
 /**
  * Creates a pre-configured Axios instance for API requests.
@@ -27,7 +46,7 @@ function create(baseURL: string): AxiosInstance {
  * @throws Error on network failure, timeout or invalid response
  */
 async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Plugin> {
-  console.log('[FETCH] Filter:', JSON.stringify(pluginFilter, null, 2));
+  lambdaLog.debug('FETCH', 'Starting plugin fetch', { filter: pluginFilter });
 
   try {
     const { data, status } = await api.post<Plugin>('/api/plugins/lookup', {
@@ -38,8 +57,12 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
       throw new Error('Empty response data from API');
     }
 
-    console.log(`[FETCH] Success - Status: ${status}`);
-    console.log(`[FETCH] Plugin: ${data.name} (${data.version}) - ID: ${data.id}`);
+    lambdaLog.info('FETCH', 'Plugin fetched successfully', {
+      status,
+      plugin: data.name,
+      version: data.version,
+      id: data.id,
+    });
 
     return data;
   } catch (error) {
@@ -48,11 +71,7 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
         ? `API error ${error.response.status}: ${error.response.statusText}`
         : error.code || error.message;
 
-      console.error('[FETCH] Error:', msg);
-
-      if (error.response?.data) {
-        console.error('[FETCH] Response data:', error.response.data);
-      }
+      lambdaLog.error('FETCH', msg, { responseData: error.response?.data });
 
       throw new Error(`Failed to fetch plugin: ${msg}`);
     }
@@ -113,9 +132,11 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
 export const handler = async (
   event: CloudFormationCustomResourceEvent,
 ): Promise<CloudFormationCustomResourceResponse> => {
-  console.log(`[START] ${event.RequestType} - LogicalResourceId: ${event.LogicalResourceId}`);
-  console.log(`[START] RequestId: ${event.RequestId}`);
-  console.log(`[START] StackId: ${event.StackId}`);
+  lambdaLog.info('START', `${event.RequestType} request received`, {
+    logicalResourceId: event.LogicalResourceId,
+    requestId: event.RequestId,
+    stackId: event.StackId,
+  });
 
   const baseResponse: Partial<CloudFormationCustomResourceResponse> = {
     StackId: event.StackId,
@@ -127,7 +148,7 @@ export const handler = async (
   try {
     // Handle Delete - always succeed (no-op)
     if (event.RequestType === 'Delete') {
-      console.log('[DELETE] No-op - returning SUCCESS');
+      lambdaLog.info('DELETE', 'No-op - returning SUCCESS');
       return {
         ...baseResponse,
         Status: 'SUCCESS',
@@ -139,8 +160,7 @@ export const handler = async (
     const pluginFilter = event.ResourceProperties.pluginFilter;
     const baseURL = event.ResourceProperties.baseURL || CoreConstants.HANDLER_DEFAULT_BASE_URL;
 
-    console.log('[CONFIG] Using baseURL:', baseURL);
-    console.log('[CONFIG] PluginFilter:', JSON.stringify(pluginFilter, null, 2));
+    lambdaLog.info('CONFIG', 'Configuration loaded', { baseURL, pluginFilter });
 
     // Validate filter
     validatePluginFilter(pluginFilter);
@@ -149,14 +169,17 @@ export const handler = async (
     const api = create(baseURL);
 
     // Fetch plugin
-    console.log('[FETCH] Initiating plugin lookup...');
+    lambdaLog.info('FETCH', 'Initiating plugin lookup...');
     const plugin = await fetch(api, pluginFilter as PluginFilter);
-    console.log('[FETCH] Completed successfully');
-    console.log(`[FETCH] Plugin: ${plugin.name} v${plugin.version} (ID: ${plugin.id})`);
+    lambdaLog.info('FETCH', 'Plugin retrieved successfully', {
+      name: plugin.name,
+      version: plugin.version,
+      id: plugin.id,
+    });
 
     // Encode response
     const encoded = Buffer.from(JSON.stringify(plugin), 'utf-8').toString('base64');
-    console.log(`[ENCODE] Encoded plugin data (${encoded.length} chars)`);
+    lambdaLog.debug('ENCODE', 'Encoded plugin data', { length: encoded.length });
 
     return {
       ...baseResponse,
@@ -168,11 +191,10 @@ export const handler = async (
     } as CloudFormationCustomResourceResponse;
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unexpected error occurred';
-    console.error('[ERROR] Handler failed:', reason);
-
-    if (error instanceof Error && error.stack) {
-      console.error('[ERROR] Stack trace:', error.stack);
-    }
+    lambdaLog.error('ERROR', 'Handler failed', {
+      reason,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
 
     return {
       ...baseResponse,
@@ -180,6 +202,6 @@ export const handler = async (
       Reason: reason,
     } as CloudFormationCustomResourceResponse;
   } finally {
-    console.log('[END] Custom resource execution completed');
+    lambdaLog.info('END', 'Custom resource execution completed');
   }
 };

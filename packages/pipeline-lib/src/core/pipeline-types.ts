@@ -1,4 +1,4 @@
-import type { CodeStarSource, GitHubSource, S3Source } from './props';
+import type { CodeStarSource, GitHubSource, S3Source } from '../pipeline/pipeline-types';
 
 /**
  * Utility type to extract the union of all values from an object type

@@ -1,7 +1,10 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, PoolConfig, PoolClient } from 'pg';
-import { schema } from './schema';
-import { Config } from '../pipeline/appconfig';
+import { schema } from './drizzle-schema';
+import { Config } from '../config/app-config';
+import { createLogger } from '../core/logger';
+
+const log = createLogger('Database');
 
 /**
  * Database connection statistics for monitoring
@@ -105,11 +108,11 @@ export class Connection {
       this.db = drizzle(this.pool, { schema });
 
       if (this.options.enableLogging) {
-        console.log('✅ Database connection initialized successfully');
+        log.info('Database connection initialized successfully');
         this.logConnectionConfig(poolConfig);
       }
     } catch (error) {
-      console.error('❌ Failed to initialize database connection:', error);
+      log.error('Failed to initialize database connection:', error);
       throw new Error('Database initialization failed');
     }
   }
@@ -153,12 +156,12 @@ export class Connection {
       client.release();
 
       if (this.options.enableLogging) {
-        console.log('✅ Database connection test successful');
+        log.info('Database connection test successful');
       }
 
       return result.rows.length > 0;
     } catch (error) {
-      console.error('❌ Database connection test failed:', error);
+      log.error('Database connection test failed:', error);
       return false;
     }
   }
@@ -228,7 +231,7 @@ export class Connection {
    */
   public async close(timeout: number = 5000): Promise<void> {
     if (this.isShuttingDown) {
-      console.warn('⚠️  Connection is already shutting down');
+      log.warn('Connection is already shutting down');
       return;
     }
 
@@ -236,9 +239,9 @@ export class Connection {
 
     try {
       if (this.options.enableLogging) {
-        console.log('🔄 Closing database connection pool...');
+        log.info('Closing database connection pool...');
         const stats = this.getStats();
-        console.log(`📊 Pool stats - Total: ${stats.totalCount}, Idle: ${stats.idleCount}, Waiting: ${stats.waitingCount}`);
+        log.info(`Pool stats - Total: ${stats.totalCount}, Idle: ${stats.idleCount}, Waiting: ${stats.waitingCount}`);
       }
 
       // Set a timeout for graceful shutdown
@@ -250,10 +253,10 @@ export class Connection {
       await Promise.race([closePromise, timeoutPromise]);
 
       if (this.options.enableLogging) {
-        console.log('✅ Database connection closed successfully');
+        log.info('Database connection closed successfully');
       }
     } catch (error) {
-      console.error('❌ Error closing database connection:', error);
+      log.error('Error closing database connection:', error);
       throw error;
     } finally {
       this.isShuttingDown = false;
@@ -274,11 +277,11 @@ export class Connection {
    */
   private setupEventHandlers(): void {
     this.pool.on('error', (err) => {
-      console.error('❌ Unexpected error on idle client:', err);
+      log.error('Unexpected error on idle client:', err);
 
       if (this.options.enableAutoRetry && this.connectionAttempts < this.options.maxRetries) {
         void this.handleConnectionError(err).catch((retryErr) => {
-          console.error('❌ Connection retry error:', retryErr);
+          log.error('Connection retry error:', retryErr);
         });
       }
     });
@@ -287,20 +290,17 @@ export class Connection {
       this.connectionAttempts = 0; // Reset on successful connection
 
       if (this.options.enableLogging) {
-        console.log('✅ New database connection established');
+        log.debug('New database connection established');
       }
     });
 
     this.pool.on('acquire', () => {
-      if (this.options.enableLogging) {
-        // Only log if we want verbose connection tracking
-        // console.log('🔄 Client acquired from pool');
-      }
+      // Only log at debug level for verbose connection tracking
     });
 
     this.pool.on('remove', () => {
       if (this.options.enableLogging) {
-        console.log('🗑️  Client removed from pool');
+        log.debug('Client removed from pool');
       }
     });
   }
@@ -311,25 +311,25 @@ export class Connection {
   private async handleConnectionError(error: Error): Promise<void> {
     this.connectionAttempts++;
 
-    console.error(
-      `⚠️  Connection error (attempt ${this.connectionAttempts}/${this.options.maxRetries}):`,
+    log.error(
+      `Connection error (attempt ${this.connectionAttempts}/${this.options.maxRetries}):`,
       error.message,
     );
 
     if (this.connectionAttempts < this.options.maxRetries) {
       const delay = this.options.retryDelay * this.connectionAttempts;
-      console.log(`🔄 Retrying connection in ${delay}ms...`);
+      log.info(`Retrying connection in ${delay}ms...`);
 
       await new Promise(resolve => setTimeout(resolve, delay));
 
       try {
         await this.testConnection();
-        console.log('✅ Connection restored');
+        log.info('Connection restored');
       } catch (retryError) {
-        console.error('❌ Retry failed:', retryError);
+        log.error('Retry failed:', retryError);
       }
     } else {
-      console.error('❌ Max connection retry attempts reached');
+      log.error('Max connection retry attempts reached');
     }
   }
 
@@ -337,14 +337,15 @@ export class Connection {
    * Logs connection configuration (sanitized)
    */
   private logConnectionConfig(config: PoolConfig): void {
-    console.log('📊 Database Configuration:');
-    console.log(`  Host: ${config.host}:${config.port}`);
-    console.log(`  Database: ${config.database}`);
-    console.log(`  User: ${config.user}`);
-    console.log(`  Max Pool Size: ${config.max}`);
-    console.log(`  Idle Timeout: ${config.idleTimeoutMillis}ms`);
-    console.log(`  Connection Timeout: ${config.connectionTimeoutMillis}ms`);
-    console.log(`  SSL: ${config.ssl ? 'enabled' : 'disabled'}`);
+    log.info('Database Configuration:', {
+      host: `${config.host}:${config.port}`,
+      database: config.database,
+      user: config.user,
+      maxPoolSize: config.max,
+      idleTimeoutMs: config.idleTimeoutMillis,
+      connectionTimeoutMs: config.connectionTimeoutMillis,
+      ssl: config.ssl ? 'enabled' : 'disabled',
+    });
   }
 }
 
@@ -368,7 +369,44 @@ export class Connection {
  * });
  * ```
  */
-export const db = Connection.getInstance().db;
+
+// Lazy initialization to avoid race condition on module load
+let _dbInstance: ReturnType<typeof drizzle> | null = null;
+
+/**
+ * Get the database instance with lazy initialization
+ * This avoids the race condition where the module is loaded before environment is configured
+ */
+function getDbInstance(): ReturnType<typeof drizzle> {
+  if (!_dbInstance) {
+    _dbInstance = Connection.getInstance().db;
+  }
+  return _dbInstance;
+}
+
+/**
+ * Proxy-based lazy database instance
+ * The actual connection is only created when first accessed
+ *
+ * @example
+ * ```typescript
+ * import { db } from './connection';
+ *
+ * // Connection is created here on first use, not on import
+ * const plugins = await db.select().from(schema.plugin);
+ * ```
+ */
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+  get(_, prop: string | symbol) {
+    const instance = getDbInstance();
+    const value = instance[prop as keyof typeof instance];
+    // Bind methods to the instance to preserve 'this' context
+    if (typeof value === 'function') {
+      return value.bind(instance);
+    }
+    return value;
+  },
+});
 
 /**
  * Gets the Connection instance for advanced operations
@@ -403,6 +441,7 @@ export function getConnection(): Connection {
 export async function closeConnection(): Promise<void> {
   const connection = Connection.getInstance();
   await connection.close();
+  _dbInstance = null; // Reset lazy instance
 }
 
 /**
@@ -425,4 +464,29 @@ export async function closeConnection(): Promise<void> {
 export async function testConnection(): Promise<boolean> {
   const connection = Connection.getInstance();
   return connection.testConnection();
+}
+
+/**
+ * Initialize the database connection explicitly
+ * Call this during application startup after environment is configured
+ *
+ * @example
+ * ```typescript
+ * import { initializeDatabase } from './connection';
+ *
+ * async function bootstrap() {
+ *   // Load environment variables first
+ *   dotenv.config();
+ *
+ *   // Then initialize database
+ *   await initializeDatabase();
+ * }
+ * ```
+ */
+export async function initializeDatabase(): Promise<void> {
+  const connection = Connection.getInstance();
+  const healthy = await connection.testConnection();
+  if (!healthy) {
+    throw new Error('Database connection failed during initialization');
+  }
 }

@@ -6,11 +6,14 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
-import { Config } from './appconfig';
-import { PluginOptions } from './props';
-import { UniqueId } from './unique-id';
-import { PluginFilter } from '../db/props-filters';
-import { Plugin } from '../db/schema';
+import { PluginOptions } from './pipeline-types';
+import { Config } from '../config/app-config';
+import { UniqueId } from '../core/id-generator';
+import { createLogger } from '../core/logger';
+import { PluginFilter } from '../core/query-filters';
+import { Plugin } from '../database/drizzle-schema';
+
+const log = createLogger('Lookup');
 
 export interface InputProps {
   readonly baseURL: string;
@@ -18,10 +21,17 @@ export interface InputProps {
 }
 
 /**
- * Construct responsible for looking up plugin configurations from an external platform
- * using AWS CloudFormation Custom Resources backed by a Lambda function
+ * CDK Construct responsible for looking up plugin configurations from an external platform
+ * using AWS CloudFormation Custom Resources backed by a Lambda function.
+ *
+ * This construct creates:
+ * - A Lambda function (plugin-lookup-handler) that fetches plugin configs
+ * - A CloudWatch Log Group for the Lambda
+ * - A Custom Resource Provider that invokes the Lambda
+ *
+ * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
-export class Lookup extends Construct {
+export class PluginLookupConstruct extends Construct {
   private readonly _uniqueId: UniqueId;
   private readonly _provider: Provider;
 
@@ -34,30 +44,30 @@ export class Lookup extends Construct {
   constructor(scope: Construct, id: string, organization: string, project: string) {
     super(scope, id);
 
-    console.log(`[Lookup] Initializing construct for org: ${organization}, project: ${project}`);
+    log.debug(`Initializing construct for org: ${organization}, project: ${project}`);
 
     if (!organization || !project) {
-      console.error('[Lookup] Missing required parameters: organization or project');
+      log.error('Missing required parameters: organization or project');
       throw new Error('Both organization and project are required.');
     }
 
     this._uniqueId = new UniqueId(organization, project);
     const onEventHandler = this.createLambdaFunction();
 
-    console.log('[Lookup] Creating log group');
+    log.debug('Creating log group');
     const logGroup = new LogGroup(this, this._uniqueId.generate('log-group'), {
       logGroupName: `/aws/lambda/${this._uniqueId.generate('plugin-lookup')}`,
       retention: RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    console.log('[Lookup] Creating custom resource provider');
+    log.debug('Creating custom resource provider');
     this._provider = new Provider(this, this._uniqueId.generate('resource-provider'), {
       onEventHandler,
       logGroup,
     });
 
-    console.log('[Lookup] Construct initialization complete');
+    log.debug('Construct initialization complete');
   }
 
   /**
@@ -69,25 +79,25 @@ export class Lookup extends Construct {
    */
   public plugin(plugin: string | PluginOptions): Plugin {
     const pluginName = typeof plugin === 'string' ? plugin : plugin.name;
-    console.log(`[Lookup.plugin] Looking up plugin: ${pluginName}`);
+    log.debug(`Looking up plugin: ${pluginName}`);
 
     const props = this.normalize(plugin);
     const custom = this.createCustomResource(props);
     const encoded = custom.getAttString('ResultValue');
 
     if (Token.isUnresolved(encoded)) {
-      console.log('[Lookup.plugin] Token unresolved during synthesis - returning default plugin');
+      log.debug('Token unresolved during synthesis - returning default plugin');
       return this.default();
     }
 
     try {
       const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
       const parsed = JSON.parse(decoded) as Plugin;
-      console.log(`[Lookup.plugin] Successfully parsed plugin: ${parsed.name} (ID: ${parsed.id})`);
+      log.debug(`Successfully parsed plugin: ${parsed.name} (ID: ${parsed.id})`);
       return parsed;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      console.warn(`[Lookup.plugin] Failed to parse plugin data: ${errorMsg}`);
+      log.warn(`Failed to parse plugin data: ${errorMsg}`);
       return this.default();
     }
   }
@@ -97,11 +107,11 @@ export class Lookup extends Construct {
    * @returns Configured NodejsFunction ready to handle Create/Update/Delete events
    */
   private createLambdaFunction(): NodejsFunction {
-    const entrypoint = join(__dirname, '/../custom-resource/index.js');
+    const entrypoint = join(__dirname, '/../handlers/plugin-lookup-handler.js');
     const handlerId = this._uniqueId.generate('onevent-handler');
     const config = Config.get();
 
-    console.log(`[Lookup] Creating onEvent Lambda: ${handlerId}`);
+    log.debug(`Creating onEvent Lambda: ${handlerId}`);
 
     const fn = new NodejsFunction(this, handlerId, {
       runtime: Runtime.NODEJS_20_X,
@@ -119,7 +129,7 @@ export class Lookup extends Construct {
       },
     });
 
-    console.log('[Lookup] Adding CloudWatch Logs permissions to Lambda');
+    log.debug('Adding CloudWatch Logs permissions to Lambda');
 
     fn.addToRolePolicy(
       new PolicyStatement({
@@ -138,10 +148,10 @@ export class Lookup extends Construct {
    * @returns Normalized PluginOptions object ready for custom resource
    */
   private normalize(plugin: string | PluginOptions): PluginOptions {
-    console.log('[Lookup.normalize] Normalizing plugin input');
+    log.debug('Normalizing plugin input');
 
     if (typeof plugin === 'string') {
-      console.log(`[Lookup.normalize] Created from string: ${plugin}`);
+      log.debug(`Created from string: ${plugin}`);
       return {
         name: plugin,
         filter: { name: plugin, isDefault: true },
@@ -149,7 +159,7 @@ export class Lookup extends Construct {
       };
     }
 
-    console.log(`[Lookup.normalize] Created from props: ${plugin.name}`);
+    log.debug(`Created from props: ${plugin.name}`);
     return {
       name: plugin.name,
       alias: plugin.alias ?? `${plugin.name}-alias`,
@@ -165,7 +175,7 @@ export class Lookup extends Construct {
    */
   private createCustomResource(props: PluginOptions): CustomResource {
     const resourceId = this._uniqueId.generate(props.alias || props.name);
-    console.log(`[Lookup] Creating CustomResource: ${resourceId}`);
+    log.debug(`Creating CustomResource: ${resourceId}`);
 
     const config = Config.get();
     const baseURL = config.server.platformUrl;
@@ -179,7 +189,7 @@ export class Lookup extends Construct {
       } as InputProps,
     });
 
-    console.log('[Lookup] CustomResource created successfully');
+    log.debug('CustomResource created successfully');
     return custom;
   }
 
@@ -190,7 +200,7 @@ export class Lookup extends Construct {
    * @returns Safe default Plugin configuration
    */
   private default(): Plugin {
-    console.log('[Lookup.default] Returning fallback default plugin');
+    log.debug('Returning fallback default plugin');
     return {
       id: '00000000-0000-0000-0000-000000000000',
       orgId: 'system',

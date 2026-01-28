@@ -1,4 +1,4 @@
-import { AccessModifier } from '../pipeline/types';
+import { AccessModifier } from './pipeline-types';
 
 /**
  * Base filter interface containing common filter properties shared across all entity types.
@@ -330,43 +330,58 @@ export function createDefaultFilter<T extends CommonFilter>(overrides?: Partial<
 export class FilterBuilder<T extends CommonFilter> {
   protected filter: Partial<T> = {};
 
-  withId(id: string | string[]): this {
-    (this.filter as any).id = id;
+  /**
+   * Set a filter property in a type-safe way
+   */
+  protected set<K extends keyof T>(key: K, value: T[K]): this {
+    this.filter = { ...this.filter, [key]: value };
     return this;
+  }
+
+  withId(id: string | string[]): this {
+    return this.set('id' as keyof T, id as T[keyof T]);
   }
 
   withOrgId(orgId: string | string[]): this {
-    (this.filter as any).orgId = orgId;
-    return this;
+    return this.set('orgId' as keyof T, orgId as T[keyof T]);
   }
 
   withAccessModifier(accessModifier: AccessModifier | string): this {
-    (this.filter as any).accessModifier = accessModifier;
-    return this;
+    return this.set('accessModifier' as keyof T, accessModifier as T[keyof T]);
   }
 
   withIsDefault(isDefault: boolean): this {
-    (this.filter as any).isDefault = isDefault;
-    return this;
+    return this.set('isDefault' as keyof T, isDefault as T[keyof T]);
   }
 
   withIsActive(isActive: boolean): this {
-    (this.filter as any).isActive = isActive;
-    return this;
+    return this.set('isActive' as keyof T, isActive as T[keyof T]);
   }
 
   withLimit(limit: number): this {
-    (this.filter as any).limit = limit;
-    return this;
+    return this.set('limit' as keyof T, limit as T[keyof T]);
   }
 
   withOffset(offset: number): this {
-    (this.filter as any).offset = offset;
-    return this;
+    return this.set('offset' as keyof T, offset as T[keyof T]);
   }
 
   withSort(field: string, direction: 'asc' | 'desc' = 'asc'): this {
-    (this.filter as any).sort = `${field}:${direction}`;
+    return this.set('sort' as keyof T, `${field}:${direction}` as T[keyof T]);
+  }
+
+  /**
+   * Get the current filter state (immutable copy)
+   */
+  getFilter(): Partial<T> {
+    return { ...this.filter };
+  }
+
+  /**
+   * Reset the builder to empty state
+   */
+  reset(): this {
+    this.filter = {};
     return this;
   }
 
@@ -380,33 +395,23 @@ export class FilterBuilder<T extends CommonFilter> {
  */
 export class PluginFilterBuilder extends FilterBuilder<PluginFilter> {
   withName(name: string): this {
-    (this as any).filter.name = name;
-    return this;
+    return this.set('name', name);
   }
 
   withNamePattern(pattern: string): this {
-    (this as any).filter.namePattern = pattern;
-    return this;
+    return this.set('namePattern', pattern);
   }
 
   withVersion(version: string): this {
-    (this as any).filter.version = version;
-    return this;
+    return this.set('version', version);
   }
 
   withVersionRange(min?: string, max?: string): this {
-    (this as any).filter.versionRange = { min, max };
-    return this;
+    return this.set('versionRange', { min, max });
   }
 
   withImageTag(imageTag: string): this {
-    (this as any).filter.imageTag = imageTag;
-    return this;
-  }
-
-  withPluginType(pluginType: string): this {
-    (this as any).filter.pluginType = pluginType;
-    return this;
+    return this.set('imageTag', imageTag);
   }
 }
 
@@ -415,22 +420,18 @@ export class PluginFilterBuilder extends FilterBuilder<PluginFilter> {
  */
 export class PipelineFilterBuilder extends FilterBuilder<PipelineFilter> {
   withProject(project: string): this {
-    (this as any).filter.project = project;
-    return this;
+    return this.set('project', project);
   }
 
   withProjectPattern(pattern: string): this {
-    (this as any).filter.projectPattern = pattern;
-    return this;
+    return this.set('projectPattern', pattern);
   }
 
   withOrganization(organization: string): this {
-    (this as any).filter.organization = organization;
-    return this;
+    return this.set('organization', organization);
   }
 
   withOrganizationPattern(pattern: string): this {
-    (this as any).filter.organizationPattern = pattern;
-    return this;
+    return this.set('organizationPattern', pattern);
   }
 }
