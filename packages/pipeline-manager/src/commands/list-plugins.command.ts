@@ -271,7 +271,7 @@ export function listPlugins(program: Command): void {
         printInfo('Initializing API client');
         printKeyValue({
           'Base URL': config.api.baseUrl,
-          'Endpoint': config.api.pluginUrl,
+          'Endpoint': config.api.pluginListUrl,
           'SSL Verification': config.api.rejectUnauthorized ? 'Enabled' : 'Disabled',
         });
 
@@ -295,7 +295,7 @@ export function listPlugins(program: Command): void {
 
         const requestStart = Date.now();
         const response = await client.get<PluginListResponse>(
-          config.api.pluginUrl,
+          config.api.pluginListUrl,
           filterParams as any,
         );
         const requestDuration = Date.now() - requestStart;

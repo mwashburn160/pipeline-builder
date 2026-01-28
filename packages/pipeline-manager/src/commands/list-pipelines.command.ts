@@ -230,7 +230,7 @@ export function listPipelines(program: Command): void {
         printInfo('Initializing API client');
         printKeyValue({
           'Base URL': config.api.baseUrl,
-          'Endpoint': config.api.pipelineUrl,
+          'Endpoint': config.api.pipelineListUrl,
           'SSL Verification': config.api.rejectUnauthorized ? 'Enabled' : 'Disabled',
         });
 
@@ -254,7 +254,7 @@ export function listPipelines(program: Command): void {
 
         const requestStart = Date.now();
         const response = await client.get<PipelineListResponse>(
-          config.api.pipelineUrl,
+          config.api.pipelineListUrl,
           filterParams as any,
         );
         const requestDuration = Date.now() - requestStart;

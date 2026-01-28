@@ -24,23 +24,40 @@ api:
   # API Endpoints
   # 
   # Pipeline Endpoints:
-  #   pipelineUrl     - Base endpoint for single pipeline operations (GET, POST)
+  #   pipelineUrl     - Single pipeline operations (GET by ID, POST)
   #                     Used by: get-pipeline, create-pipeline
-  #                     Supports filters: id, accessModifier, isDefault, isActive, project, 
-  #                                      projectPattern, organizationPattern
+  #                     Format: /api/pipeline/{id} or /api/pipeline
+  # 
+  #   pipelineListUrl - List/query multiple pipelines with filters
+  #                     Used by: list-pipelines
+  #                     Format: /api/pipelines?filter1=value1&filter2=value2
+  #                     Supports filters: id, accessModifier, isDefault, isActive, 
+  #                                      project, projectPattern, organizationPattern,
+  #                                      limit, offset, sort
   # 
   # Plugin Endpoints:
-  #   pluginUrl       - Base endpoint for single plugin operations (GET)
-  #                     Used by: get-plugin, list-plugins
-  #                     Supports filters: id, accessModifier, isDefault, isActive, name,
-  #                                      namePattern, version, versionRange, imageTag
+  #   pluginUrl       - Single plugin operations (GET by ID)
+  #                     Used by: get-plugin
+  #                     Format: /api/plugin/{id}
   # 
-  #   pluginUploadUrl - Endpoint for plugin uploads
+  #   pluginListUrl   - List/query multiple plugins with filters
+  #                     Used by: list-plugins
+  #                     Format: /api/plugins?filter1=value1&filter2=value2
+  #                     Supports filters: id, accessModifier, isDefault, isActive, 
+  #                                      name, namePattern, version, versionRange, 
+  #                                      imageTag, limit, offset, sort
+  # 
+  #   pluginUploadUrl - Plugin upload endpoint
   #                     Used by: upload-plugin
+  #                     Format: /api/plugin/upload
   # 
-  # Note: List operations use the same base endpoints with query parameters
+  # Note: Singular vs Plural URLs
+  #   - Singular (/api/plugin, /api/pipeline) - Single resource operations
+  #   - Plural (/api/plugins, /api/pipelines) - List/query operations
   pipelineUrl: /api/pipeline
+  pipelineListUrl: /api/pipelines
   pluginUrl: /api/plugin
+  pluginListUrl: /api/plugins
   pluginUploadUrl: /api/plugin/upload
 
 # ============================================================================
@@ -71,7 +88,7 @@ api:
 #   CLI_CONFIG_PATH             - Path to this config file
 #                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
 #
-#   TLS_REJECT_UNAUTHORIZED      - Set to '0' to disable cert validation
+#   TLS_REJECT_UNAUTHORIZED - Set to '0' to disable cert validation
 #                                  Example: export TLS_REJECT_UNAUTHORIZED='0'
 #
 # ============================================================================
