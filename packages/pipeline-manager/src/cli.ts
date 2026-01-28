@@ -142,7 +142,7 @@ Environment Variables:
   ${ENV_VARS.PLATFORM_TOKEN}              Authentication token (required)
   ${ENV_VARS.PLATFORM_URL}                 API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH}              Config file path (optional)
-  ${ENV_VARS.NODE_TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0' (dev only)
+  ${ENV_VARS.TLS_REJECT_UNAUTHORIZED}      Disable SSL verification if '0'
   ${ENV_VARS.DEBUG}                        Enable debug mode if 'true'
 
 Examples:

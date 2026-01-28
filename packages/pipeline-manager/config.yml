@@ -71,8 +71,7 @@ api:
 #   CLI_CONFIG_PATH             - Path to this config file
 #                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
 #
-#   NODE_TLS_REJECT_UNAUTHORIZED - Set to '0' to disable cert validation
-#                                  Example: export NODE_TLS_REJECT_UNAUTHORIZED='0'
-#                                  WARNING: Development only!
+#   TLS_REJECT_UNAUTHORIZED      - Set to '0' to disable cert validation
+#                                  Example: export TLS_REJECT_UNAUTHORIZED='0'
 #
 # ============================================================================

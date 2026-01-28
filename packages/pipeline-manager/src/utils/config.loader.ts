@@ -105,12 +105,12 @@ export function getConfig(): Config {
   }
 
   // REJECT_UNAUTHORIZED can be overridden via environment variable
-  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED !== undefined) {
-    const envValue = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  if (process.env.TLS_REJECT_UNAUTHORIZED !== undefined) {
+    const envValue = process.env.TLS_REJECT_UNAUTHORIZED;
     config.api.rejectUnauthorized = envValue !== '0';
 
     if (!config.api.rejectUnauthorized) {
-      printWarning('SSL certificate validation is disabled via NODE_TLS_REJECT_UNAUTHORIZED=0');
+      printWarning('SSL certificate validation is disabled via TLS_REJECT_UNAUTHORIZED=0');
       printWarning('This should only be used in development environments');
     }
   }

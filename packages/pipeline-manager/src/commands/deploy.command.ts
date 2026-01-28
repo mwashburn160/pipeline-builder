@@ -17,7 +17,6 @@ interface Pipeline {
   project: string;
   organization: string;
   props: Record<string, unknown>;
-  pipelineName?: string;
   accessModifier?: string;
   isDefault?: boolean;
   isActive?: boolean;
@@ -156,7 +155,6 @@ export function deploy(program: Command): void {
           'ID': pipeline.id,
           'Project': pipeline.project,
           'Organization': pipeline.organization,
-          'Pipeline Name': pipeline.pipelineName || '(not set)',
           'Is Default': pipeline.isDefault,
           'Is Active': pipeline.isActive,
         });
