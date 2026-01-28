@@ -5,7 +5,6 @@ import { CodePipeline, CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipeline-types';
 import { PluginLookupConstruct } from './plugin-lookup-construct';
-import { CoreConstants } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 import { createCodeBuildStep, getCustomKey, isTrue, merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
 import { MetaDataType, TriggerType } from '../core/pipeline-types';
@@ -14,10 +13,10 @@ import { MetaDataType, TriggerType } from '../core/pipeline-types';
  * Configuration properties for the Builder construct
  */
 export interface BuilderProps {
-  /** Project identifier (lowercase alphanumeric with hyphens) */
+  /** Project identifier (will be sanitized to lowercase alphanumeric with underscores) */
   readonly project: string;
 
-  /** Organization identifier (lowercase alphanumeric with hyphens) */
+  /** Organization identifier (will be sanitized to lowercase alphanumeric with underscores) */
   readonly organization: string;
 
   /** Optional custom pipeline name. Defaults to: {organization}-{project}-pipeline */
@@ -38,6 +37,7 @@ export interface BuilderProps {
  * - Plugin-based build steps
  * - Metadata-driven configuration
  * - Automatic tagging
+ * - Automatic sanitization of project and organization names
  *
  * @example
  * ```typescript
@@ -60,29 +60,23 @@ export class Builder extends Construct {
   constructor(scope: Construct, id: string, props: BuilderProps) {
     super(scope, id);
 
+    // Validate required fields first
+    this.validateProps(props);
+
     // Sanitize project and organization names
     const project = replaceNonAlphanumeric(props.project, '_').toLowerCase();
     const organization = replaceNonAlphanumeric(props.organization, '_').toLowerCase();
-
-    // Create sanitized props for validation and usage
-    const sanitizedProps: BuilderProps = {
-      ...props,
-      project,
-      organization,
-    };
-
-    this.validateProps(sanitizedProps);
 
     const uniqueId = new UniqueId(organization, project);
     const pluginLookup = new PluginLookupConstruct(this, uniqueId.generate('plugin-lookup'), organization, project);
 
     // Merge metadata - merge() function already handles logging
-    const global = merge('global', sanitizedProps.global ?? {}, init());
-    const merged = merge('synth', sanitizedProps.synth.metadata ?? {}, global);
+    const global = merge('global', props.global ?? {}, init());
+    const merged = merge('synth', props.synth.metadata ?? {}, global);
 
     // Create source and build step
-    const source = this.createSource(sanitizedProps.synth.source, uniqueId);
-    const plugin = pluginLookup.plugin(sanitizedProps.synth.plugin);
+    const source = this.createSource(props.synth.source, uniqueId);
+    const plugin = pluginLookup.plugin(props.synth.plugin);
     const synth = createCodeBuildStep({
       id: uniqueId.generate('synth'),
       plugin,
@@ -90,7 +84,7 @@ export class Builder extends Construct {
       metadata: global,
     });
 
-    const pipelineName = sanitizedProps.pipelineName ?? `${organization}-${project}-pipeline`;
+    const pipelineName = props.pipelineName ?? `${organization}-${project}-pipeline`;
 
     this.pipeline = new CodePipeline(this, uniqueId.generate('codepipeline'), {
       pipelineName,
@@ -104,27 +98,17 @@ export class Builder extends Construct {
   }
 
   /**
-   * Validates BuilderProps to ensure all required fields are present and properly formatted
+   * Validates BuilderProps to ensure all required fields are present
    */
   private validateProps(props: BuilderProps): void {
     const errors: string[] = [];
 
     if (!props.project) {
       errors.push('BuilderProps.project is required');
-    } else if (!CoreConstants.NAME_PATTERN.test(props.project)) {
-      errors.push(
-        `Invalid project name: "${props.project}". ` +
-        'Must contain only lowercase letters, numbers, and hyphens.',
-      );
     }
 
     if (!props.organization) {
       errors.push('BuilderProps.organization is required');
-    } else if (!CoreConstants.NAME_PATTERN.test(props.organization)) {
-      errors.push(
-        `Invalid organization name: "${props.organization}". ` +
-        'Must contain only lowercase letters, numbers, and hyphens.',
-      );
     }
 
     if (!props.synth?.source) {
