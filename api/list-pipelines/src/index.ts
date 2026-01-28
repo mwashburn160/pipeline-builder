@@ -10,6 +10,7 @@ import {
   createRequestContext,
   buildPipelineConditions,
   parsePagination,
+  replaceNonAlphanumeric,
 
   // Types
   PipelineFilter,
@@ -26,7 +27,7 @@ const { app, sseManager } = createApp();
 
 /**
  * Query pipelines with filters (returns multiple results)
- * GET /?project=my-app&organization=my-org
+ * GET /?project=my-app&organization=my-org&pipelineName=my-pipeline
  */
 app.get('/', authenticateToken, async (req: Request, res: Response) => {
   const ctx = createRequestContext(req, res, sseManager);
@@ -50,9 +51,17 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
       accessModifier: filter.accessModifier || 'not specified (will return org + public)',
     });
 
+    // Sanitize filter values
+    const sanitizedFilter: Partial<PipelineFilter> = {
+      ...filter,
+      ...(filter.project && { project: replaceNonAlphanumeric(filter.project, '_').toLowerCase() }),
+      ...(filter.organization && { organization: replaceNonAlphanumeric(filter.organization, '_').toLowerCase() }),
+      ...(filter.pipelineName && { pipelineName: replaceNonAlphanumeric(filter.pipelineName, '_').toLowerCase() }),
+    };
+
     // Validate filter
     try {
-      validatePipelineFilter(filter as PipelineFilter);
+      validatePipelineFilter(sanitizedFilter as PipelineFilter);
     } catch (validationError) {
       ctx.log('ERROR', 'Filter validation failed', { error: validationError });
       return res.status(400).json({
@@ -60,8 +69,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
       });
     }
 
-    const conditions = buildPipelineConditions(filter, ctx.identity.orgId);
-    const { limit, offset } = parsePagination(filter);
+    const conditions = buildPipelineConditions(sanitizedFilter, ctx.identity.orgId);
+    const { limit, offset } = parsePagination(sanitizedFilter);
 
     ctx.log('INFO', 'Executing database query', {
       filterCount: conditions.length,
