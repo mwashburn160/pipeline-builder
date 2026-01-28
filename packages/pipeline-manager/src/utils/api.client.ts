@@ -1,8 +1,9 @@
+import https from 'https';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
-import { Config } from './config-loader';
-import { NetworkError } from '../utils/error-handler';
-import { printDebug, printError } from '../utils/output-utils';
+import { Config } from './config.loader';
+import { NetworkError } from './error.handler';
+import { printDebug, printError, printWarning } from './output.utils';
 
 /**
  * API Client for making HTTP requests
@@ -13,9 +14,29 @@ export class ApiClient {
 
   constructor(config: Config) {
     this.config = config;
+
+    // Validate token before creating client
+    if (!config.auth?.token) {
+      throw new Error('Authentication token is required. Set PLATFORM_TOKEN environment variable.');
+    }
+
+    // Create HTTPS agent with configurable certificate validation
+    const httpsAgent = new https.Agent({
+      rejectUnauthorized: config.api.rejectUnauthorized ?? true, // Default to true (secure)
+    });
+
+    // Warn if certificate validation is disabled
+    if (config.api.rejectUnauthorized === false) {
+      printWarning('Certificate validation is disabled', {
+        security: 'This should only be used in development/testing',
+        risk: 'Man-in-the-middle attacks are possible',
+      });
+    }
+
     this.client = axios.create({
       baseURL: config.api.baseUrl,
       timeout: config.api.timeout || 30000,
+      httpsAgent,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -24,15 +45,15 @@ export class ApiClient {
     // Add request interceptor for authentication
     this.client.interceptors.request.use(
       (requestConfig) => {
-        // Add authentication token
-        if (config.auth?.token) {
-          requestConfig.headers.Authorization = `Bearer ${config.auth.token}`;
-        }
+        // Add authentication token from config
+        // Token is guaranteed to exist because we validated in constructor
+        requestConfig.headers.Authorization = `Bearer ${config.auth.token}`;
 
         printDebug('API Request', {
           method: requestConfig.method?.toUpperCase(),
           url: requestConfig.url,
           baseURL: requestConfig.baseURL,
+          authenticated: true,
         });
 
         return requestConfig;
@@ -272,5 +293,18 @@ export class ApiClient {
    */
   isAuthenticated(): boolean {
     return !!this.config.auth?.token;
+  }
+
+  /**
+   * Get authentication token (for debugging purposes only)
+   * Returns masked version for security
+   */
+  getTokenInfo(): { present: boolean; length: number; prefix: string } {
+    const token = this.config.auth?.token || '';
+    return {
+      present: !!token,
+      length: token.length,
+      prefix: token.substring(0, 4) + '...',
+    };
   }
 }

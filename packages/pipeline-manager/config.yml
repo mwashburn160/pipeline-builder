@@ -1,27 +1,78 @@
+# CLI Configuration File
+# Save this as config.yml in your project root or specify with CLI_CONFIG_PATH
 
 # ============================================================================
-# Pipeline Manager CLI Configuration
+# API Configuration
 # ============================================================================
-# This file configures the CLI to connect to your Pipeline Manager API.
-# Save this file as 'cli-config.yaml' in your project directory.
-#
-# REQUIRED: PLATFORM_TOKEN environment variable must be set
-# OPTIONAL: PLATFORM_URL environment variable can override api.baseUrl
-# ============================================================================
-
 api:
-  # Base URL - Can be overridden by PLATFORM_URL environment variable
-  # If PLATFORM_URL is not set, this value will be used
-  # Default:  https://localhost:8443
-  baseUrl:  https://localhost:8443
+  # Base URL for the API
+  # Can be overridden with PLATFORM_URL environment variable
+  baseUrl: https://localhost:8443
   
   # Request timeout in milliseconds
   timeout: 30000
   
+  # SSL/TLS Certificate Validation
+  # Set to false to disable certificate validation (DEVELOPMENT ONLY)
+  # Default: true (secure)
+  # 
+  # WARNING: Setting this to false disables certificate validation and makes
+  # your application vulnerable to man-in-the-middle attacks. Only use this
+  # in development environments with self-signed certificates.
+  rejectUnauthorized: true
+  
   # API Endpoints
-  pipelineUrl: '/api/pipeline' 
-  pipelineListUrl: '/api/pipelines' 
-  pluginUrl: '/api/plugin'
-  pluginListUrl: '/api/plugins'
-  pipelinePostUrl: '/api/pipeline'
-  pluginUploadUrl: '/api/plugin/upload'
+  # 
+  # Pipeline Endpoints:
+  #   pipelineUrl     - Base endpoint for single pipeline operations (GET, POST)
+  #                     Used by: get-pipeline, create-pipeline
+  #                     Supports filters: id, accessModifier, isDefault, isActive, project, 
+  #                                      projectPattern, organizationPattern
+  # 
+  # Plugin Endpoints:
+  #   pluginUrl       - Base endpoint for single plugin operations (GET)
+  #                     Used by: get-plugin, list-plugins
+  #                     Supports filters: id, accessModifier, isDefault, isActive, name,
+  #                                      namePattern, version, versionRange, imageTag
+  # 
+  #   pluginUploadUrl - Endpoint for plugin uploads
+  #                     Used by: upload-plugin
+  # 
+  # Note: List operations use the same base endpoints with query parameters
+  pipelineUrl: /api/pipeline
+  pluginUrl: /api/plugin
+  pluginUploadUrl: /api/plugin/upload
+
+# ============================================================================
+# AUTHENTICATION
+# ============================================================================
+# Authentication is handled via environment variable ONLY.
+# DO NOT include auth configuration in this file.
+#
+# Set your token with:
+#   export PLATFORM_TOKEN='your-token-here'
+#
+# The token should NEVER be committed to version control.
+# ============================================================================
+
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
+# The following environment variables are used by the CLI:
+#
+# REQUIRED:
+#   PLATFORM_TOKEN              - Authentication token for API access
+#                                 Example: export PLATFORM_TOKEN='eyJhbG...'
+#
+# OPTIONAL:
+#   PLATFORM_URL                - Override api.baseUrl
+#                                 Example: export PLATFORM_URL='https://api.example.com'
+#
+#   CLI_CONFIG_PATH             - Path to this config file
+#                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
+#
+#   NODE_TLS_REJECT_UNAUTHORIZED - Set to '0' to disable cert validation
+#                                  Example: export NODE_TLS_REJECT_UNAUTHORIZED='0'
+#                                  WARNING: Development only!
+#
+# ============================================================================

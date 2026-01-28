@@ -2,10 +2,10 @@ import { execSync } from 'child_process';
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { ApiClient } from '../utils/api-client';
-import { getConfig } from '../utils/config-loader';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { ApiClient } from '../utils/api.client';
+import { getConfig } from '../utils/config.loader';
+import { ERROR_CODES, handleError } from '../utils/error.handler';
+import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output.utils';
 
 const { bold, cyan, dim, magenta } = pico;
 
@@ -84,6 +84,7 @@ export function deploy(program: Command): void {
     .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
     .option('--synth', 'Run synthesis only (skip deployment)', false)
+    .option('--no-verify-ssl', 'Disable SSL certificate verification (development only)', false)
     .action(async (options) => {
       const executionId = Math.random().toString(36).substring(7).toUpperCase();
       const mode = options.synth ? 'SYNTH' : 'DEPLOY';
@@ -100,7 +101,15 @@ export function deploy(program: Command): void {
           outputDir: options.output,
           requireApproval: options.requireApproval,
           synthOnly: options.synth,
+          verifySsl: options.verifySsl,
         });
+
+        // Security warning for SSL verification disabled
+        if (!options.verifySsl) {
+          printWarning('SSL certificate verification is DISABLED');
+          printWarning('This should only be used in development environments');
+          console.log('');
+        }
 
         // Check CDK availability
         if (!checkCdkAvailable()) {
@@ -112,7 +121,19 @@ export function deploy(program: Command): void {
         printSuccess('AWS CDK is available');
 
         // Load configuration
-        const config = getConfig();
+        let config = getConfig();
+
+        // Override rejectUnauthorized if --no-verify-ssl flag is provided
+        if (!options.verifySsl) {
+          config = {
+            ...config,
+            api: {
+              ...config.api,
+              rejectUnauthorized: false,
+            },
+          };
+          printWarning('Overriding config: SSL verification disabled for this request');
+        }
 
         // Fetch pipeline from API
         printInfo('Fetching pipeline configuration', { id: options.id });
@@ -190,6 +211,7 @@ export function deploy(program: Command): void {
             executionId,
             mode,
             pipelineId: options.id,
+            verifySsl: options.verifySsl,
           },
         });
       }
