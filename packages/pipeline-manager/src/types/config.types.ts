@@ -57,7 +57,7 @@ export interface ApiConfig {
   /**
    * Reject unauthorized SSL certificates
    * @default true
-   * @warning Setting to false disables certificate validation and should only be used in development
+   * @warning Setting to false disables certificate validation
    */
   rejectUnauthorized?: boolean;
 }

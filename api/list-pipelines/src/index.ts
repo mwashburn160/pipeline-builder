@@ -80,9 +80,11 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     if (results.length === 0) {
       ctx.log('INFO', 'No pipelines found matching the criteria');
       return res.status(404).json({
-        message: 'No pipelines found matching the criteria.',
-        data: [],
-        count: 0,
+        pipelines: [],
+        total: 0,
+        page: Math.floor(offset / limit) + 1,
+        limit,
+        hasMore: false,
       });
     }
 
@@ -92,11 +94,11 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     });
 
     return res.status(200).json({
-      message: 'Pipelines retrieved successfully',
-      data: results,
-      count: results.length,
+      pipelines: results,
+      total: results.length,
+      page: Math.floor(offset / limit) + 1,
       limit,
-      offset,
+      hasMore: results.length === limit,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';

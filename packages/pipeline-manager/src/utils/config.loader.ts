@@ -19,7 +19,7 @@ export interface Config {
     /**
      * Reject unauthorized SSL certificates
      * @default true
-     * @warning Setting to false disables certificate validation and should only be used in development
+     * @warning Setting to false disables certificate validation
      */
     rejectUnauthorized?: boolean;
   };
@@ -111,7 +111,6 @@ export function getConfig(): Config {
 
     if (!config.api.rejectUnauthorized) {
       printWarning('SSL certificate validation is disabled via TLS_REJECT_UNAUTHORIZED=0');
-      printWarning('This should only be used in development environments');
     }
   }
 

@@ -47,7 +47,6 @@ export function getPipeline(program: Command): void {
         // Security warning for SSL verification disabled
         if (!options.verifySsl) {
           printWarning('SSL certificate verification is DISABLED');
-          printWarning('This should only be used in development environments');
           console.log('');
         }
 

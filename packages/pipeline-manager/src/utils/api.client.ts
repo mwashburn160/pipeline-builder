@@ -27,10 +27,7 @@ export class ApiClient {
 
     // Warn if certificate validation is disabled
     if (config.api.rejectUnauthorized === false) {
-      printWarning('Certificate validation is disabled', {
-        security: 'This should only be used in development/testing',
-        risk: 'Man-in-the-middle attacks are possible',
-      });
+      printWarning('Certificate validation is disabled');
     }
 
     this.client = axios.create({

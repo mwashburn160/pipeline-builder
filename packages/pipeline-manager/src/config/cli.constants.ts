@@ -413,7 +413,6 @@ export const MESSAGES = {
   },
   INFO: {
     DRY_RUN: 'Dry run mode - no changes will be made',
-    DEVELOPMENT_MODE: 'This should only be used in development',
     CHECK_CONFIG: 'Run with --check-config to verify configuration',
   },
 } as const;

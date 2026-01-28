@@ -207,7 +207,6 @@ export function listPipelines(program: Command): void {
         if (!options.verifySsl) {
           console.log('');
           printWarning('⚠️  SSL certificate verification is DISABLED');
-          printWarning('This should ONLY be used in development with self-signed certificates');
         }
 
         // Load configuration
