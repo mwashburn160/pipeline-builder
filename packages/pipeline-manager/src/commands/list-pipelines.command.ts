@@ -25,7 +25,10 @@ interface PipelineFilterParams {
   // Pipeline-specific filters
   project?: string;
   projectPattern?: string;
+  organization?: string;
   organizationPattern?: string;
+  pipelineName?: string;
+  pipelineNamePattern?: string;
 }
 
 /**
@@ -72,11 +75,20 @@ function validateNumber(value: string, fieldName: string, min?: number, max?: nu
  * # Filter by project
  * cli list-pipelines --project my-app --is-active true
  *
+ * # Filter by organization
+ * cli list-pipelines --organization my-org
+ *
+ * # Filter by pipeline name
+ * cli list-pipelines --pipeline-name my-pipeline
+ *
  * # Pattern matching
  * cli list-pipelines --project-pattern "app-*" --is-active true
  *
  * # Organization pattern
  * cli list-pipelines --organization-pattern "*-team"
+ *
+ * # Pipeline name pattern
+ * cli list-pipelines --pipeline-name-pattern "deploy-*"
  *
  * # Pagination and sorting
  * cli list-pipelines --limit 50 --offset 100 --sort "pipelineName:asc"
@@ -102,7 +114,10 @@ export function listPipelines(program: Command): void {
     // Pipeline-specific filter options
     .option('--project <project>', 'Filter by exact project name')
     .option('--project-pattern <pattern>', 'Filter by project pattern (e.g., "app-*", "*-backend")')
+    .option('--organization <organization>', 'Filter by exact organization name')
     .option('--organization-pattern <pattern>', 'Filter by organization pattern (e.g., "*-team")')
+    .option('--pipeline-name <name>', 'Filter by exact pipeline name')
+    .option('--pipeline-name-pattern <pattern>', 'Filter by pipeline name pattern (e.g., "deploy-*", "*-prod")')
 
     // Legacy compatibility options
     .option('--page <number>', '[Deprecated] Use --offset and --limit instead')
@@ -174,8 +189,20 @@ export function listPipelines(program: Command): void {
           filterParams.projectPattern = options.projectPattern;
         }
 
+        if (options.organization) {
+          filterParams.organization = options.organization;
+        }
+
         if (options.organizationPattern) {
           filterParams.organizationPattern = options.organizationPattern;
+        }
+
+        if (options.pipelineName) {
+          filterParams.pipelineName = options.pipelineName;
+        }
+
+        if (options.pipelineNamePattern) {
+          filterParams.pipelineNamePattern = options.pipelineNamePattern;
         }
 
         // Display active filters
@@ -186,7 +213,10 @@ export function listPipelines(program: Command): void {
         if (filterParams.isActive !== undefined) activeFilters['Is Active'] = filterParams.isActive;
         if (filterParams.project) activeFilters.Project = filterParams.project;
         if (filterParams.projectPattern) activeFilters['Project Pattern'] = filterParams.projectPattern;
+        if (filterParams.organization) activeFilters.Organization = filterParams.organization;
         if (filterParams.organizationPattern) activeFilters['Organization Pattern'] = filterParams.organizationPattern;
+        if (filterParams.pipelineName) activeFilters['Pipeline Name'] = filterParams.pipelineName;
+        if (filterParams.pipelineNamePattern) activeFilters['Pipeline Name Pattern'] = filterParams.pipelineNamePattern;
 
         if (Object.keys(activeFilters).length > 0) {
           printInfo('Active Filters');
