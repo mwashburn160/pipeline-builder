@@ -1,3 +1,13 @@
+## 0.1.11 (2026-01-28)
+
+### 🩹 Fixes
+
+- validate common filter ([908a573](https://github.com/mwashburn160/pipeline-builder/commit/908a573))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.10 (2026-01-27)
 
 ### 🩹 Fixes
