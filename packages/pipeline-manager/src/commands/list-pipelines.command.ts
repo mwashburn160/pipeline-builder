@@ -95,8 +95,8 @@ export function listPipelines(program: Command): void {
     .option('--access-modifier <modifier>', 'Filter by access modifier (public/private)')
     .option('--is-default <boolean>', 'Filter by default status (true/false)')
     .option('--is-active <boolean>', 'Filter by active status (true/false)')
-    .option('--limit <number>', 'Maximum number of results (1-1000)', '50')
-    .option('--offset <number>', 'Number of results to skip', '0')
+    .option('--limit <number>', 'Maximum number of results (1-1000)', parseInt, 50)
+    .option('--offset <number>', 'Number of results to skip', parseInt, 0)
     .option('--sort <sort>', 'Sort format: field:direction (e.g., pipelineName:asc, createdAt:desc)')
 
     // Pipeline-specific filter options
