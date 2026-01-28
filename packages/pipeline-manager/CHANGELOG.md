@@ -1,3 +1,13 @@
+## 0.1.10 (2026-01-28)
+
+### 🩹 Fixes
+
+- updated config url ([fe5b606](https://github.com/mwashburn160/pipeline-builder/commit/fe5b606))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.9 (2026-01-28)
 
 ### 🩹 Fixes
