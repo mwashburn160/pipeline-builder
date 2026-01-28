@@ -9,7 +9,7 @@ import {
   authenticateToken,
   createRequestContext,
   extractDbError,
-
+  replaceNonAlphanumeric,
   // Types
   AccessModifier,
   BuilderProps,
@@ -42,8 +42,17 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
   const body = req.body as PipelineRequestBody;
 
   try {
-    const { project, organization, props } = body;
     const accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
+
+    // Validate required fields
+    if (!body.project || !body.organization) {
+      ctx.log('ERROR', 'Missing required fields', { hasProject: !!body.project, hasOrganization: !!body.organization });
+      return res.status(400).json({ error: 'project and organization are required' });
+    }
+
+    // Sanitize project and organization names
+    const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
+    const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
 
     ctx.log('INFO', 'Pipeline creation request received', { project, organization, accessModifier });
 
@@ -58,13 +67,7 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
     const orgId = ctx.identity.orgId.toLowerCase();
     ctx.log('INFO', 'Identity validated', { orgId, userId: ctx.identity.userId, requestId: ctx.requestId });
 
-    // Validate required fields
-    if (!project || !organization) {
-      ctx.log('ERROR', 'Missing required fields', { hasProject: !!project, hasOrganization: !!organization });
-      return res.status(400).json({ error: 'project and organization are required' });
-    }
-
-    if (!props || typeof props !== 'object') {
+    if (!body.props || typeof body.props !== 'object') {
       ctx.log('ERROR', 'Invalid or missing props');
       return res.status(400).json({ error: 'props object is required' });
     }
@@ -82,8 +85,8 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
         })
         .where(
           and(
-            eq(schema.pipeline.project, project.toLowerCase()),
-            eq(schema.pipeline.organization, organization.toLowerCase()),
+            eq(schema.pipeline.project, project),
+            eq(schema.pipeline.organization, organization),
             eq(schema.pipeline.isDefault, true),
           ),
         );
@@ -95,9 +98,9 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
         .insert(schema.pipeline)
         .values({
           orgId,
-          project: project.toLowerCase(),
-          organization: organization.toLowerCase(),
-          props: props as unknown as BuilderProps,
+          project,
+          organization,
+          props: body.props as unknown as BuilderProps,
           accessModifier: accessModifier as any,
           isDefault: true,
           isActive: true,

@@ -127,6 +127,7 @@ export interface PluginFilter extends CommonFilter {
  * const filter: PipelineFilter = {
  *   project: 'my-app',
  *   organization: 'my-org',
+ *   pipelineName: 'my-pipeline',
  *   isActive: true
  * };
  * ```
@@ -152,6 +153,17 @@ export interface PipelineFilter extends CommonFilter {
    * Organization pattern for fuzzy matching
    */
   readonly organizationPattern?: string;
+
+  /**
+   * Pipeline name to filter by
+   */
+  readonly pipelineName?: string;
+
+  /**
+   * Pipeline name pattern for fuzzy matching
+   * @example "deploy-*", "*-prod"
+   */
+  readonly pipelineNamePattern?: string;
 }
 
 /**
@@ -168,7 +180,8 @@ export function isPluginFilter(filter: CommonFilter): filter is PluginFilter {
  */
 export function isPipelineFilter(filter: CommonFilter): filter is PipelineFilter {
   return 'project' in filter ||
-         'organization' in filter;
+         'organization' in filter ||
+         'pipelineName' in filter;
 }
 
 /**
@@ -433,5 +446,13 @@ export class PipelineFilterBuilder extends FilterBuilder<PipelineFilter> {
 
   withOrganizationPattern(pattern: string): this {
     return this.set('organizationPattern', pattern);
+  }
+
+  withPipelineName(pipelineName: string): this {
+    return this.set('pipelineName', pipelineName);
+  }
+
+  withPipelineNamePattern(pattern: string): this {
+    return this.set('pipelineNamePattern', pattern);
   }
 }
