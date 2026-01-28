@@ -1,3 +1,17 @@
+## 0.1.11 (2026-01-28)
+
+### 🩹 Fixes
+
+- added common api ([761ca5b](https://github.com/mwashburn160/pipeline-builder/commit/761ca5b))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-lib to 0.1.13
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.10 (2026-01-28)
 
 ### 🩹 Fixes
