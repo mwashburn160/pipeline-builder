@@ -253,7 +253,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/platform:0.1.5'
+    image: 'ghcr.io/mwashburn160/platform:0.1.12'
     container_name: platform
     depends_on:
       mongodb:
@@ -268,7 +268,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.14'
+    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.15'
     container_name: upload-plugin
     privileged: true
     depends_on:
@@ -285,7 +285,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-plugin:0.1.13'
+    image: 'ghcr.io/mwashburn160/get-plugin:0.1.14'
     container_name: get-plugin
     depends_on:
       postgres:
@@ -298,7 +298,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-plugins:0.1.14'
+    image: 'ghcr.io/mwashburn160/list-plugins:0.1.16'
     container_name: list-plugins
     depends_on:
       postgres:
@@ -311,7 +311,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.14'
+    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.15'
     container_name: create-pipeline
     depends_on:
       postgres:
@@ -324,7 +324,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.13'
+    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.14'
     container_name: get-pipeline
     depends_on:
       postgres:
@@ -337,7 +337,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.14'
+    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.16'
     container_name: list-pipelines
     depends_on:
       postgres:
