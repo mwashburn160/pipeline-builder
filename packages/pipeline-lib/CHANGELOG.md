@@ -1,3 +1,13 @@
+## 0.1.17 (2026-01-28)
+
+### 🩹 Fixes
+
+- non-alphanumeric ([6e71abf](https://github.com/mwashburn160/pipeline-builder/commit/6e71abf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.16 (2026-01-28)
 
 This was a version bump only for @mwashburn160/pipeline-lib to align it with other projects, there were no code changes.
