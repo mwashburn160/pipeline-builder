@@ -269,3 +269,13 @@ export function validateSynthOptions(options: SynthOptions): void {
       throw new Error(`Unknown source type: ${(exhaustiveCheck as any).type}`);
   }
 }
+
+/**
+ * Replaces all characters that are not letters or numbers with the specified value
+ * @param input - The string to process
+ * @param replaceValue - The character(s) to replace non-alphanumeric characters with (default: '_')
+ * @returns The string with non-alphanumeric characters replaced
+ */
+export function replaceNonAlphanumeric(input: string, replaceValue: string = '_'): string {
+  return input.replace(/[^a-zA-Z0-9]/g, replaceValue);
+}

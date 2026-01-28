@@ -7,7 +7,7 @@ import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipel
 import { PluginLookupConstruct } from './plugin-lookup-construct';
 import { CoreConstants } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
-import { createCodeBuildStep, getCustomKey, isTrue, merge } from '../core/pipeline-helpers';
+import { createCodeBuildStep, getCustomKey, isTrue, merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
 import { MetaDataType, TriggerType } from '../core/pipeline-types';
 
 /**
@@ -60,18 +60,29 @@ export class Builder extends Construct {
   constructor(scope: Construct, id: string, props: BuilderProps) {
     super(scope, id);
 
-    this.validateProps(props);
+    // Sanitize project and organization names
+    const project = replaceNonAlphanumeric(props.project, '_').toLowerCase();
+    const organization = replaceNonAlphanumeric(props.organization, '_').toLowerCase();
 
-    const uniqueId = new UniqueId(props.organization, props.project);
-    const pluginLookup = new PluginLookupConstruct(this, uniqueId.generate('plugin-lookup'), props.organization, props.project);
+    // Create sanitized props for validation and usage
+    const sanitizedProps: BuilderProps = {
+      ...props,
+      project,
+      organization,
+    };
+
+    this.validateProps(sanitizedProps);
+
+    const uniqueId = new UniqueId(organization, project);
+    const pluginLookup = new PluginLookupConstruct(this, uniqueId.generate('plugin-lookup'), organization, project);
 
     // Merge metadata - merge() function already handles logging
-    const global = merge('global', props.global ?? {}, init());
-    const merged = merge('synth', props.synth.metadata ?? {}, global);
+    const global = merge('global', sanitizedProps.global ?? {}, init());
+    const merged = merge('synth', sanitizedProps.synth.metadata ?? {}, global);
 
     // Create source and build step
-    const source = this.createSource(props.synth.source, uniqueId);
-    const plugin = pluginLookup.plugin(props.synth.plugin);
+    const source = this.createSource(sanitizedProps.synth.source, uniqueId);
+    const plugin = pluginLookup.plugin(sanitizedProps.synth.plugin);
     const synth = createCodeBuildStep({
       id: uniqueId.generate('synth'),
       plugin,
@@ -79,7 +90,7 @@ export class Builder extends Construct {
       metadata: global,
     });
 
-    const pipelineName = props.pipelineName ?? `${props.organization}-${props.project}-pipeline`;
+    const pipelineName = sanitizedProps.pipelineName ?? `${organization}-${project}-pipeline`;
 
     this.pipeline = new CodePipeline(this, uniqueId.generate('codepipeline'), {
       pipelineName,
@@ -88,8 +99,8 @@ export class Builder extends Construct {
     });
 
     // Apply tags
-    Tags.of(this.pipeline).add('project', props.project);
-    Tags.of(this.pipeline).add('organization', props.organization);
+    Tags.of(this.pipeline).add('project', project);
+    Tags.of(this.pipeline).add('organization', organization);
   }
 
   /**

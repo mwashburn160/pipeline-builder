@@ -1,11 +1,11 @@
 {
   "project": "TestProject",
-  "organization": "Acme Corp",
+  "organization": "AcmeCorp",
   "keywords": ["aws"],
   "accessModifier": "private",
   "props": {
     "project": "TestProject",
-    "organization": "Acme Corp",
+    "organization": "AcmesCorp",
     "pipelineName": "TestPipeline",
     "global": {},
     "synth": {
