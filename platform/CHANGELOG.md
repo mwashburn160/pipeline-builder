@@ -1,3 +1,13 @@
+## 0.1.13 (2026-01-28)
+
+### 🩹 Fixes
+
+- version ([5137ca3](https://github.com/mwashburn160/pipeline-builder/commit/5137ca3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.12 (2026-01-28)
 
 This was a version bump only for platform to align it with other projects, there were no code changes.

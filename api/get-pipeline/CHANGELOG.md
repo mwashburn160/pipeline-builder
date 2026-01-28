@@ -1,3 +1,17 @@
+## 0.1.15 (2026-01-28)
+
+### 🩹 Fixes
+
+- version ([5137ca3](https://github.com/mwashburn160/pipeline-builder/commit/5137ca3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-lib to 0.1.19
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.14 (2026-01-28)
 
 ### 🩹 Fixes
