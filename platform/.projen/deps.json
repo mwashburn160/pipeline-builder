@@ -50,6 +50,11 @@
       "type": "build"
     },
     {
+      "name": "@types/nodemailer",
+      "version": "7.0.9",
+      "type": "build"
+    },
+    {
       "name": "@types/pg",
       "version": "8.16.0",
       "type": "build"
@@ -143,6 +148,11 @@
     {
       "name": "multer",
       "version": "2.0.2",
+      "type": "runtime"
+    },
+    {
+      "name": "nodemailer",
+      "version": "7.0.13",
       "type": "runtime"
     },
     {

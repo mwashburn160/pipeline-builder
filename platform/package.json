@@ -28,6 +28,7 @@
     "@types/jsonwebtoken": "9.0.10",
     "@types/multer": "2.0.0",
     "@types/node": "25.0.6",
+    "@types/nodemailer": "7.0.9",
     "@types/pg": "8.16.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -50,6 +51,7 @@
     "jsonwebtoken": "9.0.3",
     "mongoose": "9.1.5",
     "multer": "2.0.2",
+    "nodemailer": "7.0.13",
     "pg": "8.16.3",
     "slugify": "1.6.6",
     "uuid": "13.0.0",
@@ -63,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.1.11",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

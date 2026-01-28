@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, userRoutes, organizationRoutes } from './routes';
+import { authRoutes, userRoutes, organizationRoutes, invitationRoutes } from './routes';
 import { logger } from './utils';
 
 /**
@@ -96,6 +96,7 @@ app.get('/metrics', (_req: Request, res: Response) => {
 app.use('/auth', authRoutes);
 app.use('/user', userRoutes);
 app.use('/organization', organizationRoutes);
+app.use('/invitation', invitationRoutes);
 
 /**
  * Error handlers

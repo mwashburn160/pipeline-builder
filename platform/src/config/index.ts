@@ -7,10 +7,14 @@ import { Algorithm } from 'jsonwebtoken';
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000'),
-    env: process.env.NODE_ENV || 'development',
+    baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4200',
   },
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
+  },
+  logger: {
+    level: process.env.LOG_LEVEL || 'debug',
   },
   cors: {
     credentials: process.env.CORS_CREDENTIALS !== 'false',
@@ -36,6 +40,31 @@ export const config = {
   },
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
+  },
+  email: {
+    enabled: process.env.EMAIL_ENABLED === 'true',
+    provider: process.env.EMAIL_PROVIDER || 'smtp', // 'smtp' | 'sendgrid' | 'ses'
+    from: process.env.EMAIL_FROM || 'noreply@example.com',
+    fromName: process.env.EMAIL_FROM_NAME || 'Platform',
+    smtp: {
+      host: process.env.SMTP_HOST || 'localhost',
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      user: process.env.SMTP_USER || '',
+      pass: process.env.SMTP_PASS || '',
+    },
+    sendgrid: {
+      apiKey: process.env.SENDGRID_API_KEY || '',
+    },
+    ses: {
+      region: process.env.AWS_REGION || 'us-east-1',
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    },
+  },
+  invitation: {
+    expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7'),
+    maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50'),
   },
 } as const;
 

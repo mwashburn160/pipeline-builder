@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { config } from '../config';
 import { logger } from '../utils';
 
 /**
@@ -22,20 +21,15 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   const status = err.status || 500;
-  const isProduction = config.app.env === 'production';
 
   logger.error(`${req.method} ${req.originalUrl} - ${status}`, {
     message: err.message,
-    stack: isProduction ? undefined : err.stack,
+    stack: err.stack,
   });
 
   res.status(status).json({
     success: false,
-    error: isProduction
-      ? status >= 500
-        ? 'Internal Server Error'
-        : 'An error occurred'
-      : err.message,
-    ...(! isProduction && { stack: err.stack }),
+    error: err.message,
+    stack: err.stack,
   });
 }

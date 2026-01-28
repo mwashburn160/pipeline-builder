@@ -136,6 +136,7 @@ let platform = new WebTokenProject({
   deps: [
     `express@${expressVersion}`,
     'express-rate-limit@8.2.1',
+    'nodemailer@7.0.13',
     'jsonwebtoken@9.0.3',
     'slugify@1.6.6',
     'winston@3.19.0',
@@ -153,6 +154,7 @@ let platform = new WebTokenProject({
   devDeps: [
     '@types/express@5.0.6',
     '@types/express-serve-static-core@5.1.1',
+    '@types/nodemailer@7.0.9',
     '@types/jsonwebtoken@9.0.10',
     '@types/cors@2.8.19',
     '@types/node@25.0.6',
