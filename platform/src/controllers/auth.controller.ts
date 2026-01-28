@@ -1,14 +1,18 @@
-import crypto from 'crypto';
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
 import mongoose, { Types } from 'mongoose';
-import { config } from '../index';
-import Organization from '../models/organization.model';
-import User from '../models/user.model';
-import { createAccessTokenPayload, createRefreshTokenPayload, sendError } from '../utils/auth.utils';
-import logger from '../utils/logger.utils';
+import { User, Organization } from '../models';
+import {
+  logger,
+  sendError,
+  generateTokenPair,
+  hashRefreshToken,
+} from '../utils';
 
-export async function register(req: Request, res: Response) {
+/**
+ * Register a new user
+ * POST /auth/register
+ */
+export async function register(req: Request, res: Response): Promise<void> {
   const session = await mongoose.startSession();
   let result;
 
@@ -27,7 +31,9 @@ export async function register(req: Request, res: Response) {
         ],
       }).session(session);
 
-      if (existing) throw new Error('DUPLICATE_CREDENTIALS');
+      if (existing) {
+        throw new Error('DUPLICATE_CREDENTIALS');
+      }
 
       const user = new User({
         username,
@@ -36,12 +42,18 @@ export async function register(req: Request, res: Response) {
         role: organizationName?.trim() ? 'admin' : 'user',
       });
 
+      // Create organization if name provided
       if (organizationName?.trim().length >= 2) {
-        const [org] = await Organization.create([{
-          name: organizationName.trim(),
-          owner: user._id,
-          members: [user._id],
-        }], { session });
+        const [org] = await Organization.create(
+          [
+            {
+              name: organizationName.trim(),
+              owner: user._id,
+              members: [user._id],
+            },
+          ],
+          { session },
+        );
 
         user.organizationId = org._id as Types.ObjectId;
       }
@@ -56,10 +68,14 @@ export async function register(req: Request, res: Response) {
       };
     });
 
-    return res.status(201).json({ success: true, user: result });
+    res.status(201).json({ success: true, user: result });
   } catch (err: any) {
-    if (err.message === 'MISSING_FIELDS') return sendError(res, 400, 'Missing required fields');
-    if (err.message === 'DUPLICATE_CREDENTIALS') return sendError(res, 409, 'Credentials already in use');
+    if (err.message === 'MISSING_FIELDS') {
+      return sendError(res, 400, 'Missing required fields');
+    }
+    if (err.message === 'DUPLICATE_CREDENTIALS') {
+      return sendError(res, 409, 'Credentials already in use');
+    }
 
     logger.error('Registration Failed', err);
     return sendError(res, 500, 'Registration failed');
@@ -68,7 +84,11 @@ export async function register(req: Request, res: Response) {
   }
 }
 
-export async function login(req: Request, res: Response) {
+/**
+ * Login user
+ * POST /auth/login
+ */
+export async function login(req: Request, res: Response): Promise<void> {
   try {
     const { identifier, password } = req.body;
 
@@ -77,24 +97,23 @@ export async function login(req: Request, res: Response) {
     }
 
     const user = await User.findOne({
-      $or: [{ email: identifier.toLowerCase() }, { username: identifier.toLowerCase() }],
+      $or: [
+        { email: identifier.toLowerCase() },
+        { username: identifier.toLowerCase() },
+      ],
     }).select('+password +tokenVersion');
 
     if (!user || !(await user.comparePassword(password))) {
       return sendError(res, 401, 'Invalid credentials');
     }
 
-    const accessToken = jwt.sign(createAccessTokenPayload(user), config.auth.jwt.secret, {
-      algorithm: config.auth.jwt.algorithm,
-      expiresIn: config.auth.jwt.expiresIn,
-    });
-    const refreshToken = jwt.sign(createRefreshTokenPayload(user), config.auth.refreshToken.secret, {
-      algorithm: config.auth.jwt.algorithm,
-      expiresIn: config.auth.refreshToken.expiresIn,
-    });
+    const { accessToken, refreshToken } = generateTokenPair(user);
+    const hashedRefresh = hashRefreshToken(refreshToken);
 
-    const hashedRefresh = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { refreshToken: hashedRefresh } },
+    );
 
     res.json({ success: true, accessToken, refreshToken });
   } catch (err) {
@@ -103,33 +122,28 @@ export async function login(req: Request, res: Response) {
   }
 }
 
-export async function refresh(req: Request, res: Response) {
+/**
+ * Refresh tokens
+ * POST /auth/refresh
+ */
+export async function refresh(req: Request, res: Response): Promise<void> {
   try {
-    if (!req.user) return sendError(res, 401, 'Unauthorized');
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
 
     const user = await User.findById(req.user.sub);
-    if (!user) return sendError(res, 404, 'User not found');
+    if (!user) {
+      return sendError(res, 404, 'User not found');
+    }
 
-    const accessToken = jwt.sign(
-      createAccessTokenPayload(user),
-      config.auth.jwt.secret,
-      {
-        algorithm: config.auth.jwt.algorithm,
-        expiresIn: config.auth.jwt.expiresIn,
-      },
+    const { accessToken, refreshToken } = generateTokenPair(user);
+    const hashedRefresh = hashRefreshToken(refreshToken);
+
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { refreshToken: hashedRefresh } },
     );
-
-    const refreshToken = jwt.sign(
-      createRefreshTokenPayload(user),
-      config.auth.refreshToken.secret,
-      {
-        algorithm: config.auth.jwt.algorithm,
-        expiresIn: config.auth.refreshToken.expiresIn,
-      },
-    );
-
-    const hashedRefresh = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
 
     res.json({ success: true, accessToken, refreshToken });
   } catch (err) {
@@ -138,12 +152,22 @@ export async function refresh(req: Request, res: Response) {
   }
 }
 
-export async function logout(req: Request, res: Response) {
+/**
+ * Logout user
+ * POST /auth/logout
+ */
+export async function logout(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.sub;
-    if (!userId) return sendError(res, 401, 'Unauthorized');
+    if (!userId) {
+      return sendError(res, 401, 'Unauthorized');
+    }
 
-    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } });
+    await User.updateOne(
+      { _id: userId },
+      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+    );
+
     res.json({ success: true, message: 'Logged out' });
   } catch (err) {
     return sendError(res, 500, 'Logout failed');

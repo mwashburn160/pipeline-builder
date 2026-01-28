@@ -1,15 +1,11 @@
 import { Router } from 'express';
-import {
-  getMyOrganization,
-  addMember,
-  transferOwnership,
-} from '../controllers/organization.controller';
-import { isAuthenticated, authorize } from '../middlewares/auth.middleware';
+import { getMyOrganization, addMember, transferOwnership } from '../controllers';
+import { isAuthenticated, authorize } from '../middleware';
 
-const orgRouter = Router();
+const router = Router();
 
-orgRouter.get('/', isAuthenticated, getMyOrganization);
-orgRouter.post('/members', isAuthenticated, authorize('admin'), addMember);
-orgRouter.patch('/transfer-owner', isAuthenticated, authorize('admin'), transferOwnership);
+router.get('/', isAuthenticated, getMyOrganization);
+router.post('/members', isAuthenticated, authorize('admin'), addMember);
+router.patch('/transfer-owner', isAuthenticated, authorize('admin'), transferOwnership);
 
-export default orgRouter;
+export default router;

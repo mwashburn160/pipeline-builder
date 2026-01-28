@@ -77,17 +77,6 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
       .limit(limit)
       .offset(offset);
 
-    if (results.length === 0) {
-      ctx.log('INFO', 'No pipelines found matching the criteria');
-      return res.status(404).json({
-        pipelines: [],
-        total: 0,
-        page: Math.floor(offset / limit) + 1,
-        limit,
-        hasMore: false,
-      });
-    }
-
     ctx.log('COMPLETED', 'Successfully retrieved pipelines', {
       count: results.length,
       organizations: [...new Set(results.map(r => r.organization))],

@@ -1,7 +1,10 @@
 import bcrypt from 'bcryptjs';
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { config } from '../index';
+import { config } from '../config';
 
+/**
+ * User document interface
+ */
 export interface IUser extends Document {
   _id: Types.ObjectId;
   username: string;
@@ -16,29 +19,73 @@ export interface IUser extends Document {
   invalidateAllSessions(): Promise<IUser>;
 }
 
-const userSchema = new Schema<IUser>({
-  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  password: { type: String, select: false },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' },
-  organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', index: true },
-  isEmailVerified: { type: Boolean, default: false },
-  tokenVersion: { type: Number, default: 0 },
-  refreshToken: { type: String, select: false },
-}, { timestamps: true });
+const userSchema = new Schema<IUser>(
+  {
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password: {
+      type: String,
+      select: false,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+    },
+    organizationId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Organization',
+      index: true,
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+    refreshToken: {
+      type: String,
+      select: false,
+    },
+  },
+  { timestamps: true },
+);
 
+/**
+ * Hash password before saving
+ */
 userSchema.pre<IUser>('save', async function () {
   if (!this.isModified('password') || !this.password) return;
   const salt = await bcrypt.genSalt(config.auth.jwt.saltRounds);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
+/**
+ * Compare password with hash
+ */
 userSchema.methods.comparePassword = async function (password: string): Promise<boolean> {
   if (!this.password) return false;
   return bcrypt.compare(password, this.password);
 };
 
-userSchema.methods.invalidateAllSessions = async function () {
+/**
+ * Invalidate all user sessions by incrementing token version
+ */
+userSchema.methods.invalidateAllSessions = async function (): Promise<IUser> {
   this.tokenVersion += 1;
   return this.save();
 };

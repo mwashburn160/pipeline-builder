@@ -1,3 +1,6 @@
+/**
+ * Access token payload structure
+ */
 export interface AccessTokenPayload {
   sub: string;
   username: string;
@@ -12,9 +15,17 @@ export interface AccessTokenPayload {
   exp?: number;
 }
 
+/**
+ * Refresh token payload structure
+ */
 export interface RefreshTokenPayload {
   sub: string;
   tokenVersion: number;
   iat?: number;
   exp?: number;
 }
+
+/**
+ * User role type
+ */
+export type UserRole = 'user' | 'admin';

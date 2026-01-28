@@ -1,52 +1,14 @@
 import net from 'net';
 import cors from 'cors';
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
-import { Algorithm } from 'jsonwebtoken';
 import mongoose from 'mongoose';
-import authRouter from './routes/auth.route';
-import orgRouter from './routes/organization.routes';
-import userRouter from './routes/user.route';
-import logger from './utils/logger.utils';
 
-/**
- * Application configuration
- * Loads from environment variables with sensible defaults
- */
-export const config = {
-  app: {
-    port: parseInt(process.env.PORT || '3000'),
-  },
-  server: {
-    trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
-  },
-  cors: {
-    credentials: process.env.CORS_CREDENTIALS === 'false' ? false : true,
-    origin: process.env.CORS_ORIGIN
-      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : '*',
-  },
-  rateLimit: {
-    max: parseInt(process.env.LIMITER_MAX || '100'),
-    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000'),
-  },
-  auth: {
-    jwt: {
-      secret: process.env.JWT_SECRET || 'no-secret',
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
-      algorithm: (process.env.JWT_ALGORITHM as Algorithm) || 'HS256',
-      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
-    },
-    refreshToken: {
-      secret: process.env.REFRESH_TOKEN_SECRET || 'no-secret',
-      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
-    },
-  },
-  mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
-  },
-} as const;
+import { config } from './config';
+import { notFoundHandler, errorHandler } from './middleware';
+import { authRoutes, userRoutes, organizationRoutes } from './routes';
+import { logger } from './utils';
 
 /**
  * Initialize Express app
@@ -54,8 +16,7 @@ export const config = {
 const app = express();
 
 /**
- * Rate limiter configuration
- * Extracts real IP from x-forwarded-for header when behind proxy
+ * Rate limiter with IP extraction from x-forwarded-for
  */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
@@ -76,7 +37,7 @@ const limiter = rateLimit({
 });
 
 /**
- * Middleware setup
+ * Middleware
  */
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(config.cors));
@@ -87,7 +48,6 @@ app.use(limiter);
 
 /**
  * Health check endpoint
- * Returns service and database health status
  */
 app.get('/health', async (_req: Request, res: Response) => {
   try {
@@ -110,21 +70,22 @@ app.get('/health', async (_req: Request, res: Response) => {
 
 /**
  * Metrics endpoint
- * Returns service performance metrics
  */
 app.get('/metrics', (_req: Request, res: Response) => {
+  const readyStates: Record<number, string> = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting',
+  };
+
   res.json({
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     cpu: process.cpuUsage(),
     database: {
       state: mongoose.connection.readyState,
-      states: {
-        0: 'disconnected',
-        1: 'connected',
-        2: 'connecting',
-        3: 'disconnecting',
-      },
+      status: readyStates[mongoose.connection.readyState] || 'unknown',
     },
   });
 });
@@ -132,52 +93,26 @@ app.get('/metrics', (_req: Request, res: Response) => {
 /**
  * API Routes
  */
-app.use('/auth', authRouter);
-app.use('/user', userRouter);
-app.use('/organization', orgRouter);
+app.use('/auth', authRoutes);
+app.use('/user', userRoutes);
+app.use('/organization', organizationRoutes);
 
 /**
- * 404 handler for undefined routes
+ * Error handlers
  */
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: 'The requested resource could not be found',
-  });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 /**
- * Global error handler
- * Logs errors and returns appropriate responses
- */
-app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  const status = err.status || 500;
-
-  logger.error(`${req.method} ${req.originalUrl} - ${status}`, {
-    message: err.message,
-    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
-  });
-
-  res.status(status).json({
-    success: false,
-    error: process.env.NODE_ENV === 'production'
-      ? (status >= 500 ? 'Internal Server Error' : 'An error occurred')
-      : err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
-  });
-});
-
-/**
- * Start the Express server with MongoDB connection and graceful shutdown
+ * Start server with MongoDB connection
  */
 async function startServer(): Promise<void> {
   try {
-    console.log('[Server] Starting platform microservice...');
+    logger.info('Starting platform microservice...');
 
     // Configure Mongoose
     mongoose.set('strictQuery', true);
 
-    // MongoDB event handlers
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);
     });
@@ -192,60 +127,47 @@ async function startServer(): Promise<void> {
 
     // Connect to MongoDB
     await mongoose.connect(config.mongodb.uri);
-    console.log('[Server] MongoDB connection established');
-    logger.info('✅ MongoDB connection established');
+    logger.info('MongoDB connection established');
 
     // Start HTTP server
     const server = app.listen(config.app.port, () => {
-      console.log(`✅ Platform microservice listening on port: ${config.app.port}`);
-      logger.info(`✅ Server is running on port ${config.app.port}`);
+      logger.info(`Platform microservice listening on port: ${config.app.port}`);
     });
 
-    /**
-     * Graceful shutdown handler
-     * Closes HTTP server and MongoDB connection
-     */
+    // Graceful shutdown
     const shutdown = async (signal: string) => {
-      console.log(`\n${signal} received, shutting down gracefully...`);
-      logger.info(`${signal} received. Closing HTTP server...`);
+      logger.info(`${signal} received, shutting down gracefully...`);
 
       server.close(async () => {
-        console.log('✅ HTTP server closed');
+        logger.info('HTTP server closed');
 
-        // Close MongoDB connection
         try {
           await mongoose.connection.close(false);
-          console.log('✅ MongoDB connection closed');
-          logger.info('✅ Connections closed. Process exiting.');
+          logger.info('MongoDB connection closed');
         } catch (error) {
-          console.error('❌ Error closing MongoDB:', error);
-          logger.error('Error closing MongoDB connection:', error);
+          logger.error('Error closing MongoDB:', error);
         }
 
         process.exit(0);
       });
 
-      // Force shutdown after 15 seconds
+      // Force shutdown after timeout
       setTimeout(() => {
-        console.error('❌ Forced shutdown after timeout');
-        logger.error('Could not close connections in time, forcefully shutting down');
+        logger.error('Forced shutdown after timeout');
         process.exit(1);
       }, 15000);
     };
 
     process.on('SIGINT', () => void shutdown('SIGINT'));
     process.on('SIGTERM', () => void shutdown('SIGTERM'));
-
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    logger.error('Critical Failure: Server could not start', error);
+    logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
 
-// Start the server
-void startServer().catch((error) => {
-  console.error('❌ Unhandled error during startup:', error);
+// Start
+startServer().catch((error) => {
   logger.error('Unhandled error during startup:', error);
   process.exit(1);
 });
