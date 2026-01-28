@@ -1,3 +1,13 @@
+## 0.1.14 (2026-01-28)
+
+### 🩹 Fixes
+
+- updated PluginListResponse ([da0692f](https://github.com/mwashburn160/pipeline-builder/commit/da0692f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.13 (2026-01-28)
 
 ### 🩹 Fixes
