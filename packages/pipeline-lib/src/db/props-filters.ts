@@ -178,16 +178,24 @@ export function isPipelineFilter(filter: CommonFilter): filter is PipelineFilter
 export function validateCommonFilter(filter: CommonFilter): void {
   const errors: string[] = [];
 
-  // Validate limit
+  // Validate limit - accept both number and string
   if (filter.limit !== undefined) {
-    if (!Number.isInteger(filter.limit) || filter.limit < 1 || filter.limit > 1000) {
+    const limit = typeof filter.limit === 'string'
+      ? parseInt(filter.limit, 10)
+      : filter.limit;
+
+    if (isNaN(limit) || !Number.isInteger(limit) || limit < 1 || limit > 1000) {
       errors.push('limit must be an integer between 1 and 1000');
     }
   }
 
-  // Validate offset
+  // Validate offset - accept both number and string
   if (filter.offset !== undefined) {
-    if (!Number.isInteger(filter.offset) || filter.offset < 0) {
+    const offset = typeof filter.offset === 'string'
+      ? parseInt(filter.offset, 10)
+      : filter.offset;
+
+    if (isNaN(offset) || !Number.isInteger(offset) || offset < 0) {
       errors.push('offset must be a non-negative integer');
     }
   }
