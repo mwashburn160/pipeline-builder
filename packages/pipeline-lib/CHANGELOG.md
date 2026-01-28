@@ -1,3 +1,13 @@
+## 0.1.18 (2026-01-28)
+
+### 🩹 Fixes
+
+- refactored validateProps ([1a10026](https://github.com/mwashburn160/pipeline-builder/commit/1a10026))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.17 (2026-01-28)
 
 ### 🩹 Fixes
