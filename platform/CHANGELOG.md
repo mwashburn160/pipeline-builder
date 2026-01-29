@@ -1,3 +1,13 @@
+## 0.1.16 (2026-01-29)
+
+### 🩹 Fixes
+
+- add oauth ([ceaa8a7](https://github.com/mwashburn160/pipeline-builder/commit/ceaa8a7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.15 (2026-01-28)
 
 ### 🩹 Fixes
