@@ -1,3 +1,13 @@
+## 0.1.23 (2026-01-29)
+
+### 🩹 Fixes
+
+- upgraded version to 0.1.22 ([642d241](https://github.com/mwashburn160/pipeline-builder/commit/642d241))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.22 (2026-01-29)
 
 ### 🩹 Fixes
