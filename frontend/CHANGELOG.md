@@ -1,3 +1,13 @@
+## 0.1.3 (2026-01-29)
+
+### 🩹 Fixes
+
+- updated page title ([968290e](https://github.com/mwashburn160/pipeline-builder/commit/968290e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.2 (2026-01-29)
 
 ### 🩹 Fixes
