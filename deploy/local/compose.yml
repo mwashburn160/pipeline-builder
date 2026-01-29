@@ -258,6 +258,7 @@ services:
     restart: always
     networks:
       - proxy-network
+      - backend-network
     environment:
       PLATFORM_URL: '${PLATFORM_URL}'
     healthcheck:
