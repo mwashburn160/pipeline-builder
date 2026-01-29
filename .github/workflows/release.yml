@@ -63,7 +63,7 @@ jobs:
       - name: Affected projects and images
         id: affected
         env:
-          IMAGE_PROJECTS: '["platform","upload-plugin","get-plugin","list-plugins","create-pipeline","get-pipeline","list-pipelines"]'
+          IMAGE_PROJECTS: '["frontend","platform","upload-plugin","get-plugin","list-plugins","create-pipeline","get-pipeline","list-pipelines"]'
         run: |-
           echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected | sort) <(echo $IMAGE_PROJECTS | jq -r '.[]' | sort))" '$LIST | split("
           ") | map(select(length>0))') >> $GITHUB_OUTPUT
@@ -75,7 +75,7 @@ jobs:
         run: echo NX_BASE=${{ env.NX_BASE }} >> $GITHUB_OUTPUT
       - name: Check publish images
         id: publish
-        run: echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json | jq 'any(contains("platform","upload-plugin","get-plugin","list-plugins","create-pipeline","get-pipeline","list-pipelines"))') >> $GITHUB_OUTPUT
+        run: echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json | jq 'any(contains("frontend","platform","upload-plugin","get-plugin","list-plugins","create-pipeline","get-pipeline","list-pipelines"))') >> $GITHUB_OUTPUT
       - name: Publish details
         id: publish_details
         run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"

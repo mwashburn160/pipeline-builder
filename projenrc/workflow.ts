@@ -3,7 +3,7 @@ import { GithubWorkflow } from 'projen/lib/github';
 import { JobPermission, JobStep } from 'projen/lib/github/workflows-model';
 import { TypeScriptProject } from 'projen/lib/typescript';
 
-const IMAGE_PROJECTS = ['platform', 'upload-plugin', 'get-plugin', 'list-plugins', 'create-pipeline', 'get-pipeline', 'list-pipelines'] as const;
+const IMAGE_PROJECTS = ['frontend', 'platform', 'upload-plugin', 'get-plugin', 'list-plugins', 'create-pipeline', 'get-pipeline', 'list-pipelines'] as const;
 const LIBRARY_PROJECTS = ['pipeline-lib', 'pipeline-manager'] as const;
 
 export class Workflow extends Component {
