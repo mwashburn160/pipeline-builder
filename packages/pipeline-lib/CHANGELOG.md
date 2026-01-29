@@ -1,3 +1,13 @@
+## 0.1.22 (2026-01-29)
+
+### 🩹 Fixes
+
+- build config from metadata ([d180e13](https://github.com/mwashburn160/pipeline-builder/commit/d180e13))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.21 (2026-01-28)
 
 ### 🩹 Fixes
