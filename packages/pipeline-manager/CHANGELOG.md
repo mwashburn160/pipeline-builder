@@ -1,3 +1,13 @@
+## 0.1.25 (2026-01-29)
+
+### 🩹 Fixes
+
+- added logging ([acf79ef](https://github.com/mwashburn160/pipeline-builder/commit/acf79ef))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.24 (2026-01-29)
 
 ### 🩹 Fixes
