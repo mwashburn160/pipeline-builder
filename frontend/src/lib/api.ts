@@ -54,14 +54,23 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
 
+    // Log request
+    console.log(`[API] ${options.method || 'GET'} ${endpoint}`, {
+      body: options.body ? JSON.parse(options.body as string) : undefined,
+    });
+
     const response = await fetch(url, {
       ...options,
       headers,
       credentials: 'include',
     });
 
+    // Log response status
+    console.log(`[API] ${options.method || 'GET'} ${endpoint} -> ${response.status}`);
+
     // Handle 401 - try to refresh token
     if (response.status === 401 && this.refreshToken) {
+      console.log('[API] Token expired, attempting refresh...');
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
         headers['Authorization'] = `Bearer ${this.accessToken}`;
@@ -70,16 +79,21 @@ class ApiClient {
           headers,
           credentials: 'include',
         });
-        return retryResponse.json();
+        const data = await retryResponse.json();
+        console.log(`[API] Retry ${endpoint} -> ${retryResponse.status}`, data);
+        return data;
       }
     }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
+      console.error(`[API] Error ${endpoint}:`, error);
       throw new Error(error.message || error.error || 'Request failed');
     }
 
-    return response.json();
+    const data = await response.json();
+    console.log(`[API] Response ${endpoint}:`, data);
+    return data;
   }
 
   private async refreshAccessToken(): Promise<boolean> {
