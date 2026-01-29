@@ -6,7 +6,12 @@ import {
   getPlugin,
   createPlugin,
 } from '../controllers';
-import { isAuthenticated } from '../middleware';
+import {
+  isAuthenticated,
+  quotaCreatePlugin,
+  quotaGetPlugin,
+  quotaListPlugins,
+} from '../middleware';
 
 const router = Router();
 
@@ -34,26 +39,26 @@ const upload = multer({
  * GET /plugin
  * Query params: name, version, pluginType, computeType, isActive, isDefault, accessModifier, page, limit
  */
-router.get('/', isAuthenticated, listPlugins);
+router.get('/', isAuthenticated, quotaListPlugins, listPlugins);
 
 /**
  * Search for a single plugin by filters
  * GET /plugin/search
  * Query params: id, name, version, pluginType, computeType, isActive, isDefault, accessModifier
  */
-router.get('/search', isAuthenticated, getPlugin);
+router.get('/search', isAuthenticated, quotaGetPlugin, getPlugin);
 
 /**
  * Get plugin by ID
  * GET /plugin/:id
  */
-router.get('/:id', isAuthenticated, getPluginById);
+router.get('/:id', isAuthenticated, quotaGetPlugin, getPluginById);
 
 /**
  * Upload and create a new plugin
  * POST /plugin
  * Body: multipart/form-data with 'plugin' file and optional 'accessModifier'
  */
-router.post('/', isAuthenticated, upload.single('plugin'), createPlugin);
+router.post('/', isAuthenticated, quotaCreatePlugin, upload.single('plugin'), createPlugin);
 
 export default router;

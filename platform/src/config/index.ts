@@ -1,6 +1,17 @@
 import { Algorithm } from 'jsonwebtoken';
 
 /**
+ * Parse quota limit from environment variable
+ * Supports 'unlimited' string or numeric values
+ */
+function parseQuotaLimit(value: string | undefined, defaultValue: number | 'unlimited'): number | 'unlimited' {
+  if (!value) return defaultValue;
+  if (value === 'unlimited') return 'unlimited';
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
  * Application configuration
  * Loads from environment variables with sensible defaults
  */
@@ -8,7 +19,7 @@ export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000'),
     baseUrl: process.env.PLATFORM_URL || 'https://localhost:8443',
-    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4200',
+    frontendUrl: process.env.FRONTEND_URL || 'https://localhost:8443',
   },
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
@@ -66,6 +77,42 @@ export const config = {
     getPipeline: process.env.GET_PIPELINE_URL || 'https://localhost:8443',
     createPipeline: process.env.CREATE_PIPELINE_URL || 'https://localhost:8443',
     timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000'),
+  },
+  quota: {
+    // Organization ID that bypasses all quotas
+    bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
+    // Default window in milliseconds (60 seconds)
+    defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+    // Pipeline quotas
+    pipeline: {
+      create: {
+        limit: parseQuotaLimit(process.env.QUOTA_CREATE_PIPELINE_LIMIT, 'unlimited'),
+        windowMs: parseInt(process.env.QUOTA_CREATE_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+      get: {
+        limit: parseQuotaLimit(process.env.QUOTA_GET_PIPELINE_LIMIT, 10),
+        windowMs: parseInt(process.env.QUOTA_GET_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+      list: {
+        limit: parseQuotaLimit(process.env.QUOTA_LIST_PIPELINES_LIMIT, 10),
+        windowMs: parseInt(process.env.QUOTA_LIST_PIPELINES_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+    },
+    // Plugin quotas
+    plugin: {
+      create: {
+        limit: parseQuotaLimit(process.env.QUOTA_CREATE_PLUGIN_LIMIT, 'unlimited'),
+        windowMs: parseInt(process.env.QUOTA_CREATE_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+      get: {
+        limit: parseQuotaLimit(process.env.QUOTA_GET_PLUGIN_LIMIT, 10),
+        windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+      list: {
+        limit: parseQuotaLimit(process.env.QUOTA_LIST_PLUGINS_LIMIT, 10),
+        windowMs: parseInt(process.env.QUOTA_LIST_PLUGINS_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+      },
+    },
   },
 } as const;
 
