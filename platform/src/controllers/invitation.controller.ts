@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { Invitation, Organization, User } from '../models';
+import { InvitationOAuthProvider } from '../models/invitation.model';
 import { logger, sendError, emailService } from '../utils';
 
 /**
@@ -16,7 +17,13 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
       return sendError(res, 401, 'Unauthorized');
     }
 
-    const { email, role = 'user' } = req.body;
+    const {
+      email,
+      role = 'user',
+      invitationType = 'any',
+      allowedOAuthProviders,
+    } = req.body;
+
     const organizationId = req.user.organizationId;
     const inviterId = req.user.sub;
 
@@ -30,6 +37,19 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
 
     if (!['user', 'admin'].includes(role)) {
       return sendError(res, 400, 'Invalid role. Must be "user" or "admin"');
+    }
+
+    if (!['email', 'oauth', 'any'].includes(invitationType)) {
+      return sendError(res, 400, 'Invalid invitation type. Must be "email", "oauth", or "any"');
+    }
+
+    // Validate OAuth providers if specified
+    if (allowedOAuthProviders && Array.isArray(allowedOAuthProviders)) {
+      const validProviders = ['google', 'github', 'microsoft'];
+      const invalidProviders = allowedOAuthProviders.filter(p => !validProviders.includes(p));
+      if (invalidProviders.length > 0) {
+        return sendError(res, 400, `Invalid OAuth providers: ${invalidProviders.join(', ')}`);
+      }
     }
 
     const result = await session.withTransaction(async () => {
@@ -85,18 +105,21 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000,
       );
 
-      const [invitation] = await Invitation.create(
-        [
-          {
-            email: email.toLowerCase(),
-            organizationId,
-            invitedBy: inviterId,
-            role,
-            expiresAt,
-          },
-        ],
-        { session },
-      );
+      const invitationData: any = {
+        email: email.toLowerCase(),
+        organizationId,
+        invitedBy: inviterId,
+        role,
+        expiresAt,
+        invitationType,
+      };
+
+      // Only set allowedOAuthProviders if specified and invitation type supports OAuth
+      if (allowedOAuthProviders && invitationType !== 'email') {
+        invitationData.allowedOAuthProviders = allowedOAuthProviders;
+      }
+
+      const [invitation] = await Invitation.create([invitationData], { session });
 
       // Get inviter details for email
       const inviter = await User.findById(inviterId).session(session);
@@ -112,6 +135,8 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         invitationToken: invitation.token,
         expiresAt,
         role,
+        invitationType,
+        allowedOAuthProviders: invitation.allowedOAuthProviders,
       });
 
       if (!emailSent && config.email.enabled) {
@@ -129,6 +154,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
       email,
       organizationId,
       role,
+      invitationType,
     });
 
     res.status(201).json({
@@ -140,6 +166,8 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         role: result?.role,
         status: result?.status,
         expiresAt: result?.expiresAt,
+        invitationType: result?.invitationType,
+        allowedOAuthProviders: result?.allowedOAuthProviders,
       },
     });
   } catch (err: any) {
@@ -162,7 +190,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
 }
 
 /**
- * Accept invitation
+ * Accept invitation (supports both email/password and OAuth)
  * POST /invitation/accept
  */
 export async function acceptInvitation(req: Request, res: Response): Promise<void> {
@@ -180,6 +208,9 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
       return sendError(res, 401, 'You must be logged in to accept an invitation');
     }
 
+    // Determine if this is an OAuth acceptance
+    const oauthProvider = req.headers['x-oauth-provider'] as InvitationOAuthProvider | undefined;
+
     await session.withTransaction(async () => {
       // Find invitation
       const invitation = await Invitation.findOne({ token }).session(session);
@@ -196,6 +227,17 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
         invitation.status = 'expired';
         await invitation.save({ session });
         throw new Error('INVITATION_EXPIRED');
+      }
+
+      // Validate acceptance method
+      if (oauthProvider) {
+        if (!invitation.canAcceptViaOAuth(oauthProvider)) {
+          throw new Error('OAUTH_NOT_ALLOWED');
+        }
+      } else {
+        if (!invitation.canAcceptViaEmail()) {
+          throw new Error('EMAIL_NOT_ALLOWED');
+        }
       }
 
       // Get user
@@ -220,6 +262,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
         invitation.status = 'accepted';
         invitation.acceptedAt = new Date();
         invitation.acceptedBy = user._id;
+        invitation.acceptedVia = oauthProvider || 'email';
         await invitation.save({ session });
         throw new Error('ALREADY_MEMBER');
       }
@@ -239,6 +282,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
       invitation.status = 'accepted';
       invitation.acceptedAt = new Date();
       invitation.acceptedBy = user._id;
+      invitation.acceptedVia = oauthProvider || 'email';
       await invitation.save({ session });
 
       // Notify inviter
@@ -256,6 +300,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
         invitationId: invitation._id,
         userId: user._id,
         organizationId: org._id,
+        acceptedVia: invitation.acceptedVia,
       });
     });
 
@@ -275,6 +320,182 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
       EMAIL_MISMATCH: { status: 403, message: 'This invitation was sent to a different email address' },
       ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
       ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
+      OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
+      EMAIL_NOT_ALLOWED: { status: 403, message: 'This invitation can only be accepted via OAuth' },
+    };
+
+    const error = errorMap[err.message] || { status: 500, message: 'Failed to accept invitation' };
+    return sendError(res, error.status, error.message);
+  } finally {
+    await session.endSession();
+  }
+}
+
+/**
+ * Accept invitation via OAuth (creates user if needed)
+ * POST /invitation/accept-oauth
+ */
+export async function acceptInvitationViaOAuth(req: Request, res: Response): Promise<void> {
+  const session = await mongoose.startSession();
+
+  try {
+    const { token, oauthProvider, oauthData } = req.body;
+
+    if (!token) {
+      return sendError(res, 400, 'Invitation token is required');
+    }
+
+    if (!oauthProvider || !['google', 'github', 'microsoft'].includes(oauthProvider)) {
+      return sendError(res, 400, 'Valid OAuth provider is required');
+    }
+
+    if (!oauthData || !oauthData.id || !oauthData.email) {
+      return sendError(res, 400, 'OAuth data with id and email is required');
+    }
+
+    await session.withTransaction(async () => {
+      // Find invitation
+      const invitation = await Invitation.findOne({ token }).session(session);
+
+      if (!invitation) {
+        throw new Error('INVITATION_NOT_FOUND');
+      }
+
+      if (invitation.status !== 'pending') {
+        throw new Error(`INVITATION_${invitation.status.toUpperCase()}`);
+      }
+
+      if (invitation.isExpired()) {
+        invitation.status = 'expired';
+        await invitation.save({ session });
+        throw new Error('INVITATION_EXPIRED');
+      }
+
+      // Validate OAuth acceptance is allowed
+      if (!invitation.canAcceptViaOAuth(oauthProvider)) {
+        throw new Error('OAUTH_NOT_ALLOWED');
+      }
+
+      // Verify email matches invitation
+      if (oauthData.email.toLowerCase() !== invitation.email) {
+        throw new Error('EMAIL_MISMATCH');
+      }
+
+      // Find or create user
+      let user = await User.findOne({
+        $or: [
+          { [`oauth.${oauthProvider}.id`]: oauthData.id },
+          { email: oauthData.email.toLowerCase() },
+        ],
+      }).session(session);
+
+      if (!user) {
+        // Create new user with OAuth
+        user = new User({
+          email: oauthData.email.toLowerCase(),
+          username: oauthData.email.split('@')[0],
+          isEmailVerified: true, // OAuth emails are pre-verified
+          role: 'user',
+          tokenVersion: 0,
+          oauth: {
+            [oauthProvider]: {
+              id: oauthData.id,
+              email: oauthData.email,
+              name: oauthData.name,
+              picture: oauthData.picture,
+              linkedAt: new Date(),
+            },
+          },
+        });
+        await user.save({ session });
+      } else if (!user.oauth?.[oauthProvider as keyof typeof user.oauth]) {
+        // Link OAuth provider to existing user
+        await User.findByIdAndUpdate(
+          user._id,
+          {
+            $set: {
+              [`oauth.${oauthProvider}`]: {
+                id: oauthData.id,
+                email: oauthData.email,
+                name: oauthData.name,
+                picture: oauthData.picture,
+                linkedAt: new Date(),
+              },
+            },
+          },
+          { session },
+        );
+      }
+
+      // Check if already a member
+      const org = await Organization.findById(invitation.organizationId).session(session);
+      if (!org) {
+        throw new Error('ORGANIZATION_NOT_FOUND');
+      }
+
+      const isMember = org.members.some(id => id.toString() === user!._id.toString());
+      if (isMember) {
+        invitation.status = 'accepted';
+        invitation.acceptedAt = new Date();
+        invitation.acceptedBy = user._id;
+        invitation.acceptedVia = oauthProvider;
+        await invitation.save({ session });
+        throw new Error('ALREADY_MEMBER');
+      }
+
+      // Add user to organization
+      org.members.push(user._id);
+      await org.save({ session });
+
+      // Update user's organization and role
+      user.organizationId = org._id;
+      if (invitation.role === 'admin') {
+        user.role = 'admin';
+      }
+      await user.save({ session });
+
+      // Mark invitation as accepted
+      invitation.status = 'accepted';
+      invitation.acceptedAt = new Date();
+      invitation.acceptedBy = user._id;
+      invitation.acceptedVia = oauthProvider;
+      await invitation.save({ session });
+
+      // Notify inviter
+      const inviter = await User.findById(invitation.invitedBy).session(session);
+      if (inviter) {
+        emailService.sendInvitationAccepted(
+          inviter.email,
+          inviter.username,
+          user.username,
+          org.name,
+        ).catch(err => logger.error('Failed to send acceptance notification:', err));
+      }
+
+      logger.info('[ACCEPT INVITATION VIA OAUTH] Invitation accepted', {
+        invitationId: invitation._id,
+        userId: user._id,
+        organizationId: org._id,
+        oauthProvider,
+      });
+    });
+
+    res.json({
+      success: true,
+      message: 'Invitation accepted successfully via OAuth',
+    });
+  } catch (err: any) {
+    logger.error('[ACCEPT INVITATION VIA OAUTH] Failed:', err);
+
+    const errorMap: Record<string, { status: number; message: string }> = {
+      INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
+      INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
+      INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
+      INVITATION_REVOKED: { status: 400, message: 'Invitation has been revoked' },
+      EMAIL_MISMATCH: { status: 403, message: 'OAuth email does not match invitation email' },
+      ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
+      ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
+      OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
     };
 
     const error = errorMap[err.message] || { status: 500, message: 'Failed to accept invitation' };
@@ -320,6 +541,12 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
         organization: invitation.organizationId,
         invitedBy: invitation.invitedBy,
         isValid: invitation.isValid(),
+        invitationType: invitation.invitationType,
+        allowedOAuthProviders: invitation.allowedOAuthProviders,
+        canAcceptViaEmail: invitation.canAcceptViaEmail(),
+        canAcceptViaGoogle: invitation.canAcceptViaOAuth('google'),
+        canAcceptViaGitHub: invitation.canAcceptViaOAuth('github'),
+        canAcceptViaMicrosoft: invitation.canAcceptViaOAuth('microsoft'),
       },
     });
   } catch (err) {
@@ -343,12 +570,15 @@ export async function listInvitations(req: Request, res: Response): Promise<void
       return sendError(res, 400, 'You must belong to an organization');
     }
 
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, invitationType, page = 1, limit = 20 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
     const query: any = { organizationId };
     if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
       query.status = status;
+    }
+    if (invitationType && ['email', 'oauth', 'any'].includes(invitationType as string)) {
+      query.invitationType = invitationType;
     }
 
     const [invitations, total] = await Promise.all([
@@ -484,6 +714,8 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
       invitationToken: invitation.token,
       expiresAt: invitation.expiresAt,
       role: invitation.role,
+      invitationType: invitation.invitationType,
+      allowedOAuthProviders: invitation.allowedOAuthProviders,
     });
 
     if (!emailSent && config.email.enabled) {

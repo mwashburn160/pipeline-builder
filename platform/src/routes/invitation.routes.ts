@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   sendInvitation,
   acceptInvitation,
+  acceptInvitationViaOAuth,
   getInvitation,
   listInvitations,
   revokeInvitation,
@@ -14,8 +15,11 @@ const router = Router();
 // Get invitation details by token (public - for preview)
 router.get('/:token', getInvitation);
 
-// Accept invitation (authenticated)
+// Accept invitation (authenticated - supports both email and OAuth)
 router.post('/accept', isAuthenticated, acceptInvitation);
+
+// Accept invitation via OAuth (public - creates user if needed)
+router.post('/accept-oauth', acceptInvitationViaOAuth);
 
 // Send invitation (admin only)
 router.post('/send', isAuthenticated, authorize('admin'), sendInvitation);

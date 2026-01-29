@@ -7,6 +7,16 @@ import { Schema, model, Document, Types } from 'mongoose';
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 
 /**
+ * OAuth provider type for invitations
+ */
+export type InvitationOAuthProvider = 'google' | 'github' | 'microsoft';
+
+/**
+ * Invitation type - how the invitation can be accepted
+ */
+export type InvitationType = 'email' | 'oauth' | 'any';
+
+/**
  * Invitation document interface
  */
 export interface IInvitation extends Document {
@@ -20,10 +30,19 @@ export interface IInvitation extends Document {
   expiresAt: Date;
   acceptedAt?: Date;
   acceptedBy?: Types.ObjectId;
+
+  // OAuth-specific fields
+  invitationType: InvitationType;
+  allowedOAuthProviders?: InvitationOAuthProvider[];
+  acceptedVia?: 'email' | InvitationOAuthProvider;
+
   createdAt: Date;
   updatedAt: Date;
+
   isExpired(): boolean;
   isValid(): boolean;
+  canAcceptViaOAuth(provider: InvitationOAuthProvider): boolean;
+  canAcceptViaEmail(): boolean;
 }
 
 const invitationSchema = new Schema<IInvitation>(
@@ -75,6 +94,22 @@ const invitationSchema = new Schema<IInvitation>(
       type: Schema.Types.ObjectId,
       ref: 'User',
     },
+
+    // OAuth-specific fields
+    invitationType: {
+      type: String,
+      enum: ['email', 'oauth', 'any'],
+      default: 'any',
+    },
+    allowedOAuthProviders: {
+      type: [String],
+      enum: ['google', 'github', 'microsoft'],
+      default: undefined,
+    },
+    acceptedVia: {
+      type: String,
+      enum: ['email', 'google', 'github', 'microsoft'],
+    },
   },
   {
     timestamps: true,
@@ -107,6 +142,36 @@ invitationSchema.methods.isExpired = function (): boolean {
  */
 invitationSchema.methods.isValid = function (): boolean {
   return this.status === 'pending' && !this.isExpired();
+};
+
+/**
+ * Check if invitation can be accepted via specific OAuth provider
+ */
+invitationSchema.methods.canAcceptViaOAuth = function (provider: InvitationOAuthProvider): boolean {
+  if (!this.isValid()) return false;
+
+  // If invitation type is email-only, OAuth is not allowed
+  if (this.invitationType === 'email') return false;
+
+  // If specific providers are defined, check if this provider is allowed
+  if (this.allowedOAuthProviders && this.allowedOAuthProviders.length > 0) {
+    return this.allowedOAuthProviders.includes(provider);
+  }
+
+  // Default: allow all OAuth providers for 'any' or 'oauth' type
+  return true;
+};
+
+/**
+ * Check if invitation can be accepted via email/password
+ */
+invitationSchema.methods.canAcceptViaEmail = function (): boolean {
+  if (!this.isValid()) return false;
+
+  // If invitation type is oauth-only, email is not allowed
+  if (this.invitationType === 'oauth') return false;
+
+  return true;
 };
 
 /**

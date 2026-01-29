@@ -3,6 +3,26 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import { config } from '../config';
 
 /**
+ * OAuth provider data structure
+ */
+export interface OAuthProviderData {
+  id: string;
+  email: string;
+  name?: string;
+  picture?: string;
+  linkedAt: Date;
+}
+
+/**
+ * OAuth providers map
+ */
+export interface OAuthProviders {
+  google?: OAuthProviderData;
+  github?: OAuthProviderData;
+  microsoft?: OAuthProviderData;
+}
+
+/**
  * User document interface
  */
 export interface IUser extends Document {
@@ -15,9 +35,23 @@ export interface IUser extends Document {
   isEmailVerified: boolean;
   tokenVersion: number;
   refreshToken?: string;
+  oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
   invalidateAllSessions(): Promise<IUser>;
+  hasOAuthProvider(provider: keyof OAuthProviders): boolean;
+  getLinkedProviders(): string[];
 }
+
+const oauthProviderSchema = new Schema<OAuthProviderData>(
+  {
+    id: { type: String, required: true },
+    email: { type: String, required: true },
+    name: { type: String },
+    picture: { type: String },
+    linkedAt: { type: Date, default: Date.now },
+  },
+  { _id: false },
+);
 
 const userSchema = new Schema<IUser>(
   {
@@ -61,6 +95,11 @@ const userSchema = new Schema<IUser>(
       type: String,
       select: false,
     },
+    oauth: {
+      google: oauthProviderSchema,
+      github: oauthProviderSchema,
+      microsoft: oauthProviderSchema,
+    },
   },
   { timestamps: true },
 );
@@ -89,5 +128,30 @@ userSchema.methods.invalidateAllSessions = async function (): Promise<IUser> {
   this.tokenVersion += 1;
   return this.save();
 };
+
+/**
+ * Check if user has a specific OAuth provider linked
+ */
+userSchema.methods.hasOAuthProvider = function (provider: keyof OAuthProviders): boolean {
+  return !!this.oauth?.[provider]?.id;
+};
+
+/**
+ * Get list of linked OAuth providers
+ */
+userSchema.methods.getLinkedProviders = function (): string[] {
+  const providers: string[] = [];
+  if (this.oauth?.google?.id) providers.push('google');
+  if (this.oauth?.github?.id) providers.push('github');
+  if (this.oauth?.microsoft?.id) providers.push('microsoft');
+  return providers;
+};
+
+/**
+ * Indexes for OAuth provider lookups
+ */
+userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.github.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.microsoft.id': 1 }, { sparse: true });
 
 export default mongoose.model<IUser>('User', userSchema);
