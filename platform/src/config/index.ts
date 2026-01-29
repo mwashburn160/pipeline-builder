@@ -66,6 +66,15 @@ export const config = {
     expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7'),
     maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50'),
   },
+  services: {
+    listPlugins: process.env.LIST_PLUGINS_URL || 'http://localhost:3001',
+    getPlugin: process.env.GET_PLUGIN_URL || 'http://localhost:3002',
+    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || 'http://localhost:3003',
+    listPipelines: process.env.LIST_PIPELINES_URL || 'http://localhost:3004',
+    getPipeline: process.env.GET_PIPELINE_URL || 'http://localhost:3005',
+    createPipeline: process.env.CREATE_PIPELINE_URL || 'http://localhost:3006',
+    timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000'),
+  },
 } as const;
 
 export type Config = typeof config;
