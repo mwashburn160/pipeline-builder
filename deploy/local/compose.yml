@@ -255,7 +255,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/platform:0.1.18'
+    image: 'ghcr.io/mwashburn160/platform:0.1.19'
     container_name: platform
     depends_on:
       mongodb:
