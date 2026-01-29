@@ -1,3 +1,13 @@
+## 0.1.17 (2026-01-29)
+
+### 🩹 Fixes
+
+- addedd plugin, pipeline to route ([11772b6](https://github.com/mwashburn160/pipeline-builder/commit/11772b6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.16 (2026-01-29)
 
 ### 🩹 Fixes
