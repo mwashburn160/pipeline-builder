@@ -43,9 +43,9 @@ export const config = {
   },
   email: {
     enabled: process.env.EMAIL_ENABLED === 'true',
-    provider: process.env.EMAIL_PROVIDER || 'smtp', // 'smtp' | 'sendgrid' | 'ses'
     from: process.env.EMAIL_FROM || 'noreply@example.com',
     fromName: process.env.EMAIL_FROM_NAME || 'Platform',
+    provider: 'smtp',
     smtp: {
       host: process.env.SMTP_HOST || 'localhost',
       port: parseInt(process.env.SMTP_PORT || '587'),
@@ -53,26 +53,18 @@ export const config = {
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
     },
-    sendgrid: {
-      apiKey: process.env.SENDGRID_API_KEY || '',
-    },
-    ses: {
-      region: process.env.AWS_REGION || 'us-east-1',
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-    },
   },
   invitation: {
     expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7'),
     maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50'),
   },
   services: {
-    listPlugins: process.env.LIST_PLUGINS_URL || 'http://localhost:3001',
-    getPlugin: process.env.GET_PLUGIN_URL || 'http://localhost:3002',
-    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || 'http://localhost:3003',
-    listPipelines: process.env.LIST_PIPELINES_URL || 'http://localhost:3004',
-    getPipeline: process.env.GET_PIPELINE_URL || 'http://localhost:3005',
-    createPipeline: process.env.CREATE_PIPELINE_URL || 'http://localhost:3006',
+    listPlugins: process.env.LIST_PLUGINS_URL || 'https://localhost:8443',
+    getPlugin: process.env.GET_PLUGIN_URL || 'https://localhost:8443',
+    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || 'https://localhost:8443',
+    listPipelines: process.env.LIST_PIPELINES_URL || 'https://localhost:8443',
+    getPipeline: process.env.GET_PIPELINE_URL || 'https://localhost:8443',
+    createPipeline: process.env.CREATE_PIPELINE_URL || 'https://localhost:8443',
     timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000'),
   },
 } as const;

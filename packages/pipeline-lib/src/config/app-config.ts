@@ -16,15 +16,15 @@ export class CoreConstants {
   static readonly CUSTOM_TAG_PREFIX = 'aws:cdk:';
 
   // Security best practices
-  static readonly MIN_PASSWORD_LENGTH = 12;
-  static readonly MAX_LOGIN_ATTEMPTS = 5;
+  static readonly MIN_PASSWORD_LENGTH = parseInt(process.env.MIN_PASSWORD_LENGTH || '12');
+  static readonly MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || '5');
   static readonly ACCOUNT_LOCKOUT_DURATION = Duration.minutes(15);
 
   // Supported JWT algorithms
   static readonly ALLOWED_JWT_ALGORITHMS: Algorithm[] = ['HS256', 'RS256', 'ES256'];
 
   // Custom Resource Handler configuration
-  static readonly HANDLER_TIMEOUT_MS = 30000;
+  static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000');
   static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_URL || 'https://localhost:8443';
 }
 

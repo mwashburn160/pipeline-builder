@@ -28,6 +28,7 @@ x-common-api-env: &common-api-env
   DB_USER: '${DB_USER}'
   DB_PASSWORD: '${DB_PASSWORD}'
   JWT_SECRET: '${JWT_SECRET}'
+  REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}' 
   PLATFORM_URL: '${PLATFORM_URL}'
 
 services:
@@ -248,27 +249,60 @@ services:
         reservations:
           cpus: '0.2'
           memory: 192M
-  platform:
+
+  platform: 
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/platform:0.1.14'
+    image: 'ghcr.io/mwashburn160/platform:0.1.18'
     container_name: platform
     depends_on:
       mongodb:
         condition: service_healthy
+      list-plugins:
+        condition: service_healthy
+      get-plugin:
+        condition: service_healthy
+      upload-plugin:
+        condition: service_healthy
+      list-pipelines:
+        condition: service_healthy
+      get-pipeline:
+        condition: service_healthy
+      create-pipeline:
+        condition: service_healthy
     environment:
       <<: *common-api-env
+      # MongoDB
       MONGODB_URI: '${MONGODB_URI}'
+      # Auth
       REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
+      JWT_EXPIRES_IN: '${JWT_EXPIRES_IN}'
+      JWT_SALT_ROUNDS: '${JWT_SALT_ROUNDS}'
+      REFRESH_TOKEN_EXPIRES_IN: '${REFRESH_TOKEN_EXPIRES_IN}'
+      # Server
+      TRUST_PROXY: '${TRUST_PROXY}'
+      FRONTEND_URL: '${FRONTEND_URL}'
+      # Email (SMTP)
+      EMAIL_ENABLED: '${EMAIL_ENABLED}'
+      EMAIL_FROM: '${EMAIL_FROM}'
+      EMAIL_FROM_NAME: '${EMAIL_FROM_NAME}'
+      SMTP_HOST: '${SMTP_HOST}'
+      SMTP_PORT: '${SMTP_PORT}'
+      SMTP_SECURE: '${SMTP_SECURE}'
+      SMTP_USER: '${SMTP_USER}'
+      SMTP_PASS: '${SMTP_PASS}'
+      # Invitation
+      INVITATION_EXPIRATION_DAYS: '${INVITATION_EXPIRATION_DAYS}'
+      INVITATION_MAX_PENDING_PER_ORG: '${INVITATION_MAX_PENDING_PER_ORG}'
 
   upload-plugin:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.17'
+    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.19'
     container_name: upload-plugin
     privileged: true
     depends_on:
@@ -285,7 +319,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-plugin:0.1.16'
+    image: 'ghcr.io/mwashburn160/get-plugin:0.1.18'
     container_name: get-plugin
     depends_on:
       postgres:
@@ -298,7 +332,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-plugins:0.1.18'
+    image: 'ghcr.io/mwashburn160/list-plugins:0.1.20'
     container_name: list-plugins
     depends_on:
       postgres:
@@ -311,7 +345,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.17'
+    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.19'
     container_name: create-pipeline
     depends_on:
       postgres:
@@ -324,7 +358,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.16'
+    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.18'
     container_name: get-pipeline
     depends_on:
       postgres:
@@ -337,7 +371,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.18'
+    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.20'
     container_name: list-pipelines
     depends_on:
       postgres:

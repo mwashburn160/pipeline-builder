@@ -56,51 +56,24 @@ class EmailService {
     }
 
     try {
-      switch (config.email.provider) {
-        case 'smtp':
-          this.transporter = nodemailer.createTransport({
-            host: config.email.smtp.host,
-            port: config.email.smtp.port,
-            secure: config.email.smtp.secure,
-            auth: config.email.smtp.user
-              ? {
-                user: config.email.smtp.user,
-                pass: config.email.smtp.pass,
-              }
-              : undefined,
-          });
-          break;
-
-        case 'sendgrid':
-          this.transporter = nodemailer.createTransport({
-            host: 'smtp.sendgrid.net',
-            port: 587,
-            auth: {
-              user: 'apikey',
-              pass: config.email.sendgrid.apiKey,
-            },
-          });
-          break;
-
-        case 'ses':
-          // For SES, use nodemailer-ses-transport or configure SMTP
-          this.transporter = nodemailer.createTransport({
-            host: `email-smtp.${config.email.ses.region}.amazonaws.com`,
-            port: 587,
-            secure: false,
-            auth: {
-              user: config.email.ses.accessKeyId,
-              pass: config.email.ses.secretAccessKey,
-            },
-          });
-          break;
-
-        default:
-          logger.warn(`Unknown email provider: ${config.email.provider}`);
+      if (config.email.provider !== 'smtp') {
+        logger.warn(`Unknown email provider: ${config.email.provider}, defaulting to SMTP`);
       }
 
+      this.transporter = nodemailer.createTransport({
+        host: config.email.smtp.host,
+        port: config.email.smtp.port,
+        secure: config.email.smtp.secure,
+        auth: config.email.smtp.user
+          ? {
+            user: config.email.smtp.user,
+            pass: config.email.smtp.pass,
+          }
+          : undefined,
+      });
+
       this.initialized = true;
-      logger.info(`Email service initialized with provider: ${config.email.provider}`);
+      logger.info('Email service initialized with SMTP');
     } catch (error) {
       logger.error('Failed to initialize email service:', error);
       this.initialized = true;
