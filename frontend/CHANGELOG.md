@@ -1,3 +1,14 @@
+## 0.1.4 (2026-01-29)
+
+### 🩹 Fixes
+
+- removed healthcheck ([f95f6a2](https://github.com/mwashburn160/pipeline-builder/commit/f95f6a2))
+- removed healthcheck ([312e142](https://github.com/mwashburn160/pipeline-builder/commit/312e142))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.3 (2026-01-29)
 
 ### 🩹 Fixes
