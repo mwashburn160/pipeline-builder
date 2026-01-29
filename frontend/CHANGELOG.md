@@ -1,3 +1,15 @@
+## 0.1.5 (2026-01-29)
+
+### 🩹 Fixes
+
+- enabled tailwind ([2d25328](https://github.com/mwashburn160/pipeline-builder/commit/2d25328))
+- updated git ignore ([1efc614](https://github.com/mwashburn160/pipeline-builder/commit/1efc614))
+- dashboard wrapper ([56bb814](https://github.com/mwashburn160/pipeline-builder/commit/56bb814))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.4 (2026-01-29)
 
 ### 🩹 Fixes

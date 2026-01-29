@@ -1,3 +1,13 @@
+## 0.1.22 (2026-01-29)
+
+### 🩹 Fixes
+
+- dashboard wrapper ([56bb814](https://github.com/mwashburn160/pipeline-builder/commit/56bb814))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.21 (2026-01-29)
 
 ### 🩹 Fixes
