@@ -10,18 +10,8 @@ const log = createLogger('Helper');
 /**
  * Merge multiple metadata objects into one, with logging
  */
-export function merge(title: string, ...sources: Array<Partial<MetaDataType>>): MetaDataType {
+export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
   const merged = sources.reduce((acc, curr) => ({ ...acc, ...curr }), {}) as MetaDataType;
-
-  if (log.isDebugEnabled()) {
-    const entries = Object.entries(merged);
-    if (entries.length > 0) {
-      log.debug(`[${title}] Merged metadata:`, merged);
-    } else {
-      log.debug(`[${title}] Merged metadata: (empty)`);
-    }
-  }
-
   return merged;
 }
 
@@ -33,7 +23,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   const config = Config.get();
 
   // Merge plugin metadata with provided metadata
-  const merged = merge('codebuildstep', plugin.metadata ?? {}, metadata ?? {});
+  const merged = merge(metadata ?? {}, plugin.metadata ?? {});
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
@@ -54,7 +44,14 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   // Return ShellStep if plugin type is SHELL_STEP
   if (plugin.pluginType === PluginType.SHELL_STEP) {
-    return new ShellStep(id, { ...common, env });
+    return new ShellStep(id, {
+      ...buildConfigFromMetadata(merged, 'pipelines:shellstep', {
+        booleanKeys: ['isSource'],
+        passthroughKeys: ['commands', 'consumedStackOutputs', 'dependencies', 'dependencyFileSets', 'env', 'envFromCfnOutputs', 'inputs', 'installCommands', 'outputs', 'primaryOutput'],
+      }),
+      ...common,
+      env,
+    });
   }
 
   // Convert env object to CodeBuild environment variables format
@@ -69,11 +66,18 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   // Return CodeBuildStep
   return new CodeBuildStep(id, {
+    ...buildConfigFromMetadata(merged, 'pipelines:codebuildstep', {
+      booleanKeys: ['isSource'],
+      passthroughKeys: ['consumedStackOutputs', 'dependencies', 'dependencyFileSets', 'env', 'envFromCfnOutputs', 'grantPrincipal', 'inputs', 'outputs', 'project', 'actionRole', 'cache', 'fileSystemLocations', 'logging', 'partialBuildSpec', 'primaryOutput', 'projectName', 'role', 'rolePolicyStatements', 'securityGroups', 'subnetSelection', 'timeout', 'vpc'],
+    }),
     ...common,
     buildEnvironment: {
+      ...buildConfigFromMetadata(merged, 'codebuild:buildenvironment', {
+        booleanKeys: ['privileged'],
+        passthroughKeys: ['buildImage', 'certificate', 'dockerServer', 'fleet'],
+      }),
       computeType,
       environmentVariables,
-      privileged: isTrue(merged[getCustomKey('buildenvironment', 'privileged')]),
     },
   });
 }
@@ -117,6 +121,32 @@ export function isTrue(value: any): boolean {
     return value.toLowerCase() === 'true';
   }
   return false;
+}
+
+/**
+ * Build configuration object from metadata using a namespace
+ * @param metadata - The metadata object to extract values from
+ * @param namespace - The namespace prefix for keys
+ * @param options - Configuration for boolean and passthrough keys
+ * @returns Configuration object with extracted values
+ */
+export function buildConfigFromMetadata(
+  metadata: MetaDataType,
+  namespace: string,
+  options: {
+    booleanKeys?: readonly string[];
+    passthroughKeys?: readonly string[];
+  }): Record<string, any> {
+  const { booleanKeys = [], passthroughKeys = [] } = options;
+
+  return {
+    ...Object.fromEntries(
+      booleanKeys.map(key => [key, isTrue(metadata[getCustomKey(namespace, key)])]),
+    ),
+    ...Object.fromEntries(
+      passthroughKeys.map(key => [key, metadata[getCustomKey(namespace, key)]]),
+    ),
+  };
 }
 
 export function parseStringToBoolean(str: string | null | undefined): boolean {

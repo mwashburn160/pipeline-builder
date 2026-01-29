@@ -6,7 +6,7 @@ import { Construct } from 'constructs';
 import { CodeStarOptions, GitHubOptions, S3Options, SynthOptions } from './pipeline-types';
 import { PluginLookupConstruct } from './plugin-lookup-construct';
 import { UniqueId } from '../core/id-generator';
-import { createCodeBuildStep, getCustomKey, isTrue, merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
+import { buildConfigFromMetadata, createCodeBuildStep, merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
 import { MetaDataType, TriggerType } from '../core/pipeline-types';
 
 /**
@@ -71,8 +71,8 @@ export class Builder extends Construct {
     const pluginLookup = new PluginLookupConstruct(this, uniqueId.generate('plugin-lookup'), organization, project);
 
     // Merge metadata - merge() function already handles logging
-    const global = merge('global', props.global ?? {}, init());
-    const merged = merge('synth', props.synth.metadata ?? {}, global);
+    const global = merge(init(), props.global ?? {});
+    const merged = merge(global, props.synth.metadata ?? {});
 
     // Create source and build step
     const source = this.createSource(props.synth.source, uniqueId);
@@ -86,7 +86,7 @@ export class Builder extends Construct {
 
     const pipelineName = props.pipelineName ?? `${organization}-${project}-pipeline`;
 
-    this.pipeline = new CodePipeline(this, uniqueId.generate('codepipeline'), {
+    this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       pipelineName,
       synth,
       ...this.buildPipelineConfig(merged),
@@ -131,16 +131,34 @@ export class Builder extends Construct {
    * Builds CodePipeline configuration from metadata
    */
   private buildPipelineConfig(metadata: MetaDataType) {
-    return {
-      crossAccountKeys: isTrue(metadata[getCustomKey('codepipeline', 'crossAccountKeys')]),
-      dockerEnabledForSelfMutation: isTrue(metadata[getCustomKey('codepipeline', 'dockerEnabledForSelfMutation')]),
-      enableKeyRotation: isTrue(metadata[getCustomKey('codepipeline', 'enableKeyRotation')]),
-      publishAssetsInParallel: isTrue(metadata[getCustomKey('codepipeline', 'publishAssetsInParallel')]),
-      reuseCrossRegionSupportStacks: isTrue(metadata[getCustomKey('codepipeline', 'reuseCrossRegionSupportStacks')]),
-      selfMutation: isTrue(metadata[getCustomKey('codepipeline', 'selfMutation')]),
-      useChangeSets: isTrue(metadata[getCustomKey('codepipeline', 'useChangeSets')]),
-      usePipelineRoleForActions: isTrue(metadata[getCustomKey('codepipeline', 'usePipelineRoleForActions')]),
-    };
+    return buildConfigFromMetadata(metadata, 'pipelines:codepipeline', {
+      booleanKeys: [
+        'crossAccountKeys',
+        'dockerEnabledForSelfMutation',
+        'publishAssetsInParallel',
+        'reuseCrossRegionSupportStacks',
+        'role',
+        'selfMutation',
+        'useChangeSets',
+        'usePipelineRoleForActions',
+      ],
+      passthroughKeys: [
+        'artifactBucket',
+        'assetPublishingCodeBuildDefaults',
+        'cdkAssetsCliVersion',
+        'cliVersion',
+        'codeBuildDefaults',
+        'codePipeline',
+        'crossRegionReplicationBuckets',
+        'dockerCredentials',
+        'dockerEnabledForSynth',
+        'enableKeyRotation',
+        'pipelineName',
+        'pipelineType',
+        'selfMutationCodeBuildDefaults',
+        'synthCodeBuildDefaults',
+      ],
+    });
   }
 
   /**
@@ -252,7 +270,5 @@ export class Builder extends Construct {
  * @returns Default metadata object
  */
 export function init(): MetaDataType {
-  return {
-    [getCustomKey('codepipeline', 'selfMutation')]: true,
-  };
+  return {};
 }

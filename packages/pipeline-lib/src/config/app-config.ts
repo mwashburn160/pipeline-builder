@@ -13,7 +13,7 @@ const log = createLogger('Config');
  */
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;
-  static readonly CUSTOM_TAG_PREFIX = 'custom:aws:';
+  static readonly CUSTOM_TAG_PREFIX = 'aws:cdk:';
 
   // Security best practices
   static readonly MIN_PASSWORD_LENGTH = 12;
