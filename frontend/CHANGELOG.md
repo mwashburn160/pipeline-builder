@@ -1,3 +1,13 @@
+## 0.1.2 (2026-01-29)
+
+### 🩹 Fixes
+
+- updated healthcheck ([1dc13a9](https://github.com/mwashburn160/pipeline-builder/commit/1dc13a9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.1 (2026-01-29)
 
 ### 🩹 Fixes
