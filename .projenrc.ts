@@ -28,7 +28,7 @@ let root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  gitignore: ['.DS_Store', '.nx', '.vscode', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam'],
+  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam'],
   licensed: true,
   projenrcTs: true,
   jest: false,

@@ -32,7 +32,10 @@ jspm_packages/
 .cache
 .DS_Store
 .nx
+.lock
+.next
 .vscode
+dist
 test-reports
 db-data
 pgadmin-data
