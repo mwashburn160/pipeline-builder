@@ -1,3 +1,13 @@
+## 0.1.6 (2026-01-29)
+
+### 🩹 Fixes
+
+- updated login request body ([d7c7561](https://github.com/mwashburn160/pipeline-builder/commit/d7c7561))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.5 (2026-01-29)
 
 ### 🩹 Fixes
