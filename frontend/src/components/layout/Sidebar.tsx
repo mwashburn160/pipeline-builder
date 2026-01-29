@@ -41,7 +41,7 @@ export function Sidebar() {
           <div className="h-8 w-8 rounded-lg bg-primary-600 flex items-center justify-center">
             <GitBranch className="h-5 w-5 text-white" />
           </div>
-          <span className="text-xl font-bold text-white">Platform</span>
+          <span className="text-xl font-bold text-white">Pipeline Builder</span>
         </Link>
       </div>
 

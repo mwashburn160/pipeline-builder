@@ -37,7 +37,7 @@ export default function LoginPage() {
             <div className="h-12 w-12 rounded-xl bg-primary-600 flex items-center justify-center">
               <GitBranch className="h-7 w-7 text-white" />
             </div>
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">Platform</span>
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">Pipeline Builder</span>
           </Link>
         </div>
 
