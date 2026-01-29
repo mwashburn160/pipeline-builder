@@ -29,4 +29,9 @@ jspm_packages/
 *.tgz
 .yarn-integrity
 .cache
+.DS_Store
+.lock
+.next
+.vscode
+dist
 /.next/

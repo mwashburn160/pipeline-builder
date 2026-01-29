@@ -181,6 +181,7 @@ let frontend = new FrontEndProject({
   defaultReleaseBranch: branch,
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
+  gitignore: ['.DS_Store', '.lock', '.next', '.vscode', 'dist'],
   deps: [
     'next@14.2.0',
     'react@18.2.0',
