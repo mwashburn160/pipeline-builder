@@ -5,6 +5,7 @@ import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { FunctionProject } from './projenrc/function';
 import { ManagerProject } from './projenrc/manager';
+import { FrontEndProject } from './projenrc/frontend'
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { PackageProject } from './projenrc/package';
 import { WebTokenProject } from './projenrc/web-token';
@@ -172,6 +173,38 @@ platform.addScripts({
 });
 platform.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 platform.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+
+let frontend = new FrontEndProject({
+  parent: root,
+  name: 'frontend',
+  outdir: './frontend',
+  defaultReleaseBranch: branch,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  deps: [
+    'next@14.2.0',
+    'react@18.2.0',
+    'react-dom@18.2.0',
+    'lucide-react@0.563.0',
+    'clsx@^2.1.1',
+    'tailwind-merge@3.4.0'
+  ],
+  devDeps: [
+    '@types/node@24.9.0',
+    '@types/react@19.2.10',
+    '@types/react-dom@19.2.3',
+    '@tailwindcss/postcss@4.1.18',
+    'autoprefixer@10.4.23',
+    'postcss@8.5.6',
+    `typescript@${typescriptVersion}`
+  ]
+})
+frontend.addScripts({
+  'start': 'node lib/index.js',
+  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-jwt}:$(jq -r .version package.json) .',
+  'docker:tag': 'docker image tag ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)',
+  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)'
+});
 
 let upload_plugin = new FunctionProject({
   parent: root,

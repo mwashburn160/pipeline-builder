@@ -4,6 +4,7 @@ packages:
   - packages/pipeline-lib
   - packages/pipeline-manager
   - platform
+  - frontend
   - api/upload-plugin
   - api/get-plugin
   - api/list-plugins
