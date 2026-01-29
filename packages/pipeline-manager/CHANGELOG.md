@@ -1,3 +1,13 @@
+## 0.1.22 (2026-01-29)
+
+### 🩹 Fixes
+
+- re-version ([5e08012](https://github.com/mwashburn160/pipeline-builder/commit/5e08012))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.21 (2026-01-29)
 
 ### 🩹 Fixes
