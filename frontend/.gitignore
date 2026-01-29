@@ -30,8 +30,10 @@ jspm_packages/
 .yarn-integrity
 .cache
 .DS_Store
-.lock
+yarn.lock
 .next
 .vscode
 dist
+!/tailwind.config.json
+!/postcss.config.json
 /.next/

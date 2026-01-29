@@ -10,4 +10,6 @@
 /.projen/tasks.json linguist-generated
 /LICENSE linguist-generated
 /package.json linguist-generated
+/postcss.config.json linguist-generated
+/tailwind.config.json linguist-generated
 /yarn.lock linguist-generated
