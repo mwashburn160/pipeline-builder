@@ -7,7 +7,7 @@ RUN apk update && \
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
 RUN update-ca-certificates
 
-  # Build stage
+# Build stage
 FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app

@@ -84,7 +84,7 @@ class ApiClient {
 
   private async refreshAccessToken(): Promise<boolean> {
     try {
-      const response = await fetch(`${API_URL}/auth/refresh`, {
+      const response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: this.refreshToken }),
@@ -104,7 +104,7 @@ class ApiClient {
 
   // Auth endpoints
   async login(email: string, password: string) {
-    const data = await this.request<ApiResponse<AuthTokens & { user: unknown }>>('/auth/login', {
+    const data = await this.request<ApiResponse<AuthTokens & { user: unknown }>>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -118,7 +118,7 @@ class ApiClient {
   }
 
   async register(username: string, email: string, password: string) {
-    return this.request<ApiResponse<unknown>>('/auth/register', {
+    return this.request<ApiResponse<unknown>>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, email, password }),
     });
@@ -126,40 +126,40 @@ class ApiClient {
 
   async logout() {
     try {
-      await this.request('/auth/logout', { method: 'POST' });
+      await this.request('/api/auth/logout', { method: 'POST' });
     } finally {
       this.clearTokens();
     }
   }
 
   async getProfile() {
-    return this.request<ApiResponse<unknown>>('/user/profile');
+    return this.request<ApiResponse<unknown>>('/api/user/profile');
   }
 
   // Organization endpoints
   async getOrganizations() {
-    return this.request<ApiResponse<unknown>>('/organization');
+    return this.request<ApiResponse<unknown>>('/api/organization');
   }
 
   async createOrganization(name: string, description?: string) {
-    return this.request<ApiResponse<unknown>>('/organization', {
+    return this.request<ApiResponse<unknown>>('/api/organization', {
       method: 'POST',
       body: JSON.stringify({ name, description }),
     });
   }
 
   async getOrganization(id: string) {
-    return this.request<ApiResponse<unknown>>(`/organization/${id}`);
+    return this.request<ApiResponse<unknown>>(`/api/organization/${id}`);
   }
 
   // Plugin endpoints
   async getPlugins(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/plugin${query}`);
+    return this.request<ApiResponse<unknown>>(`/api/plugins${query}`);
   }
 
   async getPlugin(id: string) {
-    return this.request<ApiResponse<unknown>>(`/plugin/${id}`);
+    return this.request<ApiResponse<unknown>>(`/api/plugin/${id}`);
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
@@ -167,7 +167,7 @@ class ApiClient {
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
 
-    const response = await fetch(`${API_URL}/plugin`, {
+    const response = await fetch(`${API_URL}/api/plugin/upload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.accessToken}`,
@@ -186,15 +186,15 @@ class ApiClient {
   // Pipeline endpoints
   async getPipelines(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/pipeline${query}`);
+    return this.request<ApiResponse<unknown>>(`/api/pipelines${query}`);
   }
 
   async getPipeline(id: string) {
-    return this.request<ApiResponse<unknown>>(`/pipeline/${id}`);
+    return this.request<ApiResponse<unknown>>(`/api/pipeline/${id}`);
   }
 
   async createPipeline(data: { project: string; organization: string; props: Record<string, unknown>; accessModifier?: string }) {
-    return this.request<ApiResponse<unknown>>('/pipeline', {
+    return this.request<ApiResponse<unknown>>('/api/pipeline', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -202,24 +202,24 @@ class ApiClient {
 
   // Invitation endpoints
   async getInvitations() {
-    return this.request<ApiResponse<unknown>>('/invitation');
+    return this.request<ApiResponse<unknown>>('/api/organization/invitations');
   }
 
   async createInvitation(email: string, role: 'user' | 'admin' = 'user') {
-    return this.request<ApiResponse<unknown>>('/invitation', {
+    return this.request<ApiResponse<unknown>>('/api/organization/invitation', {
       method: 'POST',
       body: JSON.stringify({ email, role }),
     });
   }
 
   async acceptInvitation(token: string) {
-    return this.request<ApiResponse<unknown>>(`/invitation/accept/${token}`, {
+    return this.request<ApiResponse<unknown>>(`/api/organization/invitation/accept/${token}`, {
       method: 'POST',
     });
   }
 
   async cancelInvitation(id: string) {
-    return this.request<ApiResponse<unknown>>(`/invitation/${id}`, {
+    return this.request<ApiResponse<unknown>>(`/api/organization/invitation/${id}`, {
       method: 'DELETE',
     });
   }

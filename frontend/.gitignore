@@ -29,6 +29,4 @@ jspm_packages/
 *.tgz
 .yarn-integrity
 .cache
-!/tailwind.config.json
-!/postcss.config.json
 /.next/
