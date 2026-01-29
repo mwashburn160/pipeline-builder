@@ -7,7 +7,7 @@ RUN apk update && \
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
 RUN update-ca-certificates
 
-# Build stage
+  # Build stage
 FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
@@ -53,8 +53,5 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 CMD ["node", "server.js"]
