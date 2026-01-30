@@ -1,3 +1,13 @@
+## 0.1.28 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([438dca7](https://github.com/mwashburn160/pipeline-builder/commit/438dca7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.27 (2026-01-30)
 
 ### 🩹 Fixes
