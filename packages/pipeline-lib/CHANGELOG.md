@@ -1,3 +1,13 @@
+## 0.1.32 (2026-01-30)
+
+### 🩹 Fixes
+
+- rename env variable ([92920df](https://github.com/mwashburn160/pipeline-builder/commit/92920df))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.31 (2026-01-30)
 
 ### 🩹 Fixes
