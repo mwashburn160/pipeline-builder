@@ -120,7 +120,7 @@ export class PluginLookupConstruct extends Construct {
       architecture: Architecture.ARM_64,
       entry: entrypoint,
       environment: {
-        PLATFORM_URL: config.server.platformUrl,
+        PLATFORM_BASE_URL: config.server.platformUrl,
       },
       bundling: {
         minify: true,

@@ -25,7 +25,7 @@ export class CoreConstants {
 
   // Custom Resource Handler configuration
   static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000');
-  static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_URL || 'https://localhost:8443';
+  static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
 }
 
 /**
@@ -66,7 +66,7 @@ export class Config {
             : '*',
         },
         trustProxy: process.env.TRUST_PROXY || '0',
-        platformUrl: process.env.PLATFORM_URL || 'https://localhost:8443',
+        platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
       },
       auth: {
         jwt: {
