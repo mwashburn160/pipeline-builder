@@ -1,3 +1,13 @@
+## 0.1.10 (2026-01-30)
+
+### 🩹 Fixes
+
+- updated api client ([e530aab](https://github.com/mwashburn160/pipeline-builder/commit/e530aab))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.9 (2026-01-30)
 
 ### 🩹 Fixes
