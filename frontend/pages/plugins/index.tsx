@@ -5,8 +5,10 @@ import api from '@/lib/api';
 import { Plugin } from '@/types';
 import { Plus, Search, Upload, Puzzle, MoreVertical } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function PluginsPage() {
+  const { user } = useAuth();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -14,7 +16,10 @@ export default function PluginsPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [accessModifier, setAccessModifier] = useState<'public' | 'private'>('private');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = user?.role === 'admin';
 
   const fetchPlugins = async () => {
     try {
@@ -56,15 +61,23 @@ export default function PluginsPage() {
     setUploadError('');
 
     try {
-      await api.uploadPlugin(uploadFile, 'private');
+      await api.uploadPlugin(uploadFile, accessModifier);
       setShowUpload(false);
       setUploadFile(null);
+      setAccessModifier('private');
       fetchPlugins();
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowUpload(false);
+    setUploadFile(null);
+    setUploadError('');
+    setAccessModifier('private');
   };
 
   return (
@@ -131,12 +144,48 @@ export default function PluginsPage() {
                   />
                 </div>
 
+                {/* Access Modifier Selection - Admin Only */}
+                {isAdmin && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Access Modifier
+                    </label>
+                    <div className="flex gap-3">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="accessModifier"
+                          value="private"
+                          checked={accessModifier === 'private'}
+                          onChange={(e) => setAccessModifier(e.target.value as 'private')}
+                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                          Private
+                        </span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="accessModifier"
+                          value="public"
+                          checked={accessModifier === 'public'}
+                          onChange={(e) => setAccessModifier(e.target.value as 'public')}
+                          className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                          Public
+                        </span>
+                      </label>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Public plugins are visible to all organizations
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-3 mt-6">
-                  <Button variant="secondary" onClick={() => {
-                    setShowUpload(false);
-                    setUploadFile(null);
-                    setUploadError('');
-                  }}>
+                  <Button variant="secondary" onClick={handleCloseModal}>
                     Cancel
                   </Button>
                   <Button onClick={handleUpload} isLoading={isUploading} disabled={!uploadFile}>
