@@ -1,7 +1,7 @@
 import { AuthTokens, ApiResponse } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
-const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_URL || 'http://localhost:8443');
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
 class ApiClient {
   private accessToken: string | null = null;

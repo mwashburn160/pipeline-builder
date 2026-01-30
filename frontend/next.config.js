@@ -3,7 +3,7 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   env: {
-    PLATFORM_URL: process.env.PLATFORM_URL || 'https://localhost:8443',
+    PLATFORM_BASE_URL: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
   },
 };
 
