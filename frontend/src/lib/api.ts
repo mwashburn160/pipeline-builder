@@ -1,6 +1,7 @@
 import { AuthTokens, ApiResponse } from '@/types';
 
-const API_URL = process.env.PLATFORM_URL || 'https://localhost:8443';
+// Use relative URL in browser (requests go through nginx), absolute URL for SSR
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_URL || 'http://localhost:8443');
 
 class ApiClient {
   private accessToken: string | null = null;
@@ -62,7 +63,7 @@ class ApiClient {
     const response = await fetch(url, {
       ...options,
       headers,
-      credentials: 'include',
+      credentials: 'same-origin',
     });
 
     // Log response status
@@ -77,7 +78,7 @@ class ApiClient {
         const retryResponse = await fetch(url, {
           ...options,
           headers,
-          credentials: 'include',
+          credentials: 'same-origin',
         });
         const data = await retryResponse.json();
         console.log(`[API] Retry ${endpoint} -> ${retryResponse.status}`, data);
@@ -118,17 +119,20 @@ class ApiClient {
 
   // Auth endpoints
   async login(email: string, password: string) {
-    const data = await this.request<ApiResponse<AuthTokens & { user: unknown }>>('/api/auth/login', {
+    console.log('[API] Login attempt with:', { identifier: email, passwordLength: password.length });
+    const data = await this.request<{ success: boolean; accessToken?: string; refreshToken?: string; user?: unknown; message?: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier: email, password }),
     });
-    if (data.data) {
+    console.log('[API] Login response:', data);
+    // Tokens are at root level, not inside data
+    if (data.success && data.accessToken && data.refreshToken) {
       this.setTokens({
-        accessToken: data.data.accessToken,
-        refreshToken: data.data.refreshToken,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
       });
     }
-    return data;
+    return { success: data.success, data: { user: data.user }, message: data.message };
   }
 
   async register(username: string, email: string, password: string) {

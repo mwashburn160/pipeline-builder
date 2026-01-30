@@ -42,8 +42,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const response = await api.login(email, password);
-    if (response.success && response.data) {
-      setUser((response.data as { user: User }).user);
+    if (response.success) {
+      // Fetch user profile after successful login
+      await refreshUser();
     } else {
       throw new Error(response.message || 'Login failed');
     }
