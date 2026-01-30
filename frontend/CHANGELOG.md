@@ -1,3 +1,13 @@
+## 0.1.30 (2026-01-30)
+
+### 🩹 Fixes
+
+- updated organization.model ([0678690](https://github.com/mwashburn160/pipeline-builder/commit/0678690))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.18 (2026-01-30)
 
 ### 🩹 Fixes
