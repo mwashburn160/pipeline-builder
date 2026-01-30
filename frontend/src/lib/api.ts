@@ -22,6 +22,18 @@ class ApiClient {
     if (typeof window !== 'undefined') {
       localStorage.setItem('accessToken', tokens.accessToken);
       localStorage.setItem('refreshToken', tokens.refreshToken);
+      
+      // Extract organizationId from JWT token if present
+      try {
+        const payload = JSON.parse(atob(tokens.accessToken.split('.')[1]));
+        console.log('[API] JWT payload:', payload);
+        if (payload.organizationId) {
+          this.organizationId = payload.organizationId;
+          localStorage.setItem('organizationId', payload.organizationId);
+        }
+      } catch (e) {
+        console.error('[API] Failed to parse JWT:', e);
+      }
     }
   }
 

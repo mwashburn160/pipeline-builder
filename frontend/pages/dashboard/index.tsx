@@ -1,9 +1,9 @@
-import { useEffect, useState, ReactElement } from 'react';
+import { useEffect, useState } from 'react';
 import { DashboardLayout, Header } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
-import { Puzzle, GitBranch, Users, Activity } from 'lucide-react';
+import { Puzzle, GitBranch, Users, Activity, Building2 } from 'lucide-react';
 
 interface Stats {
   plugins: number;
@@ -12,12 +12,24 @@ interface Stats {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [stats, setStats] = useState<Stats>({ plugins: 0, pipelines: 0, teamMembers: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const [showCreateOrg, setShowCreateOrg] = useState(false);
+  const [orgName, setOrgName] = useState('');
+  const [orgDescription, setOrgDescription] = useState('');
+  const [isCreatingOrg, setIsCreatingOrg] = useState(false);
+  const [orgError, setOrgError] = useState('');
+
+  const hasOrganization = !!api.getOrganizationId();
 
   useEffect(() => {
     const fetchStats = async () => {
+      if (!hasOrganization) {
+        setIsLoading(false);
+        return;
+      }
+      
       try {
         const [pluginsRes, pipelinesRes] = await Promise.all([
           api.getPlugins({ limit: '1' }).catch(() => ({ total: 0 })),
@@ -37,7 +49,36 @@ export default function DashboardPage() {
     };
 
     fetchStats();
-  }, []);
+  }, [hasOrganization]);
+
+  const handleCreateOrg = async () => {
+    if (!orgName.trim()) {
+      setOrgError('Organization name is required');
+      return;
+    }
+
+    setIsCreatingOrg(true);
+    setOrgError('');
+
+    try {
+      const response = await api.createOrganization(orgName, orgDescription);
+      if (response.success) {
+        // Refresh user to get new organization ID
+        await refreshUser();
+        setShowCreateOrg(false);
+        setOrgName('');
+        setOrgDescription('');
+        // Reload to get new token with org ID
+        window.location.reload();
+      } else {
+        setOrgError(response.message || 'Failed to create organization');
+      }
+    } catch (error) {
+      setOrgError(error instanceof Error ? error.message : 'Failed to create organization');
+    } finally {
+      setIsCreatingOrg(false);
+    }
+  };
 
   const statCards = [
     { name: 'Total Plugins', value: stats.plugins, icon: Puzzle, color: 'text-blue-600' },
@@ -45,6 +86,78 @@ export default function DashboardPage() {
     { name: 'Team Members', value: stats.teamMembers, icon: Users, color: 'text-purple-600' },
     { name: 'API Requests', value: '—', icon: Activity, color: 'text-orange-600' },
   ];
+
+  // Show create organization prompt if user has no organization
+  if (!hasOrganization) {
+    return (
+      <DashboardLayout>
+        <Header 
+          title={`Welcome, ${user?.username || 'User'}`} 
+          description="Let's get you set up with an organization."
+        />
+
+        <div className="p-6">
+          <Card className="max-w-lg mx-auto">
+            <CardContent className="p-8 text-center">
+              <Building2 className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                Create Your Organization
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-6">
+                You need an organization to manage plugins, pipelines, and team members.
+              </p>
+
+              {!showCreateOrg ? (
+                <Button onClick={() => setShowCreateOrg(true)} size="lg">
+                  <Building2 className="h-5 w-5 mr-2" />
+                  Create Organization
+                </Button>
+              ) : (
+                <div className="text-left space-y-4">
+                  {orgError && (
+                    <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                      {orgError}
+                    </div>
+                  )}
+                  
+                  <Input
+                    label="Organization Name"
+                    placeholder="My Company"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                  />
+                  
+                  <Input
+                    label="Description (optional)"
+                    placeholder="A brief description of your organization"
+                    value={orgDescription}
+                    onChange={(e) => setOrgDescription(e.target.value)}
+                  />
+
+                  <div className="flex gap-3">
+                    <Button 
+                      variant="secondary" 
+                      onClick={() => setShowCreateOrg(false)}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleCreateOrg} 
+                      isLoading={isCreatingOrg}
+                      className="flex-1"
+                    >
+                      Create
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
