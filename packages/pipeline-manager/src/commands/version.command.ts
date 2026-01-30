@@ -120,7 +120,7 @@ function getEnvironmentStatus(): {
 } {
   return {
     token: !!process.env.PLATFORM_TOKEN,
-    url: !!process.env.PLATFORM_URL,
+    url: !!process.env.PLATFORM_BASE_URL,
     configPath: !!process.env.CLI_CONFIG_PATH,
   };
 }
@@ -274,7 +274,7 @@ export function version(program: Command): void {
           printInfo('Environment Variables');
           printKeyValue({
             PLATFORM_TOKEN: envStatus.token ? green('✓ Set') : red('✗ Not set'),
-            PLATFORM_URL: envStatus.url ? green('✓ Set') : dim('(not set - using default)'),
+            PLATFORM_BASE_URL: envStatus.url ? green('✓ Set') : dim('(not set - using default)'),
             CLI_CONFIG_PATH: envStatus.configPath ? green('✓ Set') : dim('(not set - using default)'),
           });
 

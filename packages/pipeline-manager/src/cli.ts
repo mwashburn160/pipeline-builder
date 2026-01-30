@@ -111,7 +111,7 @@ function displayStartupInfo(options: CliOptions): void {
       env: {
         debug: process.env.DEBUG,
         token: process.env[ENV_VARS.PLATFORM_TOKEN] ? 'set' : 'not set',
-        url: process.env[ENV_VARS.PLATFORM_URL] || 'default',
+        url: process.env[ENV_VARS.PLATFORM_BASE_URL] || 'default',
       },
     });
   } else {
@@ -140,7 +140,7 @@ function registerCommands(): void {
     .addHelpText('after', `
 Environment Variables:
   ${ENV_VARS.PLATFORM_TOKEN}              Authentication token (required)
-  ${ENV_VARS.PLATFORM_URL}                 API base URL (optional)
+  ${ENV_VARS.PLATFORM_BASE_URL}                 API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH}              Config file path (optional)
   ${ENV_VARS.TLS_REJECT_UNAUTHORIZED}      Disable SSL verification if '0'
   ${ENV_VARS.DEBUG}                        Enable debug mode if 'true'

@@ -98,10 +98,10 @@ export function getConfig(): Config {
   }
 
   // Override with environment variables
-  // PLATFORM_URL is optional - only override if set
-  if (process.env.PLATFORM_URL) {
-    config.api.baseUrl = process.env.PLATFORM_URL;
-    printInfo('Using PLATFORM_URL from environment', { baseUrl: config.api.baseUrl });
+  // PLATFORM_BASE_URL is optional - only override if set
+  if (process.env.PLATFORM_BASE_URL) {
+    config.api.baseUrl = process.env.PLATFORM_BASE_URL;
+    printInfo('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });
   }
 
   // REJECT_UNAUTHORIZED can be overridden via environment variable
