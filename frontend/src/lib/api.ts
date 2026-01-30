@@ -204,7 +204,7 @@ class ApiClient {
   // Plugin endpoints
   async getPlugins(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/plugins${query}`);
+    return this.request<ApiResponse<unknown>>(`/api/plugin${query}`);
   }
 
   async getPlugin(id: string) {
@@ -216,11 +216,17 @@ class ApiClient {
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
 
-    const response = await fetch(`${API_URL}/api/plugin/upload`, {
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${this.accessToken}`,
+    };
+
+    if (this.organizationId) {
+      headers['x-org-id'] = this.organizationId;
+    }
+
+    const response = await fetch(`${API_URL}/api/plugin`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`,
-      },
+      headers,
       body: formData,
     });
 
@@ -235,7 +241,7 @@ class ApiClient {
   // Pipeline endpoints
   async getPipelines(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/pipelines${query}`);
+    return this.request<ApiResponse<unknown>>(`/api/pipeline${query}`);
   }
 
   async getPipeline(id: string) {
