@@ -19,11 +19,13 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
+      console.log('[Login] Starting login...');
       await login(email, password);
-      router.push('/dashboard');
+      console.log('[Login] Login successful, redirecting...');
+      window.location.href = '/dashboard';
     } catch (err) {
+      console.error('[Login] Login failed:', err);
       setError(err instanceof Error ? err.message : 'Login failed');
-    } finally {
       setIsLoading(false);
     }
   };

@@ -25,8 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('[Auth] Fetching profile...');
         const response = await api.getProfile();
         console.log('[Auth] Profile response:', response);
-        if (response.success && response.data) {
-          const userData = response.data as User;
+        // Handle both { data: user } and { user: user } response formats
+        const userData = (response.data || (response as any).user) as User;
+        if (response.success && userData) {
           setUser(userData);
           // Set organization ID for API requests
           if (userData.organizationId) {
