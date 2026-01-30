@@ -1,3 +1,13 @@
+## 0.1.43 (2026-01-30)
+
+### 🩹 Fixes
+
+- added quotas tab ([eaf7c00](https://github.com/mwashburn160/pipeline-builder/commit/eaf7c00))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.42 (2026-01-30)
 
 ### 🩹 Fixes
