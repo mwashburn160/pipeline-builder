@@ -29,7 +29,7 @@ x-common-api-env: &common-api-env
   DB_PASSWORD: '${DB_PASSWORD}'
   JWT_SECRET: '${JWT_SECRET}'
   REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}' 
-  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL}'
+  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
 
 services:
   nginx:
@@ -312,7 +312,7 @@ services:
       REFRESH_TOKEN_EXPIRES_IN: '${REFRESH_TOKEN_EXPIRES_IN}'
       # Server
       TRUST_PROXY: '${TRUST_PROXY}'
-      FRONTEND_URL: '${FRONTEND_URL}'
+      PLATFORM_FRONTEND_URL: '${PLATFORM_FRONTEND_URL:-https://localhost:8443}'
       # Email (SMTP)
       EMAIL_ENABLED: '${EMAIL_ENABLED}'
       EMAIL_FROM: '${EMAIL_FROM}'

@@ -19,7 +19,7 @@ export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000'),
     baseUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
-    frontendUrl: process.env.FRONTEND_URL || 'https://localhost:8443',
+    frontendUrl: process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
   },
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
