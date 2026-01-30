@@ -1,3 +1,13 @@
+## 0.1.24 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([a52fd3d](https://github.com/mwashburn160/pipeline-builder/commit/a52fd3d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.18 (2026-01-30)
 
 ### 🩹 Fixes
