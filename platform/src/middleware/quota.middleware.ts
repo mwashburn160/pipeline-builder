@@ -51,11 +51,6 @@ function getQuotaConfig(operation: string): QuotaConfig {
         limit: config.quota.pipeline.get.limit,
         windowMs: config.quota.pipeline.get.windowMs,
       };
-    case 'list-pipelines':
-      return {
-        limit: config.quota.pipeline.list.limit,
-        windowMs: config.quota.pipeline.list.windowMs,
-      };
     case 'create-plugin':
       return {
         limit: config.quota.plugin.create.limit,
@@ -65,11 +60,6 @@ function getQuotaConfig(operation: string): QuotaConfig {
       return {
         limit: config.quota.plugin.get.limit,
         windowMs: config.quota.plugin.get.windowMs,
-      };
-    case 'list-plugins':
-      return {
-        limit: config.quota.plugin.list.limit,
-        windowMs: config.quota.plugin.list.windowMs,
       };
     default:
       return { limit: 10, windowMs: defaultWindowMs };
@@ -177,14 +167,12 @@ export function quota(operation: string) {
  */
 export const quotaCreatePipeline = quota('create-pipeline');
 export const quotaGetPipeline = quota('get-pipeline');
-export const quotaListPipelines = quota('list-pipelines');
 
 /**
  * Pre-configured quota middlewares for plugin operations
  */
 export const quotaCreatePlugin = quota('create-plugin');
 export const quotaGetPlugin = quota('get-plugin');
-export const quotaListPlugins = quota('list-plugins');
 
 /**
  * Get current quota status for an organization

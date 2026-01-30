@@ -1,5 +1,6 @@
 import { Schema, model, Document, Types } from 'mongoose';
 import slugify from 'slugify';
+import { config } from '../config';
 
 /**
  * Quota limits interface
@@ -7,6 +8,7 @@ import slugify from 'slugify';
 export interface IQuotaLimits {
   plugins: number;
   pipelines: number;
+  apiCalls: number;
 }
 
 /**
@@ -59,12 +61,17 @@ const organizationSchema = new Schema<IOrganization>(
     quotas: {
       plugins: {
         type: Number,
-        default: 100,
+        default: () => config.quota.organization.plugins,
         min: 0,
       },
       pipelines: {
         type: Number,
-        default: 50,
+        default: () => config.quota.organization.pipelines,
+        min: 0,
+      },
+      apiCalls: {
+        type: Number,
+        default: () => config.quota.organization.apiCalls,
         min: 0,
       },
     },

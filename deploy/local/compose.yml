@@ -265,7 +265,7 @@ services:
           memory: 192M
 
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:0.1.27'
+    image: 'ghcr.io/mwashburn160/frontend:0.1.28'
     container_name: frontend
     restart: always
     networks:
@@ -296,7 +296,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/platform:0.1.33'
+    image: 'ghcr.io/mwashburn160/platform:0.1.39'
     container_name: platform
     depends_on:
       mongodb:

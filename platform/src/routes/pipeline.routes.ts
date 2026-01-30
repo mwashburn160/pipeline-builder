@@ -9,7 +9,6 @@ import {
   isAuthenticated,
   quotaCreatePipeline,
   quotaGetPipeline,
-  quotaListPipelines,
 } from '../middleware';
 
 const router = Router();
@@ -19,14 +18,14 @@ const router = Router();
  * GET /pipeline
  * Query params: project, organization, pipelineName, isActive, isDefault, accessModifier, page, limit
  */
-router.get('/', isAuthenticated, quotaListPipelines, listPipelines);
+router.get('/', isAuthenticated, listPipelines);
 
 /**
  * Search for a single pipeline by filters
  * GET /pipeline/search
  * Query params: id, project, organization, pipelineName, isActive, isDefault, accessModifier
  */
-router.get('/search', isAuthenticated, quotaGetPipeline, getPipeline);
+router.get('/search', isAuthenticated, getPipeline);
 
 /**
  * Get pipeline by ID

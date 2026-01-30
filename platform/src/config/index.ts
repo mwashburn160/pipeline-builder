@@ -83,6 +83,12 @@ export const config = {
     bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
     // Default window in milliseconds (60 seconds)
     defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+    // Organization quota defaults
+    organization: {
+      plugins: parseInt(process.env.QUOTA_ORG_PLUGINS_DEFAULT || '100'),
+      pipelines: parseInt(process.env.QUOTA_ORG_PIPELINES_DEFAULT || '50'),
+      apiCalls: parseInt(process.env.QUOTA_ORG_API_CALLS_DEFAULT || '10000'),
+    },
     // Pipeline quotas
     pipeline: {
       create: {
@@ -92,10 +98,6 @@ export const config = {
       get: {
         limit: parseQuotaLimit(process.env.QUOTA_GET_PIPELINE_LIMIT, 10),
         windowMs: parseInt(process.env.QUOTA_GET_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
-      },
-      list: {
-        limit: parseQuotaLimit(process.env.QUOTA_LIST_PIPELINES_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_LIST_PIPELINES_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
       },
     },
     // Plugin quotas
@@ -107,10 +109,6 @@ export const config = {
       get: {
         limit: parseQuotaLimit(process.env.QUOTA_GET_PLUGIN_LIMIT, 10),
         windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
-      },
-      list: {
-        limit: parseQuotaLimit(process.env.QUOTA_LIST_PLUGINS_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_LIST_PLUGINS_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
       },
     },
   },

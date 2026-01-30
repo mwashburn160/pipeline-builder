@@ -10,7 +10,6 @@ import {
   isAuthenticated,
   quotaCreatePlugin,
   quotaGetPlugin,
-  quotaListPlugins,
 } from '../middleware';
 
 const router = Router();
@@ -39,14 +38,14 @@ const upload = multer({
  * GET /plugin
  * Query params: name, version, pluginType, computeType, isActive, isDefault, accessModifier, page, limit
  */
-router.get('/', isAuthenticated, quotaListPlugins, listPlugins);
+router.get('/', isAuthenticated, listPlugins);
 
 /**
  * Search for a single plugin by filters
  * GET /plugin/search
  * Query params: id, name, version, pluginType, computeType, isActive, isDefault, accessModifier
  */
-router.get('/search', isAuthenticated, quotaGetPlugin, getPlugin);
+router.get('/search', isAuthenticated, getPlugin);
 
 /**
  * Get plugin by ID

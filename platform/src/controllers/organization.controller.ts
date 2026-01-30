@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { config } from '../config';
 import { Organization, User } from '../models';
 import { logger, sendError } from '../utils';
 
@@ -169,17 +170,22 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
     // For now, we'll return placeholder values
     const pluginsUsed = 0; // TODO: Count actual plugins for this org
     const pipelinesUsed = 0; // TODO: Count actual pipelines for this org
+    const apiCallsUsed = 0; // TODO: Count actual API calls for this org
 
     res.json({
       success: true,
       quotas: {
         plugins: {
           used: pluginsUsed,
-          limit: org.quotas?.plugins || 100,
+          limit: org.quotas?.plugins ?? config.quota.organization.plugins,
         },
         pipelines: {
           used: pipelinesUsed,
-          limit: org.quotas?.pipelines || 50,
+          limit: org.quotas?.pipelines ?? config.quota.organization.pipelines,
+        },
+        apiCalls: {
+          used: apiCallsUsed,
+          limit: org.quotas?.apiCalls ?? config.quota.organization.apiCalls,
         },
       },
     });
@@ -204,7 +210,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     }
 
     const { id } = req.params;
-    const { plugins, pipelines } = req.body;
+    const { plugins, pipelines, apiCalls } = req.body;
 
     const org = await Organization.findById(id);
     if (!org) {
@@ -213,7 +219,11 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
 
     // Update quota limits
     if (!org.quotas) {
-      (org as any).quotas = { plugins: 100, pipelines: 50 };
+      (org as any).quotas = {
+        plugins: config.quota.organization.plugins,
+        pipelines: config.quota.organization.pipelines,
+        apiCalls: config.quota.organization.apiCalls,
+      };
     }
 
     if (plugins !== undefined && plugins >= 0) {
@@ -221,6 +231,9 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     }
     if (pipelines !== undefined && pipelines >= 0) {
       org.quotas.pipelines = pipelines;
+    }
+    if (apiCalls !== undefined && apiCalls >= 0) {
+      org.quotas.apiCalls = apiCalls;
     }
 
     await org.save();
@@ -233,6 +246,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
       quotas: {
         plugins: org.quotas.plugins,
         pipelines: org.quotas.pipelines,
+        apiCalls: org.quotas.apiCalls,
       },
     });
   } catch (err) {
