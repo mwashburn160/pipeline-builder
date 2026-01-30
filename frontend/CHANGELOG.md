@@ -1,3 +1,13 @@
+## 0.1.8 (2026-01-30)
+
+### 🩹 Fixes
+
+- login response handling ([ca1ee7e](https://github.com/mwashburn160/pipeline-builder/commit/ca1ee7e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.7 (2026-01-29)
 
 ### 🩹 Fixes
