@@ -47,7 +47,7 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
     // Validate required fields
     if (!body.project || !body.organization) {
       ctx.log('ERROR', 'Missing required fields', { hasProject: !!body.project, hasOrganization: !!body.organization });
-      return res.status(400).json({ error: 'project and organization are required' });
+      return res.status(400).json({ success: false, statusCode: 400, error: 'project and organization are required' });
     }
 
     // Sanitize project and organization names
@@ -60,6 +60,8 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         error: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
@@ -69,7 +71,7 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     if (!body.props || typeof body.props !== 'object') {
       ctx.log('ERROR', 'Invalid or missing props');
-      return res.status(400).json({ error: 'props object is required' });
+      return res.status(400).json({ success: false, statusCode: 400, error: 'props object is required' });
     }
 
     ctx.log('INFO', 'Starting database transaction');
@@ -115,6 +117,8 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
     ctx.log('COMPLETED', 'Pipeline configuration saved successfully', { id: result.id });
 
     return res.status(201).json({
+      success: true,
+      statusCode: 201,
       id: result.id,
       project: result.project,
       organization: result.organization,
@@ -136,6 +140,8 @@ app.post('/', authenticateToken, async (req: Request, res: Response) => {
     ctx.log('ROLLBACK', 'Transaction rolled back');
 
     return res.status(500).json({
+      success: false,
+      statusCode: 500,
       error: 'Failed to save pipeline configuration',
       message,
       ...dbDetails,

@@ -15,7 +15,6 @@ export interface IQuotaLimits {
  * Organization document interface
  */
 export interface IOrganization extends Document {
-  _id: Types.ObjectId;
   name: string;
   slug: string;
   description?: string;
@@ -26,6 +25,10 @@ export interface IOrganization extends Document {
 
 const organizationSchema = new Schema<IOrganization>(
   {
+    _id: {
+      type: Schema.Types.Mixed,
+      default: () => new Types.ObjectId(),
+    },
     name: {
       type: String,
       required: [true, 'Organization name is required'],
@@ -79,6 +82,7 @@ const organizationSchema = new Schema<IOrganization>(
   {
     timestamps: true,
     collection: 'organizations',
+    _id: false, // Disable automatic _id generation since we define it ourselves
   },
 );
 

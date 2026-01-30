@@ -216,7 +216,7 @@ class ApiClient {
     return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`);
   }
 
-  async updateOrganizationQuotas(id: string, data: { plugins?: number; pipelines?: number }) {
+  async updateOrganizationQuotas(id: string, data: { plugins?: number; pipelines?: number; apiCalls?: number }) {
     return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`, {
       method: 'PUT',
       body: JSON.stringify(data),

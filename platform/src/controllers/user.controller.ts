@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User } from '../models';
+import { User, Organization } from '../models';
 import {
   logger,
   sendError,
@@ -25,12 +25,21 @@ export async function getUser(req: Request, res: Response): Promise<void> {
       return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
+    // Look up organization name if user has an organizationId
+    let organizationName: string | null = null;
+    if (user.organizationId) {
+      const org = await Organization.findById(user.organizationId).select('name').lean();
+      organizationName = org?.name || null;
+    }
+
     res.json({
       success: true,
+      statusCode: 200,
       user: {
         ...user,
         sub: user._id.toString(),
         organizationId: user.organizationId?.toString() || null,
+        organizationName,
       },
     });
   } catch (err) {
@@ -82,14 +91,23 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
       return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
+    // Look up organization name if user has an organizationId
+    let organizationName: string | null = null;
+    if (updatedUser.organizationId) {
+      const org = await Organization.findById(updatedUser.organizationId).select('name').lean();
+      organizationName = org?.name || null;
+    }
+
     logger.info(`[UPDATE USER] Success for user: ${userId}`);
 
     res.json({
       success: true,
+      statusCode: 200,
       user: {
         ...updatedUser,
         sub: updatedUser._id.toString(),
         organizationId: updatedUser.organizationId?.toString() || null,
+        organizationName,
       },
     });
   } catch (err) {
@@ -119,6 +137,7 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Account successfully deleted',
     });
   } catch (err) {
@@ -162,6 +181,7 @@ export async function changePassword(req: Request, res: Response): Promise<void>
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Password changed successfully',
     });
   } catch (err) {
@@ -190,6 +210,7 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
 
     res.json({
       success: true,
+      statusCode: 200,
       accessToken,
       refreshToken,
     });

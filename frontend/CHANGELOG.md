@@ -1,23 +1,3 @@
-## 0.1.29 (2026-01-30)
-
-### 🩹 Fixes
-
-- updated config quotas ([c7e219e](https://github.com/mwashburn160/pipeline-builder/commit/c7e219e))
-
-### ❤️ Thank You
-
-- mark
-
-## 0.1.28 (2026-01-30)
-
-### 🩹 Fixes
-
-- added system admin quota management for organizations ([d829027](https://github.com/mwashburn160/pipeline-builder/commit/d829027))
-
-### ❤️ Thank You
-
-- mark
-
 ## 0.1.18 (2026-01-30)
 
 ### 🩹 Fixes

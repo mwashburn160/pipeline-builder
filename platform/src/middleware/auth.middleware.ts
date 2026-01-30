@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { User } from '../models';
+import { User, Organization } from '../models';
 import { UserRole } from '../types';
 import {
   sendUnauthorized,
@@ -12,7 +12,15 @@ import {
 /**
  * Populate request user from validated token
  */
-function populateRequestUser(req: Request, user: any): void {
+async function populateRequestUser(req: Request, user: any): Promise<void> {
+  let organizationName: string | undefined;
+
+  // Look up organization name if user has an organizationId
+  if (user.organizationId) {
+    const org = await Organization.findById(user.organizationId).select('name').lean();
+    organizationName = org?.name;
+  }
+
   req.user = {
     sub: user._id.toString(),
     username: user.username,
@@ -21,6 +29,7 @@ function populateRequestUser(req: Request, user: any): void {
     isAdmin: user.role === 'admin',
     isEmailVerified: user.isEmailVerified,
     organizationId: user.organizationId?.toString(),
+    organizationName,
     tokenVersion: user.tokenVersion,
   };
 }
@@ -49,7 +58,7 @@ export async function isAuthenticated(
       return sendUnauthorized(res, 'Session invalid');
     }
 
-    populateRequestUser(req, user);
+    await populateRequestUser(req, user);
     next();
   } catch {
     return sendUnauthorized(res, 'Token invalid');
@@ -84,7 +93,7 @@ export async function isValidRefreshToken(
       return sendUnauthorized(res, 'Session invalid');
     }
 
-    populateRequestUser(req, user);
+    await populateRequestUser(req, user);
     next();
   } catch {
     return sendUnauthorized(res, 'Token invalid');

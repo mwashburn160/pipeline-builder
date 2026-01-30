@@ -6,9 +6,13 @@ import { logger, sendError } from '../utils';
 
 /**
  * Check if user is system admin
+ * System admin is defined as admin role with organizationId or organizationName === 'system'
  */
 function isSystemAdmin(req: Request): boolean {
-  return req.user?.role === 'admin' && req.user?.organizationId === 'system';
+  if (req.user?.role !== 'admin') return false;
+  const orgId = req.user?.organizationId?.toLowerCase();
+  const orgName = req.user?.organizationName?.toLowerCase();
+  return orgId === 'system' || orgName === 'system';
 }
 
 /**
@@ -42,7 +46,7 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       updatedAt: (org as any).updatedAt,
     }));
 
-    res.json({ success: true, organizations: orgsWithCount });
+    res.json({ success: true, statusCode: 200, organizations: orgsWithCount });
   } catch (err) {
     logger.error('[LIST ORGS] Fetch Error:', err);
     return sendError(res, 500, 'Error fetching organizations');
@@ -77,6 +81,7 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
 
     res.json({
       success: true,
+      statusCode: 200,
       data: {
         id: org._id.toString(),
         name: org.name,
@@ -131,6 +136,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Organization updated successfully',
       organization: {
         id: org._id.toString(),
@@ -174,6 +180,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
 
     res.json({
       success: true,
+      statusCode: 200,
       quotas: {
         plugins: {
           used: pluginsUsed,
@@ -242,6 +249,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Organization quotas updated successfully',
       quotas: {
         plugins: org.quotas.plugins,
@@ -278,7 +286,7 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
       return sendError(res, 404, 'Organization not found');
     }
 
-    res.json({ success: true, organization: org });
+    res.json({ success: true, statusCode: 200, organization: org });
   } catch (err) {
     logger.error('[GET ORG] Fetch Error:', err);
     return sendError(res, 500, 'Error fetching organization');
@@ -333,7 +341,7 @@ export async function addMember(req: Request, res: Response): Promise<void> {
     });
 
     logger.info(`[ADD MEMBER] User ${email} added to Org ${organizationId}`);
-    res.json({ success: true, message: 'Member added successfully' });
+    res.json({ success: true, statusCode: 200, message: 'Member added successfully' });
   } catch (err: any) {
     logger.error('[ADD MEMBER] Transaction Failed:', err);
 
@@ -391,7 +399,7 @@ export async function transferOwnership(req: Request, res: Response): Promise<vo
     });
 
     logger.info(`[TRANSFER OWNERSHIP] Org ${organizationId} transferred to ${newOwnerId}`);
-    res.json({ success: true, message: 'Ownership transferred successfully' });
+    res.json({ success: true, statusCode: 200, message: 'Ownership transferred successfully' });
   } catch (err: any) {
     logger.error('[TRANSFER OWNERSHIP] Failed:', err);
 

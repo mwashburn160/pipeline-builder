@@ -39,6 +39,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
@@ -55,6 +57,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     } catch (validationError) {
       ctx.log('ERROR', 'Filter validation failed', { error: validationError });
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         message: validationError instanceof Error ? validationError.message : 'Invalid filter',
       });
     }
@@ -75,15 +79,15 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
 
     if (!result) {
       ctx.log('INFO', 'No plugin found matching the criteria');
-      return res.status(404).json({ message: 'Plugin not found.' });
+      return res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
     }
 
     ctx.log('COMPLETED', 'Successfully retrieved plugin', { id: result.id, name: result.name });
-    return res.status(200).json(result);
+    return res.status(200).json({ success: true, statusCode: 200, plugin: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';
     ctx.log('ERROR', 'Plugin query failed', { error: message });
-    return res.status(500).json({ message });
+    return res.status(500).json({ success: false, statusCode: 500, message });
   }
 });
 
@@ -97,7 +101,7 @@ app.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 
   if (!id) {
     ctx.log('ERROR', 'Plugin ID is missing');
-    return res.status(400).json({ message: 'Plugin ID is required.' });
+    return res.status(400).json({ success: false, statusCode: 400, message: 'Plugin ID is required.' });
   }
 
   ctx.log('INFO', 'Plugin query request received', { id });
@@ -106,6 +110,8 @@ app.get('/:id', authenticateToken, async (req: Request, res: Response) => {
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
@@ -121,15 +127,15 @@ app.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 
     if (!result) {
       ctx.log('INFO', 'No plugin found matching the criteria');
-      return res.status(404).json({ message: 'Plugin not found.' });
+      return res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
     }
 
     ctx.log('COMPLETED', 'Successfully retrieved plugin', { id: result.id, name: result.name });
-    return res.status(200).json(result);
+    return res.status(200).json({ success: true, statusCode: 200, plugin: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';
     ctx.log('ERROR', 'Plugin query failed', { error: message });
-    return res.status(500).json({ message });
+    return res.status(500).json({ success: false, statusCode: 500, message });
   }
 });
 

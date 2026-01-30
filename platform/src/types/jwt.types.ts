@@ -8,6 +8,7 @@ export interface AccessTokenPayload {
   role: 'user' | 'admin';
   isAdmin: boolean;
   organizationId?: string;
+  organizationName?: string;
   isEmailVerified: boolean;
   tokenVersion: number;
   jti?: string;

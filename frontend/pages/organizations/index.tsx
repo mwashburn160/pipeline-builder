@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/utils';
 interface OrganizationQuotas {
   plugins: { used: number; limit: number };
   pipelines: { used: number; limit: number };
+  apiCalls: { used: number; limit: number };
 }
 
 interface Organization {
@@ -32,11 +33,12 @@ export default function OrganizationsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingQuotas, setIsEditingQuotas] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', description: '' });
-  const [quotaForm, setQuotaForm] = useState({ pluginsLimit: 100, pipelinesLimit: 50 });
+  const [quotaForm, setQuotaForm] = useState({ pluginsLimit: 100, pipelinesLimit: 50, apiCallsLimit: 10000 });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const isSystemAdmin = user?.role === 'admin' && user?.organizationId === 'system';
+  const isSystemAdmin = user?.role === 'admin' && 
+    (user?.organizationId?.toLowerCase() === 'system' || user?.organizationName?.toLowerCase() === 'system');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -70,7 +72,11 @@ export default function OrganizationsPage() {
       return data.quotas || data;
     } catch (error) {
       console.error('Failed to fetch quotas:', error);
-      return { plugins: { used: 0, limit: 100 }, pipelines: { used: 0, limit: 50 } };
+      return { 
+        plugins: { used: 0, limit: 100 }, 
+        pipelines: { used: 0, limit: 50 },
+        apiCalls: { used: 0, limit: 10000 },
+      };
     }
   };
 
@@ -103,6 +109,7 @@ export default function OrganizationsPage() {
     setQuotaForm({
       pluginsLimit: selectedOrg.quotas.plugins.limit,
       pipelinesLimit: selectedOrg.quotas.pipelines.limit,
+      apiCallsLimit: selectedOrg.quotas.apiCalls?.limit || 10000,
     });
     setIsEditingQuotas(true);
     setIsEditing(false);
@@ -148,12 +155,14 @@ export default function OrganizationsPage() {
       await api.updateOrganizationQuotas(selectedOrg.id, {
         plugins: quotaForm.pluginsLimit,
         pipelines: quotaForm.pipelinesLimit,
+        apiCalls: quotaForm.apiCallsLimit,
       });
 
       // Update local state
       const updatedQuotas = {
         plugins: { used: selectedOrg.quotas?.plugins.used || 0, limit: quotaForm.pluginsLimit },
         pipelines: { used: selectedOrg.quotas?.pipelines.used || 0, limit: quotaForm.pipelinesLimit },
+        apiCalls: { used: selectedOrg.quotas?.apiCalls?.used || 0, limit: quotaForm.apiCallsLimit },
       };
       setSelectedOrg({ ...selectedOrg, quotas: updatedQuotas });
       setIsEditingQuotas(false);
@@ -174,6 +183,7 @@ export default function OrganizationsPage() {
         setQuotaForm({
           pluginsLimit: selectedOrg.quotas.plugins.limit,
           pipelinesLimit: selectedOrg.quotas.pipelines.limit,
+          apiCallsLimit: selectedOrg.quotas.apiCalls?.limit || 10000,
         });
       }
     }
@@ -362,6 +372,17 @@ export default function OrganizationsPage() {
                             onChange={(e) => setQuotaForm({ ...quotaForm, pipelinesLimit: parseInt(e.target.value) || 0 })}
                           />
                         </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            API Calls Limit (per month)
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={quotaForm.apiCallsLimit}
+                            onChange={(e) => setQuotaForm({ ...quotaForm, apiCallsLimit: parseInt(e.target.value) || 0 })}
+                          />
+                        </div>
                         <div className="flex gap-2">
                           <Button onClick={handleSaveQuotas} isLoading={isSaving}>
                             <Save className="h-4 w-4 mr-2" />
@@ -478,6 +499,30 @@ export default function OrganizationsPage() {
                                   />
                                 </div>
                               </div>
+                              {selectedOrg.quotas.apiCalls && (
+                                <div>
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">API Calls (monthly)</span>
+                                    <span className="text-xs text-gray-700 dark:text-gray-300">
+                                      {selectedOrg.quotas.apiCalls.used.toLocaleString()} / {selectedOrg.quotas.apiCalls.limit.toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                    <div
+                                      className={`h-2 rounded-full ${
+                                        (selectedOrg.quotas.apiCalls.used / selectedOrg.quotas.apiCalls.limit) >= 0.9
+                                          ? 'bg-red-500'
+                                          : (selectedOrg.quotas.apiCalls.used / selectedOrg.quotas.apiCalls.limit) >= 0.7
+                                          ? 'bg-yellow-500'
+                                          : 'bg-green-500'
+                                      }`}
+                                      style={{
+                                        width: `${Math.min((selectedOrg.quotas.apiCalls.used / selectedOrg.quotas.apiCalls.limit) * 100, 100)}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}

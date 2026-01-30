@@ -31,7 +31,7 @@ export interface IUser extends Document {
   email: string;
   password?: string;
   role: 'user' | 'admin';
-  organizationId?: Types.ObjectId;
+  organizationId?: Types.ObjectId | string;
   isEmailVerified: boolean;
   tokenVersion: number;
   refreshToken?: string;
@@ -79,7 +79,7 @@ const userSchema = new Schema<IUser>(
       default: 'user',
     },
     organizationId: {
-      type: Schema.Types.ObjectId,
+      type: Schema.Types.Mixed,
       ref: 'Organization',
       index: true,
     },

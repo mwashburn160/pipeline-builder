@@ -41,6 +41,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         message: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
@@ -65,6 +67,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     } catch (validationError) {
       ctx.log('ERROR', 'Filter validation failed', { error: validationError });
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         message: validationError instanceof Error ? validationError.message : 'Invalid filter',
       });
     }
@@ -92,6 +96,8 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
     });
 
     return res.status(200).json({
+      success: true,
+      statusCode: 200,
       pipelines: results,
       total: results.length,
       page: Math.floor(offset / limit) + 1,
@@ -101,7 +107,7 @@ app.get('/', authenticateToken, async (req: Request, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';
     ctx.log('ERROR', 'Pipeline list query failed', { error: message });
-    return res.status(500).json({ message });
+    return res.status(500).json({ success: false, statusCode: 500, message });
   }
 });
 

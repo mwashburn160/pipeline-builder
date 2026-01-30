@@ -5,6 +5,7 @@ import { Response } from 'express';
  */
 export interface ErrorResponse {
   success: false;
+  statusCode: number;
   message: string;
   code?: string;
 }
@@ -14,6 +15,7 @@ export interface ErrorResponse {
  */
 export interface SuccessResponse<T = unknown> {
   success: true;
+  statusCode: number;
   message?: string;
   data?: T;
 }
@@ -29,6 +31,7 @@ export function sendError(
 ): void {
   res.status(status).json({
     success: false,
+    statusCode: status,
     message,
     ...(code && { code }),
   } as ErrorResponse);
@@ -78,6 +81,7 @@ export function sendSuccess<T>(
 ): void {
   res.status(status).json({
     success: true,
+    statusCode: status,
     ...(message && { message }),
     ...(data !== undefined && { data }),
   } as SuccessResponse<T>);

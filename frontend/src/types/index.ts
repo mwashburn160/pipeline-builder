@@ -71,13 +71,16 @@ export interface AuthTokens {
 
 export interface ApiResponse<T> {
   success: boolean;
+  statusCode: number;
   data?: T;
   message?: string;
   error?: string;
+  code?: string;
 }
 
 export interface PaginatedResponse<T> {
   success: boolean;
+  statusCode: number;
   data: T[];
   total: number;
   page: number;

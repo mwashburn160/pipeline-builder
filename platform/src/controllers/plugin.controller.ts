@@ -91,6 +91,7 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
+      statusCode: 200,
       ...result,
     });
   } catch (err) {
@@ -303,6 +304,7 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
 
     res.status(201).json({
       success: true,
+      statusCode: 201,
       message: result.message,
       plugin: {
         id: result.id,

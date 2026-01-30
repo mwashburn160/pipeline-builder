@@ -67,13 +67,15 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, r
   try {
     if (!req.file) {
       ctx.log('ERROR', 'Upload failed: no plugin file received');
-      return res.status(400).json({ error: 'No plugin file uploaded' });
+      return res.status(400).json({ success: false, statusCode: 400, error: 'No plugin file uploaded' });
     }
 
     // Validate orgId
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         error: 'Organization ID is required. Please provide x-org-id header.',
       });
     }
@@ -97,7 +99,7 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, r
     const manifestEntry = zip.getEntry('manifest.yaml') || zip.getEntry('manifest');
     if (!manifestEntry) {
       ctx.log('ERROR', 'Manifest file not found in ZIP');
-      return res.status(400).json({ error: 'manifest.yaml file missing in ZIP' });
+      return res.status(400).json({ success: false, statusCode: 400, error: 'manifest.yaml file missing in ZIP' });
     }
 
     // Parse manifest
@@ -108,6 +110,8 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, r
     if (!manifest.name || !manifest.version || !manifest.commands) {
       ctx.log('ERROR', 'Manifest validation failed: missing required fields');
       return res.status(400).json({
+        success: false,
+        statusCode: 400,
         error: 'Invalid manifest: name, version, and commands are required',
       });
     }
@@ -205,6 +209,8 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, r
     });
 
     return res.status(201).json({
+      success: true,
+      statusCode: 201,
       id: result.id,
       name: result.name,
       version: result.version,
@@ -226,6 +232,8 @@ app.post('/', upload.single('plugin'), authenticateToken, async (req: Request, r
     ctx.log('ROLLBACK', 'Transaction rolled back');
 
     return res.status(500).json({
+      success: false,
+      statusCode: 500,
       error: 'Failed to deploy plugin',
       message,
       ...dbDetails,

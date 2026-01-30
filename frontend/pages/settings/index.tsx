@@ -8,6 +8,7 @@ import api from '@/lib/api';
 interface QuotaLimits {
   plugins: { used: number; limit: number };
   pipelines: { used: number; limit: number };
+  apiCalls?: { used: number; limit: number };
 }
 
 export default function SettingsPage() {
@@ -44,6 +45,7 @@ export default function SettingsPage() {
       setQuotas({
         plugins: { used: 0, limit: 100 },
         pipelines: { used: 0, limit: 50 },
+        apiCalls: { used: 0, limit: 10000 },
       });
     } finally {
       setQuotasLoading(false);
@@ -283,6 +285,26 @@ export default function SettingsPage() {
                           />
                         </div>
                       </div>
+
+                      {/* API Calls Quota */}
+                      {quotas.apiCalls && (
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              API Calls (monthly)
+                            </span>
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              {quotas.apiCalls.used.toLocaleString()} / {quotas.apiCalls.limit.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                            <div
+                              className={`h-2.5 rounded-full ${getUsageColor(getUsagePercentage(quotas.apiCalls.used, quotas.apiCalls.limit))}`}
+                              style={{ width: `${getUsagePercentage(quotas.apiCalls.used, quotas.apiCalls.limit)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
                         Contact support to increase your quota limits.

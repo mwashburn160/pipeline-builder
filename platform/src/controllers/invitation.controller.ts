@@ -159,6 +159,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
 
     res.status(201).json({
       success: true,
+      statusCode: 201,
       message: 'Invitation sent successfully',
       invitation: {
         id: result?._id,
@@ -306,6 +307,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Invitation accepted successfully',
     });
   } catch (err: any) {
@@ -482,6 +484,7 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Invitation accepted successfully via OAuth',
     });
   } catch (err: any) {
@@ -533,6 +536,7 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
 
     res.json({
       success: true,
+      statusCode: 200,
       invitation: {
         email: invitation.email,
         role: invitation.role,
@@ -594,6 +598,7 @@ export async function listInvitations(req: Request, res: Response): Promise<void
 
     res.json({
       success: true,
+      statusCode: 200,
       invitations,
       pagination: {
         total,
@@ -654,6 +659,7 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Invitation revoked successfully',
     });
   } catch (err) {
@@ -729,6 +735,7 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
 
     res.json({
       success: true,
+      statusCode: 200,
       message: 'Invitation resent successfully',
       expiresAt: invitation.expiresAt,
     });

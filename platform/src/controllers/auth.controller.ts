@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import mongoose, { Types } from 'mongoose';
+import mongoose from 'mongoose';
 import { User, Organization } from '../models';
 import {
   logger,
@@ -35,27 +35,41 @@ export async function register(req: Request, res: Response): Promise<void> {
         throw new Error('DUPLICATE_CREDENTIALS');
       }
 
+      // If creating an organization, user becomes admin
+      const isCreatingOrg = organizationName?.trim().length >= 2;
+
       const user = new User({
         username,
         email,
         password,
-        role: organizationName?.trim().length >= 2 ? 'admin' : 'user',
+        role: isCreatingOrg ? 'admin' : 'user',
       });
 
-      // Create organization if name provided
-      if (organizationName?.trim().length >= 2) {
-        const [org] = await Organization.create(
-          [
-            {
-              name: organizationName.trim(),
-              owner: user._id,
-              members: [user._id],
-            },
-          ],
-          { session },
-        );
+      let orgName: string | null = null;
+      let orgId: string | null = null;
 
-        user.organizationId = org._id as Types.ObjectId;
+      // Create organization if name provided
+      if (isCreatingOrg) {
+        const trimmedOrgName = organizationName.trim();
+        const isSystemOrg = trimmedOrgName.toLowerCase() === 'system';
+
+        // If organization name is 'system', use 'system' as both ID and name
+        const orgData: any = {
+          name: isSystemOrg ? 'system' : trimmedOrgName,
+          owner: user._id,
+          members: [user._id],
+        };
+
+        // Set custom _id for system organization
+        if (isSystemOrg) {
+          orgData._id = 'system';
+        }
+
+        const [org] = await Organization.create([orgData], { session });
+
+        user.organizationId = org._id as any;
+        orgName = org.name;
+        orgId = String(org._id);
       }
 
       await user.save({ session });
@@ -64,11 +78,12 @@ export async function register(req: Request, res: Response): Promise<void> {
         sub: user._id.toString(),
         email: user.email,
         role: user.role,
-        organizationId: user.organizationId?.toString(),
+        organizationId: orgId,
+        organizationName: orgName,
       };
     });
 
-    res.status(201).json({ success: true, user: result });
+    res.status(201).json({ success: true, statusCode: 201, user: result });
   } catch (err: any) {
     if (err.message === 'MISSING_FIELDS') {
       return sendError(res, 400, 'Missing required fields');
@@ -115,7 +130,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       { $set: { refreshToken: hashedRefresh } },
     );
 
-    res.json({ success: true, accessToken, refreshToken });
+    res.json({ success: true, statusCode: 200, accessToken, refreshToken });
   } catch (err) {
     logger.error('Login Error', err);
     return sendError(res, 500, 'Login failed');
@@ -145,7 +160,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       { $set: { refreshToken: hashedRefresh } },
     );
 
-    res.json({ success: true, accessToken, refreshToken });
+    res.json({ success: true, statusCode: 200, accessToken, refreshToken });
   } catch (err) {
     logger.error('Refresh Error', err);
     return sendError(res, 500, 'Renewal failed');
@@ -168,7 +183,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
       { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
     );
 
-    res.json({ success: true, message: 'Logged out' });
+    res.json({ success: true, statusCode: 200, message: 'Logged out' });
   } catch (err) {
     return sendError(res, 500, 'Logout failed');
   }
