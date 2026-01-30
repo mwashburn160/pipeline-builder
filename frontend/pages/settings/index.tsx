@@ -1,19 +1,64 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardLayout, Header } from '@/components/layout';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { User, Lock, Bell, Palette } from 'lucide-react';
+import { User, Lock, Bell, Palette, Gauge } from 'lucide-react';
+import api from '@/lib/api';
+
+interface QuotaLimits {
+  plugins: { used: number; limit: number };
+  pipelines: { used: number; limit: number };
+}
 
 export default function SettingsPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
+  const [quotas, setQuotas] = useState<QuotaLimits | null>(null);
+  const [quotasLoading, setQuotasLoading] = useState(false);
+
+  const isAdmin = user?.role === 'admin';
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'appearance', label: 'Appearance', icon: Palette },
+    ...(isAdmin ? [{ id: 'quotas', label: 'Quotas', icon: Gauge }] : []),
   ];
+
+  useEffect(() => {
+    if (activeTab === 'quotas' && isAdmin) {
+      fetchQuotas();
+    }
+  }, [activeTab, isAdmin]);
+
+  const fetchQuotas = async () => {
+    setQuotasLoading(true);
+    try {
+      const response = await api.getQuotas();
+      const data = response as any;
+      setQuotas(data.quotas || data);
+    } catch (error) {
+      console.error('Failed to fetch quotas:', error);
+      // Set default quotas for display
+      setQuotas({
+        plugins: { used: 0, limit: 100 },
+        pipelines: { used: 0, limit: 50 },
+      });
+    } finally {
+      setQuotasLoading(false);
+    }
+  };
+
+  const getUsagePercentage = (used: number, limit: number) => {
+    return Math.min((used / limit) * 100, 100);
+  };
+
+  const getUsageColor = (percentage: number) => {
+    if (percentage >= 90) return 'bg-red-500';
+    if (percentage >= 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
 
   return (
     <DashboardLayout>
@@ -182,6 +227,72 @@ export default function SettingsPage() {
                       ))}
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === 'quotas' && isAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Organization Quota Limits</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {quotasLoading ? (
+                    <div className="space-y-4">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="animate-pulse">
+                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-2" />
+                          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : quotas ? (
+                    <div className="space-y-6">
+                      {/* Plugins Quota */}
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Plugins
+                          </span>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            {quotas.plugins.used} / {quotas.plugins.limit}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                          <div
+                            className={`h-2.5 rounded-full ${getUsageColor(getUsagePercentage(quotas.plugins.used, quotas.plugins.limit))}`}
+                            style={{ width: `${getUsagePercentage(quotas.plugins.used, quotas.plugins.limit)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Pipelines Quota */}
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Pipelines
+                          </span>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            {quotas.pipelines.used} / {quotas.pipelines.limit}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                          <div
+                            className={`h-2.5 rounded-full ${getUsageColor(getUsagePercentage(quotas.pipelines.used, quotas.pipelines.limit))}`}
+                            style={{ width: `${getUsagePercentage(quotas.pipelines.used, quotas.pipelines.limit)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
+                        Contact support to increase your quota limits.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Unable to load quota information.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             )}

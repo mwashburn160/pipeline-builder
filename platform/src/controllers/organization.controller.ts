@@ -4,6 +4,147 @@ import { Organization, User } from '../models';
 import { logger, sendError } from '../utils';
 
 /**
+ * Check if user is system admin
+ */
+function isSystemAdmin(req: Request): boolean {
+  return req.user?.role === 'admin' && req.user?.organizationId === 'system';
+}
+
+/**
+ * Get all organizations (System Admin only)
+ * GET /organizations
+ */
+export async function listAllOrganizations(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Forbidden: System admin access required');
+    }
+
+    const organizations = await Organization.find()
+      .populate('owner', 'username email')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Add member count to each organization
+    const orgsWithCount = organizations.map(org => ({
+      id: org._id.toString(),
+      name: org.name,
+      slug: org.slug,
+      description: (org as any).description || '',
+      memberCount: org.members?.length || 0,
+      ownerId: org.owner?._id?.toString(),
+      createdAt: (org as any).createdAt,
+      updatedAt: (org as any).updatedAt,
+    }));
+
+    res.json({ success: true, organizations: orgsWithCount });
+  } catch (err) {
+    logger.error('[LIST ORGS] Fetch Error:', err);
+    return sendError(res, 500, 'Error fetching organizations');
+  }
+}
+
+/**
+ * Get organization by ID
+ * GET /organization/:id
+ */
+export async function getOrganizationById(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    const { id } = req.params;
+
+    // Allow system admin to view any organization, others only their own
+    if (!isSystemAdmin(req) && req.user.organizationId !== id) {
+      return sendError(res, 403, 'Forbidden');
+    }
+
+    const org = await Organization.findById(id)
+      .populate('owner', 'username email')
+      .populate('members', 'username email role')
+      .lean();
+
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: org._id.toString(),
+        name: org.name,
+        slug: org.slug,
+        description: (org as any).description || '',
+        memberCount: org.members?.length || 0,
+        ownerId: org.owner?._id?.toString(),
+        members: org.members,
+        createdAt: (org as any).createdAt,
+        updatedAt: (org as any).updatedAt,
+      },
+    });
+  } catch (err) {
+    logger.error('[GET ORG BY ID] Fetch Error:', err);
+    return sendError(res, 500, 'Error fetching organization');
+  }
+}
+
+/**
+ * Update organization (System Admin only)
+ * PUT /organization/:id
+ */
+export async function updateOrganization(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Forbidden: System admin access required');
+    }
+
+    const { id } = req.params;
+    const { name, description } = req.body;
+
+    const org = await Organization.findById(id);
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    // Update fields if provided
+    if (name !== undefined) {
+      org.name = name;
+    }
+    if (description !== undefined) {
+      (org as any).description = description;
+    }
+
+    await org.save();
+
+    logger.info(`[UPDATE ORG] Organization ${id} updated by system admin ${req.user.sub}`);
+
+    res.json({
+      success: true,
+      message: 'Organization updated successfully',
+      organization: {
+        id: org._id.toString(),
+        name: org.name,
+        slug: org.slug,
+        description: (org as any).description || '',
+      },
+    });
+  } catch (err) {
+    logger.error('[UPDATE ORG] Update Error:', err);
+    return sendError(res, 500, 'Error updating organization');
+  }
+}
+
+/**
  * Get current user's organization
  * GET /organization
  */

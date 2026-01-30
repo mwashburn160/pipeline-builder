@@ -190,6 +190,10 @@ class ApiClient {
     return this.request<ApiResponse<unknown>>('/api/organization/');
   }
 
+  async listOrganizations() {
+    return this.request<ApiResponse<unknown>>('/api/organizations');
+  }
+
   async createOrganization(name: string, description?: string) {
     return this.request<ApiResponse<unknown>>('/api/organization/', {
       method: 'POST',
@@ -199,6 +203,13 @@ class ApiClient {
 
   async getOrganization(id: string) {
     return this.request<ApiResponse<unknown>>(`/api/organization/${id}`);
+  }
+
+  async updateOrganization(id: string, data: { name?: string; description?: string }) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // Plugin endpoints
@@ -289,6 +300,11 @@ class ApiClient {
     return this.request<ApiResponse<unknown>>(`/api/organization/invitation/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Quota endpoints
+  async getQuotas() {
+    return this.request<ApiResponse<unknown>>('/api/organization/quotas');
   }
 }
 

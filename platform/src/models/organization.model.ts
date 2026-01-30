@@ -8,6 +8,7 @@ export interface IOrganization extends Document {
   _id: Types.ObjectId;
   name: string;
   slug: string;
+  description?: string;
   owner: Types.ObjectId;
   members: Types.ObjectId[];
 }
@@ -27,6 +28,12 @@ const organizationSchema = new Schema<IOrganization>(
       lowercase: true,
       trim: true,
       index: true,
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
     },
     owner: {
       type: Schema.Types.ObjectId,

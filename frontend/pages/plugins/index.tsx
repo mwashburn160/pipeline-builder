@@ -30,6 +30,7 @@ const defaultFilters: PluginFilters = {
 export default function PluginsPage() {
   const { user } = useAuth();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [selectedPlugin, setSelectedPlugin] = useState<Plugin | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState<PluginFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
@@ -371,44 +372,206 @@ export default function PluginsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {plugins.map((plugin) => (
-              <Card key={plugin.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                      <Puzzle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <div className="flex gap-6">
+            {/* Plugins Grid */}
+            <div className={`grid grid-cols-1 ${selectedPlugin ? 'md:grid-cols-1 lg:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} gap-6 ${selectedPlugin ? 'flex-1' : 'w-full'}`}>
+              {plugins.map((plugin) => (
+                <Card 
+                  key={plugin.id} 
+                  className={`hover:shadow-md transition-shadow cursor-pointer ${selectedPlugin?.id === plugin.id ? 'ring-2 ring-primary-500' : ''}`}
+                  onClick={() => setSelectedPlugin(selectedPlugin?.id === plugin.id ? null : plugin)}
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                        <Puzzle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <button 
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="h-5 w-5" />
+                      </button>
                     </div>
-                    <button className="p-1 text-gray-400 hover:text-gray-600">
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                  </div>
-                  
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-                    {plugin.name}
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    v{plugin.version}
-                  </p>
+                    
+                    <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
+                      {plugin.name}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                      v{plugin.version}
+                    </p>
 
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <Badge variant={plugin.isActive ? 'success' : 'default'}>
-                      {plugin.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                    <Badge variant={plugin.accessModifier === 'public' ? 'info' : 'default'}>
-                      {plugin.accessModifier}
-                    </Badge>
-                    {plugin.pluginType && (
-                      <Badge>{plugin.pluginType}</Badge>
-                    )}
-                  </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <Badge variant={plugin.isActive ? 'success' : 'default'}>
+                        {plugin.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <Badge variant={plugin.accessModifier === 'public' ? 'info' : 'default'}>
+                        {plugin.accessModifier}
+                      </Badge>
+                      {plugin.pluginType && (
+                        <Badge>{plugin.pluginType}</Badge>
+                      )}
+                    </div>
 
-                  <p className="text-xs text-gray-400">
-                    Created {formatDate(plugin.createdAt)}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+                    <p className="text-xs text-gray-400">
+                      Created {formatDate(plugin.createdAt)}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Plugin Detail Panel */}
+            {selectedPlugin && (
+              <div className="w-96 flex-shrink-0">
+                <Card className="sticky top-6">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                        Plugin Details
+                      </h3>
+                      <button
+                        onClick={() => setSelectedPlugin(null)}
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center mb-6">
+                      <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mr-4">
+                        <Puzzle className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white">
+                          {selectedPlugin.name}
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          v{selectedPlugin.version}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          ID
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white font-mono break-all">
+                          {selectedPlugin.id}
+                        </p>
+                      </div>
+
+                      {selectedPlugin.description && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Description
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPlugin.description}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Plugin Type
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPlugin.pluginType || '-'}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Compute Type
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPlugin.computeType || '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Image Tag
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white font-mono break-all">
+                          {selectedPlugin.imageTag || '-'}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Full Image
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white font-mono break-all">
+                          {selectedPlugin.fullImage || '-'}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Status
+                          </label>
+                          <Badge variant={selectedPlugin.isActive ? 'success' : 'default'}>
+                            {selectedPlugin.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Access
+                          </label>
+                          <Badge variant={selectedPlugin.accessModifier === 'public' ? 'info' : 'default'}>
+                            {selectedPlugin.accessModifier}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Default
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPlugin.isDefault ? 'Yes' : 'No'}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Created By
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPlugin.createdBy || '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Created At
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                          {formatDate(selectedPlugin.createdAt)}
+                        </p>
+                      </div>
+
+                      {selectedPlugin.updatedAt && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Updated At
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {formatDate(selectedPlugin.updatedAt)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -28,6 +28,7 @@ const defaultFilters: PipelineFilters = {
 export default function PipelinesPage() {
   const { user } = useAuth();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [selectedPipeline, setSelectedPipeline] = useState<Pipeline | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState<PipelineFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
@@ -111,7 +112,7 @@ export default function PipelinesPage() {
         project: newPipeline.project,
         organization: newPipeline.organization,
         props,
-        accessModifier: newPipeline.accessModifier,
+        accessModifier: 'private',
       });
       setShowCreate(false);
       setNewPipeline({ project: '', organization: '', accessModifier: 'private', propsJson: '{}' });
@@ -344,46 +345,6 @@ export default function PipelinesPage() {
                       Enter BuilderProps as JSON object. Each key is a builder name with its configuration.
                     </p>
                   </div>
-                  
-                  {/* Access Modifier Selection - Admin Only */}
-                  {isAdmin && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Access Modifier
-                      </label>
-                      <div className="flex gap-3">
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="createAccessModifier"
-                            value="private"
-                            checked={newPipeline.accessModifier === 'private'}
-                            onChange={(e) => setNewPipeline({ ...newPipeline, accessModifier: e.target.value as 'private' })}
-                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                          />
-                          <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                            Private
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="createAccessModifier"
-                            value="public"
-                            checked={newPipeline.accessModifier === 'public'}
-                            onChange={(e) => setNewPipeline({ ...newPipeline, accessModifier: e.target.value as 'public' })}
-                            className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
-                          />
-                          <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                            Public
-                          </span>
-                        </label>
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        Public pipelines are visible to all organizations
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6">
@@ -429,44 +390,197 @@ export default function PipelinesPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {pipelines.map((pipeline) => (
-              <Card key={pipeline.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="h-10 w-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                      <GitBranch className="h-5 w-5 text-green-600 dark:text-green-400" />
+          <div className="flex gap-6">
+            {/* Pipelines Grid */}
+            <div className={`grid grid-cols-1 ${selectedPipeline ? 'md:grid-cols-1 lg:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} gap-6 ${selectedPipeline ? 'flex-1' : 'w-full'}`}>
+              {pipelines.map((pipeline) => (
+                <Card 
+                  key={pipeline.id} 
+                  className={`hover:shadow-md transition-shadow cursor-pointer ${selectedPipeline?.id === pipeline.id ? 'ring-2 ring-primary-500' : ''}`}
+                  onClick={() => setSelectedPipeline(selectedPipeline?.id === pipeline.id ? null : pipeline)}
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="h-10 w-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                        <GitBranch className="h-5 w-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <button 
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreVertical className="h-5 w-5" />
+                      </button>
                     </div>
-                    <button className="p-1 text-gray-400 hover:text-gray-600">
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                  </div>
-                  
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-                    {pipeline.pipelineName || `${pipeline.project}/${pipeline.organization}`}
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    {pipeline.project}
-                  </p>
+                    
+                    <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
+                      {pipeline.pipelineName || `${pipeline.project}/${pipeline.organization}`}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                      {pipeline.project}
+                    </p>
 
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <Badge variant={pipeline.isActive ? 'success' : 'default'}>
-                      {pipeline.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                    <Badge variant={pipeline.accessModifier === 'public' ? 'info' : 'default'}>
-                      {pipeline.accessModifier}
-                    </Badge>
-                    {pipeline.isDefault && (
-                      <Badge variant="warning">Default</Badge>
-                    )}
-                  </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <Badge variant={pipeline.isActive ? 'success' : 'default'}>
+                        {pipeline.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <Badge variant={pipeline.accessModifier === 'public' ? 'info' : 'default'}>
+                        {pipeline.accessModifier}
+                      </Badge>
+                      {pipeline.isDefault && (
+                        <Badge variant="warning">Default</Badge>
+                      )}
+                    </div>
 
-                  <p className="text-xs text-gray-400">
-                    Created {formatDate(pipeline.createdAt)}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+                    <p className="text-xs text-gray-400">
+                      Created {formatDate(pipeline.createdAt)}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Pipeline Detail Panel */}
+            {selectedPipeline && (
+              <div className="w-96 flex-shrink-0">
+                <Card className="sticky top-6">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                        Pipeline Details
+                      </h3>
+                      <button
+                        onClick={() => setSelectedPipeline(null)}
+                        className="p-1 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center mb-6">
+                      <div className="h-12 w-12 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mr-4">
+                        <GitBranch className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white">
+                          {selectedPipeline.pipelineName || `${selectedPipeline.project}/${selectedPipeline.organization}`}
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {selectedPipeline.project}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          ID
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white font-mono break-all">
+                          {selectedPipeline.id}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Project
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPipeline.project}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Organization
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPipeline.organization}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedPipeline.pipelineName && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Pipeline Name
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPipeline.pipelineName}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Status
+                          </label>
+                          <Badge variant={selectedPipeline.isActive ? 'success' : 'default'}>
+                            {selectedPipeline.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Access
+                          </label>
+                          <Badge variant={selectedPipeline.accessModifier === 'public' ? 'info' : 'default'}>
+                            {selectedPipeline.accessModifier}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Default
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPipeline.isDefault ? 'Yes' : 'No'}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Created By
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {selectedPipeline.createdBy || '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Props
+                        </label>
+                        <pre className="text-xs text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-800 p-3 rounded-lg overflow-auto max-h-48">
+                          {JSON.stringify(selectedPipeline.props, null, 2)}
+                        </pre>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Created At
+                        </label>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                          {formatDate(selectedPipeline.createdAt)}
+                        </p>
+                      </div>
+
+                      {selectedPipeline.updatedAt && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Updated At
+                          </label>
+                          <p className="text-sm text-gray-900 dark:text-white">
+                            {formatDate(selectedPipeline.updatedAt)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
         )}
       </div>
