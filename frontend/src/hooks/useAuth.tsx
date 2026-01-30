@@ -19,15 +19,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = async () => {
+    console.log('[Auth] refreshUser called, isAuthenticated:', api.isAuthenticated());
     try {
       if (api.isAuthenticated()) {
+        console.log('[Auth] Fetching profile...');
         const response = await api.getProfile();
+        console.log('[Auth] Profile response:', response);
         if (response.success && response.data) {
           setUser(response.data as User);
         }
       }
     } catch (error) {
-      console.error('Failed to refresh user:', error);
+      console.error('[Auth] Failed to refresh user:', error);
       setUser(null);
     }
   };
@@ -41,10 +44,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    console.log('[Auth] Login called');
     const response = await api.login(email, password);
+    console.log('[Auth] Login response:', response);
     if (response.success) {
+      console.log('[Auth] Login successful, refreshing user...');
       // Fetch user profile after successful login
       await refreshUser();
+      console.log('[Auth] User refreshed, user:', user);
     } else {
       throw new Error(response.message || 'Login failed');
     }
