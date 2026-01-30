@@ -22,6 +22,8 @@ export default function DashboardPage() {
   const [orgError, setOrgError] = useState('');
 
   const hasOrganization = !!api.getOrganizationId();
+  
+  console.log('[Dashboard] hasOrganization:', hasOrganization, 'orgId:', api.getOrganizationId());
 
   useEffect(() => {
     const fetchStats = async () => {

@@ -187,11 +187,11 @@ class ApiClient {
 
   // Organization endpoints
   async getOrganizations() {
-    return this.request<ApiResponse<unknown>>('/api/organization');
+    return this.request<ApiResponse<unknown>>('/api/organization/');
   }
 
   async createOrganization(name: string, description?: string) {
-    return this.request<ApiResponse<unknown>>('/api/organization', {
+    return this.request<ApiResponse<unknown>>('/api/organization/', {
       method: 'POST',
       body: JSON.stringify({ name, description }),
     });
