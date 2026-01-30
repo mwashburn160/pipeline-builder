@@ -55,12 +55,10 @@ export default function PluginsPage() {
       const response = await api.listPlugins(params);
       console.log('[Plugins] API response:', response);
       
-      if (response.success) {
-        // Handle different response formats
-        const data = response as any;
-        const pluginList = data.plugins || data.data || (Array.isArray(data) ? data : []);
-        setPlugins(pluginList);
-      }
+      // Handle different response formats
+      const data = response as any;
+      const pluginList = data.plugins || data.data || (Array.isArray(data) ? data : []);
+      setPlugins(pluginList);
     } catch (error) {
       console.error('Failed to fetch plugins:', error);
     } finally {

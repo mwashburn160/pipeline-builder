@@ -265,7 +265,7 @@ services:
           memory: 192M
 
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:0.1.24'
+    image: 'ghcr.io/mwashburn160/frontend:0.1.25'
     container_name: frontend
     restart: always
     networks:

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { DashboardLayout, Header } from '@/components/layout';
 import { Button, Card, CardContent, Badge, Input } from '@/components/ui';
 import api from '@/lib/api';
 import { Pipeline } from '@/types';
-import { Plus, Search, GitBranch, MoreVertical, Filter, X } from 'lucide-react';
+import { Plus, Search, GitBranch, MoreVertical, Filter, X, Upload } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -36,9 +36,12 @@ export default function PipelinesPage() {
     project: '',
     organization: '',
     accessModifier: 'private' as 'public' | 'private',
+    propsJson: '{}',
   });
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [propsError, setPropsError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = user?.role === 'admin';
 
@@ -55,12 +58,10 @@ export default function PipelinesPage() {
       const response = await api.listPipelines(params);
       console.log('[Pipelines] API response:', response);
       
-      if (response.success) {
-        // Handle different response formats
-        const data = response as any;
-        const pipelineList = data.pipelines || data.data || (Array.isArray(data) ? data : []);
-        setPipelines(pipelineList);
-      }
+      // Handle different response formats
+      const data = response as any;
+      const pipelineList = data.pipelines || data.data || (Array.isArray(data) ? data : []);
+      setPipelines(pipelineList);
     } catch (error) {
       console.error('Failed to fetch pipelines:', error);
     } finally {
@@ -88,6 +89,20 @@ export default function PipelinesPage() {
       return;
     }
 
+    // Validate and parse props JSON
+    let props: Record<string, unknown> = {};
+    try {
+      props = JSON.parse(newPipeline.propsJson);
+      if (typeof props !== 'object' || Array.isArray(props)) {
+        setPropsError('Props must be a JSON object');
+        return;
+      }
+      setPropsError('');
+    } catch (e) {
+      setPropsError('Invalid JSON format');
+      return;
+    }
+
     setIsCreating(true);
     setCreateError('');
 
@@ -95,11 +110,11 @@ export default function PipelinesPage() {
       await api.createPipeline({
         project: newPipeline.project,
         organization: newPipeline.organization,
-        props: {},
+        props,
         accessModifier: newPipeline.accessModifier,
       });
       setShowCreate(false);
-      setNewPipeline({ project: '', organization: '', accessModifier: 'private' });
+      setNewPipeline({ project: '', organization: '', accessModifier: 'private', propsJson: '{}' });
       fetchPipelines();
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Creation failed');
@@ -110,8 +125,33 @@ export default function PipelinesPage() {
 
   const handleCloseModal = () => {
     setShowCreate(false);
-    setNewPipeline({ project: '', organization: '', accessModifier: 'private' });
+    setNewPipeline({ project: '', organization: '', accessModifier: 'private', propsJson: '{}' });
     setCreateError('');
+    setPropsError('');
+  };
+
+  const handlePropsFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      try {
+        // Validate JSON
+        JSON.parse(content);
+        setNewPipeline({ ...newPipeline, propsJson: content });
+        setPropsError('');
+      } catch (e) {
+        setPropsError('Invalid JSON file');
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -235,7 +275,7 @@ export default function PipelinesPage() {
         {/* Create Modal */}
         {showCreate && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <Card className="w-full max-w-md mx-4">
+            <Card className="w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
               <CardContent className="p-6">
                 <h3 className="text-lg font-semibold mb-4">Create Pipeline</h3>
                 
@@ -246,18 +286,64 @@ export default function PipelinesPage() {
                 )}
 
                 <div className="space-y-4">
-                  <Input
-                    label="Project"
-                    placeholder="my-project"
-                    value={newPipeline.project}
-                    onChange={(e) => setNewPipeline({ ...newPipeline, project: e.target.value })}
-                  />
-                  <Input
-                    label="Organization"
-                    placeholder="my-org"
-                    value={newPipeline.organization}
-                    onChange={(e) => setNewPipeline({ ...newPipeline, organization: e.target.value })}
-                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Project"
+                      placeholder="my-project"
+                      value={newPipeline.project}
+                      onChange={(e) => setNewPipeline({ ...newPipeline, project: e.target.value })}
+                    />
+                    <Input
+                      label="Organization"
+                      placeholder="my-org"
+                      value={newPipeline.organization}
+                      onChange={(e) => setNewPipeline({ ...newPipeline, organization: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Props JSON Editor */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Builder Props (JSON)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                      >
+                        <Upload className="h-3 w-3" />
+                        Upload JSON
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".json"
+                        onChange={handlePropsFileUpload}
+                        className="hidden"
+                      />
+                    </div>
+                    <textarea
+                      value={newPipeline.propsJson}
+                      onChange={(e) => {
+                        setNewPipeline({ ...newPipeline, propsJson: e.target.value });
+                        setPropsError('');
+                      }}
+                      placeholder='{"builder1": {"key": "value"}, "builder2": {...}}'
+                      rows={8}
+                      className={`w-full px-3 py-2 rounded-lg border ${
+                        propsError 
+                          ? 'border-red-500 focus:ring-red-500' 
+                          : 'border-gray-300 dark:border-gray-600 focus:ring-primary-500'
+                      } bg-white dark:bg-gray-800 text-sm font-mono focus:outline-none focus:ring-2`}
+                    />
+                    {propsError && (
+                      <p className="mt-1 text-xs text-red-500">{propsError}</p>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Enter BuilderProps as JSON object. Each key is a builder name with its configuration.
+                    </p>
+                  </div>
                   
                   {/* Access Modifier Selection - Admin Only */}
                   {isAdmin && (
