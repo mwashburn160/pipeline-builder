@@ -253,12 +253,11 @@ services:
           memory: 192M
 
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:0.1.9'
+    image: 'ghcr.io/mwashburn160/frontend:0.1.10'
     container_name: frontend
     restart: always
     networks:
       - proxy-network
-      - backend-network
     environment:
       PLATFORM_URL: '${PLATFORM_URL}'
     healthcheck:

@@ -6,11 +6,13 @@ const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_URL |
 class ApiClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
+  private organizationId: string | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.accessToken = localStorage.getItem('accessToken');
       this.refreshToken = localStorage.getItem('refreshToken');
+      this.organizationId = localStorage.getItem('organizationId');
     }
   }
 
@@ -23,12 +25,25 @@ class ApiClient {
     }
   }
 
+  setOrganizationId(orgId: string) {
+    this.organizationId = orgId;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('organizationId', orgId);
+    }
+  }
+
+  getOrganizationId() {
+    return this.organizationId;
+  }
+
   clearTokens() {
     this.accessToken = null;
     this.refreshToken = null;
+    this.organizationId = null;
     if (typeof window !== 'undefined') {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('organizationId');
     }
   }
 
@@ -53,6 +68,10 @@ class ApiClient {
 
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
+    if (this.organizationId) {
+      headers['x-org-id'] = this.organizationId;
     }
 
     // Log request
