@@ -1,3 +1,13 @@
+## 0.1.11 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([891bb2b](https://github.com/mwashburn160/pipeline-builder/commit/891bb2b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.10 (2026-01-30)
 
 ### 🩹 Fixes
