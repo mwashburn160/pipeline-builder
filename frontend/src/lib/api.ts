@@ -212,6 +212,11 @@ class ApiClient {
     return this.request<ApiResponse<unknown>>(`/api/plugin${query}`);
   }
 
+  async listPlugins(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<ApiResponse<unknown>>(`/api/plugins${query}`);
+  }
+
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
     const formData = new FormData();
     formData.append('plugin', file);
@@ -248,6 +253,11 @@ class ApiClient {
     // Get with filters (or list all)
     const query = idOrParams ? '?' + new URLSearchParams(idOrParams).toString() : '';
     return this.request<ApiResponse<unknown>>(`/api/pipeline${query}`);
+  }
+
+  async listPipelines(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<ApiResponse<unknown>>(`/api/pipelines${query}`);
   }
 
   async createPipeline(data: { project: string; organization: string; props: Record<string, unknown>; accessModifier?: string }) {

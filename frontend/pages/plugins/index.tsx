@@ -3,20 +3,41 @@ import { DashboardLayout, Header } from '@/components/layout';
 import { Button, Card, CardContent, Badge, Input } from '@/components/ui';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
-import { Plus, Search, Upload, Puzzle, MoreVertical } from 'lucide-react';
+import { Plus, Search, Upload, Puzzle, MoreVertical, Filter, X } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+
+interface PluginFilters {
+  name: string;
+  version: string;
+  pluginType: string;
+  computeType: string;
+  isActive: string;
+  isDefault: string;
+  accessModifier: string;
+}
+
+const defaultFilters: PluginFilters = {
+  name: '',
+  version: '',
+  pluginType: '',
+  computeType: '',
+  isActive: '',
+  isDefault: '',
+  accessModifier: 'private',
+};
 
 export default function PluginsPage() {
   const { user } = useAuth();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState<PluginFilters>(defaultFilters);
+  const [showFilters, setShowFilters] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  const [accessModifier, setAccessModifier] = useState<'public' | 'private'>('private');
+  const [uploadAccessModifier, setUploadAccessModifier] = useState<'public' | 'private'>('private');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = user?.role === 'admin';
@@ -25,11 +46,20 @@ export default function PluginsPage() {
     try {
       setIsLoading(true);
       const params: Record<string, string> = {};
-      if (searchQuery) params.name = searchQuery;
       
-      const response = await api.getPlugin(params);
+      // Add all non-empty filters to params
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params[key] = value;
+      });
+      
+      const response = await api.listPlugins(params);
+      console.log('[Plugins] API response:', response);
+      
       if (response.success) {
-        setPlugins((response as { plugins?: Plugin[] }).plugins || []);
+        // Handle different response formats
+        const data = response as any;
+        const pluginList = data.plugins || data.data || (Array.isArray(data) ? data : []);
+        setPlugins(pluginList);
       }
     } catch (error) {
       console.error('Failed to fetch plugins:', error);
@@ -40,7 +70,17 @@ export default function PluginsPage() {
 
   useEffect(() => {
     fetchPlugins();
-  }, [searchQuery]);
+  }, [filters]);
+
+  const handleFilterChange = (key: keyof PluginFilters, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const clearFilters = () => {
+    setFilters(defaultFilters);
+  };
+
+  const hasActiveFilters = Object.values(filters).some(v => v !== '');
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,10 +101,10 @@ export default function PluginsPage() {
     setUploadError('');
 
     try {
-      await api.uploadPlugin(uploadFile, accessModifier);
+      await api.uploadPlugin(uploadFile, uploadAccessModifier);
       setShowUpload(false);
       setUploadFile(null);
-      setAccessModifier('private');
+      setUploadAccessModifier('private');
       fetchPlugins();
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Upload failed');
@@ -77,7 +117,7 @@ export default function PluginsPage() {
     setShowUpload(false);
     setUploadFile(null);
     setUploadError('');
-    setAccessModifier('private');
+    setUploadAccessModifier('private');
   };
 
   return (
@@ -86,22 +126,128 @@ export default function PluginsPage() {
 
       <div className="p-6">
         {/* Actions Bar */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-4 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
               type="search"
-              placeholder="Search plugins..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name..."
+              value={filters.name}
+              onChange={(e) => handleFilterChange('name', e.target.value)}
               className="pl-10"
             />
           </div>
+          <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+            <Filter className="h-4 w-4 mr-2" />
+            Filters
+            {hasActiveFilters && (
+              <span className="ml-2 h-5 w-5 rounded-full bg-primary-500 text-white text-xs flex items-center justify-center">
+                {Object.values(filters).filter(v => v !== '').length}
+              </span>
+            )}
+          </Button>
           <Button onClick={() => setShowUpload(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Upload Plugin
           </Button>
         </div>
+
+        {/* Filter Panel */}
+        {showFilters && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter Plugins</h3>
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear all
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Version
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g., 1.0.0"
+                    value={filters.version}
+                    onChange={(e) => handleFilterChange('version', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Plugin Type
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g., handler"
+                    value={filters.pluginType}
+                    onChange={(e) => handleFilterChange('pluginType', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Compute Type
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g., cpu, gpu"
+                    value={filters.computeType}
+                    onChange={(e) => handleFilterChange('computeType', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Access
+                  </label>
+                  <select
+                    value={filters.accessModifier}
+                    onChange={(e) => handleFilterChange('accessModifier', e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">All</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={filters.isActive}
+                    onChange={(e) => handleFilterChange('isActive', e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">All</option>
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                    Default
+                  </label>
+                  <select
+                    value={filters.isDefault}
+                    onChange={(e) => handleFilterChange('isDefault', e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">All</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Upload Modal */}
         {showUpload && (
@@ -154,10 +300,10 @@ export default function PluginsPage() {
                       <label className="flex items-center">
                         <input
                           type="radio"
-                          name="accessModifier"
+                          name="uploadAccessModifier"
                           value="private"
-                          checked={accessModifier === 'private'}
-                          onChange={(e) => setAccessModifier(e.target.value as 'private')}
+                          checked={uploadAccessModifier === 'private'}
+                          onChange={(e) => setUploadAccessModifier(e.target.value as 'private')}
                           className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
                         />
                         <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
@@ -167,10 +313,10 @@ export default function PluginsPage() {
                       <label className="flex items-center">
                         <input
                           type="radio"
-                          name="accessModifier"
+                          name="uploadAccessModifier"
                           value="public"
-                          checked={accessModifier === 'public'}
-                          onChange={(e) => setAccessModifier(e.target.value as 'public')}
+                          checked={uploadAccessModifier === 'public'}
+                          onChange={(e) => setUploadAccessModifier(e.target.value as 'public')}
                           className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
                         />
                         <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
