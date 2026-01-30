@@ -1,3 +1,13 @@
+## 0.1.24 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([cc884de](https://github.com/mwashburn160/pipeline-builder/commit/cc884de))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.23 (2026-01-30)
 
 ### 🩹 Fixes
