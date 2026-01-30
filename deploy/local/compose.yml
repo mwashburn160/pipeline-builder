@@ -29,7 +29,7 @@ x-common-api-env: &common-api-env
   DB_PASSWORD: '${DB_PASSWORD}'
   JWT_SECRET: '${JWT_SECRET}'
   REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}' 
-  PLATFORM_URL: '${PLATFORM_URL}'
+  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL}'
 
 services:
   nginx:
@@ -259,7 +259,7 @@ services:
     networks:
       - proxy-network
     environment:
-      PLATFORM_URL: '${PLATFORM_URL}'
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL}'
     healthcheck:
       test:
         - CMD
