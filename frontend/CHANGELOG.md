@@ -1,3 +1,13 @@
+## 0.1.25 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([386cafe](https://github.com/mwashburn160/pipeline-builder/commit/386cafe))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.18 (2026-01-30)
 
 ### 🩹 Fixes
