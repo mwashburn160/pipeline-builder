@@ -34,8 +34,8 @@ export default function DashboardPage() {
       
       try {
         const [pluginsRes, pipelinesRes] = await Promise.all([
-          api.getPlugins({ limit: '1' }).catch(() => ({ total: 0 })),
-          api.getPipelines({ limit: '1' }).catch(() => ({ total: 0 })),
+          api.getPlugin({ limit: '1' }).catch(() => ({ total: 0 })),
+          api.getPipeline({ limit: '1' }).catch(() => ({ total: 0 })),
         ]);
 
         setStats({

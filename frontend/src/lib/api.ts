@@ -202,13 +202,14 @@ class ApiClient {
   }
 
   // Plugin endpoints
-  async getPlugins(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/plugins${query}`);
-  }
-
-  async getPlugin(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/plugin/${id}`);
+  async getPlugin(idOrParams?: string | Record<string, string>) {
+    if (typeof idOrParams === 'string') {
+      // Get by ID
+      return this.request<ApiResponse<unknown>>(`/api/plugin/${idOrParams}`);
+    }
+    // Get with filters (or list all)
+    const query = idOrParams ? '?' + new URLSearchParams(idOrParams).toString() : '';
+    return this.request<ApiResponse<unknown>>(`/api/plugin${query}`);
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
@@ -239,13 +240,14 @@ class ApiClient {
   }
 
   // Pipeline endpoints
-  async getPipelines(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/pipelines${query}`);
-  }
-
-  async getPipeline(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/pipeline/${id}`);
+  async getPipeline(idOrParams?: string | Record<string, string>) {
+    if (typeof idOrParams === 'string') {
+      // Get by ID
+      return this.request<ApiResponse<unknown>>(`/api/pipeline/${idOrParams}`);
+    }
+    // Get with filters (or list all)
+    const query = idOrParams ? '?' + new URLSearchParams(idOrParams).toString() : '';
+    return this.request<ApiResponse<unknown>>(`/api/pipeline${query}`);
   }
 
   async createPipeline(data: { project: string; organization: string; props: Record<string, unknown>; accessModifier?: string }) {

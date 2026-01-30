@@ -25,7 +25,7 @@ export default function PipelinesPage() {
       const params: Record<string, string> = {};
       if (searchQuery) params.pipelineName = searchQuery;
       
-      const response = await api.getPipelines(params);
+      const response = await api.getPipeline(params);
       if (response.success) {
         setPipelines((response as { pipelines?: Pipeline[] }).pipelines || []);
       }

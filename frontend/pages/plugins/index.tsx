@@ -22,7 +22,7 @@ export default function PluginsPage() {
       const params: Record<string, string> = {};
       if (searchQuery) params.name = searchQuery;
       
-      const response = await api.getPlugins(params);
+      const response = await api.getPlugin(params);
       if (response.success) {
         setPlugins((response as { plugins?: Plugin[] }).plugins || []);
       }
