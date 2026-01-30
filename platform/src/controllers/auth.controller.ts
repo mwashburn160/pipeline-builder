@@ -39,7 +39,7 @@ export async function register(req: Request, res: Response): Promise<void> {
         username,
         email,
         password,
-        role: organizationName?.trim() ? 'admin' : 'user',
+        role: organizationName?.trim().length >= 2 ? 'admin' : 'user',
       });
 
       // Create organization if name provided
