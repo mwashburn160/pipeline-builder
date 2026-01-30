@@ -145,6 +145,103 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
 }
 
 /**
+ * Get organization quotas (System Admin only)
+ * GET /organization/:id/quotas
+ */
+export async function getOrganizationQuotas(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Forbidden: System admin access required');
+    }
+
+    const { id } = req.params;
+
+    const org = await Organization.findById(id).lean();
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    // Get actual usage counts (you would implement these based on your plugin/pipeline services)
+    // For now, we'll return placeholder values
+    const pluginsUsed = 0; // TODO: Count actual plugins for this org
+    const pipelinesUsed = 0; // TODO: Count actual pipelines for this org
+
+    res.json({
+      success: true,
+      quotas: {
+        plugins: {
+          used: pluginsUsed,
+          limit: org.quotas?.plugins || 100,
+        },
+        pipelines: {
+          used: pipelinesUsed,
+          limit: org.quotas?.pipelines || 50,
+        },
+      },
+    });
+  } catch (err) {
+    logger.error('[GET ORG QUOTAS] Fetch Error:', err);
+    return sendError(res, 500, 'Error fetching organization quotas');
+  }
+}
+
+/**
+ * Update organization quotas (System Admin only)
+ * PUT /organization/:id/quotas
+ */
+export async function updateOrganizationQuotas(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Forbidden: System admin access required');
+    }
+
+    const { id } = req.params;
+    const { plugins, pipelines } = req.body;
+
+    const org = await Organization.findById(id);
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    // Update quota limits
+    if (!org.quotas) {
+      (org as any).quotas = { plugins: 100, pipelines: 50 };
+    }
+
+    if (plugins !== undefined && plugins >= 0) {
+      org.quotas.plugins = plugins;
+    }
+    if (pipelines !== undefined && pipelines >= 0) {
+      org.quotas.pipelines = pipelines;
+    }
+
+    await org.save();
+
+    logger.info(`[UPDATE ORG QUOTAS] Organization ${id} quotas updated by system admin ${req.user.sub}`);
+
+    res.json({
+      success: true,
+      message: 'Organization quotas updated successfully',
+      quotas: {
+        plugins: org.quotas.plugins,
+        pipelines: org.quotas.pipelines,
+      },
+    });
+  } catch (err) {
+    logger.error('[UPDATE ORG QUOTAS] Update Error:', err);
+    return sendError(res, 500, 'Error updating organization quotas');
+  }
+}
+
+/**
  * Get current user's organization
  * GET /organization
  */

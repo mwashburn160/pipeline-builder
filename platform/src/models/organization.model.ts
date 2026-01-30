@@ -2,6 +2,14 @@ import { Schema, model, Document, Types } from 'mongoose';
 import slugify from 'slugify';
 
 /**
+ * Quota limits interface
+ */
+export interface IQuotaLimits {
+  plugins: number;
+  pipelines: number;
+}
+
+/**
  * Organization document interface
  */
 export interface IOrganization extends Document {
@@ -11,6 +19,7 @@ export interface IOrganization extends Document {
   description?: string;
   owner: Types.ObjectId;
   members: Types.ObjectId[];
+  quotas: IQuotaLimits;
 }
 
 const organizationSchema = new Schema<IOrganization>(
@@ -47,6 +56,18 @@ const organizationSchema = new Schema<IOrganization>(
         ref: 'User',
       },
     ],
+    quotas: {
+      plugins: {
+        type: Number,
+        default: 100,
+        min: 0,
+      },
+      pipelines: {
+        type: Number,
+        default: 50,
+        min: 0,
+      },
+    },
   },
   {
     timestamps: true,

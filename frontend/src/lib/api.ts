@@ -212,6 +212,17 @@ class ApiClient {
     });
   }
 
+  async getOrganizationQuotas(id: string) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`);
+  }
+
+  async updateOrganizationQuotas(id: string, data: { plugins?: number; pipelines?: number }) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // Plugin endpoints
   async getPlugin(idOrParams?: string | Record<string, string>) {
     if (typeof idOrParams === 'string') {

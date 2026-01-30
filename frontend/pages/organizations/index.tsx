@@ -3,8 +3,13 @@ import { DashboardLayout, Header } from '@/components/layout';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import api from '@/lib/api';
-import { Building2, Users, Settings, Edit, X, Save, Search } from 'lucide-react';
+import { Building2, Users, Settings, Edit, X, Save, Search, Gauge } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+
+interface OrganizationQuotas {
+  plugins: { used: number; limit: number };
+  pipelines: { used: number; limit: number };
+}
 
 interface Organization {
   id: string;
@@ -14,6 +19,7 @@ interface Organization {
   ownerId?: string;
   createdAt?: string;
   updatedAt?: string;
+  quotas?: OrganizationQuotas;
 }
 
 export default function OrganizationsPage() {
@@ -24,7 +30,9 @@ export default function OrganizationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingQuotas, setIsEditingQuotas] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', description: '' });
+  const [quotaForm, setQuotaForm] = useState({ pluginsLimit: 100, pipelinesLimit: 50 });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -55,10 +63,49 @@ export default function OrganizationsPage() {
     fetchData();
   }, [user, isSystemAdmin]);
 
+  const fetchOrgQuotas = async (orgId: string) => {
+    try {
+      const response = await api.getOrganizationQuotas(orgId);
+      const data = response as any;
+      return data.quotas || data;
+    } catch (error) {
+      console.error('Failed to fetch quotas:', error);
+      return { plugins: { used: 0, limit: 100 }, pipelines: { used: 0, limit: 50 } };
+    }
+  };
+
+  const handleSelectOrg = async (org: Organization) => {
+    if (selectedOrg?.id === org.id) {
+      setSelectedOrg(null);
+      setIsEditing(false);
+      setIsEditingQuotas(false);
+      return;
+    }
+
+    // Fetch quotas for the selected organization
+    const quotas = await fetchOrgQuotas(org.id);
+    setSelectedOrg({ ...org, quotas });
+    setIsEditing(false);
+    setIsEditingQuotas(false);
+    setSaveError('');
+  };
+
   const handleEditOrg = (org: Organization) => {
     setSelectedOrg(org);
     setEditForm({ name: org.name, description: org.description || '' });
     setIsEditing(true);
+    setIsEditingQuotas(false);
+    setSaveError('');
+  };
+
+  const handleEditQuotas = () => {
+    if (!selectedOrg?.quotas) return;
+    setQuotaForm({
+      pluginsLimit: selectedOrg.quotas.plugins.limit,
+      pipelinesLimit: selectedOrg.quotas.pipelines.limit,
+    });
+    setIsEditingQuotas(true);
+    setIsEditing(false);
     setSaveError('');
   };
 
@@ -91,11 +138,44 @@ export default function OrganizationsPage() {
     }
   };
 
+  const handleSaveQuotas = async () => {
+    if (!selectedOrg) return;
+
+    setIsSaving(true);
+    setSaveError('');
+
+    try {
+      await api.updateOrganizationQuotas(selectedOrg.id, {
+        plugins: quotaForm.pluginsLimit,
+        pipelines: quotaForm.pipelinesLimit,
+      });
+
+      // Update local state
+      const updatedQuotas = {
+        plugins: { used: selectedOrg.quotas?.plugins.used || 0, limit: quotaForm.pluginsLimit },
+        pipelines: { used: selectedOrg.quotas?.pipelines.used || 0, limit: quotaForm.pipelinesLimit },
+      };
+      setSelectedOrg({ ...selectedOrg, quotas: updatedQuotas });
+      setIsEditingQuotas(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to save quotas');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleCancelEdit = () => {
     setIsEditing(false);
+    setIsEditingQuotas(false);
     setSaveError('');
     if (selectedOrg) {
       setEditForm({ name: selectedOrg.name, description: selectedOrg.description || '' });
+      if (selectedOrg.quotas) {
+        setQuotaForm({
+          pluginsLimit: selectedOrg.quotas.plugins.limit,
+          pipelinesLimit: selectedOrg.quotas.pipelines.limit,
+        });
+      }
     }
   };
 
@@ -149,11 +229,7 @@ export default function OrganizationsPage() {
                     className={`cursor-pointer hover:shadow-md transition-shadow ${
                       selectedOrg?.id === org.id ? 'ring-2 ring-primary-500' : ''
                     }`}
-                    onClick={() => {
-                      setSelectedOrg(selectedOrg?.id === org.id ? null : org);
-                      setIsEditing(false);
-                      setSaveError('');
-                    }}
+                    onClick={() => handleSelectOrg(org)}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
@@ -256,6 +332,46 @@ export default function OrganizationsPage() {
                           </Button>
                         </div>
                       </div>
+                    ) : isEditingQuotas ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center mb-4">
+                          <Gauge className="h-5 w-5 text-primary-600 dark:text-primary-400 mr-2" />
+                          <h4 className="font-semibold text-gray-900 dark:text-white">
+                            Edit Quota Limits
+                          </h4>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Plugins Limit
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={quotaForm.pluginsLimit}
+                            onChange={(e) => setQuotaForm({ ...quotaForm, pluginsLimit: parseInt(e.target.value) || 0 })}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Pipelines Limit
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={quotaForm.pipelinesLimit}
+                            onChange={(e) => setQuotaForm({ ...quotaForm, pipelinesLimit: parseInt(e.target.value) || 0 })}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={handleSaveQuotas} isLoading={isSaving}>
+                            <Save className="h-4 w-4 mr-2" />
+                            Save Quotas
+                          </Button>
+                          <Button variant="secondary" onClick={handleCancelEdit}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
                     ) : (
                       <div className="space-y-4">
                         <div className="flex items-center mb-4">
@@ -298,6 +414,73 @@ export default function OrganizationsPage() {
                             {selectedOrg.memberCount || 0}
                           </p>
                         </div>
+
+                        {/* Quota Limits Section */}
+                        {selectedOrg.quotas && (
+                          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center">
+                                <Gauge className="h-4 w-4 text-gray-500 mr-2" />
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                  Quota Limits
+                                </span>
+                              </div>
+                              <button
+                                onClick={handleEditQuotas}
+                                className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                              >
+                                <Edit className="h-3 w-3" />
+                                Edit
+                              </button>
+                            </div>
+                            <div className="space-y-3">
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">Plugins</span>
+                                  <span className="text-xs text-gray-700 dark:text-gray-300">
+                                    {selectedOrg.quotas.plugins.used} / {selectedOrg.quotas.plugins.limit}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      (selectedOrg.quotas.plugins.used / selectedOrg.quotas.plugins.limit) >= 0.9
+                                        ? 'bg-red-500'
+                                        : (selectedOrg.quotas.plugins.used / selectedOrg.quotas.plugins.limit) >= 0.7
+                                        ? 'bg-yellow-500'
+                                        : 'bg-green-500'
+                                    }`}
+                                    style={{
+                                      width: `${Math.min((selectedOrg.quotas.plugins.used / selectedOrg.quotas.plugins.limit) * 100, 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">Pipelines</span>
+                                  <span className="text-xs text-gray-700 dark:text-gray-300">
+                                    {selectedOrg.quotas.pipelines.used} / {selectedOrg.quotas.pipelines.limit}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      (selectedOrg.quotas.pipelines.used / selectedOrg.quotas.pipelines.limit) >= 0.9
+                                        ? 'bg-red-500'
+                                        : (selectedOrg.quotas.pipelines.used / selectedOrg.quotas.pipelines.limit) >= 0.7
+                                        ? 'bg-yellow-500'
+                                        : 'bg-green-500'
+                                    }`}
+                                    style={{
+                                      width: `${Math.min((selectedOrg.quotas.pipelines.used / selectedOrg.quotas.pipelines.limit) * 100, 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {selectedOrg.createdAt && (
                           <div>
