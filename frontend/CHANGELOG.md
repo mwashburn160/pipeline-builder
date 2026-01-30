@@ -1,3 +1,13 @@
+## 0.1.23 (2026-01-30)
+
+### 🩹 Fixes
+
+- debugging ([f818f12](https://github.com/mwashburn160/pipeline-builder/commit/f818f12))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.22 (2026-01-30)
 
 ### 🩹 Fixes
