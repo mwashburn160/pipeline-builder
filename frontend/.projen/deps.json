@@ -36,10 +36,6 @@
       "type": "build"
     },
     {
-      "name": "autoprefixer",
-      "type": "runtime"
-    },
-    {
       "name": "clsx",
       "version": "^2.1.1",
       "type": "runtime"
@@ -54,10 +50,6 @@
       "type": "runtime"
     },
     {
-      "name": "postcss",
-      "type": "runtime"
-    },
-    {
       "name": "react",
       "type": "runtime"
     },
@@ -68,10 +60,6 @@
     {
       "name": "tailwind-merge",
       "version": "3.4.0",
-      "type": "runtime"
-    },
-    {
-      "name": "tailwindcss",
       "type": "runtime"
     }
   ],

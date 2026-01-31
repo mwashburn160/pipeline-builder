@@ -34,6 +34,4 @@ yarn.lock
 .next
 .vscode
 dist
-!/tailwind.config.json
-!/postcss.config.json
 /.next/

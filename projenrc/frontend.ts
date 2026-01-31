@@ -6,7 +6,7 @@ export class FrontEndProject extends NextJsProject {
     constructor(options: NextJsProjectOptions) {
         super({
             ...options,
-            tailwind: true
+            tailwind: false
         })
     }
 
