@@ -10,12 +10,40 @@ export interface User {
   updatedAt: string;
 }
 
+export interface OrganizationMember {
+  id: string;
+  username: string;
+  email: string;
+  role: 'user' | 'admin';
+  isOwner: boolean;
+  isEmailVerified: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface QuotaInfo {
+  used: number;
+  limit: number | 'unlimited';
+  remaining: number | 'unlimited';
+  resetAt: string;
+  resetPeriod: string;
+  unlimited: boolean;
+}
+
+export interface OrganizationQuotas {
+  plugins: QuotaInfo;
+  pipelines: QuotaInfo;
+  apiCalls: QuotaInfo;
+}
+
 export interface Organization {
   id: string;
   name: string;
+  slug?: string;
   description?: string;
   ownerId: string;
   memberCount: number;
+  quotas?: OrganizationQuotas;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,6 +3,19 @@ import { AuthTokens, ApiResponse } from '@/types';
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
+// Custom error class with statusCode
+export class ApiError extends Error {
+  statusCode: number;
+  code?: string;
+  
+  constructor(message: string, statusCode: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 class ApiClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
@@ -86,10 +99,7 @@ class ApiClient {
       headers['x-org-id'] = this.organizationId;
     }
 
-    // Log request
-    console.log(`[API] ${options.method || 'GET'} ${endpoint}`, {
-      body: options.body ? JSON.parse(options.body as string) : undefined,
-    });
+    console.log(`[API] ${options.method || 'GET'} ${endpoint}`);
 
     const response = await fetch(url, {
       ...options,
@@ -97,11 +107,14 @@ class ApiClient {
       credentials: 'same-origin',
     });
 
-    // Log response status
-    console.log(`[API] ${options.method || 'GET'} ${endpoint} -> ${response.status}`);
+    // Parse JSON response
+    const data = await response.json().catch(() => ({ statusCode: response.status, message: 'Request failed' }));
+    const statusCode = data.statusCode || response.status;
+    
+    console.log(`[API] ${options.method || 'GET'} ${endpoint} -> ${statusCode}`);
 
     // Handle 401 - try to refresh token
-    if (response.status === 401 && this.refreshToken) {
+    if (statusCode === 401 && this.refreshToken) {
       console.log('[API] Token expired, attempting refresh...');
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
@@ -111,20 +124,23 @@ class ApiClient {
           headers,
           credentials: 'same-origin',
         });
-        const data = await retryResponse.json();
-        console.log(`[API] Retry ${endpoint} -> ${retryResponse.status}`, data);
-        return data;
+        const retryData = await retryResponse.json().catch(() => ({ statusCode: retryResponse.status, message: 'Request failed' }));
+        const retryStatusCode = retryData.statusCode || retryResponse.status;
+        console.log(`[API] Retry ${endpoint} -> ${retryStatusCode}`);
+        
+        if (retryStatusCode >= 400) {
+          throw new ApiError(retryData.message || retryData.error || 'Request failed', retryStatusCode, retryData.code);
+        }
+        return retryData;
       }
     }
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Request failed' }));
-      console.error(`[API] Error ${endpoint}:`, error);
-      throw new Error(error.message || error.error || 'Request failed');
+    // Check statusCode from response body
+    if (statusCode >= 400) {
+      console.error(`[API] Error ${endpoint}:`, data);
+      throw new ApiError(data.message || data.error || 'Request failed', statusCode, data.code);
     }
 
-    const data = await response.json();
-    console.log(`[API] Response ${endpoint}:`, data);
     return data;
   }
 
@@ -136,8 +152,10 @@ class ApiClient {
         body: JSON.stringify({ refreshToken: this.refreshToken }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      const data = await response.json().catch(() => ({ statusCode: response.status }));
+      const statusCode = data.statusCode || response.status;
+      
+      if (statusCode < 400 && data.accessToken) {
         this.setTokens(data);
         return true;
       }
@@ -150,20 +168,20 @@ class ApiClient {
 
   // Auth endpoints
   async login(email: string, password: string) {
-    console.log('[API] Login attempt with:', { identifier: email, passwordLength: password.length });
-    const data = await this.request<{ success: boolean; accessToken?: string; refreshToken?: string; user?: unknown; message?: string }>('/api/auth/login', {
+    console.log('[API] Login attempt');
+    const data = await this.request<{ success: boolean; statusCode: number; accessToken?: string; refreshToken?: string; user?: unknown; message?: string }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier: email, password }),
     });
-    console.log('[API] Login response:', data);
-    // Tokens are at root level, not inside data
-    if (data.success && data.accessToken && data.refreshToken) {
+    
+    // Check statusCode for success (2xx)
+    if (data.statusCode < 400 && data.accessToken && data.refreshToken) {
       this.setTokens({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
       });
     }
-    return { success: data.success, data: { user: data.user }, message: data.message };
+    return { success: data.statusCode < 400, statusCode: data.statusCode, data: { user: data.user }, message: data.message };
   }
 
   async register(username: string, email: string, password: string) {
@@ -258,12 +276,14 @@ class ApiClient {
       body: formData,
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-      throw new Error(error.message || 'Upload failed');
+    const data = await response.json().catch(() => ({ statusCode: response.status, message: 'Upload failed' }));
+    const statusCode = data.statusCode || response.status;
+
+    if (statusCode >= 400) {
+      throw new ApiError(data.message || data.error || 'Upload failed', statusCode, data.code);
     }
 
-    return response.json();
+    return data;
   }
 
   // Pipeline endpoints
@@ -316,6 +336,71 @@ class ApiClient {
   // Quota endpoints
   async getQuotas() {
     return this.request<ApiResponse<unknown>>('/api/organization/quotas');
+  }
+
+  // User management endpoints (System Admin / Org Admin)
+  async listUsers(params?: { organizationId?: string; role?: string; search?: string; page?: number; limit?: number }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<ApiResponse<unknown>>(`/api/users${query}`);
+  }
+
+  async getUserById(id: string) {
+    return this.request<ApiResponse<unknown>>(`/api/users/${id}`);
+  }
+
+  async updateUserById(id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null }) {
+    return this.request<ApiResponse<unknown>>(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteUserById(id: string) {
+    return this.request<ApiResponse<unknown>>(`/api/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Organization member endpoints
+  async getOrganizationMembers(orgId: string) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members`);
+  }
+
+  async addMemberToOrganization(orgId: string, data: { userId?: string; email?: string }) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeMemberFromOrganization(orgId: string, userId: string) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateMemberRole(orgId: string, userId: string, role: 'user' | 'admin') {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async transferOrganizationOwnership(orgId: string, newOwnerId: string) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/transfer-owner`, {
+      method: 'PATCH',
+      body: JSON.stringify({ newOwnerId }),
+    });
+  }
+
+  async deleteOrganization(orgId: string) {
+    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

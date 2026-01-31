@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
+import { Organization } from '../models';
 import { sendError } from '../utils';
 import logger from '../utils/logger';
 
@@ -163,6 +164,93 @@ export function quota(operation: string) {
 }
 
 /**
+ * Organization quota middleware factory
+ * Checks organization-level quotas (plugins, pipelines, apiCalls) that reset periodically
+ * Automatically resets usage when period expires
+ */
+export function organizationQuota(quotaType: 'plugins' | 'pipelines' | 'apiCalls') {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    // Require authenticated user
+    if (!req.user) {
+      return sendError(res, 401, 'Unauthorized');
+    }
+
+    // Require organization membership
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return sendError(res, 400, 'You must belong to an organization');
+    }
+
+    // System organization bypasses all quotas
+    if (organizationId === config.quota.bypassOrgId || req.user.organizationName === 'system') {
+      logger.debug('[ORG_QUOTA] Bypass organization - skipping quota', {
+        organizationId,
+        userId: req.user.sub,
+        quotaType,
+      });
+      return next();
+    }
+
+    try {
+      const org = await Organization.findById(organizationId);
+      if (!org) {
+        return sendError(res, 404, 'Organization not found');
+      }
+
+      // Reset quota if period has expired (auto-reset)
+      await org.resetUsageIfExpired(quotaType);
+
+      // Check quota
+      const quotaStatus = org.checkQuota(quotaType);
+
+      // Set quota headers
+      res.setHeader('X-Quota-Limit', quotaStatus.limit);
+      res.setHeader('X-Quota-Used', quotaStatus.used);
+      res.setHeader('X-Quota-Remaining', quotaStatus.remaining);
+      res.setHeader('X-Quota-Reset', quotaStatus.resetAt.toISOString());
+
+      if (!quotaStatus.allowed) {
+        const resetIn = Math.ceil((quotaStatus.resetAt.getTime() - Date.now()) / 1000);
+        res.setHeader('Retry-After', resetIn);
+
+        logger.warn('[ORG_QUOTA] Organization quota exceeded', {
+          organizationId,
+          userId: req.user.sub,
+          quotaType,
+          used: quotaStatus.used,
+          limit: quotaStatus.limit,
+          resetAt: quotaStatus.resetAt.toISOString(),
+        });
+
+        return sendError(
+          res,
+          429,
+          `Organization ${quotaType} quota exceeded (${quotaStatus.used}/${quotaStatus.limit}). Resets at ${quotaStatus.resetAt.toISOString()}.`,
+          'ORG_QUOTA_EXCEEDED',
+        );
+      }
+
+      // Increment usage after successful check
+      await org.incrementUsage(quotaType);
+
+      logger.debug('[ORG_QUOTA] Request allowed', {
+        organizationId,
+        userId: req.user.sub,
+        quotaType,
+        used: quotaStatus.used + 1,
+        limit: quotaStatus.limit,
+        remaining: quotaStatus.remaining - 1,
+      });
+
+      next();
+    } catch (err) {
+      logger.error('[ORG_QUOTA] Error checking organization quota', { error: err });
+      return sendError(res, 500, 'Error checking organization quota');
+    }
+  };
+}
+
+/**
  * Pre-configured quota middlewares for pipeline operations
  */
 export const quotaCreatePipeline = quota('create-pipeline');
@@ -173,6 +261,13 @@ export const quotaGetPipeline = quota('get-pipeline');
  */
 export const quotaCreatePlugin = quota('create-plugin');
 export const quotaGetPlugin = quota('get-plugin');
+
+/**
+ * Pre-configured organization quota middlewares
+ */
+export const orgQuotaPlugins = organizationQuota('plugins');
+export const orgQuotaPipelines = organizationQuota('pipelines');
+export const orgQuotaApiCalls = organizationQuota('apiCalls');
 
 /**
  * Get current quota status for an organization
@@ -203,4 +298,33 @@ export function getQuotaStatus(organizationId: string, operation: string): {
     remaining: quotaConfig.limit - entry.count,
     resetAt: entry.resetAt,
   };
+}
+
+/**
+ * Get organization quota status
+ */
+export async function getOrganizationQuotaStatus(
+  organizationId: string,
+  quotaType: 'plugins' | 'pipelines' | 'apiCalls',
+): Promise<{
+  limit: number;
+  used: number;
+  remaining: number;
+  resetAt: Date;
+  allowed: boolean;
+} | null> {
+  try {
+    const org = await Organization.findById(organizationId);
+    if (!org) {
+      return null;
+    }
+
+    // Reset if expired
+    await org.resetUsageIfExpired(quotaType);
+
+    const status = org.checkQuota(quotaType);
+    return status;
+  } catch {
+    return null;
+  }
 }

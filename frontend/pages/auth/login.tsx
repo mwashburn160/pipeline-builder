@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Button, Input, Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui';
 import { GitBranch } from 'lucide-react';
+import { ApiError } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,13 +20,23 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      console.log('[Login] Starting login...');
       await login(email, password);
-      console.log('[Login] Login successful, redirecting...');
       window.location.href = '/dashboard';
     } catch (err) {
-      console.error('[Login] Login failed:', err);
-      setError(err instanceof Error ? err.message : 'Login failed');
+      if (err instanceof ApiError) {
+        // Handle specific status codes
+        if (err.statusCode === 401) {
+          setError('Invalid email or password');
+        } else if (err.statusCode === 403) {
+          setError('Account is disabled or not verified');
+        } else if (err.statusCode === 429) {
+          setError('Too many attempts. Please try again later');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed');
+      }
       setIsLoading(false);
     }
   };

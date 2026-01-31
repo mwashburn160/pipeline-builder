@@ -10,6 +10,7 @@ import {
   isAuthenticated,
   quotaCreatePlugin,
   quotaGetPlugin,
+  orgQuotaPlugins,
 } from '../middleware';
 
 const router = Router();
@@ -57,7 +58,8 @@ router.get('/:id', isAuthenticated, quotaGetPlugin, getPluginById);
  * Upload and create a new plugin
  * POST /plugin
  * Body: multipart/form-data with 'plugin' file and optional 'accessModifier'
+ * Checks both rate limit (quotaCreatePlugin) and organization quota (orgQuotaPlugins)
  */
-router.post('/', isAuthenticated, quotaCreatePlugin, upload.single('plugin'), createPlugin);
+router.post('/', isAuthenticated, quotaCreatePlugin, orgQuotaPlugins, upload.single('plugin'), createPlugin);
 
 export default router;

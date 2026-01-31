@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, userRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes } from './routes';
+import { authRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes } from './routes';
 import { logger } from './utils';
 
 /**
@@ -95,6 +95,7 @@ app.get('/metrics', (_req: Request, res: Response) => {
  */
 app.use('/auth', authRoutes);
 app.use('/user', userRoutes);
+app.use('/users', usersRoutes);
 app.use('/organization', organizationRoutes);
 app.use('/organizations', organizationsRoutes);
 app.use('/invitation', invitationRoutes);

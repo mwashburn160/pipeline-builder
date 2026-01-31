@@ -3,12 +3,29 @@ import slugify from 'slugify';
 import { config } from '../config';
 
 /**
+ * Quota usage tracking interface
+ */
+export interface IQuotaUsage {
+  used: number;
+  resetAt: Date;
+}
+
+/**
  * Quota limits interface
  */
 export interface IQuotaLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+}
+
+/**
+ * Quota usage interface
+ */
+export interface IQuotaUsageTracking {
+  plugins: IQuotaUsage;
+  pipelines: IQuotaUsage;
+  apiCalls: IQuotaUsage;
 }
 
 /**
@@ -21,7 +38,57 @@ export interface IOrganization extends Document {
   owner: Types.ObjectId;
   members: Types.ObjectId[];
   quotas: IQuotaLimits;
+  usage: IQuotaUsageTracking;
+  // Methods
+  checkQuota(type: 'plugins' | 'pipelines' | 'apiCalls'): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date };
+  incrementUsage(type: 'plugins' | 'pipelines' | 'apiCalls', amount?: number): Promise<IOrganization>;
+  resetUsageIfExpired(type: 'plugins' | 'pipelines' | 'apiCalls'): Promise<boolean>;
 }
+
+/**
+ * Get next reset date based on reset period
+ * Supports: hourly, daily, weekly, monthly, or Ndays (e.g. '3days', '7days')
+ */
+function getNextResetDate(resetPeriod: string): Date {
+  const now = new Date();
+
+  // Check for custom day period (e.g. '3days', '7days')
+  const dayMatch = resetPeriod.match(/^(\d+)days?$/i);
+  if (dayMatch) {
+    const days = parseInt(dayMatch[1], 10);
+    const future = new Date(now);
+    future.setDate(future.getDate() + days);
+    future.setHours(0, 0, 0, 0);
+    return future;
+  }
+
+  switch (resetPeriod) {
+    case 'hourly':
+      return new Date(now.getTime() + 60 * 60 * 1000);
+    case 'daily':
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      return tomorrow;
+    case 'weekly':
+      const nextWeek = new Date(now);
+      nextWeek.setDate(nextWeek.getDate() + (7 - nextWeek.getDay()));
+      nextWeek.setHours(0, 0, 0, 0);
+      return nextWeek;
+    case 'monthly':
+    default:
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+      return nextMonth;
+  }
+}
+
+const quotaUsageSchema = new Schema<IQuotaUsage>(
+  {
+    used: { type: Number, default: 0, min: 0 },
+    resetAt: { type: Date, default: () => getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+  },
+  { _id: false },
+);
 
 const organizationSchema = new Schema<IOrganization>(
   {
@@ -65,26 +132,144 @@ const organizationSchema = new Schema<IOrganization>(
       plugins: {
         type: Number,
         default: () => config.quota.organization.plugins,
-        min: 0,
+        min: -1, // -1 means unlimited
       },
       pipelines: {
         type: Number,
         default: () => config.quota.organization.pipelines,
-        min: 0,
+        min: -1, // -1 means unlimited
       },
       apiCalls: {
         type: Number,
         default: () => config.quota.organization.apiCalls,
-        min: 0,
+        min: -1, // -1 means unlimited
+      },
+    },
+    usage: {
+      plugins: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') }),
+      },
+      pipelines: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') }),
+      },
+      apiCalls: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') }),
       },
     },
   },
   {
     timestamps: true,
     collection: 'organizations',
-    _id: false, // Disable automatic _id generation since we define it ourselves
+    _id: false,
   },
 );
+
+/**
+ * Check if usage should be reset and reset if expired
+ */
+organizationSchema.methods.resetUsageIfExpired = async function (
+  type: 'plugins' | 'pipelines' | 'apiCalls',
+): Promise<boolean> {
+  const now = new Date();
+
+  if (!this.usage) {
+    this.usage = {
+      plugins: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') },
+      pipelines: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') },
+      apiCalls: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+    };
+    await this.save();
+    return true;
+  }
+
+  if (!this.usage[type]) {
+    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
+    this.usage[type] = { used: 0, resetAt: getNextResetDate(resetPeriod) };
+    await this.save();
+    return true;
+  }
+
+  if (this.usage[type].resetAt <= now) {
+    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
+    this.usage[type].used = 0;
+    this.usage[type].resetAt = getNextResetDate(resetPeriod);
+    await this.save();
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Check quota for a specific type
+ * Returns unlimited if limit is -1
+ */
+organizationSchema.methods.checkQuota = function (
+  type: 'plugins' | 'pipelines' | 'apiCalls',
+): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date } {
+  const limit = this.quotas?.[type] ?? config.quota.organization[type];
+  const usage = this.usage?.[type] || { used: 0, resetAt: new Date() };
+  const now = new Date();
+
+  // Unlimited quota (-1 means unlimited)
+  if (limit === -1) {
+    return {
+      allowed: true,
+      used: usage.used,
+      limit: -1,
+      remaining: -1,
+      resetAt: usage.resetAt,
+    };
+  }
+
+  // Check if reset period has passed
+  if (usage.resetAt <= now) {
+    return {
+      allowed: true,
+      used: 0,
+      limit,
+      remaining: limit,
+      resetAt: usage.resetAt,
+    };
+  }
+
+  const used = usage.used;
+  const remaining = Math.max(0, limit - used);
+  const allowed = used < limit;
+
+  return { allowed, used, limit, remaining, resetAt: usage.resetAt };
+};
+
+/**
+ * Increment usage for a specific type
+ */
+organizationSchema.methods.incrementUsage = async function (
+  type: 'plugins' | 'pipelines' | 'apiCalls',
+  amount: number = 1,
+): Promise<IOrganization> {
+  // First, reset if expired
+  await this.resetUsageIfExpired(type);
+
+  // Initialize usage if not present
+  if (!this.usage) {
+    this.usage = {
+      plugins: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') },
+      pipelines: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') },
+      apiCalls: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+    };
+  }
+
+  if (!this.usage[type]) {
+    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
+    this.usage[type] = { used: 0, resetAt: getNextResetDate(resetPeriod) };
+  }
+
+  this.usage[type].used += amount;
+  return this.save();
+};
 
 /**
  * Generate unique slug from organization name

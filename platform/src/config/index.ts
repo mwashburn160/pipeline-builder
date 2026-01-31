@@ -89,6 +89,12 @@ export const config = {
       pipelines: parseInt(process.env.QUOTA_ORG_PIPELINES_DEFAULT || '50'),
       apiCalls: parseInt(process.env.QUOTA_ORG_API_CALLS_DEFAULT || '10000'),
     },
+    // Reset periods for organization quotas (hourly, daily, weekly, monthly, or Ndays e.g. '3days')
+    resetPeriod: {
+      plugins: process.env.QUOTA_RESET_PERIOD_PLUGINS || '3days',
+      pipelines: process.env.QUOTA_RESET_PERIOD_PIPELINES || '3days',
+      apiCalls: process.env.QUOTA_RESET_PERIOD_API_CALLS || '3days',
+    },
     // Pipeline quotas
     pipeline: {
       create: {

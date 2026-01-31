@@ -265,7 +265,7 @@ services:
           memory: 192M
 
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:0.1.28'
+    image: 'ghcr.io/mwashburn160/frontend:0.1.30'
     container_name: frontend
     restart: always
     networks:
@@ -296,7 +296,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/platform:0.1.39'
+    image: 'ghcr.io/mwashburn160/platform:0.1.41'
     container_name: platform
     depends_on:
       mongodb:
@@ -343,7 +343,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.32'
+    image: 'ghcr.io/mwashburn160/upload-plugin:0.1.41'
     container_name: upload-plugin
     privileged: true
     depends_on:
@@ -360,7 +360,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-plugin:0.1.31'
+    image: 'ghcr.io/mwashburn160/get-plugin:0.1.40'
     container_name: get-plugin
     depends_on:
       postgres:
@@ -373,7 +373,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-plugins:0.1.33'
+    image: 'ghcr.io/mwashburn160/list-plugins:0.1.42'
     container_name: list-plugins
     depends_on:
       postgres:
@@ -386,7 +386,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.32'
+    image: 'ghcr.io/mwashburn160/create-pipeline:0.1.41'
     container_name: create-pipeline
     depends_on:
       postgres:
@@ -399,7 +399,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.31'
+    image: 'ghcr.io/mwashburn160/get-pipeline:0.1.40'
     container_name: get-pipeline
     depends_on:
       postgres:
@@ -412,7 +412,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.33'
+    image: 'ghcr.io/mwashburn160/list-pipelines:0.1.42'
     container_name: list-pipelines
     depends_on:
       postgres:

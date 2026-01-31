@@ -10,6 +10,7 @@ import { isAuthenticated } from '../middleware';
 
 const router = Router();
 
+// Current user endpoints
 router.get('/profile', isAuthenticated, getUser);
 router.patch('/profile', isAuthenticated, updateUser);
 router.delete('/account', isAuthenticated, deleteUser);

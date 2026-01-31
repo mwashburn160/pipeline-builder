@@ -60,9 +60,15 @@ export async function register(req: Request, res: Response): Promise<void> {
           members: [user._id],
         };
 
-        // Set custom _id for system organization
+        // Set custom _id and unlimited quotas for system organization
         if (isSystemOrg) {
           orgData._id = 'system';
+          // Set all quotas to -1 (unlimited)
+          orgData.quotas = {
+            plugins: -1,
+            pipelines: -1,
+            apiCalls: -1,
+          };
         }
 
         const [org] = await Organization.create([orgData], { session });
