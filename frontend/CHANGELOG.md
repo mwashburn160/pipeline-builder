@@ -1,3 +1,13 @@
+## 0.1.36 (2026-01-31)
+
+### 🩹 Fixes
+
+- updated .dockerignore ([59ab712](https://github.com/mwashburn160/pipeline-builder/commit/59ab712))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.35 (2026-01-31)
 
 ### 🩹 Fixes
