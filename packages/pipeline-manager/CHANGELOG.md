@@ -1,3 +1,13 @@
+## 0.1.45 (2026-01-31)
+
+### 🩹 Fixes
+
+- re-version ([40ff542](https://github.com/mwashburn160/pipeline-builder/commit/40ff542))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.44 (2026-01-31)
 
 ### 🩹 Fixes

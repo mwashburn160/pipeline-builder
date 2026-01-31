@@ -1,3 +1,14 @@
+## 0.1.34 (2026-01-31)
+
+### 🩹 Fixes
+
+- add tailwindcss ([0cd5ad7](https://github.com/mwashburn160/pipeline-builder/commit/0cd5ad7))
+- re-version ([40ff542](https://github.com/mwashburn160/pipeline-builder/commit/40ff542))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.33 (2026-01-31)
 
 ### 🩹 Fixes
