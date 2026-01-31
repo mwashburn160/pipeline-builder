@@ -3,7 +3,13 @@ import mongoose from 'mongoose';
 import { config } from '../config';
 import { Invitation, Organization, User } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation.model';
-import { logger, sendError, emailService } from '../utils';
+import {
+  logger,
+  sendError,
+  ErrorCode,
+  HttpStatus,
+  emailService,
+} from '../utils';
 
 /**
  * Send invitation to join organization
@@ -14,7 +20,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const {
@@ -28,19 +34,19 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
     const inviterId = req.user.sub;
 
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization to send invitations');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization to send invitations', ErrorCode.INVALID_INPUT);
     }
 
     if (!email) {
-      return sendError(res, 400, 'Email is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Email is required', ErrorCode.INVALID_INPUT);
     }
 
     if (!['user', 'admin'].includes(role)) {
-      return sendError(res, 400, 'Invalid role. Must be "user" or "admin"');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Invalid role. Must be "user" or "admin"', ErrorCode.INVALID_INPUT);
     }
 
     if (!['email', 'oauth', 'any'].includes(invitationType)) {
-      return sendError(res, 400, 'Invalid invitation type. Must be "email", "oauth", or "any"');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Invalid invitation type. Must be "email", "oauth", or "any"', ErrorCode.INVALID_INPUT);
     }
 
     // Validate OAuth providers if specified
@@ -48,7 +54,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
       const validProviders = ['google', 'github', 'microsoft'];
       const invalidProviders = allowedOAuthProviders.filter(p => !validProviders.includes(p));
       if (invalidProviders.length > 0) {
-        return sendError(res, 400, `Invalid OAuth providers: ${invalidProviders.join(', ')}`);
+        return sendError(res, HttpStatus.BAD_REQUEST, `Invalid OAuth providers: ${invalidProviders.join(', ')}`);
       }
     }
 
@@ -201,7 +207,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
     const { token } = req.body;
 
     if (!token) {
-      return sendError(res, 400, 'Invitation token is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Invitation token is required', ErrorCode.INVALID_INPUT);
     }
 
     // User must be authenticated to accept
@@ -344,15 +350,15 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
     const { token, oauthProvider, oauthData } = req.body;
 
     if (!token) {
-      return sendError(res, 400, 'Invitation token is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Invitation token is required', ErrorCode.INVALID_INPUT);
     }
 
     if (!oauthProvider || !['google', 'github', 'microsoft'].includes(oauthProvider)) {
-      return sendError(res, 400, 'Valid OAuth provider is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Valid OAuth provider is required', ErrorCode.INVALID_INPUT);
     }
 
     if (!oauthData || !oauthData.id || !oauthData.email) {
-      return sendError(res, 400, 'OAuth data with id and email is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'OAuth data with id and email is required', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -517,7 +523,7 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
     const { token } = req.params;
 
     if (!token) {
-      return sendError(res, 400, 'Invitation token is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Invitation token is required', ErrorCode.INVALID_INPUT);
     }
 
     const invitation = await Invitation.findOne({ token })
@@ -525,7 +531,7 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
       .populate('invitedBy', 'username');
 
     if (!invitation) {
-      return sendError(res, 404, 'Invitation not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Invitation not found', ErrorCode.NOT_FOUND);
     }
 
     // Check if expired and update status
@@ -555,7 +561,7 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
     });
   } catch (err) {
     logger.error('[GET INVITATION] Failed:', err);
-    return sendError(res, 500, 'Failed to get invitation');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to get invitation', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -566,12 +572,12 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
 export async function listInvitations(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const organizationId = req.user.organizationId;
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization', ErrorCode.INVALID_INPUT);
     }
 
     const { status, invitationType, page = 1, limit = 20 } = req.query;
@@ -609,7 +615,7 @@ export async function listInvitations(req: Request, res: Response): Promise<void
     });
   } catch (err) {
     logger.error('[LIST INVITATIONS] Failed:', err);
-    return sendError(res, 500, 'Failed to list invitations');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to list invitations', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -620,14 +626,14 @@ export async function listInvitations(req: Request, res: Response): Promise<void
 export async function revokeInvitation(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { invitationId } = req.params;
     const organizationId = req.user.organizationId;
 
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization', ErrorCode.INVALID_INPUT);
     }
 
     const invitation = await Invitation.findOne({
@@ -636,17 +642,17 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
     });
 
     if (!invitation) {
-      return sendError(res, 404, 'Invitation not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Invitation not found', ErrorCode.NOT_FOUND);
     }
 
     if (invitation.status !== 'pending') {
-      return sendError(res, 400, `Cannot revoke invitation with status: ${invitation.status}`);
+      return sendError(res, HttpStatus.BAD_REQUEST, `Cannot revoke invitation with status: ${invitation.status}`);
     }
 
     // Verify requester is org owner or admin
     const org = await Organization.findById(organizationId);
     if (!org || (org.owner.toString() !== req.user.sub && !req.user.isAdmin)) {
-      return sendError(res, 403, 'You are not authorized to revoke invitations');
+      return sendError(res, HttpStatus.FORBIDDEN, 'You are not authorized to revoke invitations', ErrorCode.FORBIDDEN);
     }
 
     invitation.status = 'revoked';
@@ -664,7 +670,7 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
     });
   } catch (err) {
     logger.error('[REVOKE INVITATION] Failed:', err);
-    return sendError(res, 500, 'Failed to revoke invitation');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to revoke invitation', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -675,14 +681,14 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
 export async function resendInvitation(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { invitationId } = req.params;
     const organizationId = req.user.organizationId;
 
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization', ErrorCode.INVALID_INPUT);
     }
 
     const invitation = await Invitation.findOne({
@@ -692,18 +698,18 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
     });
 
     if (!invitation) {
-      return sendError(res, 404, 'Pending invitation not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Pending invitation not found', ErrorCode.NOT_FOUND);
     }
 
     // Verify requester is org owner or admin
     const org = await Organization.findById(organizationId);
     if (!org || (org.owner.toString() !== req.user.sub && !req.user.isAdmin)) {
-      return sendError(res, 403, 'You are not authorized to resend invitations');
+      return sendError(res, HttpStatus.FORBIDDEN, 'You are not authorized to resend invitations', ErrorCode.FORBIDDEN);
     }
 
     const inviter = await User.findById(invitation.invitedBy);
     if (!inviter) {
-      return sendError(res, 404, 'Inviter not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Inviter not found', ErrorCode.NOT_FOUND);
     }
 
     // Extend expiration
@@ -725,7 +731,7 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
     });
 
     if (!emailSent && config.email.enabled) {
-      return sendError(res, 500, 'Failed to send invitation email');
+      return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to send invitation email', ErrorCode.INTERNAL_ERROR);
     }
 
     logger.info('[RESEND INVITATION] Invitation resent', {
@@ -741,6 +747,6 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
     });
   } catch (err) {
     logger.error('[RESEND INVITATION] Failed:', err);
-    return sendError(res, 500, 'Failed to resend invitation');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to resend invitation', ErrorCode.INTERNAL_ERROR);
   }
 }

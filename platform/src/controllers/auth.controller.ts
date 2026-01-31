@@ -1,9 +1,15 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { User, Organization } from '../models';
+import { RegistrationResult, OrganizationCreateData } from '../types';
 import {
   logger,
   sendError,
+  sendCreated,
+  sendOk,
+  sendMessage,
+  ErrorCode,
+  HttpStatus,
   generateTokenPair,
   hashRefreshToken,
 } from '../utils';
@@ -14,7 +20,7 @@ import {
  */
 export async function register(req: Request, res: Response): Promise<void> {
   const session = await mongoose.startSession();
-  let result;
+  let result: RegistrationResult | undefined;
 
   try {
     await session.withTransaction(async () => {
@@ -54,7 +60,7 @@ export async function register(req: Request, res: Response): Promise<void> {
         const isSystemOrg = trimmedOrgName.toLowerCase() === 'system';
 
         // If organization name is 'system', use 'system' as both ID and name
-        const orgData: any = {
+        const orgData: OrganizationCreateData = {
           name: isSystemOrg ? 'system' : trimmedOrgName,
           owner: user._id,
           members: [user._id],
@@ -73,7 +79,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
         const [org] = await Organization.create([orgData], { session });
 
-        user.organizationId = org._id as any;
+        user.organizationId = org._id as mongoose.Types.ObjectId;
         orgName = org.name;
         orgId = String(org._id);
       }
@@ -89,17 +95,18 @@ export async function register(req: Request, res: Response): Promise<void> {
       };
     });
 
-    res.status(201).json({ success: true, statusCode: 201, user: result });
-  } catch (err: any) {
-    if (err.message === 'MISSING_FIELDS') {
-      return sendError(res, 400, 'Missing required fields');
+    sendCreated(res, { user: result }, 'Registration successful');
+  } catch (err: unknown) {
+    const error = err as Error;
+    if (error.message === 'MISSING_FIELDS') {
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Missing required fields: username, email, and password are required', ErrorCode.MISSING_FIELDS);
     }
-    if (err.message === 'DUPLICATE_CREDENTIALS') {
-      return sendError(res, 409, 'Credentials already in use');
+    if (error.message === 'DUPLICATE_CREDENTIALS') {
+      return sendError(res, HttpStatus.CONFLICT, 'Email or username already in use', ErrorCode.DUPLICATE);
     }
 
-    logger.error('Registration Failed', err);
-    return sendError(res, 500, 'Registration failed');
+    logger.error('Registration Failed', error);
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Registration failed', ErrorCode.INTERNAL_ERROR);
   } finally {
     await session.endSession();
   }
@@ -114,7 +121,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const { identifier, password } = req.body;
 
     if (!identifier || !password) {
-      return sendError(res, 400, 'Missing required fields');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Missing required fields: identifier and password are required', ErrorCode.MISSING_FIELDS);
     }
 
     const user = await User.findOne({
@@ -125,7 +132,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     }).select('+password +tokenVersion');
 
     if (!user || !(await user.comparePassword(password))) {
-      return sendError(res, 401, 'Invalid credentials');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid credentials', ErrorCode.INVALID_CREDENTIALS);
     }
 
     const { accessToken, refreshToken } = generateTokenPair(user);
@@ -136,10 +143,10 @@ export async function login(req: Request, res: Response): Promise<void> {
       { $set: { refreshToken: hashedRefresh } },
     );
 
-    res.json({ success: true, statusCode: 200, accessToken, refreshToken });
+    sendOk(res, { accessToken, refreshToken }, 'Login successful');
   } catch (err) {
     logger.error('Login Error', err);
-    return sendError(res, 500, 'Login failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Login failed', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -150,12 +157,12 @@ export async function login(req: Request, res: Response): Promise<void> {
 export async function refresh(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const user = await User.findById(req.user.sub);
     if (!user) {
-      return sendError(res, 404, 'User not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     const { accessToken, refreshToken } = generateTokenPair(user);
@@ -166,10 +173,10 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       { $set: { refreshToken: hashedRefresh } },
     );
 
-    res.json({ success: true, statusCode: 200, accessToken, refreshToken });
+    sendOk(res, { accessToken, refreshToken }, 'Token refreshed successfully');
   } catch (err) {
     logger.error('Refresh Error', err);
-    return sendError(res, 500, 'Renewal failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Token refresh failed', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -181,7 +188,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     await User.updateOne(
@@ -189,8 +196,8 @@ export async function logout(req: Request, res: Response): Promise<void> {
       { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
     );
 
-    res.json({ success: true, statusCode: 200, message: 'Logged out' });
+    sendMessage(res, 'Logged out successfully');
   } catch (err) {
-    return sendError(res, 500, 'Logout failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Logout failed', ErrorCode.INTERNAL_ERROR);
   }
 }

@@ -5,15 +5,15 @@ import {
   updateUserById,
   deleteUserById,
 } from '../controllers';
-import { isAuthenticated } from '../middleware';
+import { isAuthenticated, adminRateLimiters } from '../middleware';
 
 const router = Router();
 
 // System admin user management endpoints
 // All these endpoints require system admin access (checked in controller)
-router.get('/', isAuthenticated, listAllUsers);
-router.get('/:id', isAuthenticated, getUserById);
-router.put('/:id', isAuthenticated, updateUserById);
-router.delete('/:id', isAuthenticated, deleteUserById);
+router.get('/', isAuthenticated, adminRateLimiters.userManagement, listAllUsers);
+router.get('/:id', isAuthenticated, adminRateLimiters.userManagement, getUserById);
+router.put('/:id', isAuthenticated, adminRateLimiters.userManagement, updateUserById);
+router.delete('/:id', isAuthenticated, adminRateLimiters.userManagement, deleteUserById);
 
 export default router;

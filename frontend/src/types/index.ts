@@ -1,3 +1,6 @@
+/**
+ * User model
+ */
 export interface User {
   id: string;
   username: string;
@@ -6,10 +9,30 @@ export interface User {
   organizationId?: string;
   organizationName?: string;
   isEmailVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
+/**
+ * Check if user is system admin
+ */
+export function isSystemAdmin(user: User | null): boolean {
+  if (!user || user.role !== 'admin') return false;
+  const orgId = user.organizationId?.toLowerCase();
+  const orgName = user.organizationName?.toLowerCase();
+  return orgId === 'system' || orgName === 'system';
+}
+
+/**
+ * Check if user is organization admin
+ */
+export function isOrgAdmin(user: User | null): boolean {
+  return user?.role === 'admin' && !isSystemAdmin(user);
+}
+
+/**
+ * Organization member
+ */
 export interface OrganizationMember {
   id: string;
   username: string;
@@ -21,6 +44,9 @@ export interface OrganizationMember {
   updatedAt?: string;
 }
 
+/**
+ * Quota information
+ */
 export interface QuotaInfo {
   used: number;
   limit: number | 'unlimited';
@@ -30,12 +56,18 @@ export interface QuotaInfo {
   unlimited: boolean;
 }
 
+/**
+ * Organization quotas
+ */
 export interface OrganizationQuotas {
   plugins: QuotaInfo;
   pipelines: QuotaInfo;
   apiCalls: QuotaInfo;
 }
 
+/**
+ * Organization model
+ */
 export interface Organization {
   id: string;
   name: string;
@@ -48,6 +80,9 @@ export interface Organization {
   updatedAt: string;
 }
 
+/**
+ * Plugin model
+ */
 export interface Plugin {
   id: string;
   name: string;
@@ -65,6 +100,9 @@ export interface Plugin {
   updatedAt: string;
 }
 
+/**
+ * Pipeline model
+ */
 export interface Pipeline {
   id: string;
   project: string;
@@ -79,11 +117,14 @@ export interface Pipeline {
   updatedAt: string;
 }
 
+/**
+ * Invitation model
+ */
 export interface Invitation {
   id: string;
   email: string;
   role: 'user' | 'admin';
-  status: 'pending' | 'accepted' | 'expired' | 'cancelled';
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
   invitedBy: string;
   inviterName: string;
   organizationId: string;
@@ -92,26 +133,116 @@ export interface Invitation {
   createdAt: string;
 }
 
+/**
+ * Auth tokens
+ */
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
-export interface ApiResponse<T> {
+/**
+ * Standard API response format (matches backend)
+ */
+export interface ApiResponse<T = unknown> {
   success: boolean;
   statusCode: number;
   data?: T;
   message?: string;
-  error?: string;
   code?: string;
+  details?: Record<string, unknown>;
+  timestamp?: string;
 }
 
-export interface PaginatedResponse<T> {
+/**
+ * Paginated API response format (matches backend)
+ */
+export interface PaginatedResponse<T = unknown> {
   success: boolean;
   statusCode: number;
   data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  meta?: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+  timestamp?: string;
+}
+
+/**
+ * Standard error codes from backend
+ */
+export const ErrorCode = {
+  // Authentication errors
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+  TOKEN_INVALID: 'TOKEN_INVALID',
+  SESSION_INVALID: 'SESSION_INVALID',
+  
+  // Authorization errors
+  FORBIDDEN: 'FORBIDDEN',
+  ADMIN_REQUIRED: 'ADMIN_REQUIRED',
+  SYSTEM_ADMIN_REQUIRED: 'SYSTEM_ADMIN_REQUIRED',
+  ORG_ADMIN_REQUIRED: 'ORG_ADMIN_REQUIRED',
+  
+  // Validation errors
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  MISSING_FIELDS: 'MISSING_FIELDS',
+  INVALID_INPUT: 'INVALID_INPUT',
+  INVALID_FORMAT: 'INVALID_FORMAT',
+  
+  // Resource errors
+  NOT_FOUND: 'NOT_FOUND',
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  ORG_NOT_FOUND: 'ORG_NOT_FOUND',
+  INVITATION_NOT_FOUND: 'INVITATION_NOT_FOUND',
+  PLUGIN_NOT_FOUND: 'PLUGIN_NOT_FOUND',
+  PIPELINE_NOT_FOUND: 'PIPELINE_NOT_FOUND',
+  
+  // Conflict errors
+  CONFLICT: 'CONFLICT',
+  DUPLICATE: 'DUPLICATE',
+  EMAIL_TAKEN: 'EMAIL_TAKEN',
+  USERNAME_TAKEN: 'USERNAME_TAKEN',
+  ALREADY_EXISTS: 'ALREADY_EXISTS',
+  ALREADY_MEMBER: 'ALREADY_MEMBER',
+  
+  // Rate limiting errors
+  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+  ORG_QUOTA_EXCEEDED: 'ORG_QUOTA_EXCEEDED',
+  
+  // Server errors
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  SERVICE_ERROR: 'SERVICE_ERROR',
+} as const;
+
+export type ErrorCodeType = typeof ErrorCode[keyof typeof ErrorCode];
+
+/**
+ * Check if an API error has a specific code
+ */
+export function hasErrorCode(error: unknown, code: ErrorCodeType): boolean {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return (error as { code: string }).code === code;
+  }
+  return false;
+}
+
+/**
+ * Get user-friendly error message
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object') {
+    if ('message' in error && typeof (error as { message: unknown }).message === 'string') {
+      return (error as { message: string }).message;
+    }
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'An unexpected error occurred';
 }

@@ -1,9 +1,15 @@
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { User, Organization } from '../models';
+import { UserFilter, LeanUser } from '../types';
 import {
   logger,
   sendError,
+  sendOk,
+  sendMessage,
+  sendPaginated,
+  ErrorCode,
+  HttpStatus,
   generateTokenPair,
 } from '../utils';
 
@@ -25,7 +31,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const user = await User.findById(userId)
@@ -33,7 +39,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
       .lean();
 
     if (!user) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     // Look up organization name if user has an organizationId
@@ -43,9 +49,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
       organizationName = org?.name || null;
     }
 
-    res.json({
-      success: true,
-      statusCode: 200,
+    sendOk(res, {
       user: {
         ...user,
         sub: user._id.toString(),
@@ -55,7 +59,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
     });
   } catch (err) {
     logger.error('[GET USER] Error:', err);
-    return sendError(res, 500, 'Failed to fetch user');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to fetch user', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -74,7 +78,7 @@ function isOrgAdmin(req: Request): boolean {
 export async function listAllUsers(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const isSysAdmin = isSystemAdmin(req);
@@ -82,33 +86,33 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
 
     // Must be either system admin or org admin
     if (!isSysAdmin && !isOrgAdminUser) {
-      return sendError(res, 403, 'Forbidden: Admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required', ErrorCode.ADMIN_REQUIRED);
     }
 
     const { organizationId, role, search, page = '1', limit = '20' } = req.query;
 
     // Build filter
-    const filter: any = {};
+    const filter: UserFilter = {};
 
     // Org admins can only view users in their organization
     if (isOrgAdminUser) {
       filter.organizationId = req.user.organizationId;
       // If they specify a different org, deny
       if (organizationId && organizationId !== req.user.organizationId) {
-        return sendError(res, 403, 'Forbidden: Can only view users in your organization');
+        return sendError(res, HttpStatus.FORBIDDEN, 'Can only view users in your organization', ErrorCode.FORBIDDEN);
       }
     } else if (organizationId) {
       // System admin can filter by any org
-      filter.organizationId = organizationId;
+      filter.organizationId = organizationId as string;
     }
 
     if (role && ['user', 'admin'].includes(role as string)) {
-      filter.role = role;
+      filter.role = role as 'user' | 'admin';
     }
     if (search) {
       filter.$or = [
-        { username: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { username: { $regex: search as string, $options: 'i' } },
+        { email: { $regex: search as string, $options: 'i' } },
       ];
     }
 
@@ -133,30 +137,25 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
       : [];
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o.name]));
 
-    const usersWithOrg = users.map(user => ({
-      id: user._id.toString(),
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      isEmailVerified: user.isEmailVerified,
-      organizationId: user.organizationId?.toString() || null,
-      organizationName: user.organizationId ? orgMap.get(user.organizationId.toString()) || null : null,
-      createdAt: (user as any).createdAt,
-      updatedAt: (user as any).updatedAt,
-    }));
-
-    res.json({
-      success: true,
-      statusCode: 200,
-      users: usersWithOrg,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
+    const usersWithOrg = users.map(user => {
+      const typedUser = user as LeanUser;
+      return {
+        id: typedUser._id.toString(),
+        username: typedUser.username,
+        email: typedUser.email,
+        role: typedUser.role,
+        isEmailVerified: typedUser.isEmailVerified,
+        organizationId: typedUser.organizationId?.toString() || null,
+        organizationName: typedUser.organizationId ? orgMap.get(typedUser.organizationId.toString()) || null : null,
+        createdAt: typedUser.createdAt,
+        updatedAt: typedUser.updatedAt,
+      };
     });
+
+    sendPaginated(res, usersWithOrg, total, pageNum, limitNum);
   } catch (err) {
     logger.error('[LIST USERS] Error:', err);
-    return sendError(res, 500, 'Failed to list users');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to list users', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -167,14 +166,14 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
 export async function getUserById(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const isSysAdmin = isSystemAdmin(req);
     const isOrgAdminUser = isOrgAdmin(req);
 
     if (!isSysAdmin && !isOrgAdminUser) {
-      return sendError(res, 403, 'Forbidden: Admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required', ErrorCode.ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
@@ -184,17 +183,17 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
       .lean();
 
     if (!user) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     // Org admins can only view users in their organization
     if (isOrgAdminUser && user.organizationId?.toString() !== req.user.organizationId) {
-      return sendError(res, 403, 'Forbidden: Can only view users in your organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Can only view users in your organization', ErrorCode.FORBIDDEN);
     }
 
     // Get organization info
     let organizationName: string | null = null;
-    let organization: any = null;
+    let organization: { id: string; name: string; slug: string } | null = null;
     if (user.organizationId) {
       const org = await Organization.findById(user.organizationId).select('_id name slug').lean();
       if (org) {
@@ -207,25 +206,26 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
       }
     }
 
+    const typedUser = user as LeanUser;
     res.json({
       success: true,
       statusCode: 200,
       user: {
-        id: user._id.toString(),
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        isEmailVerified: user.isEmailVerified,
-        organizationId: user.organizationId?.toString() || null,
+        id: typedUser._id.toString(),
+        username: typedUser.username,
+        email: typedUser.email,
+        role: typedUser.role,
+        isEmailVerified: typedUser.isEmailVerified,
+        organizationId: typedUser.organizationId?.toString() || null,
         organizationName,
         organization,
-        createdAt: (user as any).createdAt,
-        updatedAt: (user as any).updatedAt,
+        createdAt: typedUser.createdAt,
+        updatedAt: typedUser.updatedAt,
       },
     });
   } catch (err) {
     logger.error('[GET USER BY ID] Error:', err);
-    return sendError(res, 500, 'Failed to fetch user');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to fetch user', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -238,14 +238,14 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
 export async function updateUserById(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const isSysAdmin = isSystemAdmin(req);
     const isOrgAdminUser = isOrgAdmin(req);
 
     if (!isSysAdmin && !isOrgAdminUser) {
-      return sendError(res, 403, 'Forbidden: Admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required', ErrorCode.ADMIN_REQUIRED);
     }
 
     const id = req.params.id as string;
@@ -253,17 +253,17 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
 
     const user = await User.findById(id);
     if (!user) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     // Org admins can only update users in their organization
     if (isOrgAdminUser && user.organizationId?.toString() !== req.user.organizationId) {
-      return sendError(res, 403, 'Forbidden: Can only update users in your organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Can only update users in your organization', ErrorCode.FORBIDDEN);
     }
 
     // Org admins cannot change organizationId
     if (isOrgAdminUser && organizationId !== undefined) {
-      return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Only system admins can change user organization', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     // Track changes for logging
@@ -276,7 +276,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
         _id: { $ne: new Types.ObjectId(id) },
       });
       if (existing) {
-        return sendError(res, 409, 'Username already in use', 'USERNAME_TAKEN');
+        return sendError(res, HttpStatus.CONFLICT, 'Username already in use', ErrorCode.USERNAME_TAKEN);
       }
       user.username = username.trim().toLowerCase();
       changes.push('username');
@@ -289,7 +289,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
         _id: { $ne: new Types.ObjectId(id) },
       });
       if (existing) {
-        return sendError(res, 409, 'Email already in use', 'EMAIL_TAKEN');
+        return sendError(res, HttpStatus.CONFLICT, 'Email already in use', ErrorCode.EMAIL_TAKEN);
       }
       user.email = email.trim().toLowerCase();
       user.isEmailVerified = false;
@@ -318,7 +318,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
         // Add to new organization
         const newOrg = await Organization.findById(organizationId);
         if (!newOrg) {
-          return sendError(res, 404, 'Organization not found');
+          return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
         }
 
         // Remove from old organization if different
@@ -369,7 +369,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
     });
   } catch (err) {
     logger.error('[UPDATE USER BY ID] Error:', err);
-    return sendError(res, 500, 'Failed to update user');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to update user', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -380,23 +380,23 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
 export async function deleteUserById(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
 
     // Prevent deleting yourself
     if (id === req.user.sub) {
-      return sendError(res, 400, 'Cannot delete your own account through this endpoint');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot delete your own account through this endpoint', ErrorCode.CANNOT_DELETE_SELF);
     }
 
     const user = await User.findById(id);
     if (!user) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     // Remove user from organization if member
@@ -409,7 +409,7 @@ export async function deleteUserById(req: Request, res: Response): Promise<void>
       // If user is owner of org, need to handle that
       const org = await Organization.findOne({ owner: user._id });
       if (org) {
-        return sendError(res, 400, 'Cannot delete user who is an organization owner. Transfer ownership first.');
+        return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot delete user who is an organization owner. Transfer ownership first.', ErrorCode.TRANSFER_REQUIRED);
       }
     }
 
@@ -424,7 +424,7 @@ export async function deleteUserById(req: Request, res: Response): Promise<void>
     });
   } catch (err) {
     logger.error('[DELETE USER BY ID] Error:', err);
-    return sendError(res, 500, 'Failed to delete user');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete user', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -436,7 +436,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { username, email } = req.body;
@@ -446,7 +446,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     if (email) updates.email = email.trim().toLowerCase();
 
     if (Object.keys(updates).length === 0) {
-      return sendError(res, 400, 'No valid fields to update', 'INVALID_FIELDS');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'No valid fields to update', ErrorCode.INVALID_INPUT);
     }
 
     // Check email uniqueness
@@ -456,7 +456,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
         _id: { $ne: new Types.ObjectId(userId) },
       });
       if (existing) {
-        return sendError(res, 409, 'Email already in use', 'EMAIL_TAKEN');
+        return sendError(res, HttpStatus.CONFLICT, 'Email already in use', ErrorCode.EMAIL_TAKEN);
       }
       updates.isEmailVerified = false;
     }
@@ -468,7 +468,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     ).lean();
 
     if (!updatedUser) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     // Look up organization name if user has an organizationId
@@ -492,7 +492,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     });
   } catch (err) {
     logger.error('[UPDATE USER] Error:', err);
-    return sendError(res, 500, 'Update failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Update failed', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -504,25 +504,21 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const result = await User.findByIdAndDelete(userId);
 
     if (!result) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     logger.info(`[DELETE USER] Account deleted: ${userId}`);
 
-    res.json({
-      success: true,
-      statusCode: 200,
-      message: 'Account successfully deleted',
-    });
+    sendMessage(res, 'Account deleted successfully');
   } catch (err) {
     logger.error('[DELETE USER] Error:', err);
-    return sendError(res, 500, 'Delete failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete account', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -534,23 +530,23 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return sendError(res, 400, 'Missing password fields', 'MISSING_FIELDS');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Current password and new password are required', ErrorCode.MISSING_FIELDS);
     }
 
     const user = await User.findById(userId).select('+password +tokenVersion');
     if (!user || !user.password) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
-      return sendError(res, 401, 'Current password incorrect', 'INVALID_CREDENTIALS');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Current password is incorrect', ErrorCode.INVALID_CREDENTIALS);
     }
 
     user.password = newPassword;
@@ -559,14 +555,10 @@ export async function changePassword(req: Request, res: Response): Promise<void>
 
     logger.info(`[PASSWORD CHANGE] Success for user: ${userId}`);
 
-    res.json({
-      success: true,
-      statusCode: 200,
-      message: 'Password changed successfully',
-    });
+    sendMessage(res, 'Password changed successfully');
   } catch (err) {
     logger.error('[CHANGE PASSWORD] Error:', err);
-    return sendError(res, 500, 'Password change failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Password change failed', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -578,24 +570,19 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
   try {
     const userId = req.user?.sub;
     if (!userId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const user = await User.findById(userId).select('+tokenVersion');
     if (!user) {
-      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     const { accessToken, refreshToken } = generateTokenPair(user);
 
-    res.json({
-      success: true,
-      statusCode: 200,
-      accessToken,
-      refreshToken,
-    });
+    sendOk(res, { accessToken, refreshToken }, 'Tokens generated successfully');
   } catch (err) {
     logger.error('[GET TOKEN] Error:', err);
-    return sendError(res, 500, 'Generate token failed');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to generate tokens', ErrorCode.INTERNAL_ERROR);
   }
 }

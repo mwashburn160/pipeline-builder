@@ -2,7 +2,13 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { Organization, User } from '../models';
-import { logger, sendError } from '../utils';
+import {
+  logger,
+  sendError,
+  sendOk,
+  ErrorCode,
+  HttpStatus,
+} from '../utils';
 
 /**
  * Check if user is system admin
@@ -22,11 +28,11 @@ function isSystemAdmin(req: Request): boolean {
 export async function listAllOrganizations(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const organizations = await Organization.find()
@@ -46,10 +52,10 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       updatedAt: (org as any).updatedAt,
     }));
 
-    res.json({ success: true, statusCode: 200, organizations: orgsWithCount });
+    sendOk(res, { organizations: orgsWithCount });
   } catch (err) {
     logger.error('[LIST ORGS] Fetch Error:', err);
-    return sendError(res, 500, 'Error fetching organizations');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching organizations', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -60,14 +66,14 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
 export async function getOrganizationById(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id } = req.params;
 
     // Allow system admin to view any organization, others only their own
     if (!isSystemAdmin(req) && req.user.organizationId !== id) {
-      return sendError(res, 403, 'Forbidden');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Forbidden', ErrorCode.FORBIDDEN);
     }
 
     const org = await Organization.findById(id)
@@ -76,7 +82,7 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
       .lean();
 
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     res.json({
@@ -96,7 +102,7 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
     });
   } catch (err) {
     logger.error('[GET ORG BY ID] Fetch Error:', err);
-    return sendError(res, 500, 'Error fetching organization');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching organization', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -107,11 +113,11 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
 export async function updateOrganization(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
@@ -119,7 +125,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
 
     const org = await Organization.findById(id);
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     // Update fields if provided
@@ -147,7 +153,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
     });
   } catch (err) {
     logger.error('[UPDATE ORG] Update Error:', err);
-    return sendError(res, 500, 'Error updating organization');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error updating organization', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -158,18 +164,18 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
 export async function getOrganizationQuotas(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
 
     const org = await Organization.findById(id);
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     // Reset any expired quotas
@@ -218,7 +224,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
     });
   } catch (err) {
     logger.error('[GET ORG QUOTAS] Fetch Error:', err);
-    return sendError(res, 500, 'Error fetching organization quotas');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching organization quotas', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -229,11 +235,11 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
 export async function updateOrganizationQuotas(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
@@ -241,7 +247,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
 
     const org = await Organization.findById(id);
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     // Helper to parse quota value (accepts number, -1, or 'unlimited')
@@ -303,7 +309,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     });
   } catch (err) {
     logger.error('[UPDATE ORG QUOTAS] Update Error:', err);
-    return sendError(res, 500, 'Error updating organization quotas');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error updating organization quotas', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -314,7 +320,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
 export async function getMyOrganization(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const orgId = req.user.organizationId;
@@ -327,13 +333,13 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
       .populate('members', 'username email role');
 
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     res.json({ success: true, statusCode: 200, organization: org });
   } catch (err) {
     logger.error('[GET ORG] Fetch Error:', err);
-    return sendError(res, 500, 'Error fetching organization');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching organization', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -346,7 +352,7 @@ export async function addMember(req: Request, res: Response): Promise<void> {
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { email } = req.body;
@@ -354,11 +360,11 @@ export async function addMember(req: Request, res: Response): Promise<void> {
     const requesterId = req.user.sub;
 
     if (!organizationId || !requesterId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!email) {
-      return sendError(res, 400, 'Email is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Email is required', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -411,7 +417,7 @@ export async function transferOwnership(req: Request, res: Response): Promise<vo
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { newOwnerId } = req.body;
@@ -419,11 +425,11 @@ export async function transferOwnership(req: Request, res: Response): Promise<vo
     const currentOwnerId = req.user.sub;
 
     if (!organizationId || !currentOwnerId) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!newOwnerId) {
-      return sendError(res, 400, 'New owner ID is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'New owner ID is required', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -468,7 +474,7 @@ function isOrgAdmin(req: Request): boolean {
 export async function getOrganizationMembers(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id } = req.params;
@@ -488,7 +494,7 @@ export async function getOrganizationMembers(req: Request, res: Response): Promi
       .lean();
 
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     const members = (org.members || []).map((member: any) => ({
@@ -513,7 +519,7 @@ export async function getOrganizationMembers(req: Request, res: Response): Promi
     });
   } catch (err) {
     logger.error('[GET ORG MEMBERS] Error:', err);
-    return sendError(res, 500, 'Error fetching organization members');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error fetching organization members', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -527,7 +533,7 @@ export async function addMemberToOrganization(req: Request, res: Response): Prom
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id } = req.params;
@@ -536,13 +542,13 @@ export async function addMemberToOrganization(req: Request, res: Response): Prom
 
     // Must be system admin or org admin of this org
     if (!isSysAdmin && (!isOrgAdminUser || req.user.organizationId !== id)) {
-      return sendError(res, 403, 'Forbidden: Admin access required for this organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required for this organization', ErrorCode.ORG_ADMIN_REQUIRED);
     }
 
     const { userId, email } = req.body;
 
     if (!userId && !email) {
-      return sendError(res, 400, 'userId or email is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'userId or email is required', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -618,7 +624,7 @@ export async function removeMemberFromOrganization(req: Request, res: Response):
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id, userId } = req.params;
@@ -627,12 +633,12 @@ export async function removeMemberFromOrganization(req: Request, res: Response):
 
     // Must be system admin or org admin of this org
     if (!isSysAdmin && (!isOrgAdminUser || req.user.organizationId !== id)) {
-      return sendError(res, 403, 'Forbidden: Admin access required for this organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required for this organization', ErrorCode.ORG_ADMIN_REQUIRED);
     }
 
     // Org admin cannot remove themselves
     if (isOrgAdminUser && userId === req.user.sub) {
-      return sendError(res, 400, 'Cannot remove yourself from the organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot remove yourself from the organization', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -692,7 +698,7 @@ export async function removeMemberFromOrganization(req: Request, res: Response):
 export async function updateMemberRole(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id, userId } = req.params;
@@ -702,36 +708,36 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
 
     // Must be system admin or org admin of this org
     if (!isSysAdmin && (!isOrgAdminUser || req.user.organizationId !== id)) {
-      return sendError(res, 403, 'Forbidden: Admin access required for this organization');
+      return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required for this organization', ErrorCode.ORG_ADMIN_REQUIRED);
     }
 
     // Org admin cannot change their own role
     if (isOrgAdminUser && userId === req.user.sub) {
-      return sendError(res, 400, 'Cannot change your own role');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot change your own role', ErrorCode.INVALID_INPUT);
     }
 
     if (!role || !['user', 'admin'].includes(role)) {
-      return sendError(res, 400, 'Valid role (user or admin) is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Valid role (user or admin) is required', ErrorCode.INVALID_INPUT);
     }
 
     const org = await Organization.findById(id);
     if (!org) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     // Check if user is a member
     if (!org.members.some(m => m.toString() === userId)) {
-      return sendError(res, 400, 'User is not a member of this organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'User is not a member of this organization', ErrorCode.INVALID_INPUT);
     }
 
     // Cannot change owner's role (they must remain admin)
     if (org.owner.toString() === userId && role !== 'admin') {
-      return sendError(res, 400, 'Cannot change organization owner role. Transfer ownership first.');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot change organization owner role. Transfer ownership first.', ErrorCode.INVALID_INPUT);
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return sendError(res, 404, 'User not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'User not found', ErrorCode.USER_NOT_FOUND);
     }
 
     user.role = role;
@@ -753,7 +759,7 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
     });
   } catch (err) {
     logger.error('[UPDATE MEMBER ROLE] Error:', err);
-    return sendError(res, 500, 'Failed to update member role');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to update member role', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -767,7 +773,7 @@ export async function transferOrganizationOwnership(req: Request, res: Response)
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const { id } = req.params;
@@ -775,13 +781,13 @@ export async function transferOrganizationOwnership(req: Request, res: Response)
     const isSysAdmin = isSystemAdmin(req);
 
     if (!newOwnerId) {
-      return sendError(res, 400, 'New owner ID is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'New owner ID is required', ErrorCode.INVALID_INPUT);
     }
 
     // Check if user is org owner (not just admin)
     const checkOrg = await Organization.findById(id);
     if (!checkOrg) {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
 
     const isOrgOwner = checkOrg.owner.toString() === req.user.sub;
@@ -845,18 +851,18 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
 
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: System admin access required');
+      return sendError(res, HttpStatus.FORBIDDEN, 'System admin access required', ErrorCode.SYSTEM_ADMIN_REQUIRED);
     }
 
     const { id } = req.params;
 
     // Prevent deleting system organization
     if (id === 'system') {
-      return sendError(res, 400, 'Cannot delete system organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Cannot delete system organization', ErrorCode.INVALID_INPUT);
     }
 
     await session.withTransaction(async () => {
@@ -881,9 +887,9 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
     logger.error('[DELETE ORG] Failed:', err);
 
     if (err.message === 'ORG_NOT_FOUND') {
-      return sendError(res, 404, 'Organization not found');
+      return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
     }
-    return sendError(res, 500, 'Failed to delete organization');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete organization', ErrorCode.INTERNAL_ERROR);
   } finally {
     await session.endSession();
   }

@@ -3,9 +3,12 @@ import {
   logger,
   sendError,
   sendSuccess,
+  sendCreated,
   pluginService,
   PluginServiceError,
   PluginFilter,
+  ErrorCode,
+  HttpStatus,
 } from '../utils';
 
 /**
@@ -25,6 +28,57 @@ function extractToken(req: Request): string | null {
 }
 
 /**
+ * Check if user is system admin
+ */
+function isSystemAdmin(req: Request): boolean {
+  if (req.user?.role !== 'admin') return false;
+  const orgId = req.user?.organizationId?.toLowerCase();
+  const orgName = req.user?.organizationName?.toLowerCase();
+  return orgId === 'system' || orgName === 'system';
+}
+
+/**
+ * Check if user is organization admin (admin role in any non-system org)
+ */
+function isOrgAdmin(req: Request): boolean {
+  return req.user?.role === 'admin' && !isSystemAdmin(req);
+}
+
+/**
+ * Check if user can set public access modifier
+ * Only system admins and organization admins can set public access
+ * Regular users can only set private access
+ */
+function canSetPublicAccess(req: Request): boolean {
+  return isSystemAdmin(req) || isOrgAdmin(req);
+}
+
+/**
+ * Validate and normalize access modifier based on user permissions
+ * Returns the allowed access modifier or null if validation fails
+ */
+function validateAccessModifier(
+  req: Request,
+  requestedModifier?: string,
+): { accessModifier: 'public' | 'private'; wasOverridden: boolean } {
+  const isAdmin = canSetPublicAccess(req);
+  const wantsPublic = requestedModifier === 'public';
+
+  // If user wants public but doesn't have permission, override to private
+  if (wantsPublic && !isAdmin) {
+    return { accessModifier: 'private', wasOverridden: true };
+  }
+
+  // Valid public request from admin
+  if (wantsPublic && isAdmin) {
+    return { accessModifier: 'public', wasOverridden: false };
+  }
+
+  // Default to private
+  return { accessModifier: 'private', wasOverridden: false };
+}
+
+/**
  * List plugins with optional filters
  * GET /plugin
  * Query params: name, version, pluginType, computeType, isActive, isDefault, accessModifier, page, limit
@@ -32,17 +86,17 @@ function extractToken(req: Request): string | null {
 export async function listPlugins(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const orgId = req.user.organizationId;
     if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to list plugins');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization to list plugins', ErrorCode.INVALID_INPUT);
     }
 
     const token = extractToken(req);
     if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication token is required', ErrorCode.UNAUTHORIZED);
     }
 
     // Build filter from query params
@@ -89,10 +143,12 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
       total: result.total,
     });
 
-    res.json({
-      success: true,
-      statusCode: 200,
-      ...result,
+    sendSuccess(res, {
+      plugins: result.plugins,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: Math.ceil(result.total / result.limit),
     });
   } catch (err) {
     logger.error('[LIST PLUGINS] Failed:', err);
@@ -101,7 +157,7 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
       return sendError(res, err.statusCode, err.message, err.code);
     }
 
-    return sendError(res, 500, 'Failed to list plugins');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to list plugins', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -112,23 +168,23 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
 export async function getPluginById(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const orgId = req.user.organizationId;
     if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to view plugins');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization to view plugins', ErrorCode.INVALID_INPUT);
     }
 
     const token = extractToken(req);
     if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication token is required', ErrorCode.UNAUTHORIZED);
     }
 
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     if (!id) {
-      return sendError(res, 400, 'Plugin ID is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Plugin ID is required', ErrorCode.MISSING_FIELDS);
     }
 
     logger.info('[GET PLUGIN] Request received', {
@@ -149,7 +205,7 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
       pluginName: plugin.name,
     });
 
-    sendSuccess(res, plugin);
+    sendSuccess(res, { plugin });
   } catch (err) {
     logger.error('[GET PLUGIN] Failed:', err);
 
@@ -157,7 +213,7 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
       return sendError(res, err.statusCode, err.message, err.code);
     }
 
-    return sendError(res, 500, 'Failed to get plugin');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to get plugin', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -169,17 +225,17 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
 export async function getPlugin(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const orgId = req.user.organizationId;
     if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to view plugins');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization to view plugins', ErrorCode.INVALID_INPUT);
     }
 
     const token = extractToken(req);
     if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication token is required', ErrorCode.UNAUTHORIZED);
     }
 
     // Build filter from query params
@@ -205,7 +261,7 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
 
     // Require at least one filter
     if (Object.keys(filter).length === 0) {
-      return sendError(res, 400, 'At least one search filter is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'At least one search filter is required', ErrorCode.MISSING_FIELDS);
     }
 
     logger.info('[GET PLUGIN] Search request received', {
@@ -226,7 +282,7 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
       pluginName: plugin.name,
     });
 
-    sendSuccess(res, plugin);
+    sendSuccess(res, { plugin });
   } catch (err) {
     logger.error('[GET PLUGIN] Search failed:', err);
 
@@ -234,7 +290,7 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
       return sendError(res, err.statusCode, err.message, err.code);
     }
 
-    return sendError(res, 500, 'Failed to get plugin');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to get plugin', ErrorCode.INTERNAL_ERROR);
   }
 }
 
@@ -242,43 +298,64 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
  * Upload and create a new plugin
  * POST /plugin
  * Body: multipart/form-data with 'plugin' file and optional 'accessModifier'
+ *
+ * Access Modifier Permissions:
+ * - System Admin: can set 'public' or 'private'
+ * - Organization Admin: can set 'public' or 'private'
+ * - Regular User: can only set 'private' (public requests are automatically converted to private)
  */
 export async function createPlugin(req: Request, res: Response): Promise<void> {
   try {
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     const orgId = req.user.organizationId;
     if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to upload plugins');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization to upload plugins', ErrorCode.INVALID_INPUT);
     }
 
     const token = extractToken(req);
     if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication token is required', ErrorCode.UNAUTHORIZED);
     }
 
     // Check for uploaded file
     const file = req.file;
     if (!file) {
-      return sendError(res, 400, 'Plugin file is required');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Plugin file is required', ErrorCode.MISSING_FIELDS);
     }
 
     // Validate file type
     if (!file.originalname.endsWith('.zip')) {
-      return sendError(res, 400, 'Plugin must be a ZIP file');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'Plugin must be a ZIP file', ErrorCode.INVALID_FORMAT);
     }
 
-    // Get access modifier from body
-    const accessModifier = req.body.accessModifier === 'public' ? 'public' : 'private';
+    // Validate and normalize access modifier based on user permissions
+    const requestedModifier = req.body.accessModifier;
+    const { accessModifier, wasOverridden } = validateAccessModifier(req, requestedModifier);
+
+    // Log if access modifier was overridden due to insufficient permissions
+    if (wasOverridden) {
+      logger.warn('[CREATE PLUGIN] Access modifier overridden to private - user lacks admin permissions', {
+        userId: req.user.sub,
+        orgId,
+        userRole: req.user.role,
+        requestedModifier,
+        actualModifier: accessModifier,
+      });
+    }
 
     logger.info('[CREATE PLUGIN] Upload request received', {
       userId: req.user.sub,
       orgId,
+      userRole: req.user.role,
+      isSystemAdmin: isSystemAdmin(req),
+      isOrgAdmin: isOrgAdmin(req),
       filename: file.originalname,
       size: file.size,
-      accessModifier,
+      requestedAccessModifier: requestedModifier,
+      effectiveAccessModifier: accessModifier,
     });
 
     const result = await pluginService.uploadPlugin(
@@ -300,12 +377,11 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
       pluginId: result.id,
       pluginName: result.name,
       version: result.version,
+      accessModifier: result.accessModifier,
     });
 
-    res.status(201).json({
-      success: true,
-      statusCode: 201,
-      message: result.message,
+    // Include warning in response if access modifier was overridden
+    const responseData: Record<string, unknown> = {
       plugin: {
         id: result.id,
         name: result.name,
@@ -317,7 +393,13 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
         isActive: result.isActive,
         createdBy: result.createdBy,
       },
-    });
+    };
+
+    if (wasOverridden) {
+      responseData.warning = 'Access modifier was set to private. Only administrators can create public plugins.';
+    }
+
+    sendCreated(res, responseData, result.message || 'Plugin uploaded successfully');
   } catch (err) {
     logger.error('[CREATE PLUGIN] Upload failed:', err);
 
@@ -325,6 +407,6 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
       return sendError(res, err.statusCode, err.message, err.code);
     }
 
-    return sendError(res, 500, 'Failed to upload plugin');
+    return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Failed to upload plugin', ErrorCode.INTERNAL_ERROR);
   }
 }

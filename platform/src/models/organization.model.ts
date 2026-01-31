@@ -280,18 +280,20 @@ organizationSchema.pre<IOrganization>('validate', async function () {
   const baseSlug = slugify(this.name, { lower: true, strict: true });
   const slugRegex = new RegExp(`^(${baseSlug})(-[0-9]+)?$`, 'i');
 
-  const existingOrgs = await (this.constructor as any)
+  // Use Model type for proper typing of static methods
+  const OrganizationModel = this.constructor as typeof import('mongoose').Model<IOrganization>;
+  const existingOrgs = await OrganizationModel
     .find({
       slug: slugRegex,
       _id: { $ne: this._id },
     })
     .select('slug')
-    .lean();
+    .lean<Array<{ slug: string }>>();
 
   if (existingOrgs.length === 0) {
     this.slug = baseSlug;
   } else {
-    const suffixes = existingOrgs.map((org: any) => {
+    const suffixes = existingOrgs.map((org) => {
       const parts = org.slug.split('-');
       const lastPart = parseInt(parts[parts.length - 1]);
       return isNaN(lastPart) ? 0 : lastPart;

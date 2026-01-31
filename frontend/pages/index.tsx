@@ -1,25 +1,21 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2 } from 'lucide-react';
+import { LoadingPage } from '@/components/ui/Loading';
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isInitialized } = useAuth();
 
   useEffect(() => {
-    if (!isLoading) {
+    if (isInitialized && !isLoading) {
       if (isAuthenticated) {
         router.push('/dashboard');
       } else {
         router.push('/auth/login');
       }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, isInitialized, router]);
 
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
-    </div>
-  );
+  return <LoadingPage message="Loading..." />;
 }

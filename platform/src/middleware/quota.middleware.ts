@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
 import { Organization } from '../models';
-import { sendError } from '../utils';
+import { sendError, ErrorCode, HttpStatus } from '../utils';
 import logger from '../utils/logger';
 
 /**
@@ -111,13 +111,13 @@ export function quota(operation: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     // Require authenticated user
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     // Require organization membership
     const organizationId = req.user.organizationId;
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization', ErrorCode.INVALID_INPUT);
     }
 
     // Organization that bypasses all quotas (default: 'system')
@@ -149,7 +149,7 @@ export function quota(operation: string) {
       });
 
       res.setHeader('Retry-After', Math.ceil((result.resetAt - Date.now()) / 1000));
-      return sendError(res, 429, 'Rate limit exceeded. Please try again later.', 'RATE_LIMIT_EXCEEDED');
+      return sendError(res, HttpStatus.TOO_MANY_REQUESTS, 'Rate limit exceeded. Please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
     }
 
     logger.debug('[QUOTA] Request allowed', {
@@ -172,13 +172,13 @@ export function organizationQuota(quotaType: 'plugins' | 'pipelines' | 'apiCalls
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     // Require authenticated user
     if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Unauthorized', ErrorCode.UNAUTHORIZED);
     }
 
     // Require organization membership
     const organizationId = req.user.organizationId;
     if (!organizationId) {
-      return sendError(res, 400, 'You must belong to an organization');
+      return sendError(res, HttpStatus.BAD_REQUEST, 'You must belong to an organization', ErrorCode.INVALID_INPUT);
     }
 
     // System organization bypasses all quotas
@@ -194,7 +194,7 @@ export function organizationQuota(quotaType: 'plugins' | 'pipelines' | 'apiCalls
     try {
       const org = await Organization.findById(organizationId);
       if (!org) {
-        return sendError(res, 404, 'Organization not found');
+        return sendError(res, HttpStatus.NOT_FOUND, 'Organization not found', ErrorCode.ORG_NOT_FOUND);
       }
 
       // Reset quota if period has expired (auto-reset)
@@ -224,9 +224,9 @@ export function organizationQuota(quotaType: 'plugins' | 'pipelines' | 'apiCalls
 
         return sendError(
           res,
-          429,
+          HttpStatus.TOO_MANY_REQUESTS,
           `Organization ${quotaType} quota exceeded (${quotaStatus.used}/${quotaStatus.limit}). Resets at ${quotaStatus.resetAt.toISOString()}.`,
-          'ORG_QUOTA_EXCEEDED',
+          ErrorCode.ORG_QUOTA_EXCEEDED,
         );
       }
 
@@ -245,7 +245,7 @@ export function organizationQuota(quotaType: 'plugins' | 'pipelines' | 'apiCalls
       next();
     } catch (err) {
       logger.error('[ORG_QUOTA] Error checking organization quota', { error: err });
-      return sendError(res, 500, 'Error checking organization quota');
+      return sendError(res, HttpStatus.INTERNAL_SERVER_ERROR, 'Error checking organization quota', ErrorCode.INTERNAL_ERROR);
     }
   };
 }

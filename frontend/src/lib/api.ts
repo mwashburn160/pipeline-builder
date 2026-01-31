@@ -1,25 +1,83 @@
-import { AuthTokens, ApiResponse } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
-// Custom error class with statusCode
+/**
+ * Check if we're in development mode
+ */
+const isDev = process.env.NODE_ENV === 'development';
+
+/**
+ * Development-only logger
+ */
+const devLog = (...args: unknown[]) => {
+  if (isDev) {
+    console.log('[API]', ...args);
+  }
+};
+
+/**
+ * Custom error class for API errors
+ */
 export class ApiError extends Error {
   statusCode: number;
   code?: string;
+  details?: Record<string, unknown>;
   
-  constructor(message: string, statusCode: number, code?: string) {
+  constructor(message: string, statusCode: number, code?: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.code = code;
+    this.details = details;
+  }
+
+  /**
+   * Check if error is a specific type
+   */
+  is(code: string): boolean {
+    return this.code === code;
+  }
+
+  /**
+   * Check if error is unauthorized
+   */
+  isUnauthorized(): boolean {
+    return this.statusCode === 401;
+  }
+
+  /**
+   * Check if error is forbidden
+   */
+  isForbidden(): boolean {
+    return this.statusCode === 403;
+  }
+
+  /**
+   * Check if error is not found
+   */
+  isNotFound(): boolean {
+    return this.statusCode === 404;
+  }
+
+  /**
+   * Check if error is rate limited
+   */
+  isRateLimited(): boolean {
+    return this.statusCode === 429;
   }
 }
 
+/**
+ * API Client for communicating with the backend
+ */
 class ApiClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private organizationId: string | null = null;
+  private isRefreshing = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -29,9 +87,13 @@ class ApiClient {
     }
   }
 
+  /**
+   * Set authentication tokens
+   */
   setTokens(tokens: AuthTokens) {
     this.accessToken = tokens.accessToken;
     this.refreshToken = tokens.refreshToken;
+    
     if (typeof window !== 'undefined') {
       localStorage.setItem('accessToken', tokens.accessToken);
       localStorage.setItem('refreshToken', tokens.refreshToken);
@@ -39,17 +101,19 @@ class ApiClient {
       // Extract organizationId from JWT token if present
       try {
         const payload = JSON.parse(atob(tokens.accessToken.split('.')[1]));
-        console.log('[API] JWT payload:', payload);
         if (payload.organizationId) {
           this.organizationId = payload.organizationId;
           localStorage.setItem('organizationId', payload.organizationId);
         }
-      } catch (e) {
-        console.error('[API] Failed to parse JWT:', e);
+      } catch {
+        // JWT parsing failed - non-critical
       }
     }
   }
 
+  /**
+   * Set organization ID for API requests
+   */
   setOrganizationId(orgId: string) {
     this.organizationId = orgId;
     if (typeof window !== 'undefined') {
@@ -57,14 +121,21 @@ class ApiClient {
     }
   }
 
+  /**
+   * Get current organization ID
+   */
   getOrganizationId() {
     return this.organizationId;
   }
 
+  /**
+   * Clear all authentication data
+   */
   clearTokens() {
     this.accessToken = null;
     this.refreshToken = null;
     this.organizationId = null;
+    
     if (typeof window !== 'undefined') {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
@@ -72,14 +143,23 @@ class ApiClient {
     }
   }
 
+  /**
+   * Get current access token
+   */
   getAccessToken() {
     return this.accessToken;
   }
 
+  /**
+   * Check if user is authenticated
+   */
   isAuthenticated() {
     return !!this.accessToken;
   }
 
+  /**
+   * Make an API request
+   */
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -99,7 +179,7 @@ class ApiClient {
       headers['x-org-id'] = this.organizationId;
     }
 
-    console.log(`[API] ${options.method || 'GET'} ${endpoint}`);
+    devLog(`${options.method || 'GET'} ${endpoint}`);
 
     const response = await fetch(url, {
       ...options,
@@ -108,15 +188,20 @@ class ApiClient {
     });
 
     // Parse JSON response
-    const data = await response.json().catch(() => ({ statusCode: response.status, message: 'Request failed' }));
+    const data = await response.json().catch(() => ({ 
+      statusCode: response.status, 
+      message: 'Request failed',
+      success: false,
+    }));
+    
     const statusCode = data.statusCode || response.status;
     
-    console.log(`[API] ${options.method || 'GET'} ${endpoint} -> ${statusCode}`);
+    devLog(`${options.method || 'GET'} ${endpoint} -> ${statusCode}`);
 
     // Handle 401 - try to refresh token
-    if (statusCode === 401 && this.refreshToken) {
-      console.log('[API] Token expired, attempting refresh...');
+    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh')) {
       const refreshed = await this.refreshAccessToken();
+      
       if (refreshed) {
         headers['Authorization'] = `Bearer ${this.accessToken}`;
         const retryResponse = await fetch(url, {
@@ -124,12 +209,23 @@ class ApiClient {
           headers,
           credentials: 'same-origin',
         });
-        const retryData = await retryResponse.json().catch(() => ({ statusCode: retryResponse.status, message: 'Request failed' }));
+        
+        const retryData = await retryResponse.json().catch(() => ({ 
+          statusCode: retryResponse.status, 
+          message: 'Request failed',
+          success: false,
+        }));
+        
         const retryStatusCode = retryData.statusCode || retryResponse.status;
-        console.log(`[API] Retry ${endpoint} -> ${retryStatusCode}`);
+        devLog(`Retry ${endpoint} -> ${retryStatusCode}`);
         
         if (retryStatusCode >= 400) {
-          throw new ApiError(retryData.message || retryData.error || 'Request failed', retryStatusCode, retryData.code);
+          throw new ApiError(
+            retryData.message || 'Request failed',
+            retryStatusCode,
+            retryData.code,
+            retryData.details
+          );
         }
         return retryData;
       }
@@ -137,14 +233,38 @@ class ApiClient {
 
     // Check statusCode from response body
     if (statusCode >= 400) {
-      console.error(`[API] Error ${endpoint}:`, data);
-      throw new ApiError(data.message || data.error || 'Request failed', statusCode, data.code);
+      throw new ApiError(
+        data.message || 'Request failed',
+        statusCode,
+        data.code,
+        data.details
+      );
     }
 
     return data;
   }
 
+  /**
+   * Refresh access token using refresh token
+   */
   private async refreshAccessToken(): Promise<boolean> {
+    // Prevent multiple simultaneous refresh requests
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = this.doRefresh();
+    
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.isRefreshing = false;
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefresh(): Promise<boolean> {
     try {
       const response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
@@ -155,39 +275,50 @@ class ApiClient {
       const data = await response.json().catch(() => ({ statusCode: response.status }));
       const statusCode = data.statusCode || response.status;
       
-      if (statusCode < 400 && data.accessToken) {
-        this.setTokens(data);
+      // Check for tokens in data.data (standardized response) or data directly
+      const tokens = data.data || data;
+      
+      if (statusCode < 400 && tokens.accessToken) {
+        this.setTokens(tokens);
         return true;
       }
     } catch {
       // Refresh failed
     }
+    
     this.clearTokens();
     return false;
   }
 
+  // ============================================
   // Auth endpoints
+  // ============================================
+
   async login(email: string, password: string) {
-    console.log('[API] Login attempt');
-    const data = await this.request<{ success: boolean; statusCode: number; accessToken?: string; refreshToken?: string; user?: unknown; message?: string }>('/api/auth/login', {
+    devLog('Login attempt');
+    
+    const data = await this.request<ApiResponse<{ accessToken: string; refreshToken: string }>>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier: email, password }),
     });
     
-    // Check statusCode for success (2xx)
-    if (data.statusCode < 400 && data.accessToken && data.refreshToken) {
+    // Handle standardized response format
+    const tokens = data.data || data as unknown as { accessToken?: string; refreshToken?: string };
+    
+    if (data.success && tokens.accessToken && tokens.refreshToken) {
       this.setTokens({
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
       });
     }
-    return { success: data.statusCode < 400, statusCode: data.statusCode, data: { user: data.user }, message: data.message };
+    
+    return data;
   }
 
-  async register(username: string, email: string, password: string) {
-    return this.request<ApiResponse<unknown>>('/api/auth/register', {
+  async register(username: string, email: string, password: string, organizationName?: string) {
+    return this.request<ApiResponse<{ user: unknown }>>('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ username, email, password, organizationName }),
     });
   }
 
@@ -200,23 +331,41 @@ class ApiClient {
   }
 
   async getProfile() {
-    return this.request<ApiResponse<unknown>>('/api/user/profile');
+    return this.request<ApiResponse<{ user: unknown }>>('/api/user/profile');
   }
 
+  async updateProfile(data: { username?: string; email?: string }) {
+    return this.request<ApiResponse<{ user: unknown }>>('/api/user/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    return this.request<ApiResponse<{ message: string }>>('/api/user/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async deleteAccount() {
+    const response = await this.request<ApiResponse<{ message: string }>>('/api/user/account', {
+      method: 'DELETE',
+    });
+    this.clearTokens();
+    return response;
+  }
+
+  // ============================================
   // Organization endpoints
-  async getOrganizations() {
-    return this.request<ApiResponse<unknown>>('/api/organization/');
+  // ============================================
+
+  async getMyOrganization() {
+    return this.request<ApiResponse<unknown>>('/api/organization');
   }
 
   async listOrganizations() {
-    return this.request<ApiResponse<unknown>>('/api/organizations');
-  }
-
-  async createOrganization(name: string, description?: string) {
-    return this.request<ApiResponse<unknown>>('/api/organization/', {
-      method: 'POST',
-      body: JSON.stringify({ name, description }),
-    });
+    return this.request<ApiResponse<{ organizations: unknown[] }>>('/api/organizations');
   }
 
   async getOrganization(id: string) {
@@ -230,144 +379,25 @@ class ApiClient {
     });
   }
 
+  async deleteOrganization(id: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   async getOrganizationQuotas(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`);
+    return this.request<ApiResponse<{ quotas: unknown }>>(`/api/organization/${id}/quotas`);
   }
 
   async updateOrganizationQuotas(id: string, data: { plugins?: number; pipelines?: number; apiCalls?: number }) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${id}/quotas`, {
+    return this.request<ApiResponse<{ quotas: unknown }>>(`/api/organization/${id}/quotas`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
-  // Plugin endpoints
-  async getPlugin(idOrParams?: string | Record<string, string>) {
-    if (typeof idOrParams === 'string') {
-      // Get by ID
-      return this.request<ApiResponse<unknown>>(`/api/plugin/${idOrParams}`);
-    }
-    // Get with filters (or list all)
-    const query = idOrParams ? '?' + new URLSearchParams(idOrParams).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/plugin${query}`);
-  }
-
-  async listPlugins(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/plugins${query}`);
-  }
-
-  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
-    const formData = new FormData();
-    formData.append('plugin', file);
-    formData.append('accessModifier', accessModifier);
-
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${this.accessToken}`,
-    };
-
-    if (this.organizationId) {
-      headers['x-org-id'] = this.organizationId;
-    }
-
-    const response = await fetch(`${API_URL}/api/plugin/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    const data = await response.json().catch(() => ({ statusCode: response.status, message: 'Upload failed' }));
-    const statusCode = data.statusCode || response.status;
-
-    if (statusCode >= 400) {
-      throw new ApiError(data.message || data.error || 'Upload failed', statusCode, data.code);
-    }
-
-    return data;
-  }
-
-  // Pipeline endpoints
-  async getPipeline(idOrParams?: string | Record<string, string>) {
-    if (typeof idOrParams === 'string') {
-      // Get by ID
-      return this.request<ApiResponse<unknown>>(`/api/pipeline/${idOrParams}`);
-    }
-    // Get with filters (or list all)
-    const query = idOrParams ? '?' + new URLSearchParams(idOrParams).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/pipeline${query}`);
-  }
-
-  async listPipelines(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/pipelines${query}`);
-  }
-
-  async createPipeline(data: { project: string; organization: string; props: Record<string, unknown>; accessModifier?: string }) {
-    return this.request<ApiResponse<unknown>>('/api/pipeline', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Invitation endpoints
-  async getInvitations() {
-    return this.request<ApiResponse<unknown>>('/api/organization/invitations');
-  }
-
-  async createInvitation(email: string, role: 'user' | 'admin' = 'user') {
-    return this.request<ApiResponse<unknown>>('/api/organization/invitation', {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    });
-  }
-
-  async acceptInvitation(token: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/invitation/accept/${token}`, {
-      method: 'POST',
-    });
-  }
-
-  async cancelInvitation(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/invitation/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  // Quota endpoints
-  async getQuotas() {
-    return this.request<ApiResponse<unknown>>('/api/organization/quotas');
-  }
-
-  // User management endpoints (System Admin / Org Admin)
-  async listUsers(params?: { organizationId?: string; role?: string; search?: string; page?: number; limit?: number }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<unknown>>(`/api/users${query}`);
-  }
-
-  async getUserById(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/users/${id}`);
-  }
-
-  async updateUserById(id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null }) {
-    return this.request<ApiResponse<unknown>>(`/api/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteUserById(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/users/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  // Organization member endpoints
   async getOrganizationMembers(orgId: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members`);
+    return this.request<ApiResponse<{ members: unknown[] }>>(`/api/organization/${orgId}/members`);
   }
 
   async addMemberToOrganization(orgId: string, data: { userId?: string; email?: string }) {
@@ -378,7 +408,7 @@ class ApiClient {
   }
 
   async removeMemberFromOrganization(orgId: string, userId: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members/${userId}`, {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}`, {
       method: 'DELETE',
     });
   }
@@ -391,15 +421,161 @@ class ApiClient {
   }
 
   async transferOrganizationOwnership(orgId: string, newOwnerId: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/transfer-owner`, {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/transfer-owner`, {
       method: 'PATCH',
       body: JSON.stringify({ newOwnerId }),
     });
   }
 
-  async deleteOrganization(orgId: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}`, {
+  // ============================================
+  // User management endpoints (Admin)
+  // ============================================
+
+  async listUsers(params?: { organizationId?: string; role?: string; search?: string; page?: number; limit?: number }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<PaginatedResponse<unknown>>(`/api/users${query}`);
+  }
+
+  async getUserById(id: string) {
+    return this.request<ApiResponse<{ user: unknown }>>(`/api/users/${id}`);
+  }
+
+  async updateUserById(id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null }) {
+    return this.request<ApiResponse<{ user: unknown }>>(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteUserById(id: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/users/${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Plugin endpoints
+  // ============================================
+
+  async listPlugins(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<PaginatedResponse<unknown>>(`/api/plugin${query}`);
+  }
+
+  async getPluginById(id: string) {
+    return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/${id}`);
+  }
+
+  async searchPlugins(params: Record<string, string>) {
+    const query = '?' + new URLSearchParams(params).toString();
+    return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/search${query}`);
+  }
+
+  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
+    const formData = new FormData();
+    formData.append('plugin', file);
+    formData.append('accessModifier', accessModifier);
+
+    const headers: Record<string, string> = {};
+    
+    if (this.accessToken) {
+      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
+    if (this.organizationId) {
+      headers['x-org-id'] = this.organizationId;
+    }
+
+    const response = await fetch(`${API_URL}/api/plugin`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json().catch(() => ({ 
+      statusCode: response.status, 
+      message: 'Upload failed',
+      success: false,
+    }));
+    
+    const statusCode = data.statusCode || response.status;
+
+    if (statusCode >= 400) {
+      throw new ApiError(data.message || 'Upload failed', statusCode, data.code);
+    }
+
+    return data as ApiResponse<{ plugin: unknown; warning?: string }>;
+  }
+
+  // ============================================
+  // Pipeline endpoints
+  // ============================================
+
+  async listPipelines(params?: Record<string, string>) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.request<PaginatedResponse<unknown>>(`/api/pipeline${query}`);
+  }
+
+  async getPipelineById(id: string) {
+    return this.request<ApiResponse<{ pipeline: unknown }>>(`/api/pipeline/${id}`);
+  }
+
+  async searchPipelines(params: Record<string, string>) {
+    const query = '?' + new URLSearchParams(params).toString();
+    return this.request<ApiResponse<{ pipeline: unknown }>>(`/api/pipeline/search${query}`);
+  }
+
+  async createPipeline(data: { 
+    project: string; 
+    organization: string; 
+    props: Record<string, unknown>; 
+    accessModifier?: 'public' | 'private';
+  }) {
+    return this.request<ApiResponse<{ pipeline: unknown; warning?: string }>>('/api/pipeline', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ============================================
+  // Invitation endpoints
+  // ============================================
+
+  async listInvitations() {
+    return this.request<ApiResponse<{ invitations: unknown[] }>>('/api/invitation');
+  }
+
+  async getInvitation(token: string) {
+    return this.request<ApiResponse<{ invitation: unknown }>>(`/api/invitation/${token}`);
+  }
+
+  async sendInvitation(data: { email: string; role?: 'user' | 'admin'; invitationType?: string }) {
+    return this.request<ApiResponse<{ invitation: unknown }>>('/api/invitation/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async acceptInvitation(token: string) {
+    return this.request<ApiResponse<unknown>>('/api/invitation/accept', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  async revokeInvitation(invitationId: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/invitation/${invitationId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resendInvitation(invitationId: string) {
+    return this.request<ApiResponse<{ invitation: unknown }>>(`/api/invitation/${invitationId}/resend`, {
+      method: 'POST',
     });
   }
 }

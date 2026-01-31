@@ -7,6 +7,7 @@ import {
   verifyAccessToken,
   verifyRefreshToken,
   hashRefreshToken,
+  ErrorCode,
 } from '../utils';
 
 /**
@@ -45,7 +46,7 @@ export async function isAuthenticated(
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
-    return sendUnauthorized(res, 'Invalid header');
+    return sendUnauthorized(res, 'Invalid authorization header', ErrorCode.UNAUTHORIZED);
   }
 
   const token = authHeader.split(' ')[1];
@@ -55,13 +56,13 @@ export async function isAuthenticated(
     const user = await User.findById(decoded.sub).select('+tokenVersion').lean();
 
     if (!user || decoded.tokenVersion !== user.tokenVersion) {
-      return sendUnauthorized(res, 'Session invalid');
+      return sendUnauthorized(res, 'Session invalid or expired', ErrorCode.SESSION_INVALID);
     }
 
     await populateRequestUser(req, user);
     next();
   } catch {
-    return sendUnauthorized(res, 'Token invalid');
+    return sendUnauthorized(res, 'Invalid or expired token', ErrorCode.TOKEN_INVALID);
   }
 }
 
@@ -76,27 +77,27 @@ export async function isValidRefreshToken(
   const { refreshToken } = req.body;
 
   if (!refreshToken) {
-    return sendUnauthorized(res, 'Token required');
+    return sendUnauthorized(res, 'Refresh token is required', ErrorCode.MISSING_FIELDS);
   }
 
   try {
     const decoded = verifyRefreshToken(refreshToken);
 
     if (!decoded?.sub || decoded.tokenVersion === undefined) {
-      return sendUnauthorized(res, 'Token invalid');
+      return sendUnauthorized(res, 'Invalid refresh token', ErrorCode.TOKEN_INVALID);
     }
 
     const hash = hashRefreshToken(refreshToken);
     const user = await User.findById(decoded.sub).select('+refreshToken +tokenVersion');
 
     if (!user || user.refreshToken !== hash || user.tokenVersion !== decoded.tokenVersion) {
-      return sendUnauthorized(res, 'Session invalid');
+      return sendUnauthorized(res, 'Session invalid or expired', ErrorCode.SESSION_INVALID);
     }
 
     await populateRequestUser(req, user);
     next();
   } catch {
-    return sendUnauthorized(res, 'Token invalid');
+    return sendUnauthorized(res, 'Invalid or expired refresh token', ErrorCode.TOKEN_INVALID);
   }
 }
 
@@ -108,7 +109,7 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
 
   if (!req.user?.organizationId || req.user.organizationId !== orgId) {
     if (!req.user?.isAdmin) {
-      return sendForbidden(res, 'You do not belong to this organization');
+      return sendForbidden(res, 'You do not belong to this organization', ErrorCode.FORBIDDEN);
     }
   }
 
@@ -121,7 +122,7 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
 export function authorize(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return sendForbidden(res, 'Forbidden');
+      return sendForbidden(res, 'Insufficient permissions', ErrorCode.FORBIDDEN);
     }
     next();
   };
