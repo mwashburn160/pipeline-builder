@@ -1,3 +1,13 @@
+## 0.1.37 (2026-01-31)
+
+### 🩹 Fixes
+
+- updated next config ([910c03b](https://github.com/mwashburn160/pipeline-builder/commit/910c03b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.36 (2026-01-31)
 
 ### 🩹 Fixes
