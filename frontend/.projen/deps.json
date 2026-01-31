@@ -58,8 +58,8 @@
       "type": "runtime"
     },
     {
-      "name": "tailwind-merge",
-      "version": "3.4.0",
+      "name": "tailwindcss",
+      "version": "4.1.18",
       "type": "runtime"
     }
   ],

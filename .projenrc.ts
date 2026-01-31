@@ -188,7 +188,7 @@ let frontend = new FrontEndProject({
     'react-dom@18.2.0',
     'lucide-react@0.563.0',
     'clsx@^2.1.1',
-    'tailwind-merge@3.4.0'
+    'tailwindcss@4.1.18'
   ],
   devDeps: [
     '@types/node@24.9.0',
