@@ -1,3 +1,13 @@
+## 0.1.35 (2026-01-31)
+
+### 🩹 Fixes
+
+- add .dockerignore ([eb3aa4f](https://github.com/mwashburn160/pipeline-builder/commit/eb3aa4f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.34 (2026-01-31)
 
 ### 🩹 Fixes
