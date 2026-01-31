@@ -1,3 +1,13 @@
+## 0.1.44 (2026-01-31)
+
+### 🩹 Fixes
+
+- refactored frontend ([b0b59d3](https://github.com/mwashburn160/pipeline-builder/commit/b0b59d3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.43 (2026-01-30)
 
 ### 🩹 Fixes
