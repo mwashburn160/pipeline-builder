@@ -1,0 +1,292 @@
+openapi: 3.0.3
+info:
+  title: Pipeline API Common Types
+  description: Shared type definitions and schemas for Pipeline API microservices
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token
+
+  schemas:
+    # Standard Response Types
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - statusCode
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        data:
+          type: object
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - statusCode
+        - message
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        details:
+          type: object
+
+    # Error Codes
+    ErrorCode:
+      type: string
+      enum:
+        - UNAUTHORIZED
+        - TOKEN_EXPIRED
+        - TOKEN_INVALID
+        - TOKEN_MISSING
+        - FORBIDDEN
+        - INSUFFICIENT_PERMISSIONS
+        - ORG_MISMATCH
+        - NOT_FOUND
+        - RESOURCE_NOT_FOUND
+        - ORG_NOT_FOUND
+        - VALIDATION_ERROR
+        - INVALID_INPUT
+        - MISSING_REQUIRED_FIELD
+        - INVALID_FORMAT
+        - QUOTA_EXCEEDED
+        - RATE_LIMIT_EXCEEDED
+        - PLUGINS_QUOTA_EXCEEDED
+        - PIPELINES_QUOTA_EXCEEDED
+        - API_CALLS_QUOTA_EXCEEDED
+        - CONFLICT
+        - ALREADY_EXISTS
+        - DUPLICATE_ENTRY
+        - INTERNAL_ERROR
+        - DATABASE_ERROR
+        - SERVICE_UNAVAILABLE
+        - EXTERNAL_SERVICE_ERROR
+
+    # Quota Types
+    QuotaType:
+      type: string
+      enum:
+        - plugins
+        - pipelines
+        - apiCalls
+
+    QuotaInfo:
+      type: object
+      required:
+        - type
+        - limit
+        - used
+        - remaining
+      properties:
+        type:
+          $ref: '#/components/schemas/QuotaType'
+        limit:
+          type: integer
+          description: Maximum quota limit (-1 for unlimited)
+          example: 100
+        used:
+          type: integer
+          description: Current usage count
+          example: 42
+        remaining:
+          type: integer
+          description: Remaining quota (-1 for unlimited)
+          example: 58
+
+    QuotaExceededResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            quota:
+              $ref: '#/components/schemas/QuotaInfo'
+
+    # Health Check
+    HealthCheckResponse:
+      type: object
+      required:
+        - status
+        - service
+        - timestamp
+        - uptime
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        service:
+          type: string
+          example: get-plugin
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+          description: Uptime in seconds
+        version:
+          type: string
+        dependencies:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [connected, disconnected, unknown]
+
+    # JWT Payload
+    JwtPayload:
+      type: object
+      required:
+        - sub
+        - username
+        - email
+        - role
+        - type
+      properties:
+        sub:
+          type: string
+          description: User ID (subject)
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, admin]
+        organizationId:
+          type: string
+        organizationName:
+          type: string
+        type:
+          type: string
+          enum: [access, refresh]
+        iat:
+          type: integer
+          description: Issued at timestamp
+        exp:
+          type: integer
+          description: Expiration timestamp
+
+  headers:
+    X-Quota-Limit:
+      description: Maximum quota limit
+      schema:
+        type: integer
+    X-Quota-Used:
+      description: Current usage count
+      schema:
+        type: integer
+    X-Quota-Remaining:
+      description: Remaining quota
+      schema:
+        type: integer
+    X-Quota-Reset:
+      description: ISO timestamp when quota resets
+      schema:
+        type: string
+        format: date-time
+    Retry-After:
+      description: Seconds until quota resets
+      schema:
+        type: integer
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            statusCode: 401
+            message: Authorization header required
+            code: TOKEN_MISSING
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            statusCode: 403
+            message: Admin access required
+            code: INSUFFICIENT_PERMISSIONS
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            statusCode: 404
+            message: Resource not found
+            code: NOT_FOUND
+
+    QuotaExceeded:
+      description: Quota exceeded
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+        X-Quota-Limit:
+          $ref: '#/components/headers/X-Quota-Limit'
+        X-Quota-Used:
+          $ref: '#/components/headers/X-Quota-Used'
+        X-Quota-Remaining:
+          $ref: '#/components/headers/X-Quota-Remaining'
+        X-Quota-Reset:
+          $ref: '#/components/headers/X-Quota-Reset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/QuotaExceededResponse'
+          example:
+            success: false
+            statusCode: 429
+            message: API call quota exceeded (10000/10000). Please try again later.
+            code: QUOTA_EXCEEDED
+            quota:
+              type: apiCalls
+              limit: 10000
+              used: 10000
+              remaining: 0
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            statusCode: 500
+            message: An unexpected error occurred
+            code: INTERNAL_ERROR
+
+security:
+  - bearerAuth: []
