@@ -12,8 +12,9 @@ let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 let cdkVersion = '2.237.0';
 let expressVersion = '5.2.1'
-let apiCoreVersion = '1.0.1';
-let pipelineDataVersion = '0.1.0';
+let apiCoreVersion = '1.2.0';
+let pipelineDataVersion = '1.2.0';
+let pipelineCoreVersion = '1.1.0';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -181,6 +182,43 @@ let pipeline_core = new PackageProject({
 });
 pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+
+// =============================================================================
+// API Server - Express server infrastructure (SSE, request context)
+// =============================================================================
+let api_server = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/api-server',
+  outdir: './packages/api-server',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,
+    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`,
+    `express@${expressVersion}`,
+    'express-rate-limit@8.2.1',
+    'helmet@8.1.0',
+    'cors@2.8.6',
+    'jsonwebtoken@9.0.3',
+    'uuid@13.0.0'
+  ],
+  devDeps: [
+    '@types/express@5.0.6',
+    '@types/express-serve-static-core@5.1.1',
+    '@types/cors@2.8.19',
+    '@types/jsonwebtoken@9.0.10',
+    '@types/node@24.9.0',
+    `typescript@${typescriptVersion}`
+  ]
+});
+api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
 // Workspace Configuration

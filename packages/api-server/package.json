@@ -1,5 +1,5 @@
 {
-  "name": "@mwashburn160/pipeline-data",
+  "name": "@mwashburn160/api-server",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -19,9 +19,12 @@
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2",
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.6",
+    "@types/express-serve-static-core": "5.1.1",
     "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "9.0.10",
     "@types/node": "24.9.0",
-    "@types/pg": "8.16.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "eslint": "^9",
@@ -34,8 +37,13 @@
   },
   "dependencies": {
     "@mwashburn160/api-core": "1.2.0",
-    "drizzle-orm": "0.45.1",
-    "pg": "8.16.3"
+    "@mwashburn160/pipeline-core": "1.1.0",
+    "cors": "2.8.6",
+    "express": "5.2.1",
+    "express-rate-limit": "8.2.1",
+    "helmet": "8.1.0",
+    "jsonwebtoken": "9.0.3",
+    "uuid": "13.0.0"
   },
   "engines": {
     "node": ">= 24.9.0"
