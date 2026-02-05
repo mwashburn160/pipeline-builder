@@ -11,6 +11,7 @@ let pnpmVersion = '10.25.0';
 let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 let expressVersion = '5.2.1'
+let apiCoreVersion = '1.0.1';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -116,6 +117,34 @@ api_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 api_core.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
 api_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
+// =============================================================================
+// Pipeline Data - Database layer (Drizzle ORM, query builders)
+// =============================================================================
+let pipeline_data = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/pipeline-data',
+  outdir: './packages/pipeline-data',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,
+    'pg@8.16.3',
+    'drizzle-orm@0.45.1'
+  ],
+  devDeps: [
+    '@types/node@24.9.0',
+    '@types/pg@8.16.0',
+    `typescript@${typescriptVersion}`
+  ]
+});
+pipeline_data.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+pipeline_data.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
 // Workspace Configuration
