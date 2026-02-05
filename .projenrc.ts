@@ -10,8 +10,10 @@ let branch = 'main';
 let pnpmVersion = '10.25.0';
 let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
+let cdkVersion = '2.237.0';
 let expressVersion = '5.2.1'
 let apiCoreVersion = '1.0.1';
+let pipelineDataVersion = '0.1.0';
 
 let root = new TypeScriptProject({
   name: '@mwashburn160/root',
@@ -145,6 +147,40 @@ let pipeline_data = new PackageProject({
 });
 pipeline_data.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 pipeline_data.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+
+// =============================================================================
+// Pipeline Core - CDK infrastructure + Configuration
+// =============================================================================
+let pipeline_core = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/pipeline-core',
+  outdir: './packages/pipeline-core',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,
+    `@mwashburn160/pipeline-data@${pipelineDataVersion}`,
+    `constructs@${constructsVersion}`,
+    `aws-cdk-lib@${cdkVersion}`,
+    'jsonwebtoken@9.0.3',
+    'axios@1.13.3',
+    'uuid@13.0.0'
+  ],
+  devDeps: [
+    '@types/node@24.9.0',
+    '@types/aws-lambda@8.10.159',
+    '@types/jsonwebtoken@9.0.10',
+    '@jest/globals@30.2.0'
+  ]
+});
+pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
 // Workspace Configuration

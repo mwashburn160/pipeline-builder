@@ -1,0 +1,184 @@
+import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
+import { IFileSetProducer } from 'aws-cdk-lib/pipelines';
+import { Construct } from 'constructs';
+import { UniqueId } from '../core/id-generator';
+import type { NetworkConfig } from '../core/network-types';
+import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types';
+
+/**
+ * Options for selecting and configuring a plugin
+ */
+export interface PluginOptions {
+  /**
+   * Name of the plugin to use
+   * Must match a registered plugin in the database
+   */
+  readonly name: string;
+
+  /**
+   * Optional alias for the plugin instance
+   * Useful when using the same plugin multiple times with different configurations
+   */
+  readonly alias?: string;
+
+  /**
+   * Optional filter criteria for plugin selection
+   * Can be used to select specific plugin versions or variants
+   */
+  readonly filter?: PluginFilter;
+
+  /**
+   * Additional metadata to merge with plugin's default metadata
+   * This metadata will be available to the plugin during execution
+   */
+  readonly metadata?: MetaDataType;
+}
+
+/**
+ * Synthesis step configuration combining source and plugin
+ */
+export interface SynthOptions {
+  /**
+   * Source configuration (S3, GitHub, or CodeStar)
+   */
+  readonly source: SourceType;
+
+  /**
+   * Plugin to use for synthesis
+   */
+  readonly plugin: PluginOptions;
+
+  /**
+   * Additional metadata for the synthesis step
+   * This will be merged with global metadata and plugin metadata
+   */
+  readonly metadata?: MetaDataType;
+
+  /**
+   * Step-level network configuration applied only to the synth CodeBuild step.
+   * Overrides the pipeline-level `defaults.network` when both are provided.
+   */
+  readonly network?: NetworkConfig;
+}
+
+/**
+ * Plugin manifest defining plugin behavior and requirements
+ * This is typically loaded from a plugin definition file
+ */
+export interface PluginManifest {
+  /**
+   * Unique identifier for the plugin
+   * @example 'nodejs-build'
+   */
+  readonly name: string;
+
+  /**
+   * Human-readable description of what the plugin does
+   * @example 'Builds and tests Node.js applications'
+   */
+  readonly description?: string;
+
+  /**
+   * Keywords for plugin discovery and categorization
+   * @example ['nodejs', 'typescript', 'build', 'test']
+   */
+  readonly keywords?: string[];
+
+  /**
+   * Semantic version of the plugin
+   * @example '1.0.0'
+   */
+  readonly version?: string;
+
+  /**
+   * Type of pipeline step this plugin creates
+   * @default PluginType.CODE_BUILD_STEP
+   */
+  readonly pluginType?: PluginType;
+
+  /**
+   * CodeBuild compute resource size to use
+   * @default ComputeType.SMALL
+   */
+  readonly computeType?: ComputeType;
+
+  /**
+   * Additional metadata that can be accessed during plugin execution
+   * Keys should use the format 'aws:cdk:{namespace}:{key}' (all lowercase)
+   */
+  readonly metadata?: Record<string, string | number | boolean>;
+
+  /**
+   * Path to Dockerfile or Dockerfile content
+   * Used to build the container environment for this plugin
+   */
+  readonly dockerfile: string;
+
+  /**
+   * Commands to run during the install phase
+   * Typically used for installing dependencies
+   * @example ['npm ci', 'npm run build']
+   */
+  readonly installCommands?: string[];
+
+  /**
+   * Commands to run during the build/execution phase
+   * These are the main commands that perform the plugin's work
+   * @example ['npm test', 'npm run deploy']
+   */
+  readonly commands: string[];
+
+  /**
+   * Environment variables to set in the build environment
+   * @example { NODE_ENV: 'production', API_URL: 'https://api.example.com' }
+   */
+  readonly env?: Record<string, string>;
+}
+
+/**
+ * Options for creating a CodeBuild step in the pipeline
+ */
+export interface CodeBuildStepOptions {
+  /**
+   * Unique identifier for this CodeBuild step
+   * Should be descriptive and unique within the pipeline
+   * @example 'my-org-my-project-synth'
+   */
+  readonly id: string;
+
+  /**
+   * UniqueId instance for generating unique construct IDs
+   * Used for network resource lookups (VPC, subnets, security groups)
+   */
+  readonly uniqueId: UniqueId;
+
+  /**
+   * Plugin configuration from the database
+   * Contains all the plugin's manifest data and runtime information
+   */
+  readonly plugin: Plugin;
+
+  /**
+   * CDK scope used to create constructs (VPC/subnet/security-group lookups).
+   */
+  readonly scope: Construct;
+
+  /**
+   * Input source for this step
+   * Typically the output from a previous step or the pipeline source
+   */
+  readonly input?: IFileSetProducer;
+
+  /**
+   * Additional metadata to merge with plugin metadata
+   * Will override conflicting keys from plugin metadata
+   */
+  readonly metadata?: MetaDataType;
+
+  /**
+   * Optional network configuration for the CodeBuild step.
+   * When provided, resolves VPC, subnet selection, and security groups
+   * so the build runs inside the specified network.
+   */
+  readonly network?: NetworkConfig;
+}
