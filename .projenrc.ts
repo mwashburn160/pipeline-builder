@@ -6,6 +6,7 @@ import { Workflow } from './projenrc/workflow';
 import { ManagerProject } from './projenrc/manager';
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { PackageProject } from './projenrc/package';
+import { WebTokenProject } from './projenrc/web-token';
 
 let branch = 'main';
 let pnpmVersion = '10.25.0';
@@ -259,6 +260,55 @@ manager.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
 manager.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
+
+let platform = new WebTokenProject({
+  parent: root,
+  name: 'platform',
+  outdir: './platform',
+  defaultReleaseBranch: branch,
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  deps: [
+    `express@${expressVersion}`,
+    'express-rate-limit@8.2.1',
+    'nodemailer@7.0.13',
+    'jsonwebtoken@9.0.3',
+    'slugify@1.6.6',
+    'winston@3.19.0',
+    'bcryptjs@3.0.3',
+    'mongoose@9.1.5',
+    'helmet@8.1.0',
+    'cors@2.8.6',
+    'pg@8.16.3',
+    'drizzle-orm@0.45.1',
+    'uuid@13.0.0',
+    'yaml@2.8.2',
+    'adm-zip@0.5.16',
+    'multer@2.0.2'
+  ],
+  devDeps: [
+    '@types/express@5.0.6',
+    '@types/express-serve-static-core@5.1.1',
+    '@types/nodemailer@7.0.9',
+    '@types/jsonwebtoken@9.0.10',
+    '@types/cors@2.8.19',
+    '@types/node@25.0.6',
+    '@types/pg@8.16.0',
+    '@types/adm-zip@0.5.7',
+    '@types/multer@2.0.0',
+    '@jest/globals@30.2.0'
+  ]
+});
+platform.addScripts({
+  'start': 'node lib/index.js',
+  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-platform}:$(jq -r .version package.json) .',
+  'docker:tag': 'docker image tag ${PROJECT_NAME:-platform}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)',
+  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)'
+});
+platform.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+platform.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
 // Workspace Configuration

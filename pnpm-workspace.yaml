@@ -6,3 +6,4 @@ packages:
   - packages/pipeline-core
   - packages/api-server
   - packages/pipeline-manager
+  - platform
