@@ -5,3 +5,4 @@ packages:
   - packages/pipeline-data
   - packages/pipeline-core
   - packages/api-server
+  - packages/pipeline-manager

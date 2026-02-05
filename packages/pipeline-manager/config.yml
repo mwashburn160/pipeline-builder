@@ -1,0 +1,94 @@
+# CLI Configuration File
+# Save this as config.yml in your project root or specify with CLI_CONFIG_PATH
+
+# ============================================================================
+# API Configuration
+# ============================================================================
+api:
+  # Base URL for the API
+  # Can be overridden with PLATFORM_URL environment variable
+  baseUrl: https://localhost:8443
+  
+  # Request timeout in milliseconds
+  timeout: 30000
+  
+  # SSL/TLS Certificate Validation
+  # Set to false to disable certificate validation (DEVELOPMENT ONLY)
+  # Default: true (secure)
+  # 
+  # WARNING: Setting this to false disables certificate validation and makes
+  # your application vulnerable to man-in-the-middle attacks. Only use this
+  # in development environments with self-signed certificates.
+  rejectUnauthorized: true
+  
+  # API Endpoints
+  # 
+  # Pipeline Endpoints:
+  #   pipelineUrl     - Single pipeline operations (GET by ID, POST)
+  #                     Used by: get-pipeline, create-pipeline
+  #                     Format: /api/pipeline/{id} or /api/pipeline
+  # 
+  #   pipelineListUrl - List/query multiple pipelines with filters
+  #                     Used by: list-pipelines
+  #                     Format: /api/pipelines?filter1=value1&filter2=value2
+  #                     Supports filters: id, accessModifier, isDefault, isActive, 
+  #                                      project, projectPattern, organizationPattern,
+  #                                      limit, offset, sort
+  # 
+  # Plugin Endpoints:
+  #   pluginUrl       - Single plugin operations (GET by ID)
+  #                     Used by: get-plugin
+  #                     Format: /api/plugin/{id}
+  # 
+  #   pluginListUrl   - List/query multiple plugins with filters
+  #                     Used by: list-plugins
+  #                     Format: /api/plugins?filter1=value1&filter2=value2
+  #                     Supports filters: id, accessModifier, isDefault, isActive, 
+  #                                      name, namePattern, version, versionRange, 
+  #                                      imageTag, limit, offset, sort
+  # 
+  #   pluginUploadUrl - Plugin upload endpoint
+  #                     Used by: upload-plugin
+  #                     Format: /api/plugin/upload
+  # 
+  # Note: Singular vs Plural URLs
+  #   - Singular (/api/plugin, /api/pipeline) - Single resource operations
+  #   - Plural (/api/plugins, /api/pipelines) - List/query operations
+  pipelineUrl: /api/pipeline
+  pipelineListUrl: /api/pipelines
+  pluginUrl: /api/plugin
+  pluginListUrl: /api/plugins
+  pluginUploadUrl: /api/plugin/upload
+
+# ============================================================================
+# AUTHENTICATION
+# ============================================================================
+# Authentication is handled via environment variable ONLY.
+# DO NOT include auth configuration in this file.
+#
+# Set your token with:
+#   export PLATFORM_TOKEN='your-token-here'
+#
+# The token should NEVER be committed to version control.
+# ============================================================================
+
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
+# The following environment variables are used by the CLI:
+#
+# REQUIRED:
+#   PLATFORM_TOKEN              - Authentication token for API access
+#                                 Example: export PLATFORM_TOKEN='eyJhbG...'
+#
+# OPTIONAL:
+#   PLATFORM_URL                - Override api.baseUrl
+#                                 Example: export PLATFORM_URL='https://api.example.com'
+#
+#   CLI_CONFIG_PATH             - Path to this config file
+#                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
+#
+#   TLS_REJECT_UNAUTHORIZED - Set to '0' to disable cert validation
+#                                  Example: export TLS_REJECT_UNAUTHORIZED='0'
+#
+# ============================================================================

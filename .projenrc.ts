@@ -3,6 +3,7 @@ import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
+import { ManagerProject } from './projenrc/manager';
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { PackageProject } from './projenrc/package';
 
@@ -219,6 +220,45 @@ let api_server = new PackageProject({
 });
 api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+
+let manager = new ManagerProject({
+  parent: root,
+  name: '@mwashburn160/pipeline-manager',
+  outdir: './packages/pipeline-manager',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  bin: {
+    'pipeline-manager': './dist/cli.js'
+  },
+  deps: [
+    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`,
+    `typescript@${typescriptVersion}`,
+    `aws-cdk-lib@${cdkVersion}`,
+    'form-data@4.0.5',
+    'commander@14.0.2',
+    'figlet@1.10.0',
+    'axios@1.13.3',
+    'progress@2.0.3',
+    'picocolors@1.1.1',
+    'yaml@2.8.2',
+    'ora@9.1.0'
+  ],
+  devDeps: [
+    '@types/figlet@1.7.0',
+    '@types/progress@2.0.7',
+    'copyfiles@2.4.1'
+  ]
+})
+manager.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
+manager.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
+manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 
 // =============================================================================
 // Workspace Configuration
