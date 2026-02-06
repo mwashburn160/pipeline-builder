@@ -1,3 +1,13 @@
+## 1.7.1 (2026-02-06)
+
+### 🩹 Fixes
+
+- upated db config ([fd48427](https://github.com/mwashburn160/pipeline-builder/commit/fd48427))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.0 (2026-02-06)
 
 ### 🚀 Features
