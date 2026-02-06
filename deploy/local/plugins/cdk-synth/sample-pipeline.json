@@ -1,0 +1,59 @@
+{
+  "project": "Sample",
+  "organization": "AcmeCorp",
+  "keywords": [
+    "aws",
+    "cdk",
+    "codestar",
+    "codebuild"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "Sample",
+    "organization": "AcmeCorp",
+    "pipelineName": "SamplePipeline",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "defaults": {
+      "network": {
+        "type": "vpcId",
+        "options": {
+          "vpcId": "vpc-0a1b2c3d4e5f6a7b8"
+        }
+      }
+    },
+    "synth": {
+      "source": {
+        "type": "codestar",
+        "options": {
+          "repo": "mwashburn160/pipeline-builder",
+          "branch": "main",
+          "connectionArn": "arn:aws:codestar-connections:us-east-1:123456789012:connection/abcd1234-5678-90ab-cdef-example11111",
+          "trigger": "POLL",
+          "codeBuildCloneOutput": true
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "name": "cdk-synth",
+          "isActive": true,
+          "isDefault": true,
+          "accessModifier": "public"
+        }
+      },
+      "metadata": {
+        "WORKDIR": "./",
+        "NODE_VERSION": "20",
+        "ENABLE_CACHE": true
+      }
+    }
+  }
+}

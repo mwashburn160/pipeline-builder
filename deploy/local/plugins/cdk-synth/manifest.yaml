@@ -1,0 +1,28 @@
+name: cdk-synth
+description: Synthesizes AWS CDK applications into CloudFormation templates using
+  CodeBuildStep with Docker
+keywords:
+- aws
+- cdk
+- synth
+- cloudformation
+- typescript
+- codebuild
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+metadata:
+  custom:aws:codepipeline:selfMutation: true
+  custom:aws:codepipeline:dockerEnabledForSelfMutation: true
+  custom:aws:codepipeline:publishAssetsInParallel: true
+  custom:aws:buildenvironment:privileged: true
+dockerfile: Dockerfile
+installCommands:
+- npm ci
+- npm run build
+commands:
+- npx cdk synth --quiet --no-notices
+env:
+  NODE_ENV: production
+  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
+  CDK_DEFAULT_REGION: ${AWS_REGION}

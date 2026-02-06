@@ -72,4 +72,10 @@ function get_user_id(r) {
     return payload.sub.toString();
 }
 
-export default { get_org_id, get_user_id };
+function get_role(r) {
+    var payload = get_payload(r);
+    if (!payload) return undefined;
+    return payload.role || "";
+}
+
+export default { get_org_id, get_user_id, get_role };

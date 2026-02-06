@@ -513,8 +513,8 @@ importers:
         specifier: 1.7.0
         version: 1.7.0
       '@mwashburn160/pipeline-data':
-        specifier: 1.7.1
-        version: 1.7.1(@types/pg@8.16.0)
+        specifier: 1.7.2
+        version: 1.7.2(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.237.0
         version: 2.237.0(constructs@10.4.5)
@@ -1822,8 +1822,8 @@ packages:
     resolution: {integrity: sha512-3cTrmqhGDUUfXvVe5hWWtC6KKNY6V0OlPqtri42kOOArgqCODkAxFMpi8dCAFlYzp7hx63S4NqJuZJ44JFTPmw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.2.0/7f2f3589398e0016e436aece0bac91d265fc6ac1}
     engines: {node: '>= 24.9.0'}
 
-  '@mwashburn160/pipeline-data@1.7.1':
-    resolution: {integrity: sha512-gNMnhwld6w7YpmdmWKkRhGsUlm5/bczE5lYGpXKThwvFde/lCuGOQOsrTo18WL2xi9xNlAqtsqOPhqloN/wDVw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.7.1/61e56129b8c9932f051c83901dc818b5978c9f93}
+  '@mwashburn160/pipeline-data@1.7.2':
+    resolution: {integrity: sha512-bBJWlyEQR36RJ8tcyKMOeSs3PpcEbl+7PpAbaPA0dJjLnZLeeIj7FTxQ3FrVMt6PkaGFpqf3bsX0209swsiWJQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.7.2/da9d119549b6712ffb292267aaef62fb8e26e6c7}
     engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -6971,9 +6971,9 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@mwashburn160/pipeline-data@1.7.1(@types/pg@8.16.0)':
+  '@mwashburn160/pipeline-data@1.7.2(@types/pg@8.16.0)':
     dependencies:
-      '@mwashburn160/api-core': 1.2.0
+      '@mwashburn160/api-core': 1.7.0
       drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
       pg: 8.16.3
     transitivePeerDependencies:
