@@ -26,11 +26,11 @@
     "target": "ES2024",
     "rootDir": "src",
     "outDir": "dist",
+    "noUncheckedIndexedAccess": true,
+    "declarationMap": true,
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
-    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "declarationMap": true,
     "types": [
       "node"
     ]
