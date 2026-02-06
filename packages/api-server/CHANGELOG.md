@@ -1,3 +1,13 @@
+## 1.5.5 (2026-02-06)
+
+### 🩹 Fixes
+
+- re-version ([5bc06b4](https://github.com/mwashburn160/pipeline-builder/commit/5bc06b4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.4 (2026-02-06)
 
 This was a version bump only for @mwashburn160/api-server to align it with other projects, there were no code changes.
