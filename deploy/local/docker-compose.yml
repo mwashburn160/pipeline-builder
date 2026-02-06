@@ -336,7 +336,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/plugin:1.1.4'
+    image: 'ghcr.io/mwashburn160/plugin:1.1.5'
     container_name: plugin
     depends_on:
       postgres:
@@ -368,7 +368,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/pipeline:1.1.4'
+    image: 'ghcr.io/mwashburn160/pipeline:1.1.5'
     container_name: pipeline
     depends_on:
       postgres:
@@ -392,7 +392,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/quota:1.1.4'
+    image: 'ghcr.io/mwashburn160/quota:1.1.5'
     container_name: quota
     depends_on:
       mongodb:
