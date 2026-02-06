@@ -7,16 +7,19 @@ const log = createLogger('Database');
 
 /**
  * Get database configuration from environment variables
+ * Supports both naming conventions:
+ * - DB_* (used by docker-compose)
+ * - POSTGRES_* (legacy/alternative)
  */
 function getDatabaseConfig() {
   return {
     database: {
       postgres: {
-        host: process.env.POSTGRES_HOST || 'localhost',
-        port: process.env.POSTGRES_PORT || '5432',
-        database: process.env.POSTGRES_DATABASE || 'pipeline',
-        user: process.env.POSTGRES_USER || 'postgres',
-        password: process.env.POSTGRES_PASSWORD || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || '5432',
+        database: process.env.DATABASE || 'pipeline-builder',
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD || 'password',
       },
       drizzle: {
         maxPoolSize: process.env.DRIZZLE_MAX_POOL_SIZE || '20',
