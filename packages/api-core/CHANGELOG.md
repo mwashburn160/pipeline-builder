@@ -1,3 +1,13 @@
+## 1.7.5 (2026-02-06)
+
+### 🩹 Fixes
+
+- jwt validation is now lazy ([48f527f](https://github.com/mwashburn160/pipeline-builder/commit/48f527f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.4 (2026-02-06)
 
 This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.
