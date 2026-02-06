@@ -6,8 +6,8 @@ x-api-defaults:
     test:
       - CMD
       - curl
-      - "-f"
-      - "http://localhost:3000/health"
+      - '-f'
+      - 'http://localhost:3000/health'
     interval: 30s
     timeout: 10s
     retries: 5
@@ -15,48 +15,43 @@ x-api-defaults:
   deploy: &ref_2
     resources:
       limits:
-        cpus: "0.75"
+        cpus: '0.75'
         memory: 768M
       reservations:
-        cpus: "0.4"
+        cpus: '0.4'
         memory: 384M
-
-x-common-api-env: &common-api-env
-  DB_HOST: "${DB_HOST}"
-  DB_PORT: "${DB_PORT}"
-  DATABASE: "${DATABASE}"
-  DB_USER: "${DB_USER}"
-  DB_PASSWORD: "${DB_PASSWORD}"
-  JWT_SECRET: "${JWT_SECRET}"
-  REFRESH_TOKEN_SECRET: "${REFRESH_TOKEN_SECRET}"
-  PLATFORM_BASE_URL: "${PLATFORM_BASE_URL:-https://localhost:8443}"
-
-x-common-mongo-api-env: &common-mongo-api-env
-  MONGODB_URI: "${MONGODB_URI}"
-  JWT_SECRET: "${JWT_SECRET}"
-  PLATFORM_BASE_URL: "${PLATFORM_BASE_URL:-https://localhost:8443}"
-
-# Consolidated: single quota service host
-x-quota-service-env: &quota-service-env
-  QUOTA_SERVICE_HOST: "${QUOTA_SERVICE_HOST:-quota}"
-  QUOTA_SERVICE_PORT: "${QUOTA_SERVICE_PORT:-3000}"
-
+x-common-api-env:
+  DB_HOST: '${DB_HOST}'
+  DB_PORT: '${DB_PORT}'
+  DATABASE: '${DATABASE}'
+  DB_USER: '${DB_USER}'
+  DB_PASSWORD: '${DB_PASSWORD}'
+  JWT_SECRET: '${JWT_SECRET}'
+  REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
+  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+x-common-mongo-api-env:
+  MONGODB_URI: '${MONGODB_URI}'
+  JWT_SECRET: '${JWT_SECRET}'
+  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+x-quota-service-env:
+  QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
+  QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
 services:
   nginx:
-    image: "nginx:latest"
+    image: 'nginx:latest'
     container_name: nginx
     ports:
-      - "8080:8080"
-      - "8443:8443"
+      - '8080:8080'
+      - '8443:8443'
     restart: always
     environment:
-      JWT_SECRET: "${JWT_SECRET}"
+      JWT_SECRET: '${JWT_SECRET}'
     volumes:
-      - "./certs/nginx.crt:/etc/nginx/certs/nginx.crt:ro"
-      - "./certs/nginx.key:/etc/nginx/certs/nginx.key:ro"
-      - "./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"
-      - "./nginx/jwt.js:/etc/nginx/njs/jwt.js:ro"
-      - "./nginx/metrics.js:/etc/nginx/njs/metrics.js:ro"
+      - './certs/nginx.crt:/etc/nginx/certs/nginx.crt:ro'
+      - './certs/nginx.key:/etc/nginx/certs/nginx.key:ro'
+      - './nginx/nginx.conf:/etc/nginx/nginx.conf:ro'
+      - './nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
+      - './nginx/metrics.js:/etc/nginx/njs/metrics.js:ro'
     networks:
       - proxy-network
       - backend-network
@@ -74,26 +69,25 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
+          cpus: '0.5'
           memory: 256M
         reservations:
-          cpus: "0.2"
+          cpus: '0.2'
           memory: 128M
-
   mongodb:
-    image: "mongo:latest"
+    image: 'mongo:latest'
     container_name: mongodb
     command:
       - mongod
-      - "--bind_ip_all"
-      - "--replSet"
+      - '--bind_ip_all'
+      - '--replSet'
       - rs0
-      - "--keyFile"
+      - '--keyFile'
       - /etc/mongodb-keyfile
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: "${MONGO_INITDB_ROOT_USERNAME}"
-      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_INITDB_ROOT_PASSWORD}"
+      MONGO_INITDB_ROOT_USERNAME: '${MONGO_INITDB_ROOT_USERNAME}'
+      MONGO_INITDB_ROOT_PASSWORD: '${MONGO_INITDB_ROOT_PASSWORD}'
       MONGO_INITDB_DATABASE: platform
     healthcheck:
       test: >
@@ -110,151 +104,146 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - "./db-data/mongodb/:/data/db/:rw"
-      - "./mongodb-keyfile:/etc/mongodb-keyfile:ro"
-      - "./mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro"
+      - './db-data/mongodb/:/data/db/:rw'
+      - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
+      - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
       - backend-network
     deploy:
       resources:
         limits:
-          cpus: "1.5"
+          cpus: '1.5'
           memory: 1.5G
         reservations:
-          cpus: "0.8"
+          cpus: '0.8'
           memory: 768M
-
   postgres:
-    image: "postgres:latest"
+    image: 'postgres:latest'
     container_name: postgres
     restart: always
     environment:
-      POSTGRES_USER: "${POSTGRES_USER}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: '${POSTGRES_USER}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD}'
+      POSTGRES_DB: '${POSTGRES_DB}'
     command: postgres -c listen_addresses=*
     healthcheck:
       test:
         - CMD
         - pg_isready
-        - "-U"
-        - "${POSTGRES_USER}"
-        - "-d"
-        - "${POSTGRES_DB}"
+        - '-U'
+        - '${POSTGRES_USER}'
+        - '-d'
+        - '${POSTGRES_DB}'
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     volumes:
-      - "./db-data/postgres/:/var/lib/postgresql/:rw"
-      - "./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro"
+      - './db-data/postgres/:/var/lib/postgresql/:rw'
+      - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
     deploy:
       resources:
         limits:
-          cpus: "1.5"
+          cpus: '1.5'
           memory: 1.5G
         reservations:
-          cpus: "0.8"
+          cpus: '0.8'
           memory: 768M
-
   mongo-express:
-    image: "mongo-express:latest"
+    image: 'mongo-express:latest'
     container_name: mongo-express
     restart: always
     ports:
-      - "27081:8081"
+      - '27081:8081'
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
-      ME_CONFIG_MONGODB_URL: "${ME_CONFIG_MONGODB_URL}"
-      ME_CONFIG_SITE_BASEURL: "${ME_CONFIG_SITE_BASEURL}"
-      ME_CONFIG_MONGODB_ENABLE_ADMIN: "${ME_CONFIG_MONGODB_ENABLE_ADMIN}"
-      ME_CONFIG_MONGODB_ADMINUSERNAME: "${ME_CONFIG_MONGODB_ADMINUSERNAME}"
-      ME_CONFIG_MONGODB_ADMINPASSWORD: "${ME_CONFIG_MONGODB_ADMINPASSWORD}"
-      ME_CONFIG_BASICAUTH_USERNAME: "${ME_CONFIG_BASICAUTH_USERNAME}"
-      ME_CONFIG_BASICAUTH_PASSWORD: "${ME_CONFIG_BASICAUTH_PASSWORD}"
+      ME_CONFIG_MONGODB_URL: '${ME_CONFIG_MONGODB_URL}'
+      ME_CONFIG_SITE_BASEURL: '${ME_CONFIG_SITE_BASEURL}'
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: '${ME_CONFIG_MONGODB_ENABLE_ADMIN}'
+      ME_CONFIG_MONGODB_ADMINUSERNAME: '${ME_CONFIG_MONGODB_ADMINUSERNAME}'
+      ME_CONFIG_MONGODB_ADMINPASSWORD: '${ME_CONFIG_MONGODB_ADMINPASSWORD}'
+      ME_CONFIG_BASICAUTH_USERNAME: '${ME_CONFIG_BASICAUTH_USERNAME}'
+      ME_CONFIG_BASICAUTH_PASSWORD: '${ME_CONFIG_BASICAUTH_PASSWORD}'
     networks:
       - backend-network
     deploy:
       resources:
         limits:
-          cpus: "0.4"
+          cpus: '0.4'
           memory: 384M
         reservations:
-          cpus: "0.2"
+          cpus: '0.2'
           memory: 192M
-
   pgadmin:
-    image: "dpage/pgadmin4:latest"
+    image: 'dpage/pgadmin4:latest'
     container_name: pgadmin
     restart: always
     ports:
-      - "5480:80"
+      - '5480:80'
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      PGADMIN_DEFAULT_EMAIL: "${PGADMIN_DEFAULT_EMAIL}"
-      PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_DEFAULT_PASSWORD}"
+      PGADMIN_DEFAULT_EMAIL: '${PGADMIN_DEFAULT_EMAIL}'
+      PGADMIN_DEFAULT_PASSWORD: '${PGADMIN_DEFAULT_PASSWORD}'
     volumes:
-      - "./pgadmin-data/:/var/lib/pgadmin/:rw"
+      - './pgadmin-data/:/var/lib/pgadmin/:rw'
     networks:
       - backend-network
     deploy:
       resources:
         limits:
-          cpus: "0.5"
+          cpus: '0.5'
           memory: 512M
         reservations:
-          cpus: "0.2"
+          cpus: '0.2'
           memory: 256M
-
   registry:
-    image: "registry:latest"
+    image: 'registry:latest'
     container_name: registry
     restart: always
     ports:
-      - "5000:5000"
+      - '5000:5000'
     environment:
       REGISTRY_AUTH: htpasswd
-      REGISTRY_HTTP_ADDR: "0.0.0.0:5000"
+      REGISTRY_HTTP_ADDR: '0.0.0.0:5000'
       REGISTRY_HTTP_TLS_KEY: /etc/ssl/private/registry.key
       REGISTRY_HTTP_TLS_CERTIFICATE: /etc/ssl/certs/registry.crt
       REGISTRY_AUTH_HTPASSWD_REALM: registry realm
       REGISTRY_AUTH_HTPASSWD_PATH: /etc/auth/registry.passwd
-      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
     volumes:
-      - "./auth/registry.passwd:/etc/auth/registry.passwd:ro"
-      - "./certs/registry.crt:/etc/ssl/certs/registry.crt:ro"
-      - "./certs/registry.key:/etc/ssl/private/registry.key:ro"
-      - "./registry-data/:/var/lib/registry/:rw"
+      - './auth/registry.passwd:/etc/auth/registry.passwd:ro'
+      - './certs/registry.crt:/etc/ssl/certs/registry.crt:ro'
+      - './certs/registry.key:/etc/ssl/private/registry.key:ro'
+      - './registry-data/:/var/lib/registry/:rw'
     networks:
       - proxy-network
       - backend-network
     deploy:
       resources:
         limits:
-          cpus: "0.6"
+          cpus: '0.6'
           memory: 512M
         reservations:
-          cpus: "0.3"
+          cpus: '0.3'
           memory: 256M
-
   registry-express:
-    image: "joxit/docker-registry-ui:latest"
+    image: 'joxit/docker-registry-ui:latest'
     container_name: registry-express
     restart: always
     ports:
-      - "5080:80"
+      - '5080:80'
     environment:
-      REGISTRY_TITLE: ${JOXIT_REGISTRY_TITLE}
-      NGINX_PROXY_PASS_URL: ${JOXIT_NGINX_PROXY_PASS_URL}
-      SINGLE_REGISTRY: ${JOXIT_SINGLE_REGISTRY}
-      ENABLE_DELETE_IMAGES: ${JOXIT_ENABLE_DELETE_IMAGES}
-      SHOW_CONTENT_DIGEST: ${JOXIT_SHOW_CONTENT_DIGEST}
+      REGISTRY_TITLE: '${JOXIT_REGISTRY_TITLE}'
+      NGINX_PROXY_PASS_URL: '${JOXIT_NGINX_PROXY_PASS_URL}'
+      SINGLE_REGISTRY: '${JOXIT_SINGLE_REGISTRY}'
+      ENABLE_DELETE_IMAGES: '${JOXIT_ENABLE_DELETE_IMAGES}'
+      SHOW_CONTENT_DIGEST: '${JOXIT_SHOW_CONTENT_DIGEST}'
     depends_on:
       - registry
     networks:
@@ -262,26 +251,28 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.4"
+          cpus: '0.4'
           memory: 384M
         reservations:
-          cpus: "0.2"
+          cpus: '0.2'
           memory: 192M
-
   frontend:
-    image: "ghcr.io/mwashburn160/frontend:1.2.0"
+    image: 'ghcr.io/mwashburn160/frontend:1.2.3'
     container_name: frontend
     restart: always
     networks:
       - proxy-network
     environment:
-      PLATFORM_BASE_URL: "${PLATFORM_BASE_URL}"
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL}'
     healthcheck:
       test:
         - CMD
         - node
-        - "-e"
-        - "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+        - '-e'
+        - >-
+          require('http').get('http://localhost:3000/', (r) =>
+          process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () =>
+          process.exit(1))
       interval: 30s
       timeout: 10s
       retries: 3
@@ -289,18 +280,17 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
+          cpus: '0.5'
           memory: 512M
         reservations:
-          cpus: "0.25"
+          cpus: '0.25'
           memory: 256M
-
   platform:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: "ghcr.io/mwashburn160/platform:1.3.0"
+    image: 'ghcr.io/mwashburn160/platform:1.3.3'
     container_name: platform
     depends_on:
       mongodb:
@@ -312,42 +302,40 @@ services:
       quota:
         condition: service_healthy
     environment:
-      <<: [*common-api-env, *quota-service-env]
-      # MongoDB
-      MONGODB_URI: "${MONGODB_URI}"
-      # Auth
-      REFRESH_TOKEN_SECRET: "${REFRESH_TOKEN_SECRET}"
-      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN}"
-      JWT_SALT_ROUNDS: "${JWT_SALT_ROUNDS}"
-      REFRESH_TOKEN_EXPIRES_IN: "${REFRESH_TOKEN_EXPIRES_IN}"
-      # Server
-      TRUST_PROXY: "${TRUST_PROXY}"
-      PLATFORM_FRONTEND_URL: "${PLATFORM_FRONTEND_URL:-https://localhost:8443}"
-      # Email (SMTP)
-      EMAIL_ENABLED: "${EMAIL_ENABLED}"
-      EMAIL_FROM: "${EMAIL_FROM}"
-      EMAIL_FROM_NAME: "${EMAIL_FROM_NAME}"
-      SMTP_HOST: "${SMTP_HOST}"
-      SMTP_PORT: "${SMTP_PORT}"
-      SMTP_SECURE: "${SMTP_SECURE}"
-      SMTP_USER: "${SMTP_USER}"
-      SMTP_PASS: "${SMTP_PASS}"
-      # Invitation
-      INVITATION_EXPIRATION_DAYS: "${INVITATION_EXPIRATION_DAYS}"
-      INVITATION_MAX_PENDING_PER_ORG: "${INVITATION_MAX_PENDING_PER_ORG}"
-      # OAuth (Google)
-      OAUTH_GOOGLE_CLIENT_ID: "${OAUTH_GOOGLE_CLIENT_ID:-}"
-      OAUTH_GOOGLE_CLIENT_SECRET: "${OAUTH_GOOGLE_CLIENT_SECRET:-}"
-
-  # ========================================
-  # Consolidated: plugin (was get-plugin + list-plugins + upload-plugin)
-  # ========================================
+      DB_HOST: '${DB_HOST}'
+      DB_PORT: '${DB_PORT}'
+      DATABASE: '${DATABASE}'
+      DB_USER: '${DB_USER}'
+      DB_PASSWORD: '${DB_PASSWORD}'
+      JWT_SECRET: '${JWT_SECRET}'
+      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
+      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
+      MONGODB_URI: '${MONGODB_URI}'
+      JWT_EXPIRES_IN: '${JWT_EXPIRES_IN}'
+      JWT_SALT_ROUNDS: '${JWT_SALT_ROUNDS}'
+      REFRESH_TOKEN_EXPIRES_IN: '${REFRESH_TOKEN_EXPIRES_IN}'
+      TRUST_PROXY: '${TRUST_PROXY}'
+      PLATFORM_FRONTEND_URL: '${PLATFORM_FRONTEND_URL:-https://localhost:8443}'
+      EMAIL_ENABLED: '${EMAIL_ENABLED}'
+      EMAIL_FROM: '${EMAIL_FROM}'
+      EMAIL_FROM_NAME: '${EMAIL_FROM_NAME}'
+      SMTP_HOST: '${SMTP_HOST}'
+      SMTP_PORT: '${SMTP_PORT}'
+      SMTP_SECURE: '${SMTP_SECURE}'
+      SMTP_USER: '${SMTP_USER}'
+      SMTP_PASS: '${SMTP_PASS}'
+      INVITATION_EXPIRATION_DAYS: '${INVITATION_EXPIRATION_DAYS}'
+      INVITATION_MAX_PENDING_PER_ORG: '${INVITATION_MAX_PENDING_PER_ORG}'
+      OAUTH_GOOGLE_CLIENT_ID: '${OAUTH_GOOGLE_CLIENT_ID:-}'
+      OAUTH_GOOGLE_CLIENT_SECRET: '${OAUTH_GOOGLE_CLIENT_SECRET:-}'
   plugin:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: "ghcr.io/mwashburn160/plugin:1.1.1"
+    image: 'ghcr.io/mwashburn160/plugin:1.1.3'
     container_name: plugin
     depends_on:
       postgres:
@@ -355,25 +343,31 @@ services:
       quota:
         condition: service_healthy
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - '/var/run/docker.sock:/var/run/docker.sock'
     group_add:
-      - "${DOCKER_GID:-999}"
+      - '${DOCKER_GID:-999}'
     environment:
-      <<: [*common-api-env, *quota-service-env]
-      IMAGE_REGISTRY_HOST: "${IMAGE_REGISTRY_HOST:-registry}"
-      IMAGE_REGISTRY_PORT: "${IMAGE_REGISTRY_PORT:-5000}"
-      IMAGE_REGISTRY_TOKEN: "${IMAGE_REGISTRY_TOKEN}"
-      DOCKER_NETWORK: "${DOCKER_NETWORK:-}"
-
-  # ========================================
-  # Consolidated: pipeline (was get-pipeline + list-pipelines + create-pipeline)
-  # ========================================
+      DB_HOST: '${DB_HOST}'
+      DB_PORT: '${DB_PORT}'
+      DATABASE: '${DATABASE}'
+      DB_USER: '${DB_USER}'
+      DB_PASSWORD: '${DB_PASSWORD}'
+      DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
+      JWT_SECRET: '${JWT_SECRET}'
+      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
+      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
+      IMAGE_REGISTRY_HOST: '${IMAGE_REGISTRY_HOST:-registry}'
+      IMAGE_REGISTRY_PORT: '${IMAGE_REGISTRY_PORT:-5000}'
+      IMAGE_REGISTRY_TOKEN: '${IMAGE_REGISTRY_TOKEN}'
+      DOCKER_NETWORK: '${DOCKER_NETWORK:-backend-network}'
   pipeline:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: "ghcr.io/mwashburn160/pipeline:1.1.1"
+    image: 'ghcr.io/mwashburn160/pipeline:1.1.3'
     container_name: pipeline
     depends_on:
       postgres:
@@ -381,28 +375,35 @@ services:
       quota:
         condition: service_healthy
     environment:
-      <<: [*common-api-env, *quota-service-env]
-
-  # ========================================
-  # Quota service
-  # ========================================
+      DB_HOST: '${DB_HOST}'
+      DB_PORT: '${DB_PORT}'
+      DATABASE: '${DATABASE}'
+      DB_USER: '${DB_USER}'
+      DB_PASSWORD: '${DB_PASSWORD}'
+      DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
+      JWT_SECRET: '${JWT_SECRET}'
+      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
+      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
   quota:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: "ghcr.io/mwashburn160/quota:1.1.1"
+    image: 'ghcr.io/mwashburn160/quota:1.1.3'
     container_name: quota
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
-      <<: *common-mongo-api-env
-      QUOTA_DEFAULT_PLUGINS: "${QUOTA_DEFAULT_PLUGINS:-100}"
-      QUOTA_DEFAULT_PIPELINES: "${QUOTA_DEFAULT_PIPELINES:-50}"
-      QUOTA_DEFAULT_API_CALLS: "${QUOTA_DEFAULT_API_CALLS:-10000}"
-      QUOTA_RESET_DAYS: "${QUOTA_RESET_DAYS:-3}"
-
+      MONGODB_URI: '${MONGODB_URI}'
+      JWT_SECRET: '${JWT_SECRET}'
+      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+      QUOTA_DEFAULT_PLUGINS: '${QUOTA_DEFAULT_PLUGINS:-100}'
+      QUOTA_DEFAULT_PIPELINES: '${QUOTA_DEFAULT_PIPELINES:-50}'
+      QUOTA_DEFAULT_API_CALLS: '${QUOTA_DEFAULT_API_CALLS:-10000}'
+      QUOTA_RESET_DAYS: '${QUOTA_RESET_DAYS:-3}'
 networks:
   proxy-network:
     name: proxy-network

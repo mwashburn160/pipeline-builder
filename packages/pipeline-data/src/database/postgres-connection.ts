@@ -9,13 +9,12 @@ const log = createLogger('Database');
  * Get database configuration from environment variables
  * Supports both naming conventions:
  * - DB_* (used by docker-compose)
- * - POSTGRES_* (legacy/alternative)
  */
 function getDatabaseConfig() {
   return {
     database: {
       postgres: {
-        host: process.env.DB_HOST || 'localhost',
+        host: process.env.DB_HOST || 'postgres',
         port: process.env.DB_PORT || '5432',
         database: process.env.DATABASE || 'pipeline-builder',
         user: process.env.DB_USER || 'postgres',
@@ -24,7 +23,7 @@ function getDatabaseConfig() {
       drizzle: {
         maxPoolSize: process.env.DRIZZLE_MAX_POOL_SIZE || '20',
         idleTimeoutMillis: process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000',
-        connectionTimeoutMillis: process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '2000',
+        connectionTimeoutMillis: process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000',
       },
     },
   };

@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@mwashburn160/api-core": "1.7.2",
-    "@mwashburn160/api-server": "1.5.2",
+    "@mwashburn160/api-server": "1.5.3",
     "@mwashburn160/pipeline-core": "1.6.2",
     "adm-zip": "0.5.16",
     "cors": "2.8.6",
