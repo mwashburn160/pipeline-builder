@@ -328,14 +328,14 @@ services:
       SMTP_PASS: '${SMTP_PASS}'
       INVITATION_EXPIRATION_DAYS: '${INVITATION_EXPIRATION_DAYS}'
       INVITATION_MAX_PENDING_PER_ORG: '${INVITATION_MAX_PENDING_PER_ORG}'
-      OAUTH_GOOGLE_CLIENT_ID: '${OAUTH_GOOGLE_CLIENT_ID:-}'
-      OAUTH_GOOGLE_CLIENT_SECRET: '${OAUTH_GOOGLE_CLIENT_SECRET:-}'
+      OAUTH_GOOGLE_CLIENT_ID: '${OAUTH_GOOGLE_CLIENT_ID}'
+      OAUTH_GOOGLE_CLIENT_SECRET: '${OAUTH_GOOGLE_CLIENT_SECRET}'
   plugin:
     restart: always
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/plugin:1.1.3'
+    image: 'ghcr.io/mwashburn160/plugin:1.1.4'
     container_name: plugin
     depends_on:
       postgres:
@@ -367,7 +367,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/pipeline:1.1.3'
+    image: 'ghcr.io/mwashburn160/pipeline:1.1.4'
     container_name: pipeline
     depends_on:
       postgres:
@@ -391,7 +391,7 @@ services:
     networks: *ref_0
     healthcheck: *ref_1
     deploy: *ref_2
-    image: 'ghcr.io/mwashburn160/quota:1.1.3'
+    image: 'ghcr.io/mwashburn160/quota:1.1.4'
     container_name: quota
     depends_on:
       mongodb:
