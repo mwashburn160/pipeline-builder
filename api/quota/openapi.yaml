@@ -1,0 +1,499 @@
+openapi: 3.0.3
+info:
+  title: Quota Service API
+  description: |
+    Consolidated microservice for managing organization quota limits and usage.
+    Provides endpoints for reading, updating, incrementing, and resetting quotas
+    for plugins, pipelines, and API calls.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://quota-service:3000
+    description: Internal Docker network
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns service health status and dependency connectivity
+      operationId: healthCheck
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+
+  /quotas:
+    get:
+      summary: Get all quotas for the requesting organization
+      description: Returns quota limits and usage for all quota types, using the organization from the JWT or x-org-id header
+      operationId: getOwnQuotas
+      tags:
+        - Read
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Quota limits and usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllQuotasResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /quotas/{orgId}:
+    get:
+      summary: Get all quotas for a specific organization
+      description: Returns quota limits and usage. Requires same-org membership or system admin.
+      operationId: getOrgQuotas
+      tags:
+        - Read
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      responses:
+        '200':
+          description: Quota limits and usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllQuotasResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      summary: Update quota limits for an organization
+      description: Updates quota limits for plugins, pipelines, and/or API calls. Requires system admin.
+      operationId: updateQuotaLimits
+      tags:
+        - Write
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLimitsRequest'
+      responses:
+        '200':
+          description: Quota limits updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /quotas/{orgId}/{quotaType}:
+    get:
+      summary: Get specific quota status for an organization
+      description: Returns detailed status for a single quota type including allowed/remaining/reset info.
+      operationId: getQuotaByType
+      tags:
+        - Read
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+        - $ref: '#/components/parameters/quotaType'
+      responses:
+        '200':
+          description: Quota status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaStatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /quotas/{orgId}/increment:
+    post:
+      summary: Increment quota usage
+      description: Increments the usage counter for a specific quota type. Requires same-org membership or system admin.
+      operationId: incrementQuota
+      tags:
+        - Write
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncrementRequest'
+      responses:
+        '200':
+          description: Usage incremented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until quota resets
+            X-Quota-Limit:
+              schema:
+                type: integer
+            X-Quota-Used:
+              schema:
+                type: integer
+            X-Quota-Remaining:
+              schema:
+                type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /quotas/{orgId}/reset:
+    post:
+      summary: Reset quota usage
+      description: Resets usage counters for a specific quota type or all types. Requires system admin.
+      operationId: resetQuota
+      tags:
+        - Write
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+      responses:
+        '200':
+          description: Quota usage reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaMutationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    orgId:
+      name: orgId
+      in: path
+      required: true
+      description: Organization ID
+      schema:
+        type: string
+        example: org_abc123
+    quotaType:
+      name: quotaType
+      in: path
+      required: true
+      description: Type of quota
+      schema:
+        type: string
+        enum: [plugins, pipelines, apiCalls]
+
+  schemas:
+    QuotaStatus:
+      type: object
+      required: [allowed, limit, used, remaining, resetAt, unlimited]
+      properties:
+        allowed:
+          type: boolean
+          description: Whether the request is allowed
+        limit:
+          type: integer
+          description: Maximum quota limit (-1 for unlimited)
+          example: 100
+        used:
+          type: integer
+          description: Current usage count
+          example: 42
+        remaining:
+          type: integer
+          description: Remaining quota (-1 for unlimited)
+          example: 58
+        resetAt:
+          type: string
+          format: date-time
+          description: When quota resets
+        unlimited:
+          type: boolean
+          description: Whether quota is unlimited
+
+    QuotaLimits:
+      type: object
+      properties:
+        plugins:
+          type: integer
+        pipelines:
+          type: integer
+        apiCalls:
+          type: integer
+
+    QuotaUsage:
+      type: object
+      properties:
+        plugins:
+          type: object
+          properties:
+            used: { type: integer }
+            resetAt: { type: string, format: date-time }
+        pipelines:
+          type: object
+          properties:
+            used: { type: integer }
+            resetAt: { type: string, format: date-time }
+        apiCalls:
+          type: object
+          properties:
+            used: { type: integer }
+            resetAt: { type: string, format: date-time }
+
+    QuotaInfo:
+      type: object
+      required: [orgId, limits, usage]
+      properties:
+        orgId:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        limits:
+          $ref: '#/components/schemas/QuotaLimits'
+        usage:
+          $ref: '#/components/schemas/QuotaUsage'
+        isDefault:
+          type: boolean
+
+    AllQuotasResponse:
+      type: object
+      required: [success, statusCode, data]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        data:
+          type: object
+          properties:
+            quota:
+              $ref: '#/components/schemas/QuotaInfo'
+
+    QuotaStatusResponse:
+      type: object
+      required: [success, statusCode, data]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        data:
+          type: object
+          properties:
+            quotaType:
+              type: string
+            status:
+              $ref: '#/components/schemas/QuotaStatus'
+
+    QuotaMutationResponse:
+      type: object
+      required: [success, statusCode]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            quota:
+              $ref: '#/components/schemas/QuotaInfo'
+
+    UpdateLimitsRequest:
+      type: object
+      description: At least one field is required. Use -1 for unlimited.
+      properties:
+        plugins:
+          type: integer
+          example: 100
+        pipelines:
+          type: integer
+          example: 50
+        apiCalls:
+          type: integer
+          example: 10000
+      minProperties: 1
+
+    IncrementRequest:
+      type: object
+      required: [quotaType]
+      properties:
+        quotaType:
+          type: string
+          enum: [plugins, pipelines, apiCalls]
+        amount:
+          type: integer
+          default: 1
+          minimum: 1
+
+    ResetRequest:
+      type: object
+      properties:
+        quotaType:
+          type: string
+          enum: [plugins, pipelines, apiCalls]
+          description: Specific quota type to reset (omit to reset all)
+
+    HealthCheckResponse:
+      type: object
+      required: [status, service, timestamp, uptime]
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        service:
+          type: string
+          example: quota-service
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+          description: Uptime in seconds
+        dependencies:
+          type: object
+          properties:
+            mongodb:
+              type: string
+              enum: [connected, disconnected]
+
+    ErrorResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        statusCode:
+          type: integer
+        message:
+          type: string
+        code:
+          type: string
+        details:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Organization not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+security:
+  - bearerAuth: []

@@ -1,0 +1,433 @@
+openapi: 3.0.3
+info:
+  title: Plugin Service API
+  description: |
+    Consolidated microservice for plugin CRUD operations.
+    Provides endpoints for uploading, reading, listing, and updating
+    plugin configurations with org-scoped access control.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://plugin-service:3000
+    description: Internal Docker network
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service is unhealthy
+
+  /plugins:
+    get:
+      summary: List plugins with filtering and pagination
+      operationId: listPlugins
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+        - name: sortBy
+          in: query
+          schema: { type: string, default: createdAt, enum: [id, name, version, createdAt, updatedAt, isActive, isDefault] }
+        - name: sortOrder
+          in: query
+          schema: { type: string, default: desc, enum: [asc, desc] }
+      responses:
+        '200':
+          description: Paginated list of plugins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginListResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+    post:
+      summary: Upload and deploy a new plugin
+      operationId: uploadPlugin
+      tags: [Write]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [plugin]
+              properties:
+                plugin:
+                  type: string
+                  format: binary
+                  description: ZIP archive containing manifest.yaml and Dockerfile
+                accessModifier:
+                  type: string
+                  enum: [public, private]
+                  default: private
+      responses:
+        '201':
+          description: Plugin deployed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadPluginResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /plugins/find:
+    get:
+      summary: Find a single plugin by filter criteria
+      operationId: findPlugin
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+      responses:
+        '200':
+          description: Plugin found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /plugins/{id}:
+    get:
+      summary: Get a plugin by UUID
+      operationId: getPlugin
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - $ref: '#/components/parameters/pluginId'
+      responses:
+        '200':
+          description: Plugin found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+    put:
+      summary: Update a plugin by UUID
+      operationId: updatePlugin
+      tags: [Write]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - $ref: '#/components/parameters/pluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePluginRequest'
+      responses:
+        '200':
+          description: Plugin updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    xOrgId:
+      name: x-org-id
+      in: header
+      required: true
+      description: Organization ID
+      schema:
+        type: string
+    pluginId:
+      name: id
+      in: path
+      required: true
+      description: Plugin UUID
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Plugin:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orgId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        keywords:
+          type: array
+          items: { type: string }
+        version:
+          type: string
+        metadata:
+          type: object
+        pluginType:
+          type: string
+          enum: [ShellStep, CodeBuildStep]
+        computeType:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, X2_LARGE]
+        env:
+          type: object
+          additionalProperties: { type: string }
+        installCommands:
+          type: array
+          items: { type: string }
+        commands:
+          type: array
+          items: { type: string }
+        imageTag:
+          type: string
+        dockerfile:
+          type: string
+        accessModifier:
+          type: string
+          enum: [public, private]
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    PluginResponse:
+      type: object
+      required: [success, statusCode, plugin]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        plugin:
+          $ref: '#/components/schemas/Plugin'
+
+    PluginListResponse:
+      type: object
+      required: [success, statusCode, plugins, pagination]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plugin'
+        pagination:
+          type: object
+          required: [total, limit, offset, hasMore]
+          properties:
+            total: { type: integer }
+            limit: { type: integer }
+            offset: { type: integer }
+            hasMore: { type: boolean }
+
+    UploadPluginResponse:
+      type: object
+      required: [success, statusCode, id]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 201
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        version:
+          type: string
+        imageTag:
+          type: string
+        fullImage:
+          type: string
+        accessModifier:
+          type: string
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+        createdBy:
+          type: string
+        message:
+          type: string
+
+    UpdatePluginRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+        version: { type: string }
+        metadata: { type: object }
+        pluginType: { type: string }
+        computeType: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        installCommands:
+          type: array
+          items: { type: string }
+        commands:
+          type: array
+          items: { type: string }
+        isActive: { type: boolean }
+        isDefault: { type: boolean }
+        accessModifier:
+          type: string
+          enum: [public, private]
+      minProperties: 1
+
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        database:
+          type: string
+          enum: [connected, disconnected]
+
+    ErrorResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        statusCode:
+          type: integer
+        message:
+          type: string
+        code:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Plugin not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    QuotaExceeded:
+      description: Quota exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+security:
+  - bearerAuth: []

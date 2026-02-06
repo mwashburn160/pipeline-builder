@@ -8,3 +8,6 @@ packages:
   - packages/pipeline-manager
   - platform
   - frontend
+  - api/quota
+  - api/plugin
+  - api/pipeline

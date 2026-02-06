@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+*.md
+test
+coverage
+.projen
+tsconfig*.json
+src

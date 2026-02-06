@@ -1,0 +1,420 @@
+openapi: 3.0.3
+info:
+  title: Pipeline Service API
+  description: |
+    Consolidated microservice for pipeline CRUD operations.
+    Provides endpoints for creating, reading, listing, and updating
+    pipeline configurations with org-scoped access control.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://pipeline-service:3000
+    description: Internal Docker network
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service is unhealthy
+
+  /pipelines:
+    get:
+      summary: List pipelines with filtering and pagination
+      operationId: listPipelines
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: project
+          in: query
+          schema: { type: string }
+        - name: organization
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+        - name: sortBy
+          in: query
+          schema: { type: string, default: createdAt, enum: [id, project, organization, pipelineName, createdAt, updatedAt, isActive, isDefault] }
+        - name: sortOrder
+          in: query
+          schema: { type: string, default: desc, enum: [asc, desc] }
+      responses:
+        '200':
+          description: Paginated list of pipelines
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineListResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+    post:
+      summary: Create a new pipeline
+      operationId: createPipeline
+      tags: [Write]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePipelineRequest'
+      responses:
+        '201':
+          description: Pipeline created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePipelineResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /pipelines/find:
+    get:
+      summary: Find a single pipeline by filter criteria
+      operationId: findPipeline
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: project
+          in: query
+          schema: { type: string }
+        - name: organization
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+      responses:
+        '200':
+          description: Pipeline found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /pipelines/{id}:
+    get:
+      summary: Get a pipeline by UUID
+      operationId: getPipeline
+      tags: [Read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - $ref: '#/components/parameters/pipelineId'
+      responses:
+        '200':
+          description: Pipeline found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/QuotaExceeded' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+    put:
+      summary: Update a pipeline by UUID
+      operationId: updatePipeline
+      tags: [Write]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/xOrgId'
+        - $ref: '#/components/parameters/pipelineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePipelineRequest'
+      responses:
+        '200':
+          description: Pipeline updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    xOrgId:
+      name: x-org-id
+      in: header
+      required: true
+      description: Organization ID
+      schema:
+        type: string
+    pipelineId:
+      name: id
+      in: path
+      required: true
+      description: Pipeline UUID
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Pipeline:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orgId:
+          type: string
+        project:
+          type: string
+        organization:
+          type: string
+        pipelineName:
+          type: string
+        description:
+          type: string
+        keywords:
+          type: array
+          items: { type: string }
+        props:
+          type: object
+        accessModifier:
+          type: string
+          enum: [public, private]
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    PipelineResponse:
+      type: object
+      required: [success, statusCode, pipeline]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        pipeline:
+          $ref: '#/components/schemas/Pipeline'
+
+    PipelineListResponse:
+      type: object
+      required: [success, statusCode, pipelines, pagination]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 200
+        pipelines:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pipeline'
+        pagination:
+          type: object
+          required: [total, limit, offset, hasMore]
+          properties:
+            total: { type: integer }
+            limit: { type: integer }
+            offset: { type: integer }
+            hasMore: { type: boolean }
+
+    CreatePipelineRequest:
+      type: object
+      required: [props]
+      properties:
+        pipelineName:
+          type: string
+          description: Custom name (defaults to '{org}-{project}-pipeline')
+        accessModifier:
+          type: string
+          enum: [public, private]
+          default: private
+        props:
+          type: object
+          description: Pipeline builder configuration
+          required: [project, organization]
+          properties:
+            project: { type: string }
+            organization: { type: string }
+
+    CreatePipelineResponse:
+      type: object
+      required: [success, statusCode, id]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+          example: 201
+        id:
+          type: string
+          format: uuid
+        project:
+          type: string
+        organization:
+          type: string
+        pipelineName:
+          type: string
+        accessModifier:
+          type: string
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+        message:
+          type: string
+
+    UpdatePipelineRequest:
+      type: object
+      properties:
+        pipelineName: { type: string }
+        description: { type: string }
+        keywords:
+          type: array
+          items: { type: string }
+        props: { type: object }
+        isActive: { type: boolean }
+        isDefault: { type: boolean }
+        accessModifier:
+          type: string
+          enum: [public, private]
+      minProperties: 1
+
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        database:
+          type: string
+          enum: [connected, disconnected]
+
+    ErrorResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        statusCode:
+          type: integer
+        message:
+          type: string
+        code:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Pipeline not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    QuotaExceeded:
+      description: Quota exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+security:
+  - bearerAuth: []
