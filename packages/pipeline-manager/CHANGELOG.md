@@ -1,3 +1,7 @@
+## 1.4.4 (2026-02-06)
+
+This was a version bump only for @mwashburn160/pipeline-manager to align it with other projects, there were no code changes.
+
 ## 1.4.3 (2026-02-06)
 
 ### 🩹 Fixes
