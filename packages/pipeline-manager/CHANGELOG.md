@@ -1,3 +1,13 @@
+## 1.4.6 (2026-02-06)
+
+### 🩹 Fixes
+
+- api version=1.7.6 ([946b590](https://github.com/mwashburn160/pipeline-builder/commit/946b590))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.5 (2026-02-06)
 
 ### 🩹 Fixes
