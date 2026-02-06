@@ -1,3 +1,13 @@
+## 1.4.3 (2026-02-06)
+
+### 🩹 Fixes
+
+- upgraded pipeline data=1.7.3 ([d9960bf](https://github.com/mwashburn160/pipeline-builder/commit/d9960bf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.2 (2026-02-06)
 
 This was a version bump only for @mwashburn160/pipeline-manager to align it with other projects, there were no code changes.
