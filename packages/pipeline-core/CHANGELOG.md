@@ -1,3 +1,17 @@
+## 1.6.2 (2026-02-06)
+
+### 🩹 Fixes
+
+- added jwt_role ([3cf1683](https://github.com/mwashburn160/pipeline-builder/commit/3cf1683))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.7.3
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.1 (2026-02-06)
 
 ### 🩹 Fixes

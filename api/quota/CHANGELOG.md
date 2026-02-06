@@ -1,3 +1,7 @@
+## 1.1.2 (2026-02-06)
+
+This was a version bump only for quota to align it with other projects, there were no code changes.
+
 ## 1.1.1 (2026-02-06)
 
 ### 🩹 Fixes
