@@ -15,17 +15,23 @@ import { sendError } from '../utils/response';
 const logger = createLogger('auth-middleware');
 
 /**
- * Cached JWT secret loaded at module initialization.
- * This avoids repeated environment variable lookups on every request.
+ * Cached JWT secret, loaded lazily on first use.
+ * This avoids crashing at import time for consumers that never call auth functions
+ * (e.g. CLI tools that only import types or utilities from api-core).
  */
-const JWT_SECRET = (() => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    logger.error('JWT_SECRET environment variable is not set');
-    throw new Error('JWT_SECRET environment variable is required');
+let _jwtSecret: string | undefined;
+
+function getJwtSecret(): string {
+  if (!_jwtSecret) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      logger.error('JWT_SECRET environment variable is not set');
+      throw new Error('JWT_SECRET environment variable is required');
+    }
+    _jwtSecret = secret;
   }
-  return secret;
-})();
+  return _jwtSecret;
+}
 
 /**
  * Options for the authenticateToken middleware.
@@ -111,7 +117,7 @@ function _authenticateToken(
   const token = parts[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
 
     // Reject refresh tokens — they should not be used for API access.
     // Allow tokens with type 'access' or no type field (backwards compat).
@@ -187,7 +193,7 @@ export function optionalAuth(
   const token = parts[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
 
     if (decoded.type !== 'refresh') {
       req.user = decoded;
