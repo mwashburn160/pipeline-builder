@@ -42,7 +42,6 @@
       },
       "metadata": {
         "WORKDIR": "./",
-        "NODE_VERSION": "20",
         "ENABLE_CACHE": true
       }
     }
