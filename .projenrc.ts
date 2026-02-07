@@ -512,6 +512,7 @@ let platform = new WebTokenProject({
     `express@${expressVersion}`,  // Web framework
     'express-rate-limit@8.2.1',   // Rate limiting
     'nodemailer@7.0.13',          // Email sending
+    '@aws-sdk/client-sesv2@3.821.0', // AWS SES v2 email transport
     'jsonwebtoken@9.0.3',         // JWT tokens
     'slugify@1.6.6',              // URL slugs
     'winston@3.19.0',             // Logging

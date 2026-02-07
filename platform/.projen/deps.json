@@ -101,6 +101,11 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-sesv2",
+      "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
       "name": "adm-zip",
       "version": "0.5.16",
       "type": "runtime"

@@ -71,13 +71,18 @@ export const config = {
     enabled: process.env.EMAIL_ENABLED === 'true',
     from: process.env.EMAIL_FROM || 'noreply@example.com',
     fromName: process.env.EMAIL_FROM_NAME || 'Platform',
-    provider: 'smtp',
+    provider: (process.env.EMAIL_PROVIDER || 'smtp') as 'smtp' | 'ses',
     smtp: {
       host: process.env.SMTP_HOST || 'localhost',
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_SECURE === 'true',
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
+    },
+    ses: {
+      region: process.env.SES_REGION || process.env.AWS_REGION || 'us-east-1',
+      accessKeyId: process.env.SES_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.SES_SECRET_ACCESS_KEY || '',
     },
   },
   invitation: {

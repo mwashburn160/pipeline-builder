@@ -1,3 +1,4 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import nodemailer, { Transporter } from 'nodemailer';
 import { config } from '../config';
 import logger from './logger';
@@ -56,24 +57,39 @@ class EmailService {
     }
 
     try {
-      if (config.email.provider !== 'smtp') {
-        logger.warn(`Unknown email provider: ${config.email.provider}, defaulting to SMTP`);
+      if (config.email.provider === 'ses') {
+        const sesClient = new SESv2Client({
+          region: config.email.ses.region,
+          ...(config.email.ses.accessKeyId && {
+            credentials: {
+              accessKeyId: config.email.ses.accessKeyId,
+              secretAccessKey: config.email.ses.secretAccessKey,
+            },
+          }),
+        });
+
+        this.transporter = nodemailer.createTransport({ SES: { sesClient, SendEmailCommand } });
+        logger.info('Email service initialized with SES', { region: config.email.ses.region });
+      } else {
+        if (config.email.provider !== 'smtp') {
+          logger.warn(`Unknown email provider: ${config.email.provider}, defaulting to SMTP`);
+        }
+
+        this.transporter = nodemailer.createTransport({
+          host: config.email.smtp.host,
+          port: config.email.smtp.port,
+          secure: config.email.smtp.secure,
+          auth: config.email.smtp.user
+            ? {
+              user: config.email.smtp.user,
+              pass: config.email.smtp.pass,
+            }
+            : undefined,
+        });
+        logger.info('Email service initialized with SMTP');
       }
 
-      this.transporter = nodemailer.createTransport({
-        host: config.email.smtp.host,
-        port: config.email.smtp.port,
-        secure: config.email.smtp.secure,
-        auth: config.email.smtp.user
-          ? {
-            user: config.email.smtp.user,
-            pass: config.email.smtp.pass,
-          }
-          : undefined,
-      });
-
       this.initialized = true;
-      logger.info('Email service initialized with SMTP');
     } catch (error) {
       logger.error('Failed to initialize email service:', error);
       this.initialized = true;
