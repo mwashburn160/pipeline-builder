@@ -28,7 +28,7 @@
         "options": {
           "repo": "github-samples/pets-workshop",
           "branch": "main",
-          "trigger": "POLL"
+          "trigger": "NONE"
         }
       },
       "plugin": {
