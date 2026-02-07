@@ -58,6 +58,14 @@ export class MetadataBuilder {
   }
 
   /**
+   * Builds configuration for network settings
+   * @returns Configuration object for NetworkConfig props
+   */
+  forNetwork(): Record<string, any> {
+    return buildConfigFromMetadata(this.metadata, Namespace.NETWORK);
+  }
+
+  /**
    * Builds configuration for a custom namespace
    * @param namespace - Custom namespace string
    * @returns Configuration object extracted from metadata
@@ -75,12 +83,14 @@ export class MetadataBuilder {
     codeBuildStep: Record<string, any>;
     shellStep: Record<string, any>;
     buildEnvironment: Record<string, any>;
+    network: Record<string, any>;
   } {
     return {
       codePipeline: this.forCodePipeline(),
       codeBuildStep: this.forCodeBuildStep(),
       shellStep: this.forShellStep(),
       buildEnvironment: this.forBuildEnvironment(),
+      network: this.forNetwork(),
     };
   }
 

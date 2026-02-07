@@ -108,6 +108,18 @@ export const MetadataKeys = {
   ENVIRONMENT_VARIABLES: 'aws:cdk:codebuild:buildenvironment:environmentvariables',
   FLEET: 'aws:cdk:codebuild:buildenvironment:fleet',
 
+  // ── Network configuration (namespace: ec2:network) ──
+  NETWORK_TYPE: 'aws:cdk:ec2:network:type',
+  NETWORK_VPC_ID: 'aws:cdk:ec2:network:vpcid',
+  NETWORK_SUBNET_IDS: 'aws:cdk:ec2:network:subnetids',
+  NETWORK_SUBNET_TYPE: 'aws:cdk:ec2:network:subnettype',
+  NETWORK_AVAILABILITY_ZONES: 'aws:cdk:ec2:network:availabilityzones',
+  NETWORK_SUBNET_GROUP_NAME: 'aws:cdk:ec2:network:subnetgroupname',
+  NETWORK_SECURITY_GROUP_IDS: 'aws:cdk:ec2:network:securitygroupids',
+  NETWORK_TAGS: 'aws:cdk:ec2:network:tags',
+  NETWORK_VPC_NAME: 'aws:cdk:ec2:network:vpcname',
+  NETWORK_REGION: 'aws:cdk:ec2:network:region',
+
   // ── Custom build keys (namespace: build — not wired into NAMESPACE_KEY_MAP) ──
   BUILD_PARALLEL: 'aws:cdk:build:parallel',
   BUILD_CACHE: 'aws:cdk:build:cache',

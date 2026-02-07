@@ -15,6 +15,7 @@ export const Namespace = {
   CODE_BUILD_STEP: 'pipelines:codebuildstep',
   BUILD_ENVIRONMENT: 'codebuild:buildenvironment',
   CODE_PIPELINE: 'pipelines:codepipeline',
+  NETWORK: 'ec2:network',
 } as const;
 export type Namespace = (typeof Namespace)[keyof typeof Namespace];
 
@@ -73,6 +74,10 @@ const NAMESPACE_KEY_MAP: Record<Namespace, NamespaceKeyConfig> = {
   [Namespace.CODE_PIPELINE]: {
     booleanKeys: ['crossAccountKeys', 'dockerEnabledForSelfMutation', 'dockerEnabledForSynth', 'enableKeyRotation', 'publishAssetsInParallel', 'reuseCrossRegionSupportStacks', 'selfMutation', 'useChangeSets', 'usePipelineRoleForActions'],
     passthroughKeys: ['artifactBucket', 'assetPublishingCodeBuildDefaults', 'cdkAssetsCliVersion', 'cliVersion', 'codeBuildDefaults', 'codePipeline', 'crossRegionReplicationBuckets', 'dockerCredentials', 'pipelineName', 'pipelineType', 'role', 'selfMutationCodeBuildDefaults', 'synth', 'synthCodeBuildDefaults'],
+  },
+  [Namespace.NETWORK]: {
+    booleanKeys: [],
+    passthroughKeys: ['type', 'vpcId', 'subnetIds', 'subnetType', 'availabilityZones', 'subnetGroupName', 'securityGroupIds', 'tags', 'vpcName', 'region'],
   },
 };
 
