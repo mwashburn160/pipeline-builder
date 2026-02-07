@@ -1,6 +1,6 @@
 import type { CodeStarSource, GitHubSource, S3Source } from '../pipeline/source-types';
 
-// Re-export shared types from api-common to maintain backward compatibility
+// Re-export shared types from api-core for convenience
 export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 
 /**

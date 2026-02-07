@@ -5,7 +5,7 @@ AWS CDK synthesis plugin for the pipeline platform. Produces CloudFormation temp
 ## Files
 
 ```
-├── manifest.json   # PluginManifest (pipeline-common/pipeline/pipeline-types.ts)
+├── manifest.json   # PluginManifest (pipeline-core/src/core/pipeline-types.ts)
 ├── Dockerfile      # Build environment: Node 20 + CDK + Docker CLI + AWS CLI
 └── README.md
 ```

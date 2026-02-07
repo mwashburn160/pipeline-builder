@@ -1,0 +1,1706 @@
+openapi: 3.0.3
+info:
+  title: Platform Service API
+  description: |
+    User authentication, organization management, invitation system,
+    and proxy endpoints to pipeline/plugin microservices.
+    Supports JWT and OAuth (Google) authentication.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://platform:3000
+    description: Internal Docker network
+  - url: http://localhost:3000
+    description: Local development
+
+# =============================================================================
+# Paths
+# =============================================================================
+paths:
+  # ---------------------------------------------------------------------------
+  # Health & Metrics
+  # ---------------------------------------------------------------------------
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service is unhealthy
+
+  /metrics:
+    get:
+      summary: Service metrics
+      operationId: getMetrics
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Metrics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime:
+                    type: number
+                  memory:
+                    type: object
+                  cpu:
+                    type: object
+                  database:
+                    type: object
+                    properties:
+                      state: { type: integer }
+                      status: { type: string }
+
+  # ---------------------------------------------------------------------------
+  # Authentication
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      summary: Register a new user account
+      operationId: register
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/RegisterResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/login:
+    post:
+      summary: Authenticate and receive tokens
+      operationId: login
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      summary: Exchange refresh token for new token pair
+      operationId: refresh
+      tags: [Authentication]
+      security:
+        - refreshToken: []
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /auth/logout:
+    post:
+      summary: Invalidate current session
+      operationId: logout
+      tags: [Authentication]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------------------
+  # OAuth
+  # ---------------------------------------------------------------------------
+  /auth/oauth/providers:
+    get:
+      summary: List enabled OAuth providers
+      operationId: getOAuthProviders
+      tags: [OAuth]
+      security: []
+      responses:
+        '200':
+          description: Providers listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          providers:
+                            type: array
+                            items: { type: string, enum: [google] }
+
+  /auth/oauth/{provider}/url:
+    get:
+      summary: Get OAuth authorization URL
+      operationId: getOAuthUrl
+      tags: [OAuth]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/provider'
+      responses:
+        '200':
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url: { type: string, format: uri }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /auth/oauth/{provider}/callback:
+    post:
+      summary: Exchange OAuth code for platform tokens
+      operationId: handleOAuthCallback
+      tags: [OAuth]
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/provider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: Authorization code from OAuth provider }
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  # ---------------------------------------------------------------------------
+  # User (current user profile)
+  # ---------------------------------------------------------------------------
+  /user/profile:
+    get:
+      summary: Get current user profile
+      operationId: getProfile
+      tags: [User]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/UserProfile'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      summary: Update current user profile
+      operationId: updateProfile
+      tags: [User]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+              minProperties: 1
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/UserProfile'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /user/account:
+    delete:
+      summary: Delete current user account
+      operationId: deleteAccount
+      tags: [User]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /user/change-password:
+    post:
+      summary: Change password
+      operationId: changePassword
+      tags: [User]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, format: password }
+                newPassword: { type: string, format: password }
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /user/generate-token:
+    post:
+      summary: Generate new API token pair
+      operationId: generateToken
+      tags: [User]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tokens generated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      accessToken: { type: string }
+                      refreshToken: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # Organization
+  # ---------------------------------------------------------------------------
+  /organization:
+    get:
+      summary: Get current user's organization
+      operationId: getMyOrganization
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Organization retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      organization:
+                        $ref: '#/components/schemas/Organization'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/{id}:
+    get:
+      summary: Get organization by ID
+      operationId: getOrganizationById
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      responses:
+        '200':
+          description: Organization retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OrganizationDetail'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    put:
+      summary: Update organization (system admin)
+      operationId: updateOrganization
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+              minProperties: 1
+      responses:
+        '200':
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      summary: Delete organization (system admin)
+      operationId: deleteOrganization
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      responses:
+        '200':
+          description: Organization deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/{id}/quotas:
+    get:
+      summary: Get organization quotas (system admin)
+      operationId: getOrganizationQuotas
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      responses:
+        '200':
+          description: Quotas retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      quotas:
+                        type: object
+                        properties:
+                          plugins: { $ref: '#/components/schemas/QuotaStatus' }
+                          pipelines: { $ref: '#/components/schemas/QuotaStatus' }
+                          apiCalls: { $ref: '#/components/schemas/QuotaStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    put:
+      summary: Update organization quotas (system admin)
+      operationId: updateOrganizationQuotas
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plugins: { type: integer, minimum: -1 }
+                pipelines: { type: integer, minimum: -1 }
+                apiCalls: { type: integer, minimum: -1 }
+              minProperties: 1
+      responses:
+        '200':
+          description: Quotas updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/{id}/members:
+    get:
+      summary: List organization members
+      operationId: getOrganizationMembers
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      responses:
+        '200':
+          description: Members listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      organizationId: { type: string }
+                      organizationName: { type: string }
+                      ownerId: { type: string }
+                      members:
+                        type: array
+                        items: { $ref: '#/components/schemas/Member' }
+                      total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    post:
+      summary: Add member to organization
+      operationId: addMemberToOrganization
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string }
+                email: { type: string, format: email }
+              description: Provide userId or email (at least one required)
+      responses:
+        '200':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/{id}/members/{userId}:
+    delete:
+      summary: Remove member from organization
+      operationId: removeMember
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: Member removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      summary: Update member role
+      operationId: updateMemberRole
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [user, admin] }
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/{id}/transfer-owner:
+    patch:
+      summary: Transfer organization ownership
+      operationId: transferOrganizationOwnership
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/orgId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newOwnerId]
+              properties:
+                newOwnerId: { type: string }
+      responses:
+        '200':
+          description: Ownership transferred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/members:
+    post:
+      summary: Add member to own organization (legacy, org admin)
+      operationId: addMember
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organization/transfer-owner:
+    patch:
+      summary: Transfer own organization ownership (legacy, org admin)
+      operationId: transferOwnership
+      tags: [Organization]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newOwnerId]
+              properties:
+                newOwnerId: { type: string }
+      responses:
+        '200':
+          description: Ownership transferred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------------
+  # Invitations
+  # ---------------------------------------------------------------------------
+  /invitation:
+    get:
+      summary: List organization invitations (org admin)
+      operationId: listInvitations
+      tags: [Invitation]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, accepted, expired, revoked] }
+        - name: invitationType
+          in: query
+          schema: { type: string, enum: [email, oauth, any] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Invitations listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      invitations:
+                        type: array
+                        items: { $ref: '#/components/schemas/InvitationSummary' }
+                      pagination:
+                        $ref: '#/components/schemas/PagePagination'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /invitation/send:
+    post:
+      summary: Send invitation (org admin)
+      operationId: sendInvitation
+      tags: [Invitation]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendInvitationRequest'
+      responses:
+        '201':
+          description: Invitation sent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      invitation:
+                        $ref: '#/components/schemas/InvitationSummary'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invitation/accept:
+    post:
+      summary: Accept invitation (authenticated user)
+      operationId: acceptInvitation
+      tags: [Invitation]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invitation/accept-oauth:
+    post:
+      summary: Accept invitation via OAuth (creates user if needed)
+      operationId: acceptInvitationViaOAuth
+      tags: [Invitation]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, oauthProvider, oauthData]
+              properties:
+                token: { type: string }
+                oauthProvider: { type: string, enum: [google] }
+                oauthData:
+                  type: object
+                  required: [id, email]
+                  properties:
+                    id: { type: string }
+                    email: { type: string, format: email }
+                    name: { type: string }
+                    picture: { type: string }
+      responses:
+        '200':
+          description: Invitation accepted via OAuth
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invitation/{token}:
+    get:
+      summary: Get invitation details by token (public)
+      operationId: getInvitation
+      tags: [Invitation]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Invitation details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      invitation:
+                        $ref: '#/components/schemas/InvitationDetail'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invitation/{invitationId}:
+    delete:
+      summary: Revoke pending invitation (org admin)
+      operationId: revokeInvitation
+      tags: [Invitation]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Invitation revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invitation/{invitationId}/resend:
+    post:
+      summary: Resend invitation email (org admin)
+      operationId: resendInvitation
+      tags: [Invitation]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Invitation resent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MessageResponse'
+                  - type: object
+                    properties:
+                      expiresAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # Pipeline (proxy to pipeline service)
+  # ---------------------------------------------------------------------------
+  /pipeline:
+    get:
+      summary: List pipelines
+      operationId: listPipelines
+      tags: [Pipeline]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project
+          in: query
+          schema: { type: string }
+        - name: organization
+          in: query
+          schema: { type: string }
+        - name: pipelineName
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: isDefault
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Pipelines listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      pipelines:
+                        type: array
+                        items: { type: object }
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    post:
+      summary: Create a new pipeline
+      operationId: createPipeline
+      tags: [Pipeline]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [props]
+              properties:
+                pipelineName: { type: string }
+                accessModifier: { type: string, enum: [public, private], default: private }
+                props:
+                  type: object
+                  description: Pipeline builder configuration (project, organization, synth, etc.)
+                  required: [project, organization]
+                  properties:
+                    project: { type: string }
+                    organization: { type: string }
+      responses:
+        '201':
+          description: Pipeline created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      pipeline:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          project: { type: string }
+                          organization: { type: string }
+                          pipelineName: { type: string }
+                          accessModifier: { type: string }
+                          isDefault: { type: boolean }
+                          isActive: { type: boolean }
+                          createdAt: { type: string, format: date-time }
+                          createdBy: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /pipeline/search:
+    get:
+      summary: Search for a single pipeline
+      operationId: searchPipeline
+      tags: [Pipeline]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          schema: { type: string }
+        - name: project
+          in: query
+          schema: { type: string }
+        - name: organization
+          in: query
+          schema: { type: string }
+        - name: pipelineName
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: isDefault
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+      responses:
+        '200':
+          description: Pipeline found
+          content:
+            application/json:
+              schema:
+                type: object
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /pipeline/{id}:
+    get:
+      summary: Get pipeline by ID
+      operationId: getPipelineById
+      tags: [Pipeline]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Pipeline retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # Plugin (proxy to plugin service)
+  # ---------------------------------------------------------------------------
+  /plugin:
+    get:
+      summary: List plugins
+      operationId: listPlugins
+      tags: [Plugin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+        - name: pluginType
+          in: query
+          schema: { type: string }
+        - name: computeType
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: isDefault
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Plugins listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      plugins:
+                        type: array
+                        items: { type: object }
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    post:
+      summary: Upload and create a new plugin
+      operationId: createPlugin
+      tags: [Plugin]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [plugin]
+              properties:
+                plugin:
+                  type: string
+                  format: binary
+                  description: ZIP archive containing manifest and Dockerfile
+                accessModifier:
+                  type: string
+                  enum: [public, private]
+                  default: private
+      responses:
+        '201':
+          description: Plugin created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      plugin:
+                        type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          name: { type: string }
+                          version: { type: string }
+                          imageTag: { type: string }
+                          fullImage: { type: string }
+                          accessModifier: { type: string }
+                          isDefault: { type: boolean }
+                          isActive: { type: boolean }
+                          createdBy: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /plugin/search:
+    get:
+      summary: Search for a single plugin
+      operationId: searchPlugin
+      tags: [Plugin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          schema: { type: string }
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: string }
+        - name: pluginType
+          in: query
+          schema: { type: string }
+        - name: computeType
+          in: query
+          schema: { type: string }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: isDefault
+          in: query
+          schema: { type: boolean }
+        - name: accessModifier
+          in: query
+          schema: { type: string, enum: [public, private] }
+      responses:
+        '200':
+          description: Plugin found
+          content:
+            application/json:
+              schema:
+                type: object
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /plugin/{id}:
+    get:
+      summary: Get plugin by ID
+      operationId: getPluginById
+      tags: [Plugin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Plugin retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # Admin
+  # ---------------------------------------------------------------------------
+  /users:
+    get:
+      summary: List all users (system admin)
+      operationId: listAllUsers
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: organizationId
+          in: query
+          schema: { type: string }
+        - name: role
+          in: query
+          schema: { type: string, enum: [user, admin] }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Search by username or email
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Users listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      users:
+                        type: array
+                        items: { $ref: '#/components/schemas/UserProfile' }
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+                      totalPages: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /users/{id}:
+    get:
+      summary: Get user by ID (system admin)
+      operationId: getUserById
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UserProfile'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    put:
+      summary: Update user by ID (system admin)
+      operationId: updateUserById
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+                role: { type: string, enum: [user, admin] }
+                organizationId: { type: string, nullable: true }
+                password: { type: string, format: password, minLength: 8 }
+              minProperties: 1
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MessageResponse'
+                  - type: object
+                    properties:
+                      user: { $ref: '#/components/schemas/UserProfile' }
+                      changes:
+                        type: array
+                        items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+    delete:
+      summary: Delete user by ID (system admin)
+      operationId: deleteUserById
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organizations:
+    get:
+      summary: List all organizations (system admin)
+      operationId: listAllOrganizations
+      tags: [Admin]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Organizations listed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      organizations:
+                        type: array
+                        items: { $ref: '#/components/schemas/OrganizationDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token
+    refreshToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT refresh token from login response
+
+  parameters:
+    orgId:
+      name: id
+      in: path
+      required: true
+      description: Organization ID
+      schema: { type: string }
+    userId:
+      name: id
+      in: path
+      required: true
+      description: User ID
+      schema: { type: string }
+    provider:
+      name: provider
+      in: path
+      required: true
+      description: OAuth provider
+      schema: { type: string, enum: [google] }
+
+  schemas:
+    SuccessResponse:
+      type: object
+      required: [success, statusCode]
+      properties:
+        success: { type: boolean, enum: [true] }
+        statusCode: { type: integer }
+
+    MessageResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success: { type: boolean, enum: [true] }
+        statusCode: { type: integer }
+        message: { type: string }
+
+    ErrorResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success: { type: boolean, enum: [false] }
+        statusCode: { type: integer }
+        message: { type: string }
+        code: { type: string }
+
+    TokenPair:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        organizationName:
+          type: string
+          description: If provided (min 2 chars), creates org and assigns user as admin
+
+    RegisterResult:
+      type: object
+      properties:
+        sub: { type: string, description: User ID }
+        email: { type: string }
+        role: { type: string, enum: [user, admin] }
+        organizationId: { type: string, nullable: true }
+        organizationName: { type: string, nullable: true }
+
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier: { type: string, description: Username or email }
+        password: { type: string, format: password }
+
+    UserProfile:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [user, admin] }
+        isEmailVerified: { type: boolean }
+        organizationId: { type: string, nullable: true }
+        organizationName: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Organization:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        owner: { $ref: '#/components/schemas/UserSummary' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/UserSummary' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    OrganizationDetail:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        memberCount: { type: integer }
+        ownerId: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    UserSummary:
+      type: object
+      properties:
+        _id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        role: { type: string }
+
+    Member:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [user, admin] }
+        isEmailVerified: { type: boolean }
+        isOwner: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    QuotaStatus:
+      type: object
+      properties:
+        used: { type: integer }
+        limit: { type: integer, description: '-1 for unlimited' }
+        remaining: { type: integer, description: '-1 for unlimited' }
+        resetAt: { type: string, format: date-time }
+        resetPeriod: { type: string }
+        unlimited: { type: boolean }
+
+    SendInvitationRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+        role: { type: string, enum: [user, admin], default: user }
+        invitationType: { type: string, enum: [email, oauth, any], default: any }
+        allowedOAuthProviders:
+          type: array
+          items: { type: string, enum: [google] }
+
+    InvitationSummary:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        role: { type: string }
+        status: { type: string, enum: [pending, accepted, expired, revoked] }
+        expiresAt: { type: string, format: date-time }
+        invitationType: { type: string, enum: [email, oauth, any] }
+        allowedOAuthProviders:
+          type: array
+          items: { type: string }
+
+    InvitationDetail:
+      type: object
+      properties:
+        email: { type: string }
+        role: { type: string }
+        status: { type: string, enum: [pending, accepted, expired, revoked] }
+        expiresAt: { type: string, format: date-time }
+        organization: { type: object }
+        invitedBy: { type: object }
+        isValid: { type: boolean }
+        invitationType: { type: string, enum: [email, oauth, any] }
+        allowedOAuthProviders:
+          type: array
+          items: { type: string }
+        canAcceptViaEmail: { type: boolean }
+        canAcceptViaGoogle: { type: boolean }
+
+    HealthCheckResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [healthy, unhealthy] }
+        timestamp: { type: string, format: date-time }
+        database: { type: string, enum: [connected, disconnected] }
+
+    PagePagination:
+      type: object
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        pages: { type: integer }
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Resource conflict (duplicate)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+    description: Service health and monitoring
+  - name: Authentication
+    description: Registration, login, logout, token refresh
+  - name: OAuth
+    description: OAuth provider authentication (Google)
+  - name: User
+    description: Current user profile management
+  - name: Organization
+    description: Organization CRUD, members, quotas, ownership
+  - name: Invitation
+    description: Organization invitation management
+  - name: Pipeline
+    description: Pipeline operations (proxy to pipeline service)
+  - name: Plugin
+    description: Plugin operations (proxy to plugin service)
+  - name: Admin
+    description: System admin user and organization management
