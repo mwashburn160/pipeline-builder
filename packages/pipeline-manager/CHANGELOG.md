@@ -1,3 +1,17 @@
+## 1.4.7 (2026-02-07)
+
+### 🩹 Fixes
+
+- api version=1.7.7 ([bb41041](https://github.com/mwashburn160/pipeline-builder/commit/bb41041))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.6.7
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.6 (2026-02-06)
 
 ### 🩹 Fixes

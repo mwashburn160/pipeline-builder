@@ -35,8 +35,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.7.7",
-    "@mwashburn160/pipeline-data": "1.7.7",
+    "@mwashburn160/api-core": "1.7.8",
+    "@mwashburn160/pipeline-data": "1.7.8",
     "aws-cdk-lib": "2.237.0",
     "axios": "1.13.3",
     "constructs": "10.4.5",
@@ -48,7 +48,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.6.6",
+  "version": "1.6.7",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
