@@ -13,6 +13,10 @@ import type { CodeBuildDefaults } from '../core/network-types';
 import { createCodeBuildStep } from '../core/pipeline-helpers';
 import type { MetaDataType } from '../core/pipeline-types';
 import { TriggerType } from '../core/pipeline-types';
+import { resolveRole } from '../core/role';
+import type { RoleConfig } from '../core/role-types';
+import { resolveSecurityGroup } from '../core/security-group';
+import type { SecurityGroupConfig } from '../core/security-group-types';
 
 /**
  * Configuration properties for the Builder construct
@@ -38,6 +42,18 @@ export interface BuilderProps {
    * (synth, self-mutation, asset publishing) via `codeBuildDefaults`.
    */
   readonly defaults?: CodeBuildDefaults;
+
+  /**
+   * Optional IAM role for the CodePipeline.
+   * When provided, resolves to a CDK IRole and is passed to the CodePipeline construct.
+   */
+  readonly role?: RoleConfig;
+
+  /**
+   * Optional security groups for the CodePipeline's CodeBuild actions.
+   * When provided, resolves to CDK ISecurityGroup[] and is included in codeBuildDefaults.
+   */
+  readonly securityGroups?: SecurityGroupConfig;
 }
 
 /**
@@ -97,13 +113,19 @@ export class Builder extends Construct {
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
-    const codeBuildDefaults = this.config.getDefaults()
-      ? this.resolveDefaults(this.config.getDefaults()!, uniqueId)
+    const codeBuildDefaults = this.resolveDefaults(
+      this.config.getDefaults(), props.securityGroups, uniqueId,
+    );
+
+    // Resolve optional IAM role
+    const role = props.role
+      ? resolveRole(this, uniqueId, props.role)
       : undefined;
 
     // Create CodePipeline construct
     this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       ...(codeBuildDefaults && { codeBuildDefaults }),
+      ...(role && { role }),
       pipelineName: this.config.pipelineName,
       synth,
       ...this.buildPipelineConfig(this.config.mergedMetadata),
@@ -123,20 +145,36 @@ export class Builder extends Construct {
 
   /**
    * Resolves CodeBuildDefaults into the shape expected by CDK's codeBuildDefaults.
-   * Only the network field produces CDK constructs (vpc, subnetSelection, securityGroups).
+   * Combines network config (vpc, subnetSelection, securityGroups from network)
+   * with standalone security group config into a single codeBuildDefaults object.
    * Metadata is handled separately via the metadata merge chain.
    */
-  private resolveDefaults(defaults: CodeBuildDefaults, uniqueId: UniqueId): Record<string, unknown> | undefined {
-    if (!defaults.network) return undefined;
+  private resolveDefaults(
+    defaults: CodeBuildDefaults | undefined,
+    securityGroupConfig: SecurityGroupConfig | undefined,
+    uniqueId: UniqueId,
+  ): Record<string, unknown> | undefined {
+    const networkProps = defaults?.network
+      ? resolveNetwork(this, uniqueId, defaults.network)
+      : undefined;
 
-    const { vpc, subnetSelection, securityGroups } = resolveNetwork(
-      this, uniqueId, defaults.network,
-    );
+    const standaloneSecurityGroups = securityGroupConfig
+      ? resolveSecurityGroup(this, uniqueId, securityGroupConfig)
+      : undefined;
+
+    if (!networkProps && !standaloneSecurityGroups) return undefined;
 
     return {
-      vpc,
-      subnetSelection,
-      ...(securityGroups && { securityGroups }),
+      ...(networkProps && {
+        vpc: networkProps.vpc,
+        subnetSelection: networkProps.subnetSelection,
+      }),
+      ...((networkProps?.securityGroups || standaloneSecurityGroups) && {
+        securityGroups: [
+          ...(networkProps?.securityGroups ?? []),
+          ...(standaloneSecurityGroups ?? []),
+        ],
+      }),
     };
   }
 

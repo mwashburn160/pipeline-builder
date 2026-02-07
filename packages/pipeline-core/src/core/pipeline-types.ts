@@ -120,6 +120,19 @@ export const MetadataKeys = {
   NETWORK_VPC_NAME: 'aws:cdk:ec2:network:vpcname',
   NETWORK_REGION: 'aws:cdk:ec2:network:region',
 
+  // ── IAM role configuration (namespace: iam:role) ──
+  ROLE_TYPE: 'aws:cdk:iam:role:type',
+  ROLE_ARN: 'aws:cdk:iam:role:roleArn',
+  ROLE_NAME: 'aws:cdk:iam:role:rolename',
+  ROLE_MUTABLE: 'aws:cdk:iam:role:mutable',
+
+  // ── Security group configuration (namespace: ec2:securitygroup) ──
+  SECURITY_GROUP_TYPE: 'aws:cdk:ec2:securitygroup:type',
+  SECURITY_GROUP_IDS: 'aws:cdk:ec2:securitygroup:securitygroupids',
+  SECURITY_GROUP_MUTABLE: 'aws:cdk:ec2:securitygroup:mutable',
+  SECURITY_GROUP_NAME: 'aws:cdk:ec2:securitygroup:securitygroupname',
+  SECURITY_GROUP_VPC_ID: 'aws:cdk:ec2:securitygroup:vpcid',
+
   // ── Custom build keys (namespace: build — not wired into NAMESPACE_KEY_MAP) ──
   BUILD_PARALLEL: 'aws:cdk:build:parallel',
   BUILD_CACHE: 'aws:cdk:build:cache',

@@ -16,6 +16,8 @@ export const Namespace = {
   BUILD_ENVIRONMENT: 'codebuild:buildenvironment',
   CODE_PIPELINE: 'pipelines:codepipeline',
   NETWORK: 'ec2:network',
+  ROLE: 'iam:role',
+  SECURITY_GROUP: 'ec2:securitygroup',
 } as const;
 export type Namespace = (typeof Namespace)[keyof typeof Namespace];
 
@@ -78,6 +80,14 @@ const NAMESPACE_KEY_MAP: Record<Namespace, NamespaceKeyConfig> = {
   [Namespace.NETWORK]: {
     booleanKeys: [],
     passthroughKeys: ['type', 'vpcId', 'subnetIds', 'subnetType', 'availabilityZones', 'subnetGroupName', 'securityGroupIds', 'tags', 'vpcName', 'region'],
+  },
+  [Namespace.ROLE]: {
+    booleanKeys: ['mutable'],
+    passthroughKeys: ['type', 'roleArn', 'roleName'],
+  },
+  [Namespace.SECURITY_GROUP]: {
+    booleanKeys: ['mutable'],
+    passthroughKeys: ['type', 'securityGroupIds', 'securityGroupName', 'vpcId'],
   },
 };
 

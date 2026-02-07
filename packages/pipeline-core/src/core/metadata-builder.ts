@@ -66,6 +66,22 @@ export class MetadataBuilder {
   }
 
   /**
+   * Builds configuration for IAM role settings
+   * @returns Configuration object for RoleConfig props
+   */
+  forRole(): Record<string, any> {
+    return buildConfigFromMetadata(this.metadata, Namespace.ROLE);
+  }
+
+  /**
+   * Builds configuration for security group settings
+   * @returns Configuration object for SecurityGroupConfig props
+   */
+  forSecurityGroup(): Record<string, any> {
+    return buildConfigFromMetadata(this.metadata, Namespace.SECURITY_GROUP);
+  }
+
+  /**
    * Builds configuration for a custom namespace
    * @param namespace - Custom namespace string
    * @returns Configuration object extracted from metadata
@@ -84,6 +100,8 @@ export class MetadataBuilder {
     shellStep: Record<string, any>;
     buildEnvironment: Record<string, any>;
     network: Record<string, any>;
+    role: Record<string, any>;
+    securityGroup: Record<string, any>;
   } {
     return {
       codePipeline: this.forCodePipeline(),
@@ -91,6 +109,8 @@ export class MetadataBuilder {
       shellStep: this.forShellStep(),
       buildEnvironment: this.forBuildEnvironment(),
       network: this.forNetwork(),
+      role: this.forRole(),
+      securityGroup: this.forSecurityGroup(),
     };
   }
 

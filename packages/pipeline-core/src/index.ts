@@ -23,6 +23,10 @@ export * from './core/pipeline-helpers';
 export * from './core/metadata';
 export * from './core/metadata-builder';
 export * from './core/network';
+export * from './core/role-types';
+export * from './core/role';
+export * from './core/security-group-types';
+export * from './core/security-group';
 export * from './core/id-generator';
 
 // Re-export from api-core for convenience
