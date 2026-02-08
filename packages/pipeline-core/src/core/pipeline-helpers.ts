@@ -6,7 +6,7 @@ import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
-import { CodeBuildStepOptions } from '../pipeline/step-types';
+import { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 
 const log = createLogger('Helper');
 
@@ -18,13 +18,15 @@ export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
 }
 
 /**
- * Build environment variables from plugin config and merged metadata.
- * Adds WORKDIR from metadata if specified.
+ * Build environment variables from plugin config, merged metadata, and custom env.
+ * Custom env vars override plugin defaults. WORKDIR from metadata is also applied.
  */
-function buildEnv(plugin: Plugin, metadata: MetaDataType): Record<string, string> {
-  const env = { ...(plugin.env ?? {}) };
-  if (metadata.WORKDIR) {
-    env.WORKDIR = String(metadata.WORKDIR);
+const WORKDIR_KEY = 'WORKDIR';
+
+function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
+  const env = { ...(plugin.env ?? {}), ...(customEnv ?? {}) };
+  if (WORKDIR_KEY in metadata) {
+    env[WORKDIR_KEY] = String(metadata[WORKDIR_KEY]);
   }
   return env;
 }
@@ -32,12 +34,23 @@ function buildEnv(plugin: Plugin, metadata: MetaDataType): Record<string, string
 /**
  * Build bootstrap-prefixed install and build commands from plugin config.
  * Each command list is prepended with a WORKDIR bootstrap that defaults to './'.
+ * When custom commands are provided, they are injected before/after the plugin's commands.
  */
-function buildCommands(plugin: Plugin): { installCommands: string[]; commands: string[] } {
+function buildCommands(plugin: Plugin, custom?: StepCustomization): { installCommands: string[]; commands: string[] } {
   const bootstrap = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
   return {
-    installCommands: [bootstrap, ...(plugin.installCommands ?? [])],
-    commands: [bootstrap, ...(plugin.commands ?? [''])],
+    installCommands: [
+      bootstrap,
+      ...(custom?.preInstallCommands ?? []),
+      ...(plugin.installCommands ?? []),
+      ...(custom?.postInstallCommands ?? []),
+    ],
+    commands: [
+      bootstrap,
+      ...(custom?.preCommands ?? []),
+      ...(plugin.commands ?? ['']),
+      ...(custom?.postCommands ?? []),
+    ],
   };
 }
 
@@ -60,15 +73,21 @@ function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value
  * will override the plugin-derived commands when explicitly set.
  */
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep {
-  const { id, plugin, input, metadata, network, scope } = options;
+  const {
+    id, plugin, input, metadata, network, scope,
+    preInstallCommands, postInstallCommands, preCommands, postCommands,
+    env: customEnv,
+  } = options;
 
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
   const metadataBuilder = MetadataBuilder.from(merged);
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
-  const env = buildEnv(plugin, merged);
-  const { installCommands, commands } = buildCommands(plugin);
+  const env = buildEnv(plugin, merged, customEnv);
+  const { installCommands, commands } = buildCommands(plugin, {
+    preInstallCommands, postInstallCommands, preCommands, postCommands,
+  });
   const programmatic = { input, installCommands, commands };
 
   // Return ShellStep if plugin type is SHELL_STEP

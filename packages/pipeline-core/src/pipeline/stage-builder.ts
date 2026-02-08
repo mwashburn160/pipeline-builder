@@ -55,6 +55,11 @@ export class StageBuilder {
         network: stepConfig.network,
         scope: this.scope,
         defaultComputeType: this.defaultComputeType,
+        preInstallCommands: stepConfig.preInstallCommands,
+        postInstallCommands: stepConfig.postInstallCommands,
+        preCommands: stepConfig.preCommands,
+        postCommands: stepConfig.postCommands,
+        env: stepConfig.env,
       });
     });
 

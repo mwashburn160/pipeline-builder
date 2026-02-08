@@ -80,7 +80,7 @@ export interface SecurityGroupLookupOptions {
 /**
  * Union type of all supported security group configurations.
  *
- * Used at the pipeline level (`BuilderProps.securityGroups`) to specify
+ * Used at the pipeline level (`CodeBuildDefaults.securityGroups`) to specify
  * security groups for CodeBuild actions.
  *
  * Each variant resolves to CDK `ISecurityGroup[]`:

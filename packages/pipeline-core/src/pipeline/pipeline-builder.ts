@@ -16,7 +16,6 @@ import type { MetaDataType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
 import type { RoleConfig } from '../core/role-types';
 import { resolveSecurityGroup } from '../core/security-group';
-import type { SecurityGroupConfig } from '../core/security-group-types';
 
 /**
  * Configuration properties for the PipelineBuilder construct
@@ -34,9 +33,6 @@ export interface BuilderProps {
   /** Global metadata inherited by all pipeline steps */
   readonly global?: MetaDataType;
 
-  /** Synthesis configuration including source and plugin details */
-  readonly synth: SynthOptions;
-
   /**
    * Pipeline-level CodeBuild defaults applied to all CodeBuild actions
    * (synth, self-mutation, asset publishing) via `codeBuildDefaults`.
@@ -49,11 +45,8 @@ export interface BuilderProps {
    */
   readonly role?: RoleConfig;
 
-  /**
-   * Optional security groups for the CodePipeline's CodeBuild actions.
-   * When provided, resolves to CDK ISecurityGroup[] and is included in codeBuildDefaults.
-   */
-  readonly securityGroups?: SecurityGroupConfig;
+  /** Synthesis configuration including source and plugin details */
+  readonly synth: SynthOptions;
 
   /**
    * Optional pipeline stages, each containing one or more CodeBuild steps.
@@ -128,9 +121,7 @@ export class PipelineBuilder extends Construct {
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
-    const codeBuildDefaults = this.resolveDefaults(
-      this.config.defaults, props.securityGroups, uniqueId,
-    );
+    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId);
 
     // Resolve IAM role (defaults to codeBuildDefault if not specified)
     const role = resolveRole(
@@ -168,15 +159,14 @@ export class PipelineBuilder extends Construct {
    */
   private resolveDefaults(
     defaults: CodeBuildDefaults | undefined,
-    securityGroupConfig: SecurityGroupConfig | undefined,
     id: UniqueId,
   ): CodeBuildOptions | undefined {
     const networkProps = defaults?.network
       ? resolveNetwork(this, id, defaults.network)
       : undefined;
 
-    const standaloneSecurityGroups = securityGroupConfig
-      ? resolveSecurityGroup(this, id, securityGroupConfig)
+    const standaloneSecurityGroups = defaults?.securityGroups
+      ? resolveSecurityGroup(this, id, defaults.securityGroups)
       : undefined;
 
     if (!networkProps && !standaloneSecurityGroups) return undefined;
@@ -195,6 +185,3 @@ export class PipelineBuilder extends Construct {
     };
   }
 }
-
-/** @deprecated Use PipelineBuilder instead */
-export { PipelineBuilder as Builder };

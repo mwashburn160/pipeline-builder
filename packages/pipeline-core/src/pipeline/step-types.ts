@@ -137,10 +137,32 @@ export interface PluginManifest {
 }
 
 /**
+ * Per-step customization options for commands and environment variables.
+ * Custom commands are injected before/after the plugin's commands.
+ * Custom env vars are merged on top of the plugin's defaults.
+ */
+export interface StepCustomization {
+  /** Commands to run before the plugin's install commands */
+  readonly preInstallCommands?: string[];
+
+  /** Commands to run after the plugin's install commands */
+  readonly postInstallCommands?: string[];
+
+  /** Commands to run before the plugin's build commands */
+  readonly preCommands?: string[];
+
+  /** Commands to run after the plugin's build commands */
+  readonly postCommands?: string[];
+
+  /** Custom environment variables merged on top of the plugin's env */
+  readonly env?: Record<string, string>;
+}
+
+/**
  * Configuration for a single step within a pipeline stage.
  * Uses PluginOptions for name-based plugin selection (resolved at build time).
  */
-export interface StageStepConfig {
+export interface StageStepOptions extends StepCustomization {
   /** Plugin to use for this step */
   readonly plugin: PluginOptions;
 
@@ -163,13 +185,13 @@ export interface StageOptions {
   readonly alias?: string;
 
   /** Build steps to execute within this stage */
-  readonly steps: StageStepConfig[];
+  readonly steps: StageStepOptions[];
 }
 
 /**
  * Options for creating a CodeBuild step in the pipeline
  */
-export interface CodeBuildStepOptions {
+export interface CodeBuildStepOptions extends StepCustomization {
   /**
    * Unique identifier for this CodeBuild step
    * Should be descriptive and unique within the pipeline

@@ -1,5 +1,6 @@
 import { SecretValue } from 'aws-cdk-lib';
 import type { MetaDataType } from './pipeline-types';
+import type { SecurityGroupConfig } from './security-group-types';
 
 /**
  * Network configuration using explicit subnet IDs
@@ -206,6 +207,12 @@ export interface CodeBuildDefaults {
    * Resolves to vpc, subnetSelection, and optional securityGroups.
    */
   readonly network?: NetworkConfig;
+
+  /**
+   * Standalone security groups for all CodeBuild actions.
+   * Merged with any security groups resolved from network config.
+   */
+  readonly securityGroups?: SecurityGroupConfig;
 
   /**
    * Metadata applied to all CodeBuild actions.
