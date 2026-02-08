@@ -1,3 +1,13 @@
+## 1.5.4 (2026-02-08)
+
+### 🩹 Fixes
+
+- pipeline-data version=1.8.4 ([37cdfe0](https://github.com/mwashburn160/pipeline-builder/commit/37cdfe0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.3 (2026-02-08)
 
 ### 🩹 Fixes
