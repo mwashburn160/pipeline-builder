@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@mwashburn160/api-core": "1.8.17",
-    "@mwashburn160/api-server": "1.6.20",
+    "@mwashburn160/api-server": "1.6.23",
     "@mwashburn160/pipeline-core": "1.9.1",
     "adm-zip": "0.5.16",
     "cors": "2.8.6",
@@ -61,7 +61,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.2.22",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
