@@ -8,49 +8,53 @@
  * - Network resolution (VPC/subnet lookup)
  * - Metadata extraction
  * - Unique ID generation
- * - Lambda handlers
- * - HTTP client for service communication
  */
 
 // Configuration
 export * from './config/app-config';
 export * from './config/config-types';
 
-// Core utilities and types
+// Core types (public surface)
 export * from './core/pipeline-types';
 export * from './core/network-types';
-export * from './core/pipeline-helpers';
-export * from './core/metadata-builder';
-export * from './core/network';
 export * from './core/role-types';
-export * from './core/role';
 export * from './core/security-group-types';
-export * from './core/security-group';
 export * from './core/id-generator';
+export { replaceNonAlphanumeric } from './core/pipeline-helpers';
+export { MetadataBuilder } from './core/metadata-builder';
 
-// Re-export from api-core for convenience
+// Re-export from api-core (only items consumed by external packages)
 export {
   ErrorCode,
-  ErrorCodeStatus,
-  getStatusForErrorCode,
   createLogger,
-  // HTTP client utilities
-  InternalHttpClient,
-  createSafeClient,
-  ServiceConfig,
-  type RequestOptions,
-  type HttpResponse,
 } from '@mwashburn160/api-core';
 
-// Handlers (Lambda)
-export * from './handlers/plugin-lookup-handler';
+// Re-export database layer from pipeline-data (only items consumed externally)
+export {
+  // Database connection
+  db,
+  getConnection,
+  closeConnection,
 
-// Re-export database and query builders from pipeline-data
-export * from '@mwashburn160/pipeline-data';
+  // Schema & tables
+  schema,
+
+  // Query builders
+  buildPluginConditions,
+  buildPipelineConditions,
+  validatePluginFilter,
+  validatePipelineFilter,
+
+  // Query filter types
+  type PluginFilter,
+  type PipelineFilter,
+} from '@mwashburn160/pipeline-data';
 
 // Pipeline (CDK constructs)
 export * from './pipeline/source-types';
 export * from './pipeline/step-types';
+export * from './pipeline/source-builder';
+export * from './pipeline/stage-builder';
 export * from './pipeline/pipeline-builder';
 export * from './pipeline/pipeline-configuration';
 export * from './pipeline/plugin-lookup';

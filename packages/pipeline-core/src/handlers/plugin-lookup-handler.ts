@@ -169,7 +169,7 @@ export const handler = async (
 
     // Fetch plugin
     lambdaLog.info('FETCH', 'Initiating plugin lookup...');
-    const plugin = await fetch(api, pluginFilter as PluginFilter);
+    const plugin = await fetch(api, pluginFilter);
     lambdaLog.info('FETCH', 'Plugin retrieved successfully', {
       name: plugin.name,
       version: plugin.version,

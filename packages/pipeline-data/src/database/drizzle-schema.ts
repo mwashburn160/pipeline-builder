@@ -14,6 +14,16 @@ export interface PipelineBuilderConfig {
   readonly global?: MetaDataType;
   readonly synth?: Record<string, any>;
   readonly defaults?: Record<string, any>;
+  readonly stages?: PipelineStageConfig[];
+}
+
+/**
+ * Stage configuration stored in database (JSON-serializable).
+ */
+export interface PipelineStageConfig {
+  readonly stageName: string;
+  readonly alias?: string;
+  readonly steps: Record<string, any>[];
 }
 
 /**

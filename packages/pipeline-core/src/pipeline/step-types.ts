@@ -1,4 +1,5 @@
 import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
+import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { UniqueId } from '../core/id-generator';
@@ -136,6 +137,36 @@ export interface PluginManifest {
 }
 
 /**
+ * Configuration for a single step within a pipeline stage.
+ * Uses PluginOptions for name-based plugin selection (resolved at build time).
+ */
+export interface StageStepConfig {
+  /** Plugin to use for this step */
+  readonly plugin: PluginOptions;
+
+  /** Step-level metadata merged with stage and global metadata */
+  readonly metadata?: MetaDataType;
+
+  /** Optional network configuration for this step's CodeBuild action */
+  readonly network?: NetworkConfig;
+}
+
+/**
+ * A pipeline stage containing one or more build steps.
+ * Each stage maps to a CDK Pipeline wave, with steps executing within the wave.
+ */
+export interface StageOptions {
+  /** Display name for this stage */
+  readonly stageName: string;
+
+  /** Optional alias used for wave/construct ID generation. Defaults to stageName. */
+  readonly alias?: string;
+
+  /** Build steps to execute within this stage */
+  readonly steps: StageStepConfig[];
+}
+
+/**
  * Options for creating a CodeBuild step in the pipeline
  */
 export interface CodeBuildStepOptions {
@@ -181,4 +212,10 @@ export interface CodeBuildStepOptions {
    * so the build runs inside the specified network.
    */
   readonly network?: NetworkConfig;
+
+  /**
+   * Fallback CodeBuild compute type when the plugin doesn't specify one.
+   * @default ComputeType.SMALL
+   */
+  readonly defaultComputeType?: CdkComputeType;
 }

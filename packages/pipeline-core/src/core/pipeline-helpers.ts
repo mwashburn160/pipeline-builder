@@ -1,11 +1,11 @@
 import { createLogger } from '@mwashburn160/api-core';
+import type { Plugin } from '@mwashburn160/pipeline-data';
 import { SecretValue } from 'aws-cdk-lib';
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
-import { Config } from '../config/app-config';
 import { CodeBuildStepOptions } from '../pipeline/step-types';
 
 const log = createLogger('Helper');
@@ -15,6 +15,39 @@ const log = createLogger('Helper');
  */
 export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
   return Object.assign({}, ...sources) as MetaDataType;
+}
+
+/**
+ * Build environment variables from plugin config and merged metadata.
+ * Adds WORKDIR from metadata if specified.
+ */
+function buildEnv(plugin: Plugin, metadata: MetaDataType): Record<string, string> {
+  const env = { ...(plugin.env ?? {}) };
+  if (metadata.WORKDIR) {
+    env.WORKDIR = String(metadata.WORKDIR);
+  }
+  return env;
+}
+
+/**
+ * Build bootstrap-prefixed install and build commands from plugin config.
+ * Each command list is prepended with a WORKDIR bootstrap that defaults to './'.
+ */
+function buildCommands(plugin: Plugin): { installCommands: string[]; commands: string[] } {
+  const bootstrap = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
+  return {
+    installCommands: [bootstrap, ...(plugin.installCommands ?? [])],
+    commands: [bootstrap, ...(plugin.commands ?? [''])],
+  };
+}
+
+/**
+ * Convert a plain env record to CodeBuild's environmentVariables format.
+ */
+function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value: string }> {
+  return Object.fromEntries(
+    Object.entries(env).map(([name, value]) => [name, { value }]),
+  );
 }
 
 /**
@@ -28,27 +61,14 @@ export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
  */
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep {
   const { id, plugin, input, metadata, network, scope } = options;
-  const config = Config.get();
 
-  // Merge plugin metadata with provided metadata
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
   const metadataBuilder = MetadataBuilder.from(merged);
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
-  // Build environment variables
-  const env = { ...(plugin.env ?? {}) };
-
-  // Add WORKDIR if specified in metadata
-  if (merged.WORKDIR) {
-    env.WORKDIR = merged.WORKDIR as string;
-  }
-
-  // Setup bootstrap and commands
-  const bootstrap = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
-  const installCommands = [bootstrap, ...(plugin.installCommands ?? [])];
-  const commands = [bootstrap, ...(plugin.commands ?? [''])];
-
+  const env = buildEnv(plugin, merged);
+  const { installCommands, commands } = buildCommands(plugin);
   const programmatic = { input, installCommands, commands };
 
   // Return ShellStep if plugin type is SHELL_STEP
@@ -60,28 +80,21 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     });
   }
 
-  // Convert env object to CodeBuild environment variables format
-  const environmentVariables = Object.fromEntries(
-    Object.entries(env).map(([name, value]) => [name, { value }]),
-  );
-
-  // Use compute type from plugin or default from config
   const computeType = getComputeType(
-    plugin.computeType ?? config.aws.codeBuild.computeType,
+    plugin.computeType ?? options.defaultComputeType ?? 'SMALL',
   );
 
-  // Resolve network configuration into CDK props
   const networkProps = network
     ? resolveNetwork(scope, options.uniqueId, network)
     : {};
 
-  // Return CodeBuildStep — metadata spread last so it can override programmatic defaults
+  // Metadata spread last so it can override programmatic defaults
   return new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,
     buildEnvironment: {
       computeType,
-      environmentVariables,
+      environmentVariables: toCodeBuildEnvVars(env),
       ...metadataBuilder.forBuildEnvironment(),
     },
     ...metadataBuilder.forCodeBuildStep(),

@@ -1,7 +1,9 @@
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
+import type { PluginOptions, StageOptions } from './step-types';
+import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types';
 import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
-import type { MetaDataType } from '../core/pipeline-types';
+import type { MetaDataType, SourceType } from '../core/pipeline-types';
 import { TriggerType } from '../core/pipeline-types';
 
 /**
@@ -13,11 +15,18 @@ export class PipelineConfiguration {
   public readonly project: string;
   public readonly organization: string;
   public readonly pipelineName: string;
-  public readonly mergedMetadata: MetaDataType;
-  public readonly synthMetadata: MetaDataType;
-  public readonly globalMetadata: MetaDataType;
+  public readonly metadata: {
+    readonly global: MetaDataType;
+    readonly synth: MetaDataType;
+    readonly merged: MetaDataType;
+  };
+  public readonly source: SourceType;
+  public readonly plugin: PluginOptions;
+  public readonly network: NetworkConfig | undefined;
+  public readonly defaults: CodeBuildDefaults | undefined;
+  public readonly stages: StageOptions[] | undefined;
 
-  constructor(private readonly props: BuilderProps) {
+  constructor(props: BuilderProps) {
     this.validateProps(props);
 
     // Sanitize project and organization names
@@ -28,10 +37,20 @@ export class PipelineConfiguration {
     this.pipelineName = props.pipelineName ?? `${this.organization}-${this.project}-pipeline`;
 
     // Metadata merging: global → defaults → synth-specific
-    this.globalMetadata = { ...(props.global ?? {}) };
-    const withDefaults = merge(this.globalMetadata, props.defaults?.metadata ?? {});
-    this.mergedMetadata = merge(withDefaults, props.synth.metadata ?? {});
-    this.synthMetadata = props.synth.metadata ?? {};
+    const global = { ...(props.global ?? {}) };
+    const withDefaults = merge(global, props.defaults?.metadata ?? {});
+    this.metadata = {
+      global,
+      synth: props.synth.metadata ?? {},
+      merged: merge(withDefaults, props.synth.metadata ?? {}),
+    };
+
+    // Expose synth/builder properties directly
+    this.source = props.synth.source;
+    this.plugin = props.synth.plugin;
+    this.network = props.synth.network;
+    this.defaults = props.defaults;
+    this.stages = props.stages;
   }
 
   /**
@@ -57,6 +76,14 @@ export class PipelineConfiguration {
       errors.push('BuilderProps.synth.plugin is required');
     }
 
+    // Validate GitHub repo format upfront
+    if (props.synth?.source?.type === 'github') {
+      const repo = props.synth.source.options.repo;
+      if (repo && !repo.includes('/')) {
+        errors.push(`Invalid GitHub repository format: "${repo}". Expected format: "owner/repo"`);
+      }
+    }
+
     if (errors.length > 0) {
       throw new Error(
         'Pipeline configuration validation failed:\n' +
@@ -66,51 +93,10 @@ export class PipelineConfiguration {
   }
 
   /**
-   * Validates GitHub repository format
-   * @throws Error if format is invalid
-   */
-  validateGitHubRepo(repo: string): void {
-    if (!repo.includes('/')) {
-      throw new Error(
-        `Invalid GitHub repository format: "${repo}". ` +
-        'Expected format: "owner/repo"',
-      );
-    }
-  }
-
-  /**
-   * Gets the source configuration
-   */
-  getSource(): BuilderProps['synth']['source'] {
-    return this.props.synth.source;
-  }
-
-  /**
-   * Gets the plugin configuration
-   */
-  getPlugin(): BuilderProps['synth']['plugin'] {
-    return this.props.synth.plugin;
-  }
-
-  /**
-   * Gets the network configuration
-   */
-  getNetwork(): BuilderProps['synth']['network'] {
-    return this.props.synth.network;
-  }
-
-  /**
-   * Gets the defaults configuration
-   */
-  getDefaults(): BuilderProps['defaults'] {
-    return this.props.defaults;
-  }
-
-  /**
    * Extracts S3 source options with defaults applied
    */
   getS3Options(): Required<Pick<S3Options, 'bucketName' | 'objectKey' | 'trigger'>> & Omit<S3Options, 'bucketName' | 'objectKey' | 'trigger'> {
-    const source = this.getSource();
+    const source = this.source;
     if (source.type !== 's3') {
       throw new Error('Source type is not S3');
     }
@@ -126,7 +112,7 @@ export class PipelineConfiguration {
    * Extracts GitHub source options with defaults applied
    */
   getGitHubOptions(): Required<Pick<GitHubOptions, 'repo' | 'branch' | 'trigger'>> & Omit<GitHubOptions, 'repo' | 'branch' | 'trigger'> {
-    const source = this.getSource();
+    const source = this.source;
     if (source.type !== 'github') {
       throw new Error('Source type is not GitHub');
     }
@@ -142,7 +128,7 @@ export class PipelineConfiguration {
    * Extracts CodeStar source options with defaults applied
    */
   getCodeStarOptions(): Required<Pick<CodeStarOptions, 'repo' | 'branch' | 'trigger' | 'codeBuildCloneOutput' | 'connectionArn'>> {
-    const source = this.getSource();
+    const source = this.source;
     if (source.type !== 'codestar') {
       throw new Error('Source type is not CodeStar');
     }

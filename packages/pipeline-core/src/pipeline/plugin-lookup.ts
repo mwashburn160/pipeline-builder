@@ -9,14 +9,24 @@ import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types';
-import { Config } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 
 const log = createLogger('Lookup');
 
-export interface InputProps {
+interface InputProps {
   readonly baseURL: string;
   readonly pluginFilter: PluginFilter;
+}
+
+/**
+ * Configuration for PluginLookup construct
+ */
+export interface PluginLookupProps {
+  readonly organization: string;
+  readonly project: string;
+  readonly platformUrl: string;
+  readonly uniqueId: UniqueId;
+  readonly runtime?: Runtime;
 }
 
 /**
@@ -34,22 +44,18 @@ export class PluginLookup extends Construct {
   private readonly _uniqueId: UniqueId;
   private readonly _provider: Provider;
   private readonly _platformUrl: string;
+  private readonly _runtime: Runtime;
 
-  /**
-   * @param scope - Scope in which this construct is defined
-   * @param id - Construct identifier
-   * @param organization - Organization identifier used for namespacing and lookup
-   * @param project - Project identifier used for namespacing and lookup
-   */
-  constructor(scope: Construct, id: string, organization: string, project: string) {
+  constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
 
-    if (!organization || !project) {
+    if (!props.organization || !props.project) {
       throw new Error('Both organization and project are required.');
     }
 
-    this._uniqueId = new UniqueId();
-    this._platformUrl = Config.get().server.platformUrl;
+    this._uniqueId = props.uniqueId;
+    this._platformUrl = props.platformUrl;
+    this._runtime = props.runtime ?? Runtime.NODEJS_20_X;
 
     const onEventHandler = this.createLambdaFunction();
 
@@ -64,7 +70,7 @@ export class PluginLookup extends Construct {
       logGroup,
     });
 
-    log.debug(`PluginLookup initialized for ${organization}/${project}`);
+    log.debug(`PluginLookup initialized for ${props.organization}/${props.project}`);
   }
 
   /**
@@ -101,7 +107,7 @@ export class PluginLookup extends Construct {
     const handlerId = this._uniqueId.generate('onevent:handler');
 
     const fn = new NodejsFunction(this, handlerId, {
-      runtime: Runtime.NODEJS_20_X,
+      runtime: this._runtime,
       timeout: Duration.seconds(30),
       memorySize: 256,
       architecture: Architecture.ARM_64,

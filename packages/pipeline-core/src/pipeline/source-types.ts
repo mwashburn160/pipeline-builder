@@ -6,7 +6,7 @@ import type { TriggerType } from '../core/pipeline-types';
  *
  * @example
  * ```typescript
- * const source: S3Source = {
+ * const source: S3SourceConfig = {
  *   type: 's3',
  *   options: {
  *     bucketName: 'my-source-bucket',
@@ -16,7 +16,7 @@ import type { TriggerType } from '../core/pipeline-types';
  * };
  * ```
  */
-export interface S3Source {
+export interface S3SourceConfig {
   readonly type: 's3';
   readonly options: S3Options;
 }
@@ -26,7 +26,7 @@ export interface S3Source {
  *
  * @example
  * ```typescript
- * const source: GitHubSource = {
+ * const source: GitHubSourceConfig = {
  *   type: 'github',
  *   options: {
  *     repo: 'owner/repository',
@@ -36,7 +36,7 @@ export interface S3Source {
  * };
  * ```
  */
-export interface GitHubSource {
+export interface GitHubSourceConfig {
   readonly type: 'github';
   readonly options: GitHubOptions;
 }
@@ -46,7 +46,7 @@ export interface GitHubSource {
  *
  * @example
  * ```typescript
- * const source: CodeStarSource = {
+ * const source: CodeStarSourceConfig = {
  *   type: 'codestar',
  *   options: {
  *     repo: 'owner/repository',
@@ -57,7 +57,7 @@ export interface GitHubSource {
  * };
  * ```
  */
-export interface CodeStarSource {
+export interface CodeStarSourceConfig {
   readonly type: 'codestar';
   readonly options: CodeStarOptions;
 }

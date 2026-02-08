@@ -1,4 +1,4 @@
-import type { CodeStarSource, GitHubSource, S3Source } from '../pipeline/source-types';
+import type { CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
 
 // Re-export shared types from api-core for convenience
 export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
@@ -24,11 +24,11 @@ export type TriggerType = ValueOf<typeof TriggerType>;
  * Union type of all supported pipeline source types
  *
  * Supported sources:
- * - S3Source: Source code from S3 bucket
- * - GitHubSource: Source code from GitHub repository
- * - CodeStarSource: Source code via CodeStar connection (GitHub, Bitbucket, GitLab)
+ * - S3SourceConfig: Source code from S3 bucket
+ * - GitHubSourceConfig: Source code from GitHub repository
+ * - CodeStarSourceConfig: Source code via CodeStar connection (GitHub, Bitbucket, GitLab)
  */
-export type SourceType = S3Source | GitHubSource | CodeStarSource;
+export type SourceType = S3SourceConfig | GitHubSourceConfig | CodeStarSourceConfig;
 
 /**
  * Constants for metadata keys to avoid string typos.

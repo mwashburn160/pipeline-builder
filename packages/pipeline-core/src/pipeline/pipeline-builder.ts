@@ -1,25 +1,25 @@
-import { Tags, SecretValue } from 'aws-cdk-lib';
-import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
-import { Bucket } from 'aws-cdk-lib/aws-s3';
-import { CodePipeline, CodePipelineSource } from 'aws-cdk-lib/pipelines';
+import { Tags } from 'aws-cdk-lib';
+import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
 import { PluginLookup } from './plugin-lookup';
-import type { SynthOptions } from './step-types';
+import { SourceBuilder } from './source-builder';
+import { StageBuilder } from './stage-builder';
+import type { StageOptions, SynthOptions } from './step-types';
+import { Config } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 import { MetadataBuilder } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
-import { createCodeBuildStep, unwrapSecret } from '../core/pipeline-helpers';
+import { createCodeBuildStep } from '../core/pipeline-helpers';
 import type { MetaDataType } from '../core/pipeline-types';
-import { TriggerType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
 import type { RoleConfig } from '../core/role-types';
 import { resolveSecurityGroup } from '../core/security-group';
 import type { SecurityGroupConfig } from '../core/security-group-types';
 
 /**
- * Configuration properties for the Builder construct
+ * Configuration properties for the PipelineBuilder construct
  */
 export interface BuilderProps {
   /** Project identifier (will be sanitized to lowercase alphanumeric with underscores) */
@@ -54,6 +54,12 @@ export interface BuilderProps {
    * When provided, resolves to CDK ISecurityGroup[] and is included in codeBuildDefaults.
    */
   readonly securityGroups?: SecurityGroupConfig;
+
+  /**
+   * Optional pipeline stages, each containing one or more CodeBuild steps.
+   * Stages are added as waves to the CodePipeline after the synth step.
+   */
+  readonly stages?: StageOptions[];
 }
 
 /**
@@ -68,7 +74,7 @@ export interface BuilderProps {
  *
  * @example
  * ```typescript
- * new Builder(this, 'MyPipeline', {
+ * new PipelineBuilder(this, 'MyPipeline', {
  *   project: 'my-app',
  *   organization: 'my-org',
  *   synth: {
@@ -81,7 +87,7 @@ export interface BuilderProps {
  * });
  * ```
  */
-export class Builder extends Construct {
+export class PipelineBuilder extends Construct {
   public readonly pipeline: CodePipeline;
   public readonly config: PipelineConfiguration;
 
@@ -91,30 +97,39 @@ export class Builder extends Construct {
     // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
     this.config = new PipelineConfiguration(props);
 
+    const appConfig = Config.get();
     const uniqueId = new UniqueId();
     const pluginLookup = new PluginLookup(
       this,
       uniqueId.generate('plugin:lookup'),
-      this.config.organization,
-      this.config.project,
+      {
+        organization: this.config.organization,
+        project: this.config.project,
+        platformUrl: appConfig.server.platformUrl,
+        uniqueId,
+        runtime: appConfig.aws.lambda.runtime,
+      },
     );
 
-    // Create source and build step (delegating to config for logic)
-    const source = this.createSource(this.config.getSource(), uniqueId);
-    const plugin = pluginLookup.plugin(this.config.getPlugin());
+    // Create source and build step
+    const sourceBuilder = new SourceBuilder(this, this.config);
+    const source = sourceBuilder.create(uniqueId);
+    const plugin = pluginLookup.plugin(this.config.plugin);
+    const defaultComputeType = appConfig.aws.codeBuild.computeType;
     const synth = createCodeBuildStep({
       id: uniqueId.generate('cdk:synth'),
       uniqueId,
       plugin,
       input: source,
-      metadata: this.config.mergedMetadata,
-      network: this.config.getNetwork(),
+      metadata: this.config.metadata.merged,
+      network: this.config.network,
       scope: this,
+      defaultComputeType,
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
     const codeBuildDefaults = this.resolveDefaults(
-      this.config.getDefaults(), props.securityGroups, uniqueId,
+      this.config.defaults, props.securityGroups, uniqueId,
     );
 
     // Resolve IAM role (defaults to codeBuildDefault if not specified)
@@ -129,8 +144,16 @@ export class Builder extends Construct {
       role,
       pipelineName: this.config.pipelineName,
       synth,
-      ...MetadataBuilder.from(this.config.mergedMetadata).forCodePipeline(),
+      ...MetadataBuilder.from(this.config.metadata.merged).forCodePipeline(),
     });
+
+    // Add stages as waves via StageBuilder
+    if (props.stages) {
+      const stageBuilder = new StageBuilder(
+        this, pluginLookup, uniqueId, this.config.metadata.merged, defaultComputeType,
+      );
+      stageBuilder.addStages(this.pipeline, props.stages);
+    }
 
     // Apply tags
     Tags.of(this.pipeline).add('project', this.config.project);
@@ -147,7 +170,7 @@ export class Builder extends Construct {
     defaults: CodeBuildDefaults | undefined,
     securityGroupConfig: SecurityGroupConfig | undefined,
     id: UniqueId,
-  ): Record<string, unknown> | undefined {
+  ): CodeBuildOptions | undefined {
     const networkProps = defaults?.network
       ? resolveNetwork(this, id, defaults.network)
       : undefined;
@@ -171,68 +194,7 @@ export class Builder extends Construct {
       }),
     };
   }
-
-  /**
-   * Creates the appropriate CodePipelineSource based on source type
-   */
-  private createSource(config: SynthOptions['source'], id: UniqueId): CodePipelineSource {
-    switch (config.type) {
-      case 's3':
-        return this.createS3Source(id);
-      case 'github':
-        return this.createGitHubSource();
-      case 'codestar':
-        return this.createCodeStarSource();
-      default:
-        const exhaustiveCheck: never = config;
-        throw new Error(`Unsupported source type: ${(exhaustiveCheck as any).type}`);
-    }
-  }
-
-  /**
-   * Creates an S3 source for the pipeline (CDK construct creation)
-   */
-  private createS3Source(id: UniqueId): CodePipelineSource {
-    const options = this.config.getS3Options();
-
-    const bucket = Bucket.fromBucketName(
-      this,
-      id.generate('source:bucket'),
-      options.bucketName,
-    );
-
-    return CodePipelineSource.s3(bucket, options.objectKey, {
-      trigger: options.trigger === TriggerType.POLL ? S3Trigger.POLL : S3Trigger.NONE,
-    });
-  }
-
-  /**
-   * Creates a GitHub source for the pipeline (CDK construct creation)
-   */
-  private createGitHubSource(): CodePipelineSource {
-    const options = this.config.getGitHubOptions();
-    this.config.validateGitHubRepo(options.repo);
-
-    const authentication = options.token
-      ? (typeof options.token === 'string' ? SecretValue.unsafePlainText(options.token) : options.token)
-      : undefined;
-
-    return CodePipelineSource.gitHub(options.repo, options.branch, {
-      trigger: options.trigger === TriggerType.POLL ? GitHubTrigger.POLL : GitHubTrigger.NONE,
-      authentication,
-    });
-  }
-
-  /**
-   * Creates a CodeStar connection source for the pipeline (CDK construct creation)
-   */
-  private createCodeStarSource(): CodePipelineSource {
-    const options = this.config.getCodeStarOptions();
-
-    return CodePipelineSource.connection(options.repo, options.branch, {
-      connectionArn: unwrapSecret(options.connectionArn),
-      triggerOnPush: options.trigger === TriggerType.POLL,
-      codeBuildCloneOutput: options.codeBuildCloneOutput,
-    });
-  }
 }
+
+/** @deprecated Use PipelineBuilder instead */
+export { PipelineBuilder as Builder };

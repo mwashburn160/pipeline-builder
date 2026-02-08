@@ -40,6 +40,7 @@ export class Config {
   static get(): AppConfig {
     if (!this.instance) {
       this.instance = this.loadConfig();
+      this.validate(this.instance);
     }
     return this.instance;
   }
