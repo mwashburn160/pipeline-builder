@@ -54,8 +54,8 @@ importers:
         specifier: 1.6.20
         version: 1.6.20(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -145,8 +145,8 @@ importers:
         specifier: 1.6.20
         version: 1.6.20(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -248,8 +248,8 @@ importers:
         specifier: 1.6.20
         version: 1.6.20(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -330,8 +330,8 @@ importers:
         specifier: 1.6.20
         version: 1.6.20(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -437,8 +437,8 @@ importers:
         specifier: 1.8.17
         version: 1.8.17
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -632,8 +632,8 @@ importers:
   packages/pipeline-manager:
     dependencies:
       '@mwashburn160/pipeline-core':
-        specifier: 1.8.6
-        version: 1.8.6(@types/pg@8.16.0)
+        specifier: 1.9.1
+        version: 1.9.1(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.237.0
         version: 2.237.0(constructs@10.4.5)
@@ -1920,6 +1920,10 @@ packages:
 
   '@mwashburn160/pipeline-core@1.8.6':
     resolution: {integrity: sha512-uUJhM8zIKTKqlMVQYCUeC3/SJCTIeepRPwiqaNzrV7xeDVmga5eqUUJxKv29vIJ145mPcKs1XvT69bQ+pg2cxA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.8.6/bde866090c9ab5ab700508fe4b707721dac4fcb8}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/pipeline-core@1.9.1':
+    resolution: {integrity: sha512-w/gcAM172f85+lT99suJmXmTHNAw4T6riUhsWl3olECMuIZxmOh8phH4b3W3Lp5muGJ5KG3jRTIPrfgHhYc4Cw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.9.1/dd74fc96504ae1026ffefd910edfd42a620f902e}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/pipeline-data@1.9.5':
@@ -7453,6 +7457,48 @@ snapshots:
     dependencies:
       '@mwashburn160/api-core': 1.8.17
       '@mwashburn160/pipeline-data': 1.9.5(@types/pg@8.16.0)
+      aws-cdk-lib: 2.237.0(constructs@10.4.5)
+      axios: 1.13.3
+      constructs: 10.4.5
+      jsonwebtoken: 9.0.3
+      uuid: 13.0.0
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - debug
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+
+  '@mwashburn160/pipeline-core@1.9.1(@types/pg@8.16.0)':
+    dependencies:
+      '@mwashburn160/api-core': 1.8.17
+      '@mwashburn160/pipeline-data': 1.9.8(@types/pg@8.16.0)
       aws-cdk-lib: 2.237.0(constructs@10.4.5)
       axios: 1.13.3
       constructs: 10.4.5
