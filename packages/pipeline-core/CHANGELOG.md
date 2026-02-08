@@ -1,3 +1,7 @@
+## 1.7.1 (2026-02-08)
+
+This was a version bump only for @mwashburn160/pipeline-core to align it with other projects, there were no code changes.
+
 ## 1.7.0 (2026-02-08)
 
 ### 🚀 Features

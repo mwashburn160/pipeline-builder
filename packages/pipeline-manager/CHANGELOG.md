@@ -1,3 +1,17 @@
+## 1.5.0 (2026-02-08)
+
+### 🚀 Features
+
+- added ses ([d19a805](https://github.com/mwashburn160/pipeline-builder/commit/d19a805))
+
+### 🩹 Fixes
+
+- version ([e738532](https://github.com/mwashburn160/pipeline-builder/commit/e738532))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.7 (2026-02-07)
 
 ### 🩹 Fixes
