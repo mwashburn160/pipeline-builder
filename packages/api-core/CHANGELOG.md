@@ -1,3 +1,13 @@
+## 1.8.18 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded api-core=1.8.17 ([0c2f76a](https://github.com/mwashburn160/pipeline-builder/commit/0c2f76a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.17 (2026-02-08)
 
 ### 🩹 Fixes
