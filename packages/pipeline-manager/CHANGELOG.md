@@ -1,3 +1,7 @@
+## 1.5.8 (2026-02-08)
+
+This was a version bump only for @mwashburn160/pipeline-manager to align it with other projects, there were no code changes.
+
 ## 1.5.7 (2026-02-08)
 
 ### 🩹 Fixes

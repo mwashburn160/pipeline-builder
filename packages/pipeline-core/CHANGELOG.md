@@ -1,3 +1,18 @@
+## 1.7.10 (2026-02-08)
+
+### 🩹 Fixes
+
+- pipeline-data version=1.8.8 ([e3a9423](https://github.com/mwashburn160/pipeline-builder/commit/e3a9423))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.8.9
+- Updated @mwashburn160/api-core to 1.8.9
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.9 (2026-02-08)
 
 ### 🩹 Fixes
