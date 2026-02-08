@@ -1,3 +1,13 @@
+## 1.5.18 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.9.5 ([43426b7](https://github.com/mwashburn160/pipeline-builder/commit/43426b7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.17 (2026-02-08)
 
 ### 🩹 Fixes
