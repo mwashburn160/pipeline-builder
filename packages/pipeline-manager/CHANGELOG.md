@@ -1,3 +1,13 @@
+## 1.5.12 (2026-02-08)
+
+### 🩹 Fixes
+
+- updated id-generator ([3caac4a](https://github.com/mwashburn160/pipeline-builder/commit/3caac4a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.11 (2026-02-08)
 
 ### 🩹 Fixes

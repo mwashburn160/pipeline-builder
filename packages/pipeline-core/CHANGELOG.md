@@ -1,3 +1,17 @@
+## 1.8.0 (2026-02-08)
+
+### 🚀 Features
+
+- added stages ([52f8c00](https://github.com/mwashburn160/pipeline-builder/commit/52f8c00))
+
+### 🩹 Fixes
+
+- updated id-generator ([3caac4a](https://github.com/mwashburn160/pipeline-builder/commit/3caac4a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.14 (2026-02-08)
 
 ### 🩹 Fixes
