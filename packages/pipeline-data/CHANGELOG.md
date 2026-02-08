@@ -1,3 +1,17 @@
+## 1.8.0 (2026-02-08)
+
+### 🚀 Features
+
+- added ses ([d19a805](https://github.com/mwashburn160/pipeline-builder/commit/d19a805))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.8.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.8 (2026-02-07)
 
 ### 🩹 Fixes
