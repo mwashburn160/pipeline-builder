@@ -1,3 +1,13 @@
+## 1.2.14 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.8.1 ([0577d4e](https://github.com/mwashburn160/pipeline-builder/commit/0577d4e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.2.13 (2026-02-08)
 
 This was a version bump only for quota to align it with other projects, there were no code changes.
