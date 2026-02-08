@@ -1,3 +1,13 @@
+## 1.9.0 (2026-02-08)
+
+### 🚀 Features
+
+- add custom install commands ([89e448c](https://github.com/mwashburn160/pipeline-builder/commit/89e448c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.8 (2026-02-08)
 
 ### 🩹 Fixes
