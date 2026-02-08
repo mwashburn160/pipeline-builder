@@ -1,3 +1,13 @@
+## 1.6.4 (2026-02-08)
+
+### 🩹 Fixes
+
+- api-core version=1.8.3 ([ab0eec3](https://github.com/mwashburn160/pipeline-builder/commit/ab0eec3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.3 (2026-02-08)
 
 ### 🩹 Fixes
