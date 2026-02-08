@@ -61,7 +61,7 @@ let apiServerVersion = '1.6.1';
 let pipelineDataVersion = '1.8.4';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.7.1';
+let pipelineCoreVersion = '1.7.5';
 
 // =============================================================================
 // Root Project Configuration
