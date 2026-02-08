@@ -1,3 +1,13 @@
+## 1.7.12 (2026-02-08)
+
+### 🩹 Fixes
+
+- set default role=codeBuildDefault ([b6070d6](https://github.com/mwashburn160/pipeline-builder/commit/b6070d6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.11 (2026-02-08)
 
 ### 🩹 Fixes
