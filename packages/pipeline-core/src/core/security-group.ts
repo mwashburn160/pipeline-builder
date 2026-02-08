@@ -1,6 +1,6 @@
 import { ISecurityGroup, SecurityGroup, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
-import { ConstructId } from './id-generator';
+import { UniqueId } from './id-generator';
 import type { SecurityGroupConfig } from './security-group-types';
 
 /**
@@ -8,13 +8,13 @@ import type { SecurityGroupConfig } from './security-group-types';
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookup.
  *
  * @param scope - CDK construct scope
- * @param id - ConstructId instance for generating unique construct IDs
+ * @param id - UniqueId instance for generating unique construct IDs
  * @param config - Security group configuration to resolve
  * @returns Resolved CDK ISecurityGroup array
  */
 export function resolveSecurityGroup(
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   config: SecurityGroupConfig,
 ): ISecurityGroup[] {
   switch (config.type) {

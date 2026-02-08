@@ -1,6 +1,6 @@
 import { ISecurityGroup, IVpc, SecurityGroup, Subnet, SubnetSelection, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
-import { ConstructId } from './id-generator';
+import { UniqueId } from './id-generator';
 import type {
   NetworkConfig,
   SubnetTypeName,
@@ -31,13 +31,13 @@ export interface ResolvedNetwork {
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookups.
  *
  * @param scope - CDK construct scope
- * @param id - ConstructId instance for generating unique construct IDs
+ * @param id - UniqueId instance for generating unique construct IDs
  * @param network - Network configuration to resolve
  * @returns Resolved network props ready to spread into CDK constructs
  */
 export function resolveNetwork(
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   network: NetworkConfig,
 ): ResolvedNetwork {
   switch (network.type) {
@@ -92,7 +92,7 @@ export function resolveNetwork(
 function withSecurityGroups(
   result: Omit<ResolvedNetwork, 'securityGroups'>,
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   securityGroupIds?: string[],
 ): ResolvedNetwork {
   const securityGroups = resolveSecurityGroups(scope, id, securityGroupIds);
@@ -119,7 +119,7 @@ function resolveSubnetSelection(
  */
 function resolveSecurityGroups(
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   securityGroupIds?: string[],
 ): ISecurityGroup[] | undefined {
   if (!securityGroupIds?.length) {

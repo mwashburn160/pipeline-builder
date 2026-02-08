@@ -10,7 +10,7 @@ import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types';
 import { Config } from '../config/app-config';
-import { ConstructId } from '../core/id-generator';
+import { UniqueId } from '../core/id-generator';
 
 const log = createLogger('Lookup');
 
@@ -31,7 +31,7 @@ export interface InputProps {
  * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
 export class PluginLookup extends Construct {
-  private readonly _uniqueId: ConstructId;
+  private readonly _uniqueId: UniqueId;
   private readonly _provider: Provider;
   private readonly _platformUrl: string;
 
@@ -48,7 +48,7 @@ export class PluginLookup extends Construct {
       throw new Error('Both organization and project are required.');
     }
 
-    this._uniqueId = new ConstructId();
+    this._uniqueId = new UniqueId();
     this._platformUrl = Config.get().server.platformUrl;
 
     const onEventHandler = this.createLambdaFunction();

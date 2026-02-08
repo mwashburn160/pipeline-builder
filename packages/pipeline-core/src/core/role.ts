@@ -1,6 +1,6 @@
 import { Effect, IRole, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { ConstructId } from './id-generator';
+import { UniqueId } from './id-generator';
 import type { CodeBuildDefaultRoleOptions, RoleConfig } from './role-types';
 
 /**
@@ -8,13 +8,13 @@ import type { CodeBuildDefaultRoleOptions, RoleConfig } from './role-types';
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookup.
  *
  * @param scope - CDK construct scope
- * @param id - ConstructId instance for generating unique construct IDs
+ * @param id - UniqueId instance for generating unique construct IDs
  * @param config - Role configuration to resolve
  * @returns Resolved CDK IRole ready to pass to CodePipeline
  */
 export function resolveRole(
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   config: RoleConfig,
 ): IRole {
   switch (config.type) {
@@ -36,7 +36,7 @@ export function resolveRole(
  */
 function createCodeBuildDefaultRole(
   scope: Construct,
-  id: ConstructId,
+  id: UniqueId,
   options: CodeBuildDefaultRoleOptions,
 ): IRole {
   const role = new Role(scope, id.generate('role:codebuild'), {

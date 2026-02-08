@@ -4,7 +4,7 @@
  *
  * @example
  * ```typescript
- * const id = new ConstructId();
+ * const id = new UniqueId();
  *
  * id.generate('plugin:lookup');   // "plugin:lookup:1"
  * id.generate('cdk:synth');       // "cdk:synth:1"
@@ -12,7 +12,7 @@
  * id.generate('cdk:pipeline:1'); // "cdk:pipeline:1" (already has counter)
  * ```
  */
-export class ConstructId {
+export class UniqueId {
   private readonly _counters = new Map<string, number>();
 
   /**

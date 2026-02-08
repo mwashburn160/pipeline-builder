@@ -6,7 +6,7 @@ import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
 import { PluginLookup } from './plugin-lookup';
 import type { SynthOptions } from './step-types';
-import { ConstructId } from '../core/id-generator';
+import { UniqueId } from '../core/id-generator';
 import { MetadataBuilder } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
@@ -91,7 +91,7 @@ export class Builder extends Construct {
     // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
     this.config = new PipelineConfiguration(props);
 
-    const uniqueId = new ConstructId();
+    const uniqueId = new UniqueId();
     const pluginLookup = new PluginLookup(
       this,
       uniqueId.generate('plugin:lookup'),
@@ -146,14 +146,14 @@ export class Builder extends Construct {
   private resolveDefaults(
     defaults: CodeBuildDefaults | undefined,
     securityGroupConfig: SecurityGroupConfig | undefined,
-    uniqueId: ConstructId,
+    id: UniqueId,
   ): Record<string, unknown> | undefined {
     const networkProps = defaults?.network
-      ? resolveNetwork(this, uniqueId, defaults.network)
+      ? resolveNetwork(this, id, defaults.network)
       : undefined;
 
     const standaloneSecurityGroups = securityGroupConfig
-      ? resolveSecurityGroup(this, uniqueId, securityGroupConfig)
+      ? resolveSecurityGroup(this, id, securityGroupConfig)
       : undefined;
 
     if (!networkProps && !standaloneSecurityGroups) return undefined;
@@ -175,10 +175,10 @@ export class Builder extends Construct {
   /**
    * Creates the appropriate CodePipelineSource based on source type
    */
-  private createSource(config: SynthOptions['source'], uniqueId: ConstructId): CodePipelineSource {
+  private createSource(config: SynthOptions['source'], id: UniqueId): CodePipelineSource {
     switch (config.type) {
       case 's3':
-        return this.createS3Source(uniqueId);
+        return this.createS3Source(id);
       case 'github':
         return this.createGitHubSource();
       case 'codestar':
@@ -192,12 +192,12 @@ export class Builder extends Construct {
   /**
    * Creates an S3 source for the pipeline (CDK construct creation)
    */
-  private createS3Source(uniqueId: ConstructId): CodePipelineSource {
+  private createS3Source(id: UniqueId): CodePipelineSource {
     const options = this.config.getS3Options();
 
     const bucket = Bucket.fromBucketName(
       this,
-      uniqueId.generate('source:bucket'),
+      id.generate('source:bucket'),
       options.bucketName,
     );
 
