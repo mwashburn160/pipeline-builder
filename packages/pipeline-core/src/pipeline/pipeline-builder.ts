@@ -117,15 +117,16 @@ export class Builder extends Construct {
       this.config.getDefaults(), props.securityGroups, uniqueId,
     );
 
-    // Resolve optional IAM role
-    const role = props.role
-      ? resolveRole(this, uniqueId, props.role)
-      : undefined;
+    // Resolve IAM role (defaults to codeBuildDefault if not specified)
+    const role = resolveRole(
+      this, uniqueId,
+      props.role ?? { type: 'codeBuildDefault', options: {} },
+    );
 
     // Create CodePipeline construct
     this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       ...(codeBuildDefaults && { codeBuildDefaults }),
-      ...(role && { role }),
+      role,
       pipelineName: this.config.pipelineName,
       synth,
       ...MetadataBuilder.from(this.config.mergedMetadata).forCodePipeline(),
