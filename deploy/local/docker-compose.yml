@@ -1,8 +1,13 @@
+# =============================================================================
+# Shared YAML Anchors
+# =============================================================================
+
+# -- Service defaults for API containers --
 x-api-defaults:
   restart: always
-  networks: &ref_0
+  networks: &api-networks
     - backend-network
-  healthcheck: &ref_1
+  healthcheck: &api-healthcheck
     test:
       - CMD
       - curl
@@ -12,7 +17,7 @@ x-api-defaults:
     timeout: 10s
     retries: 5
     start_period: 60s
-  deploy: &ref_2
+  deploy: &api-deploy
     resources:
       limits:
         cpus: '0.75'
@@ -20,23 +25,45 @@ x-api-defaults:
       reservations:
         cpus: '0.4'
         memory: 384M
-x-common-api-env:
+
+# -- Env shared by ALL api services (platform, plugin, pipeline, quota) --
+x-common-env: &common-env
+  NODE_ENV: '${NODE_ENV:-production}'
+  LOG_LEVEL: '${LOG_LEVEL:-info}'
+  JWT_SECRET: '${JWT_SECRET}'
+  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+
+# -- Env shared by Postgres-backed services (platform, plugin, pipeline) --
+x-postgres-env: &postgres-env
   DB_HOST: '${DB_HOST}'
   DB_PORT: '${DB_PORT}'
   DATABASE: '${DATABASE}'
   DB_USER: '${DB_USER}'
   DB_PASSWORD: '${DB_PASSWORD}'
-  JWT_SECRET: '${JWT_SECRET}'
+  DRIZZLE_MAX_POOL_SIZE: '${DRIZZLE_MAX_POOL_SIZE:-20}'
+  DRIZZLE_IDLE_TIMEOUT_MILLIS: '${DRIZZLE_IDLE_TIMEOUT_MILLIS:-30000}'
+  DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
   REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
-  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
-x-common-mongo-api-env:
-  MONGODB_URI: '${MONGODB_URI}'
-  JWT_SECRET: '${JWT_SECRET}'
-  PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
-x-quota-service-env:
+
+# -- Env shared by Express server services (platform, plugin, pipeline) --
+x-server-env: &server-env
+  CORS_CREDENTIALS: '${CORS_CREDENTIALS:-true}'
+  CORS_ORIGIN: '${CORS_ORIGIN}'
+  LIMITER_MAX: '${LIMITER_MAX:-100}'
+  LIMITER_WINDOWMS: '${LIMITER_WINDOWMS:-900000}'
+
+# -- Env for services that call the quota service --
+x-quota-client-env: &quota-client-env
   QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
   QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
+
+# =============================================================================
+# Services
+# =============================================================================
 services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
   nginx:
     image: 'nginx:latest'
     container_name: nginx
@@ -74,6 +101,10 @@ services:
         reservations:
           cpus: '0.2'
           memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Databases
+  # ---------------------------------------------------------------------------
   mongodb:
     image: 'mongo:latest'
     container_name: mongodb
@@ -117,6 +148,7 @@ services:
         reservations:
           cpus: '0.8'
           memory: 768M
+
   postgres:
     image: 'postgres:latest'
     container_name: postgres
@@ -151,6 +183,10 @@ services:
         reservations:
           cpus: '0.8'
           memory: 768M
+
+  # ---------------------------------------------------------------------------
+  # Admin UIs
+  # ---------------------------------------------------------------------------
   mongo-express:
     image: 'mongo-express:latest'
     container_name: mongo-express
@@ -178,6 +214,7 @@ services:
         reservations:
           cpus: '0.2'
           memory: 192M
+
   pgadmin:
     image: 'dpage/pgadmin4:latest'
     container_name: pgadmin
@@ -202,6 +239,10 @@ services:
         reservations:
           cpus: '0.2'
           memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Docker Registry
+  # ---------------------------------------------------------------------------
   registry:
     image: 'registry:latest'
     container_name: registry
@@ -232,6 +273,7 @@ services:
         reservations:
           cpus: '0.3'
           memory: 256M
+
   registry-express:
     image: 'joxit/docker-registry-ui:latest'
     container_name: registry-express
@@ -256,6 +298,10 @@ services:
         reservations:
           cpus: '0.2'
           memory: 192M
+
+  # ---------------------------------------------------------------------------
+  # Application Services
+  # ---------------------------------------------------------------------------
   frontend:
     image: 'ghcr.io/mwashburn160/frontend:1.3.11'
     container_name: frontend
@@ -285,11 +331,12 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
   platform:
     restart: always
-    networks: *ref_0
-    healthcheck: *ref_1
-    deploy: *ref_2
+    networks: *api-networks
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
     image: 'ghcr.io/mwashburn160/platform:1.4.11'
     container_name: platform
     depends_on:
@@ -302,40 +349,69 @@ services:
       quota:
         condition: service_healthy
     environment:
-      DB_HOST: '${DB_HOST}'
-      DB_PORT: '${DB_PORT}'
-      DATABASE: '${DATABASE}'
-      DB_USER: '${DB_USER}'
-      DB_PASSWORD: '${DB_PASSWORD}'
-      DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
-      JWT_SECRET: '${JWT_SECRET}'
-      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
-      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
-      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
-      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
-      MONGODB_URI: '${MONGODB_URI}'
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      # JWT
       JWT_EXPIRES_IN: '${JWT_EXPIRES_IN}'
+      JWT_ALGORITHM: '${JWT_ALGORITHM:-HS256}'
       JWT_SALT_ROUNDS: '${JWT_SALT_ROUNDS}'
       REFRESH_TOKEN_EXPIRES_IN: '${REFRESH_TOKEN_EXPIRES_IN}'
-      TRUST_PROXY: '${TRUST_PROXY}'
+      # Platform
       PLATFORM_FRONTEND_URL: '${PLATFORM_FRONTEND_URL:-https://localhost:8443}'
+      TRUST_PROXY: '${TRUST_PROXY}'
+      # MongoDB
+      MONGODB_URI: '${MONGODB_URI}'
+      # Email
       EMAIL_ENABLED: '${EMAIL_ENABLED}'
       EMAIL_FROM: '${EMAIL_FROM}'
       EMAIL_FROM_NAME: '${EMAIL_FROM_NAME}'
+      EMAIL_PROVIDER: '${EMAIL_PROVIDER:-smtp}'
       SMTP_HOST: '${SMTP_HOST}'
       SMTP_PORT: '${SMTP_PORT}'
       SMTP_SECURE: '${SMTP_SECURE}'
       SMTP_USER: '${SMTP_USER}'
       SMTP_PASS: '${SMTP_PASS}'
+      SES_REGION: '${SES_REGION:-us-east-1}'
+      SES_ACCESS_KEY_ID: '${SES_ACCESS_KEY_ID}'
+      SES_SECRET_ACCESS_KEY: '${SES_SECRET_ACCESS_KEY}'
+      AWS_REGION: '${AWS_REGION:-us-east-1}'
+      # Invitations
       INVITATION_EXPIRATION_DAYS: '${INVITATION_EXPIRATION_DAYS}'
       INVITATION_MAX_PENDING_PER_ORG: '${INVITATION_MAX_PENDING_PER_ORG}'
+      # OAuth
       OAUTH_GOOGLE_CLIENT_ID: '${OAUTH_GOOGLE_CLIENT_ID}'
       OAUTH_GOOGLE_CLIENT_SECRET: '${OAUTH_GOOGLE_CLIENT_SECRET}'
+      OAUTH_CALLBACK_BASE_URL: '${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}'
+      # Service URLs
+      LIST_PLUGINS_URL: '${LIST_PLUGINS_URL:-https://localhost:8443}'
+      GET_PLUGIN_URL: '${GET_PLUGIN_URL:-https://localhost:8443}'
+      UPLOAD_PLUGIN_URL: '${UPLOAD_PLUGIN_URL:-https://localhost:8443}'
+      LIST_PIPELINES_URL: '${LIST_PIPELINES_URL:-https://localhost:8443}'
+      GET_PIPELINE_URL: '${GET_PIPELINE_URL:-https://localhost:8443}'
+      CREATE_PIPELINE_URL: '${CREATE_PIPELINE_URL:-https://localhost:8443}'
+      SERVICE_TIMEOUT: '${SERVICE_TIMEOUT:-30000}'
+      # Quotas
+      QUOTA_BYPASS_ORG_ID: '${QUOTA_BYPASS_ORG_ID:-system}'
+      QUOTA_DEFAULT_WINDOW_MS: '${QUOTA_DEFAULT_WINDOW_MS:-60000}'
+      QUOTA_ORG_PLUGINS_DEFAULT: '${QUOTA_ORG_PLUGINS_DEFAULT:-100}'
+      QUOTA_ORG_PIPELINES_DEFAULT: '${QUOTA_ORG_PIPELINES_DEFAULT:-50}'
+      QUOTA_ORG_API_CALLS_DEFAULT: '${QUOTA_ORG_API_CALLS_DEFAULT:-10000}'
+      QUOTA_RESET_PERIOD_PLUGINS: '${QUOTA_RESET_PERIOD_PLUGINS:-3days}'
+      QUOTA_RESET_PERIOD_PIPELINES: '${QUOTA_RESET_PERIOD_PIPELINES:-3days}'
+      QUOTA_RESET_PERIOD_API_CALLS: '${QUOTA_RESET_PERIOD_API_CALLS:-3days}'
+      QUOTA_CREATE_PLUGIN_LIMIT: '${QUOTA_CREATE_PLUGIN_LIMIT:-unlimited}'
+      QUOTA_CREATE_PLUGIN_WINDOW_MS: '${QUOTA_CREATE_PLUGIN_WINDOW_MS:-60000}'
+      QUOTA_GET_PLUGIN_LIMIT: '${QUOTA_GET_PLUGIN_LIMIT:-10}'
+      QUOTA_GET_PLUGIN_WINDOW_MS: '${QUOTA_GET_PLUGIN_WINDOW_MS:-60000}'
+      QUOTA_CREATE_PIPELINE_LIMIT: '${QUOTA_CREATE_PIPELINE_LIMIT:-unlimited}'
+      QUOTA_CREATE_PIPELINE_WINDOW_MS: '${QUOTA_CREATE_PIPELINE_WINDOW_MS:-60000}'
+      QUOTA_GET_PIPELINE_LIMIT: '${QUOTA_GET_PIPELINE_LIMIT:-10}'
+      QUOTA_GET_PIPELINE_WINDOW_MS: '${QUOTA_GET_PIPELINE_WINDOW_MS:-60000}'
+
   plugin:
     restart: always
-    networks: *ref_0
-    healthcheck: *ref_1
-    deploy: *ref_2
+    networks: *api-networks
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
     image: 'ghcr.io/mwashburn160/plugin:1.2.11'
     container_name: plugin
     depends_on:
@@ -348,26 +424,20 @@ services:
     group_add:
       - '${DOCKER_GID:-999}'
     environment:
-      DB_HOST: '${DB_HOST}'
-      DB_PORT: '${DB_PORT}'
-      DATABASE: '${DATABASE}'
-      DB_USER: '${DB_USER}'
-      DB_PASSWORD: '${DB_PASSWORD}'
-      DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
-      JWT_SECRET: '${JWT_SECRET}'
-      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
-      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
-      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
-      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: plugin
+      # Docker registry
       IMAGE_REGISTRY_HOST: '${IMAGE_REGISTRY_HOST:-registry}'
       IMAGE_REGISTRY_PORT: '${IMAGE_REGISTRY_PORT:-5000}'
+      IMAGE_REGISTRY_USER: '${IMAGE_REGISTRY_USER:-admin}'
       IMAGE_REGISTRY_TOKEN: '${IMAGE_REGISTRY_TOKEN}'
       DOCKER_NETWORK: '${DOCKER_NETWORK:-backend-network}'
+
   pipeline:
     restart: always
-    networks: *ref_0
-    healthcheck: *ref_1
-    deploy: *ref_2
+    networks: *api-networks
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
     image: 'ghcr.io/mwashburn160/pipeline:1.2.11'
     container_name: pipeline
     depends_on:
@@ -376,35 +446,35 @@ services:
       quota:
         condition: service_healthy
     environment:
-      DB_HOST: '${DB_HOST}'
-      DB_PORT: '${DB_PORT}'
-      DATABASE: '${DATABASE}'
-      DB_USER: '${DB_USER}'
-      DB_PASSWORD: '${DB_PASSWORD}'
-      DRIZZLE_CONNECTION_TIMEOUT_MILLIS: '${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}'
-      JWT_SECRET: '${JWT_SECRET}'
-      REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}'
-      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
-      QUOTA_SERVICE_HOST: '${QUOTA_SERVICE_HOST:-quota}'
-      QUOTA_SERVICE_PORT: '${QUOTA_SERVICE_PORT:-3000}'
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: pipeline
+      HANDLER_TIMEOUT_MS: '${HANDLER_TIMEOUT_MS:-30000}'
+
   quota:
     restart: always
-    networks: *ref_0
-    healthcheck: *ref_1
-    deploy: *ref_2
+    networks: *api-networks
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
     image: 'ghcr.io/mwashburn160/quota:1.2.11'
     container_name: quota
     depends_on:
       mongodb:
         condition: service_healthy
     environment:
+      <<: *common-env
+      SERVICE_NAME: quota
+      PORT: '${PORT:-3000}'
       MONGODB_URI: '${MONGODB_URI}'
-      JWT_SECRET: '${JWT_SECRET}'
-      PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
+      RATE_LIMIT_WINDOW_MS: '${RATE_LIMIT_WINDOW_MS:-60000}'
+      RATE_LIMIT_MAX: '${RATE_LIMIT_MAX:-100}'
       QUOTA_DEFAULT_PLUGINS: '${QUOTA_DEFAULT_PLUGINS:-100}'
       QUOTA_DEFAULT_PIPELINES: '${QUOTA_DEFAULT_PIPELINES:-50}'
       QUOTA_DEFAULT_API_CALLS: '${QUOTA_DEFAULT_API_CALLS:-10000}'
       QUOTA_RESET_DAYS: '${QUOTA_RESET_DAYS:-3}'
+
+# =============================================================================
+# Networks
+# =============================================================================
 networks:
   proxy-network:
     name: proxy-network
