@@ -1,3 +1,13 @@
+## 1.7.7 (2026-02-08)
+
+### 🩹 Fixes
+
+- api-server version=1.6.6 ([4154d7c](https://github.com/mwashburn160/pipeline-builder/commit/4154d7c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.6 (2026-02-08)
 
 ### 🩹 Fixes
