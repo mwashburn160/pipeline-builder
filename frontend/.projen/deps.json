@@ -37,7 +37,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.8.8",
+      "version": "1.8.17",
       "type": "runtime"
     },
     {
@@ -47,7 +47,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.8.3",
+      "version": "1.8.4",
       "type": "runtime"
     },
     {
