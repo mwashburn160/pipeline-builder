@@ -1,3 +1,13 @@
+## 1.5.5 (2026-02-08)
+
+### 🩹 Fixes
+
+- pipeline-core version=1.7.5 ([8d3d9e4](https://github.com/mwashburn160/pipeline-builder/commit/8d3d9e4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.4 (2026-02-08)
 
 ### 🩹 Fixes
