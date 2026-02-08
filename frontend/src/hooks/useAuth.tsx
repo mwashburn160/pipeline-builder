@@ -96,6 +96,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   /**
+   * Re-check token freshness when the tab becomes visible again.
+   * Browser timers are throttled in background tabs, so the scheduled
+   * proactive refresh may not have fired while the user was away.
+   */
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && api.isAuthenticated()) {
+        devLog('Tab visible — checking token freshness');
+        refreshUser();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [refreshUser]);
+
+  /**
    * Login with email/username and password
    */
   const login = useCallback(async (email: string, password: string) => {

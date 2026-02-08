@@ -78,12 +78,70 @@ class ApiClient {
   private organizationId: string | null = null;
   private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Refresh the token 5 minutes before it expires */
+  private static REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.accessToken = localStorage.getItem('accessToken');
       this.refreshToken = localStorage.getItem('refreshToken');
       this.organizationId = localStorage.getItem('organizationId');
+      this.scheduleProactiveRefresh();
+    }
+  }
+
+  /**
+   * Decode the access token's `exp` claim and return it as a ms timestamp.
+   * Returns null if the token is missing or unparseable.
+   */
+  private getTokenExpiryMs(): number | null {
+    if (!this.accessToken) return null;
+    try {
+      const payload = JSON.parse(atob(this.accessToken.split('.')[1]));
+      return payload.exp ? payload.exp * 1000 : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Schedule a background timer to refresh the token before it expires.
+   * Falls back gracefully if the token can't be decoded.
+   */
+  private scheduleProactiveRefresh(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
+    const expiryMs = this.getTokenExpiryMs();
+    if (!expiryMs || !this.refreshToken) return;
+
+    const delay = expiryMs - Date.now() - ApiClient.REFRESH_BUFFER_MS;
+    if (delay <= 0) return; // already past the refresh window — let the pre-request check handle it
+
+    devLog(`Proactive refresh scheduled in ${Math.round(delay / 1000)}s`);
+    this.refreshTimer = setTimeout(async () => {
+      devLog('Proactive refresh timer fired');
+      await this.refreshAccessToken();
+    }, delay);
+  }
+
+  /**
+   * If the token expires within the buffer window, refresh it now.
+   * Called before every authenticated request as a safety net.
+   */
+  private async ensureFreshToken(): Promise<void> {
+    if (!this.accessToken || !this.refreshToken) return;
+
+    const expiryMs = this.getTokenExpiryMs();
+    if (!expiryMs) return;
+
+    if (expiryMs - Date.now() <= ApiClient.REFRESH_BUFFER_MS) {
+      devLog('Token expiring soon — proactive refresh');
+      await this.refreshAccessToken();
     }
   }
 
@@ -109,6 +167,8 @@ class ApiClient {
         // JWT parsing failed - non-critical
       }
     }
+
+    this.scheduleProactiveRefresh();
   }
 
   /**
@@ -135,7 +195,12 @@ class ApiClient {
     this.accessToken = null;
     this.refreshToken = null;
     this.organizationId = null;
-    
+
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
     if (typeof window !== 'undefined') {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
@@ -164,8 +229,13 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    // Proactively refresh token before it expires (skip for auth endpoints)
+    if (!endpoint.includes('/auth/')) {
+      await this.ensureFreshToken();
+    }
+
     const url = `${API_URL}${endpoint}`;
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>),
