@@ -1,3 +1,13 @@
+## 1.9.1 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.9.8 ([48bcfac](https://github.com/mwashburn160/pipeline-builder/commit/48bcfac))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.0 (2026-02-08)
 
 ### 🚀 Features
