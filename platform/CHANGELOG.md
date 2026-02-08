@@ -1,3 +1,13 @@
+## 1.4.2 (2026-02-08)
+
+### 🩹 Fixes
+
+- add proactive token refresh ([7843f58](https://github.com/mwashburn160/pipeline-builder/commit/7843f58))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.1 (2026-02-08)
 
 ### 🩹 Fixes
