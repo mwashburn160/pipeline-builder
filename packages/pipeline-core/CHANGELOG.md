@@ -1,3 +1,13 @@
+## 1.7.8 (2026-02-08)
+
+### 🩹 Fixes
+
+- created default role ([143d299](https://github.com/mwashburn160/pipeline-builder/commit/143d299))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.7 (2026-02-08)
 
 ### 🩹 Fixes
