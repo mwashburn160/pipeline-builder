@@ -31,46 +31,46 @@ export interface ResolvedNetwork {
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookups.
  *
  * @param scope - CDK construct scope
- * @param idGenerator - ConstructId instance for generating unique construct IDs
+ * @param id - ConstructId instance for generating unique construct IDs
  * @param network - Network configuration to resolve
  * @returns Resolved network props ready to spread into CDK constructs
  */
 export function resolveNetwork(
   scope: Construct,
-  idGenerator: ConstructId,
+  id: ConstructId,
   network: NetworkConfig,
 ): ResolvedNetwork {
   switch (network.type) {
     case 'subnetIds': {
-      const vpc = Vpc.fromLookup(scope, idGenerator.generate('network:vpc'), {
+      const vpc = Vpc.fromLookup(scope, id.generate('network:vpc'), {
         vpcId: unwrapSecret(network.options.vpcId),
       });
 
       const subnets = network.options.subnetIds.map(
-        (subnetId) => Subnet.fromSubnetId(scope, idGenerator.generate('network:subnet'), subnetId),
+        (subnetId) => Subnet.fromSubnetId(scope, id.generate('network:subnet'), subnetId),
       );
 
       return withSecurityGroups(
         { vpc, subnetSelection: { subnets } },
         scope,
-        idGenerator,
+        id,
         network.options.securityGroupIds,
       );
     }
     case 'vpcId': {
-      const vpc = Vpc.fromLookup(scope, idGenerator.generate('network:vpc'), {
+      const vpc = Vpc.fromLookup(scope, id.generate('network:vpc'), {
         vpcId: unwrapSecret(network.options.vpcId),
       });
 
       return withSecurityGroups(
         { vpc, subnetSelection: resolveSubnetSelection(network.options) },
         scope,
-        idGenerator,
+        id,
         network.options.securityGroupIds,
       );
     }
     case 'vpcLookup': {
-      const vpc = Vpc.fromLookup(scope, idGenerator.generate('network:vpc'), {
+      const vpc = Vpc.fromLookup(scope, id.generate('network:vpc'), {
         tags: network.options.tags,
         ...(network.options.vpcName && { vpcName: network.options.vpcName }),
         ...(network.options.region && { region: network.options.region }),
@@ -79,7 +79,7 @@ export function resolveNetwork(
       return withSecurityGroups(
         { vpc, subnetSelection: resolveSubnetSelection(network.options) },
         scope,
-        idGenerator,
+        id,
         network.options.securityGroupIds,
       );
     }
@@ -92,10 +92,10 @@ export function resolveNetwork(
 function withSecurityGroups(
   result: Omit<ResolvedNetwork, 'securityGroups'>,
   scope: Construct,
-  idGenerator: ConstructId,
+  id: ConstructId,
   securityGroupIds?: string[],
 ): ResolvedNetwork {
-  const securityGroups = resolveSecurityGroups(scope, idGenerator, securityGroupIds);
+  const securityGroups = resolveSecurityGroups(scope, id, securityGroupIds);
   return securityGroups ? { ...result, securityGroups } : result;
 }
 
@@ -119,13 +119,13 @@ function resolveSubnetSelection(
  */
 function resolveSecurityGroups(
   scope: Construct,
-  idGenerator: ConstructId,
+  id: ConstructId,
   securityGroupIds?: string[],
 ): ISecurityGroup[] | undefined {
   if (!securityGroupIds?.length) {
     return undefined;
   }
   return securityGroupIds.map(
-    (sgId) => SecurityGroup.fromSecurityGroupId(scope, idGenerator.generate('network:sg'), sgId),
+    (sgId) => SecurityGroup.fromSecurityGroupId(scope, id.generate('network:sg'), sgId),
   );
 }

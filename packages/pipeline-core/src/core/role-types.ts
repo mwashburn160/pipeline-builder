@@ -77,6 +77,34 @@ export interface RoleNameOptions {
 }
 
 /**
+ * Role configuration that creates a new IAM role with CodeBuild service principal
+ * and minimal CloudWatch Logs permissions.
+ *
+ * @example
+ * ```typescript
+ * const role: CodeBuildDefaultRoleConfig = {
+ *   type: 'codeBuildDefault',
+ *   options: {},
+ * };
+ * ```
+ */
+export interface CodeBuildDefaultRoleConfig {
+  readonly type: 'codeBuildDefault';
+  readonly options: CodeBuildDefaultRoleOptions;
+}
+
+/**
+ * Configuration options for creating a CodeBuild service role
+ */
+export interface CodeBuildDefaultRoleOptions {
+  /**
+   * Optional custom role name.
+   * When omitted, CDK generates a unique name.
+   */
+  readonly roleName?: string;
+}
+
+/**
  * Union type of all supported role configurations.
  *
  * Used at the pipeline level (`BuilderProps.role`) to specify the IAM role
@@ -85,5 +113,6 @@ export interface RoleNameOptions {
  * Each variant resolves to a CDK `IRole`:
  * - RoleArnConfig: Role looked up by ARN
  * - RoleNameConfig: Role looked up by name
+ * - CodeBuildDefaultRoleConfig: Creates a new role with CodeBuild trust + CloudWatch Logs
  */
-export type RoleConfig = RoleArnConfig | RoleNameConfig;
+export type RoleConfig = RoleArnConfig | RoleNameConfig | CodeBuildDefaultRoleConfig;

@@ -8,13 +8,13 @@ import type { SecurityGroupConfig } from './security-group-types';
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookup.
  *
  * @param scope - CDK construct scope
- * @param idGenerator - ConstructId instance for generating unique construct IDs
+ * @param id - ConstructId instance for generating unique construct IDs
  * @param config - Security group configuration to resolve
  * @returns Resolved CDK ISecurityGroup array
  */
 export function resolveSecurityGroup(
   scope: Construct,
-  idGenerator: ConstructId,
+  id: ConstructId,
   config: SecurityGroupConfig,
 ): ISecurityGroup[] {
   switch (config.type) {
@@ -22,19 +22,19 @@ export function resolveSecurityGroup(
       return config.options.securityGroupIds.map(
         (sgId) => SecurityGroup.fromSecurityGroupId(
           scope,
-          idGenerator.generate('sg:id'),
+          id.generate('sg:id'),
           sgId,
           { mutable: config.options.mutable },
         ),
       );
     case 'securityGroupLookup': {
-      const vpc = Vpc.fromLookup(scope, idGenerator.generate('sg:vpc'), {
+      const vpc = Vpc.fromLookup(scope, id.generate('sg:vpc'), {
         vpcId: config.options.vpcId,
       });
       return [
         SecurityGroup.fromLookupByName(
           scope,
-          idGenerator.generate('sg:lookup'),
+          id.generate('sg:lookup'),
           config.options.securityGroupName,
           vpc,
         ),
