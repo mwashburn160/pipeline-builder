@@ -1,3 +1,15 @@
+## 1.7.0 (2026-02-08)
+
+### 🚀 Features
+
+- added ses ([d19a805](https://github.com/mwashburn160/pipeline-builder/commit/d19a805))
+- added role,ssecurity groups ([628ab22](https://github.com/mwashburn160/pipeline-builder/commit/628ab22))
+- updated metadata keys ([320fb4e](https://github.com/mwashburn160/pipeline-builder/commit/320fb4e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.7 (2026-02-07)
 
 ### 🩹 Fixes
