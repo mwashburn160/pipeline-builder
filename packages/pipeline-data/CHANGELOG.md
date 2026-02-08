@@ -1,3 +1,13 @@
+## 1.9.11 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.6.23 ([eee2516](https://github.com/mwashburn160/pipeline-builder/commit/eee2516))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.10 (2026-02-08)
 
 ### 🩹 Fixes
