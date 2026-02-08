@@ -55,13 +55,13 @@ let expressVersion = '5.2.1'
 let apiCoreVersion = '1.8.8';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.6.6';
+let apiServerVersion = '1.6.6'; 
 
 /** @mwashburn160/pipeline-data package version */
 let pipelineDataVersion = '1.8.8';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.7.10';
+let pipelineCoreVersion = '1.7.12';
 
 // =============================================================================
 // Root Project Configuration
