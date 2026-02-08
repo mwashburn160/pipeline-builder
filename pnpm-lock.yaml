@@ -48,8 +48,8 @@ importers:
   api/pipeline:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/api-server':
         specifier: 1.6.6
         version: 1.6.6(@types/pg@8.16.0)
@@ -139,8 +139,8 @@ importers:
   api/plugin:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/api-server':
         specifier: 1.6.6
         version: 1.6.6(@types/pg@8.16.0)
@@ -242,8 +242,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/api-server':
         specifier: 1.6.6
         version: 1.6.6(@types/pg@8.16.0)
@@ -324,8 +324,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/api-server':
         specifier: 1.6.6
         version: 1.6.6(@types/pg@8.16.0)
@@ -434,8 +434,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/pipeline-core':
         specifier: 1.7.5
         version: 1.7.5(@types/pg@8.16.0)
@@ -510,8 +510,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       '@mwashburn160/pipeline-data':
         specifier: 1.8.4
         version: 1.8.4(@types/pg@8.16.0)
@@ -580,8 +580,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.8.4
-        version: 1.8.4
+        specifier: 1.8.7
+        version: 1.8.7
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
@@ -1916,6 +1916,10 @@ packages:
 
   '@mwashburn160/api-core@1.8.4':
     resolution: {integrity: sha512-aAB9NurzkMv8GuGguLmiq8oQPx5xo6Fg9JWVa9BDcKsd7m1oZd7BLDXDGR/0jbzfVZKrdQQQj6wwFjY+kiAKlw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.8.4/1cb16029081cb91a2b769682109df298f8a51a28}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/api-core@1.8.7':
+    resolution: {integrity: sha512-Y5VjhniPRCsdBId1MesWlh7oHMrQ77+iqRqp95b+CgstM7lPxY/QRHnwLTMKDIxdOk+WIhMC2db1DfqiEPd/cg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.8.7/3a5fbe4fd1c1c454df547191e1096d24740d8051}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/api-server@1.6.6':
@@ -7407,6 +7411,16 @@ snapshots:
       - supports-color
 
   '@mwashburn160/api-core@1.8.4':
+    dependencies:
+      axios: 1.13.3
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.17.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@mwashburn160/api-core@1.8.7':
     dependencies:
       axios: 1.13.3
       express: 5.2.1
