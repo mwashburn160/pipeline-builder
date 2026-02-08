@@ -1,3 +1,13 @@
+## 1.8.2 (2026-02-08)
+
+### 🩹 Fixes
+
+- api-core version=1.8.1 ([697215c](https://github.com/mwashburn160/pipeline-builder/commit/697215c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.1 (2026-02-08)
 
 This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.
