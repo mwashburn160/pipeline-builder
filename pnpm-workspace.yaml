@@ -3,3 +3,4 @@
 packages:
   - packages/api-core
   - packages/pipeline-data
+  - packages/pipeline-core

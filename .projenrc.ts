@@ -40,14 +40,19 @@ let constructsVersion = '10.4.5';
 /** TypeScript compiler version (consistent across all packages) */
 let typescriptVersion = '5.9.3';
 
-
+/** AWS CDK library version (for infrastructure as code) */
+let cdkVersion = '2.237.0';
 
 /** Express.js framework version (for API servers) */
 let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = 'workspace:*';
+let apiCoreVersion = '1.8.0';
+
+/** @mwashburn160/pipeline-data package version */
+let pipelineDataVersion = '1.8.0';
+
 
 
 // =============================================================================
@@ -251,6 +256,65 @@ let pipeline_data = new PackageProject({
 pipeline_data.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 pipeline_data.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
+// =============================================================================
+// Pipeline Core - CDK infrastructure + Configuration
+// =============================================================================
+/**
+ * CDK infrastructure and configuration package (@mwashburn160/pipeline-core)
+ *
+ * This package combines AWS CDK constructs with application configuration:
+ *
+ * - AWS CDK constructs for building CodePipeline infrastructure
+ * - Application configuration (Config class with environment variables)
+ * - Pipeline types, helpers, and metadata
+ * - Network resolution utilities (VPC/subnet lookup)
+ * - Re-exports pipeline-data for convenience (consumers get both)
+ * - Re-exports api-core utilities (HTTP client, etc.)
+ *
+ * This package is used by:
+ * - CDK stacks for infrastructure deployment
+ * - CLI tools for pipeline management
+ * - API services that need configuration and database access
+ *
+ * @dependency api-core - Shared utilities
+ * @dependency pipeline-data - Database layer (re-exported)
+ * @dependency aws-cdk-lib - AWS CDK infrastructure constructs
+ * @dependency constructs - CDK construct base classes
+ * @dependency jsonwebtoken - JWT utilities for service authentication
+ * @dependency axios - HTTP client for AWS API calls
+ * @dependency uuid - Unique identifier generation
+ */
+let pipeline_core = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/pipeline-core',
+  outdir: './packages/pipeline-core',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,           // Shared utilities
+    `@mwashburn160/pipeline-data@${pipelineDataVersion}`, // Database layer
+    `constructs@${constructsVersion}`,                    // CDK constructs
+    `aws-cdk-lib@${cdkVersion}`,                          // AWS CDK library
+    'jsonwebtoken@9.0.3',                                 // JWT utilities
+    'axios@1.13.3',                                       // HTTP client
+    'uuid@13.0.0'                                         // UUID generation
+  ],
+  devDeps: [
+    '@types/node@24.9.0',         // Node.js type definitions
+    '@types/aws-lambda@8.10.159', // AWS Lambda type definitions
+    '@types/jsonwebtoken@9.0.10', // JWT type definitions
+    '@jest/globals@30.2.0'        // Jest testing framework
+  ]
+});
+// Disable problematic ESLint rules for this package
+pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
 // Workspace Configuration
