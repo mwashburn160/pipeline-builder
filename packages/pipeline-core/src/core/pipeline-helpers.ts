@@ -1,7 +1,8 @@
 import { createLogger } from '@mwashburn160/api-core';
+import { SecretValue } from 'aws-cdk-lib';
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
-import { buildConfigFromMetadata, Namespace } from './metadata';
+import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
 import { Config } from '../config/app-config';
@@ -31,6 +32,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   // Merge plugin metadata with provided metadata
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
+  const metadataBuilder = MetadataBuilder.from(merged);
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
@@ -54,7 +56,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     return new ShellStep(id, {
       ...programmatic,
       env,
-      ...buildConfigFromMetadata(merged, Namespace.SHELL_STEP),
+      ...metadataBuilder.forShellStep(),
     });
   }
 
@@ -80,9 +82,9 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     buildEnvironment: {
       computeType,
       environmentVariables,
-      ...buildConfigFromMetadata(merged, Namespace.BUILD_ENVIRONMENT),
+      ...metadataBuilder.forBuildEnvironment(),
     },
-    ...buildConfigFromMetadata(merged, Namespace.CODE_BUILD_STEP),
+    ...metadataBuilder.forCodeBuildStep(),
   });
 }
 
@@ -115,4 +117,13 @@ export function getComputeType(input: string | CDKComputeType = 'SMALL'): CDKCom
  */
 export function replaceNonAlphanumeric(input: string, replaceValue: string = '_'): string {
   return input.replace(/[^a-zA-Z0-9]/g, replaceValue);
+}
+
+/**
+ * Unwrap a SecretValue | string into a plain string.
+ * When a SecretValue is provided (e.g. from Secrets Manager), calls unsafeUnwrap()
+ * to extract the underlying value.
+ */
+export function unwrapSecret(value: SecretValue | string): string {
+  return typeof value === 'string' ? value : value.unsafeUnwrap();
 }

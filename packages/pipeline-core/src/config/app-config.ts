@@ -4,7 +4,7 @@ import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Algorithm } from 'jsonwebtoken';
 import { AppConfig } from './config-types';
-import { ComputeType } from '../core/pipeline-types';
+import { getComputeType } from '../core/pipeline-helpers';
 
 const log = createLogger('Config');
 
@@ -57,32 +57,32 @@ export class Config {
   private static loadConfig(): AppConfig {
     return {
       server: {
-        port: process.env.PORT || '3000',
+        port: parseInt(process.env.PORT || '3000'),
         cors: {
           credentials: process.env.CORS_CREDENTIALS === 'false' ? false : true,
           origin: process.env.CORS_ORIGIN
             ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
             : '*',
         },
-        trustProxy: process.env.TRUST_PROXY || '0',
+        trustProxy: parseInt(process.env.TRUST_PROXY || '0'),
         platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
       },
       auth: {
         jwt: {
           secret: process.env.JWT_SECRET || 'no-secret',
-          expiresIn: process.env.JWT_EXPIRES_IN || '7200',
+          expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
           algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-          saltRounds: process.env.JWT_SALT_ROUNDS || '12',
+          saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
         },
         refreshToken: {
           secret: process.env.REFRESH_TOKEN_SECRET || 'no-secret',
-          expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000',
+          expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
         },
       },
       database: {
         postgres: {
           host: process.env.DB_HOST || 'postgres',
-          port: process.env.DB_PORT || '5432',
+          port: parseInt(process.env.DB_PORT || '5432'),
           database: process.env.DATABASE || 'pipeline_builder',
           user: process.env.DB_USER || 'postgres',
           password: process.env.DB_PASSWORD || 'passsword',
@@ -91,17 +91,16 @@ export class Config {
           uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
         },
         drizzle: {
-          maxPoolSize: process.env.DRIZZLE_MAX_POOL_SIZE || '20',
-          idleTimeoutMillis: process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000',
-          connectionTimeoutMillis: process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '5000',
+          maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
+          idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
+          connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '5000'),
         },
       },
       registry: {
         host: process.env.IMAGE_REGISTRY_HOST || 'registry',
-        port: process.env.IMAGE_REGISTRY_PORT || '5000',
+        port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000'),
         user: process.env.IMAGE_REGISTRY_USER || 'admin',
         token: process.env.IMAGE_REGISTRY_TOKEN || 'password',
-        /** Docker network for build/push (must match compose network where registry lives). */
         network: process.env.DOCKER_NETWORK || '',
       },
       aws: {
@@ -121,12 +120,12 @@ export class Config {
             : RemovalPolicy.DESTROY,
         },
         codeBuild: {
-          computeType: this.parseComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
+          computeType: getComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
         },
       },
       rateLimit: {
-        max: process.env.LIMITER_MAX || '100',
-        windowMs: process.env.LIMITER_WINDOWMS || '900000',
+        max: parseInt(process.env.LIMITER_MAX || '100'),
+        windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000'),
         legacyHeaders: false,
         standardHeaders: true,
       },
@@ -172,19 +171,6 @@ export class Config {
   }
 
   /**
-   * Parse compute type from string
-   */
-  private static parseComputeType(type: string): ComputeType {
-    const typeMap: Record<string, ComputeType> = {
-      SMALL: ComputeType.SMALL,
-      MEDIUM: ComputeType.MEDIUM,
-      LARGE: ComputeType.LARGE,
-      X2_LARGE: ComputeType.X2_LARGE,
-    };
-    return typeMap[type.toUpperCase()] || ComputeType.SMALL;
-  }
-
-  /**
    * Validate configuration for security issues
    */
   static validate(config: AppConfig): void {
@@ -226,8 +212,7 @@ export class Config {
     }
 
     // Check JWT expiration times
-    const jwtExpiration = parseInt(config.auth.jwt.expiresIn);
-    if (jwtExpiration > 7200) {
+    if (config.auth.jwt.expiresIn > 7200) {
       warnings.push('JWT expiration time is greater than 2 hours - shorter expiration recommended');
     }
 
@@ -237,8 +222,7 @@ export class Config {
     }
 
     // Check pool size
-    const poolSize = parseInt(config.database.drizzle.maxPoolSize);
-    if (poolSize < 10) {
+    if (config.database.drizzle.maxPoolSize < 10) {
       warnings.push('Database pool size is less than 10 - may cause performance issues under load');
     }
 

@@ -19,7 +19,7 @@ const logger = createLogger('docker-build');
 /** Registry configuration needed for build + push. */
 export interface RegistryInfo {
   host: string;
-  port: string;
+  port: number;
   user: string;
   token: string;
   /** Compose network name (empty = use default Docker networking). */

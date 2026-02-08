@@ -15,15 +15,15 @@ function getDatabaseConfig() {
     database: {
       postgres: {
         host: process.env.DB_HOST || 'postgres',
-        port: process.env.DB_PORT || '5432',
+        port: parseInt(process.env.DB_PORT || '5432'),
         database: process.env.DATABASE || 'pipeline-builder',
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || 'password',
       },
       drizzle: {
-        maxPoolSize: process.env.DRIZZLE_MAX_POOL_SIZE || '20',
-        idleTimeoutMillis: process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000',
-        connectionTimeoutMillis: process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000',
+        maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
+        idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
+        connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000'),
       },
     },
   };
@@ -115,13 +115,13 @@ export class Connection {
 
       const poolConfig: PoolConfig = {
         host: config.database.postgres.host,
-        port: parseInt(config.database.postgres.port),
+        port: config.database.postgres.port,
         database: config.database.postgres.database,
         user: config.database.postgres.user,
         password: config.database.postgres.password,
-        max: parseInt(config.database.drizzle.maxPoolSize),
-        idleTimeoutMillis: parseInt(config.database.drizzle.idleTimeoutMillis),
-        connectionTimeoutMillis: parseInt(config.database.drizzle.connectionTimeoutMillis),
+        max: config.database.drizzle.maxPoolSize,
+        idleTimeoutMillis: config.database.drizzle.idleTimeoutMillis,
+        connectionTimeoutMillis: config.database.drizzle.connectionTimeoutMillis,
         ssl: this.options.ssl,
       };
 

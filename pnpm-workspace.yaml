@@ -3,11 +3,3 @@
 packages:
   - packages/api-core
   - packages/pipeline-data
-  - packages/pipeline-core
-  - packages/api-server
-  - packages/pipeline-manager
-  - platform
-  - frontend
-  - api/quota
-  - api/plugin
-  - api/pipeline

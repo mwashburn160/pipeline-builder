@@ -1,4 +1,4 @@
-import { Tags } from 'aws-cdk-lib';
+import { Tags, SecretValue } from 'aws-cdk-lib';
 import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipeline, CodePipelineSource } from 'aws-cdk-lib/pipelines';
@@ -6,11 +6,11 @@ import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
 import { PluginLookup } from './plugin-lookup';
 import type { SynthOptions } from './step-types';
-import { UniqueId } from '../core/id-generator';
-import { buildConfigFromMetadata, Namespace } from '../core/metadata';
+import { ConstructId } from '../core/id-generator';
+import { MetadataBuilder } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
-import { createCodeBuildStep } from '../core/pipeline-helpers';
+import { createCodeBuildStep, unwrapSecret } from '../core/pipeline-helpers';
 import type { MetaDataType } from '../core/pipeline-types';
 import { TriggerType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
@@ -91,10 +91,10 @@ export class Builder extends Construct {
     // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
     this.config = new PipelineConfiguration(props);
 
-    const uniqueId = new UniqueId(this.config.organization, this.config.project);
+    const uniqueId = new ConstructId();
     const pluginLookup = new PluginLookup(
       this,
-      uniqueId.generate('plugin-lookup'),
+      uniqueId.generate('plugin:lookup'),
       this.config.organization,
       this.config.project,
     );
@@ -103,7 +103,7 @@ export class Builder extends Construct {
     const source = this.createSource(this.config.getSource(), uniqueId);
     const plugin = pluginLookup.plugin(this.config.getPlugin());
     const synth = createCodeBuildStep({
-      id: uniqueId.generate('cdk-synth'),
+      id: uniqueId.generate('cdk:synth'),
       uniqueId,
       plugin,
       input: source,
@@ -128,19 +128,12 @@ export class Builder extends Construct {
       ...(role && { role }),
       pipelineName: this.config.pipelineName,
       synth,
-      ...this.buildPipelineConfig(this.config.mergedMetadata),
+      ...MetadataBuilder.from(this.config.mergedMetadata).forCodePipeline(),
     });
 
     // Apply tags
     Tags.of(this.pipeline).add('project', this.config.project);
     Tags.of(this.pipeline).add('organization', this.config.organization);
-  }
-
-  /**
-   * Builds CodePipeline configuration from metadata
-   */
-  private buildPipelineConfig(metadata: MetaDataType) {
-    return buildConfigFromMetadata(metadata, Namespace.CODE_PIPELINE);
   }
 
   /**
@@ -152,7 +145,7 @@ export class Builder extends Construct {
   private resolveDefaults(
     defaults: CodeBuildDefaults | undefined,
     securityGroupConfig: SecurityGroupConfig | undefined,
-    uniqueId: UniqueId,
+    uniqueId: ConstructId,
   ): Record<string, unknown> | undefined {
     const networkProps = defaults?.network
       ? resolveNetwork(this, uniqueId, defaults.network)
@@ -181,7 +174,7 @@ export class Builder extends Construct {
   /**
    * Creates the appropriate CodePipelineSource based on source type
    */
-  private createSource(config: SynthOptions['source'], uniqueId: UniqueId): CodePipelineSource {
+  private createSource(config: SynthOptions['source'], uniqueId: ConstructId): CodePipelineSource {
     switch (config.type) {
       case 's3':
         return this.createS3Source(uniqueId);
@@ -198,12 +191,12 @@ export class Builder extends Construct {
   /**
    * Creates an S3 source for the pipeline (CDK construct creation)
    */
-  private createS3Source(uniqueId: UniqueId): CodePipelineSource {
+  private createS3Source(uniqueId: ConstructId): CodePipelineSource {
     const options = this.config.getS3Options();
 
     const bucket = Bucket.fromBucketName(
       this,
-      uniqueId.generate('source-bucket'),
+      uniqueId.generate('source:bucket'),
       options.bucketName,
     );
 
@@ -219,9 +212,13 @@ export class Builder extends Construct {
     const options = this.config.getGitHubOptions();
     this.config.validateGitHubRepo(options.repo);
 
+    const authentication = options.token
+      ? (typeof options.token === 'string' ? SecretValue.unsafePlainText(options.token) : options.token)
+      : undefined;
+
     return CodePipelineSource.gitHub(options.repo, options.branch, {
       trigger: options.trigger === TriggerType.POLL ? GitHubTrigger.POLL : GitHubTrigger.NONE,
-      authentication: PipelineConfiguration.resolveSecret(options.token),
+      authentication,
     });
   }
 
@@ -230,10 +227,9 @@ export class Builder extends Construct {
    */
   private createCodeStarSource(): CodePipelineSource {
     const options = this.config.getCodeStarOptions();
-    const arn = PipelineConfiguration.extractConnectionArn(options.connectionArn);
 
     return CodePipelineSource.connection(options.repo, options.branch, {
-      connectionArn: arn,
+      connectionArn: unwrapSecret(options.connectionArn),
       triggerOnPush: options.trigger === TriggerType.POLL,
       codeBuildCloneOutput: options.codeBuildCloneOutput,
     });

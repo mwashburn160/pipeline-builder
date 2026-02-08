@@ -1,7 +1,7 @@
 import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { UniqueId } from '../core/id-generator';
+import { ConstructId } from '../core/id-generator';
 import type { NetworkConfig } from '../core/network-types';
 import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types';
 
@@ -147,10 +147,10 @@ export interface CodeBuildStepOptions {
   readonly id: string;
 
   /**
-   * UniqueId instance for generating unique construct IDs
+   * ConstructId instance for generating unique construct IDs
    * Used for network resource lookups (VPC, subnets, security groups)
    */
-  readonly uniqueId: UniqueId;
+  readonly uniqueId: ConstructId;
 
   /**
    * Plugin configuration from the database

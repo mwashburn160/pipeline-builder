@@ -1,4 +1,3 @@
-export * from './pipeline-types';
 export * from './pipeline-builder';
 export * from './pipeline-configuration';
 export * from './plugin-lookup';

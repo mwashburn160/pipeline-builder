@@ -100,8 +100,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Rate limiting
   if (enableRateLimit) {
     const limiter = rateLimit({
-      max: parseInt(config.rateLimit.max),
-      windowMs: parseInt(config.rateLimit.windowMs),
+      max: config.rateLimit.max,
+      windowMs: config.rateLimit.windowMs,
       message: 'Too many requests from this IP, please try again later.',
       standardHeaders: true,
       legacyHeaders: false,
@@ -110,7 +110,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   }
 
   // Trust proxy
-  app.set('trust proxy', parseInt(config.server.trustProxy));
+  app.set('trust proxy', config.server.trustProxy);
 
   // Health check endpoint
   app.get('/health', async (_req: Request, res: Response) => {

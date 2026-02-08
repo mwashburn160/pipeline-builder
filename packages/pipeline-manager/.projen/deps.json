@@ -72,7 +72,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.6.6",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

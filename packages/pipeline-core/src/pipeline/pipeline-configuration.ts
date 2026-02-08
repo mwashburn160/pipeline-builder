@@ -1,4 +1,3 @@
-import { SecretValue } from 'aws-cdk-lib';
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
 import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
@@ -154,24 +153,5 @@ export class PipelineConfiguration {
       trigger: source.options.trigger ?? TriggerType.NONE,
       codeBuildCloneOutput: source.options.codeBuildCloneOutput ?? false,
     };
-  }
-
-  /**
-   * Resolves a secret value (handles both string and SecretValue)
-   */
-  static resolveSecret(token: SecretValue | string | undefined): SecretValue | undefined {
-    if (!token) return undefined;
-    return typeof token === 'string'
-      ? SecretValue.unsafePlainText(token)
-      : token;
-  }
-
-  /**
-   * Extracts connection ARN as a plain string (unwraps SecretValue if needed)
-   */
-  static extractConnectionArn(connectionArn: SecretValue | string): string {
-    return typeof connectionArn === 'string'
-      ? connectionArn
-      : connectionArn.unsafeUnwrap();
   }
 }

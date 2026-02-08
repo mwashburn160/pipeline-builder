@@ -1,8 +1,8 @@
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
+import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Algorithm } from 'jsonwebtoken';
-import type { ComputeType } from '../core/pipeline-types';
 
 /**
  * Type-safe configuration interface
@@ -17,32 +17,32 @@ export interface AppConfig {
 }
 
 export interface ServerConfig {
-  port: string;
+  port: number;
   cors: {
     credentials: boolean;
     origin: string | string[];
   };
-  trustProxy: string;
+  trustProxy: number;
   platformUrl: string;
 }
 
 export interface AuthConfig {
   jwt: {
     secret: string;
-    expiresIn: string;
+    expiresIn: number;
     algorithm: Algorithm;
-    saltRounds: string;
+    saltRounds: number;
   };
   refreshToken: {
     secret: string;
-    expiresIn: string;
+    expiresIn: number;
   };
 }
 
 export interface DatabaseConfig {
   postgres: {
     host: string;
-    port: string;
+    port: number;
     database: string;
     user: string;
     password: string;
@@ -51,15 +51,15 @@ export interface DatabaseConfig {
     uri: string;
   };
   drizzle: {
-    maxPoolSize: string;
-    idleTimeoutMillis: string;
-    connectionTimeoutMillis: string;
+    maxPoolSize: number;
+    idleTimeoutMillis: number;
+    connectionTimeoutMillis: number;
   };
 }
 
 export interface RegistryConfig {
   host: string;
-  port: string;
+  port: number;
   user: string;
   token: string;
   /** Docker network for build/push (empty string = default). */
@@ -84,8 +84,8 @@ export interface AWSConfig {
 }
 
 export interface RateLimitConfig {
-  max: string;
-  windowMs: string;
+  max: number;
+  windowMs: number;
   legacyHeaders: boolean;
   standardHeaders: boolean;
 }

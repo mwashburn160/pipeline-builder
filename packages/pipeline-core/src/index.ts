@@ -20,7 +20,6 @@ export * from './config/config-types';
 export * from './core/pipeline-types';
 export * from './core/network-types';
 export * from './core/pipeline-helpers';
-export * from './core/metadata';
 export * from './core/metadata-builder';
 export * from './core/network';
 export * from './core/role-types';
@@ -52,7 +51,6 @@ export * from '@mwashburn160/pipeline-data';
 // Pipeline (CDK constructs)
 export * from './pipeline/source-types';
 export * from './pipeline/step-types';
-export * from './pipeline/pipeline-types';
 export * from './pipeline/pipeline-builder';
 export * from './pipeline/pipeline-configuration';
 export * from './pipeline/plugin-lookup';

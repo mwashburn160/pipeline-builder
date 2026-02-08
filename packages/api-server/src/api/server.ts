@@ -66,12 +66,12 @@ export async function startServer(
   const config = Config.get();
   const {
     name = 'Microservice',
-    port = parseInt(config.server.port),
     sseManager,
     shutdownTimeoutMs = 15000,
     onStart,
     onShutdown,
   } = options;
+  const port = options.port ?? config.server.port;
 
   console.log(`[Server] Starting ${name}...`);
 
