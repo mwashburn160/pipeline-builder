@@ -513,8 +513,8 @@ importers:
         specifier: 1.8.17
         version: 1.8.17
       '@mwashburn160/pipeline-data':
-        specifier: 1.9.5
-        version: 1.9.5(@types/pg@8.16.0)
+        specifier: 1.9.8
+        version: 1.9.8(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.237.0
         version: 2.237.0(constructs@10.4.5)
@@ -1924,6 +1924,10 @@ packages:
 
   '@mwashburn160/pipeline-data@1.9.5':
     resolution: {integrity: sha512-s3qgXMEvAcrryeI8YBSz8QNJtUwwxys9OfuZzdFy03ZYjG536SrV30iwQJVjHcAx2cgw68AWa0CPinZSuCDs9g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.9.5/a9477c0c0b5871f084185bea455f305da4a25c37}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/pipeline-data@1.9.8':
+    resolution: {integrity: sha512-rY/91Pzds4xf620a+gplebrhiNFbciOgIwMOreILKOaTs5+R872bi8ufms0ibeG2FVoUeY39Z7eUHveCAA8Cug==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.9.8/e5c0756158ab7067e476fec54391d3966baa7dca}
     engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -7488,6 +7492,44 @@ snapshots:
       - supports-color
 
   '@mwashburn160/pipeline-data@1.9.5(@types/pg@8.16.0)':
+    dependencies:
+      '@mwashburn160/api-core': 1.8.17
+      drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
+      pg: 8.16.3
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - debug
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+
+  '@mwashburn160/pipeline-data@1.9.8(@types/pg@8.16.0)':
     dependencies:
       '@mwashburn160/api-core': 1.8.17
       drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
