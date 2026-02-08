@@ -1,3 +1,13 @@
+## 1.8.12 (2026-02-08)
+
+### 🩹 Fixes
+
+- api-server version=1.6.11 ([656450e](https://github.com/mwashburn160/pipeline-builder/commit/656450e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.11 (2026-02-08)
 
 ### 🩹 Fixes
