@@ -1,3 +1,13 @@
+## 1.4.20 (2026-02-08)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.6.20 ([ce1cfb5](https://github.com/mwashburn160/pipeline-builder/commit/ce1cfb5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.19 (2026-02-08)
 
 ### 🩹 Fixes
