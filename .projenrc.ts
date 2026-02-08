@@ -58,7 +58,7 @@ let apiCoreVersion = '1.8.8';
 let apiServerVersion = '1.6.11'; 
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.8.8';
+let pipelineDataVersion = '1.9.0';
 
 /** @mwashburn160/pipeline-core package version */
 let pipelineCoreVersion = '1.7.12';
