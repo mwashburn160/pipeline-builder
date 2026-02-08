@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Builder, BuilderProps } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder, BuilderProps } from '@mwashburn160/pipeline-core';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
 
@@ -45,7 +45,7 @@ function main(): void {
   });
 
   const stack = new Stack(app, stackName, {});
-  new Builder(stack, componentId, props);
+  new PipelineBuilder(stack, componentId, props);
 
   console.log(
     green(bold('Success')),
