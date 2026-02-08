@@ -1,3 +1,13 @@
+## 1.5.16 (2026-02-08)
+
+### 🩹 Fixes
+
+- code cleanup ([b38ec82](https://github.com/mwashburn160/pipeline-builder/commit/b38ec82))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.15 (2026-02-08)
 
 ### 🩹 Fixes
