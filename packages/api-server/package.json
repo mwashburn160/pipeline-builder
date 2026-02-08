@@ -36,8 +36,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "workspace:*",
-    "@mwashburn160/pipeline-core": "workspace:*",
+    "@mwashburn160/api-core": "1.8.0",
+    "@mwashburn160/pipeline-core": "1.7.0",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",

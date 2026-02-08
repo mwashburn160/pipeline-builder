@@ -19,8 +19,10 @@ import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
+
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { PackageProject } from './projenrc/package';
+
 
 // =============================================================================
 // Version Constants
@@ -50,10 +52,14 @@ let expressVersion = '5.2.1'
 /** @mwashburn160/api-core package version */
 let apiCoreVersion = '1.8.0';
 
+/** @mwashburn160/api-server package version */
+
+
 /** @mwashburn160/pipeline-data package version */
 let pipelineDataVersion = '1.8.0';
 
-
+/** @mwashburn160/pipeline-core package version */
+let pipelineCoreVersion = '1.7.0';
 
 // =============================================================================
 // Root Project Configuration
@@ -315,6 +321,75 @@ let pipeline_core = new PackageProject({
 // Disable problematic ESLint rules for this package
 pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+
+// =============================================================================
+// API Server - Express server infrastructure (SSE, request context)
+// =============================================================================
+/**
+ * Express server infrastructure package (@mwashburn160/api-server)
+ *
+ * This package provides production-ready Express.js server infrastructure:
+ *
+ * - Application factory with pre-configured middleware (CORS, Helmet, rate limiting)
+ * - Server lifecycle management with graceful shutdown handling
+ * - SSE (Server-Sent Events) connection manager for real-time updates
+ * - Request context creation (combines identity + logging + SSE)
+ * - Re-exports authentication middleware from api-core for convenience
+ *
+ * All API services (quota, plugin, pipeline, platform) use this package
+ * to standardize their Express server setup and lifecycle management.
+ *
+ * Key Features:
+ * - Automatic error handling middleware
+ * - Request ID generation and tracking
+ * - Structured logging integration
+ * - Security headers (Helmet)
+ * - CORS configuration
+ * - Rate limiting
+ *
+ * @dependency api-core - Shared utilities and authentication
+ * @dependency pipeline-core - Configuration and database access
+ * @dependency express - Web framework
+ * @dependency express-rate-limit - Rate limiting middleware
+ * @dependency helmet - Security headers middleware
+ * @dependency cors - CORS middleware
+ * @dependency jsonwebtoken - JWT authentication
+ * @dependency uuid - Request ID generation
+ */
+let api_server = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/api-server',
+  outdir: './packages/api-server',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,           // Shared utilities
+    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
+    `express@${expressVersion}`,                          // Web framework
+    'express-rate-limit@8.2.1',                           // Rate limiting
+    'helmet@8.1.0',                                       // Security headers
+    'cors@2.8.6',                                         // CORS middleware
+    'jsonwebtoken@9.0.3',                                 // JWT authentication
+    'uuid@13.0.0'                                         // UUID generation
+  ],
+  devDeps: [
+    '@types/express@5.0.6',                // Express type definitions
+    '@types/express-serve-static-core@5.1.1', // Express core types
+    '@types/cors@2.8.19',                  // CORS type definitions
+    '@types/jsonwebtoken@9.0.10',          // JWT type definitions
+    '@types/node@24.9.0',                  // Node.js type definitions
+    `typescript@${typescriptVersion}`
+  ]
+});
+// Disable problematic ESLint rules for this package
+api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
 // Workspace Configuration
