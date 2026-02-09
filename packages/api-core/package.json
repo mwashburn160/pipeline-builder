@@ -44,7 +44,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.13.1",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
