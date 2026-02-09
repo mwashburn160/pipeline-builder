@@ -166,6 +166,19 @@ function handleTransactionError(res: Response, err: any, errorMap: ErrorMap, fal
 // Quota Helpers
 // ============================================================================
 
+/**
+ * Convert a string org ID to ObjectId when valid.
+ * Organization._id is Mixed type to support both string IDs ('system')
+ * and ObjectId values. findById won't auto-cast strings to ObjectId
+ * for Mixed fields, so we must do it explicitly.
+ */
+function toOrgId(id: string | string[]): string | mongoose.Types.ObjectId {
+  const idStr = Array.isArray(id) ? id[0] : id;
+  return mongoose.Types.ObjectId.isValid(idStr) && idStr.length === 24
+    ? new mongoose.Types.ObjectId(idStr)
+    : idStr;
+}
+
 function formatQuotaValue(value: number): number | string {
   return value === -1 ? 'unlimited' : value;
 }
@@ -226,7 +239,7 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
       return sendError(res, 403, 'Forbidden');
     }
 
-    const org = await Organization.findById(id)
+    const org = await Organization.findById(toOrgId(id))
       .populate('owner', 'username email')
       .populate('members', 'username email role')
       .lean();
@@ -267,7 +280,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
     const { id } = req.params;
     const { name, description } = req.body;
 
-    const org = await Organization.findById(id);
+    const org = await Organization.findById(toOrgId(id));
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
@@ -312,12 +325,14 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
       return sendError(res, 400, 'Cannot delete system organization');
     }
 
+    const queryId = toOrgId(id);
+
     await session.withTransaction(async () => {
-      const org = await Organization.findById(id).session(session);
+      const org = await Organization.findById(queryId).session(session);
       if (!org) throw new Error('ORG_NOT_FOUND');
 
-      await User.updateMany({ organizationId: id }, { $unset: { organizationId: '' } }).session(session);
-      await Organization.findByIdAndDelete(id).session(session);
+      await User.updateMany({ organizationId: queryId }, { $unset: { organizationId: '' } }).session(session);
+      await Organization.findByIdAndDelete(queryId).session(session);
     });
 
     logger.info(`[DELETE ORG] Organization ${id} deleted by system admin ${req.user!.sub}`);
@@ -348,7 +363,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
     const idRaw = req.params.id;
     const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
 
-    const org = await Organization.findById(id);
+    const org = await Organization.findById(toOrgId(id));
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
@@ -404,7 +419,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
     const { plugins, pipelines, apiCalls } = req.body;
 
-    const org = await Organization.findById(id);
+    const org = await Organization.findById(toOrgId(id));
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
@@ -450,7 +465,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     }
 
     // Fetch the latest quota values
-    const updatedOrg = await Organization.findById(id);
+    const updatedOrg = await Organization.findById(toOrgId(id));
     const finalQuotas = updatedOrg?.quotas || org.quotas;
 
     res.json({
@@ -486,7 +501,7 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
       return sendError(res, 404, 'No organization associated with this user');
     }
 
-    const org = await Organization.findById(orgId)
+    const org = await Organization.findById(toOrgId(orgId as string))
       .populate('owner', 'username email')
       .populate('members', 'username email role');
 
@@ -524,7 +539,7 @@ export async function addMember(req: Request, res: Response): Promise<void> {
     }
 
     await session.withTransaction(async () => {
-      const org = await Organization.findById(organizationId).session(session);
+      const org = await Organization.findById(toOrgId(organizationId as string)).session(session);
 
       if (!org || org.owner.toString() !== requesterId) {
         throw new Error('UNAUTHORIZED');
@@ -579,7 +594,7 @@ export async function transferOwnership(req: Request, res: Response): Promise<vo
     }
 
     await session.withTransaction(async () => {
-      const org = await Organization.findById(organizationId).session(session);
+      const org = await Organization.findById(toOrgId(organizationId as string)).session(session);
 
       if (!org || org.owner.toString() !== currentOwnerId) {
         throw new Error('UNAUTHORIZED');
@@ -623,7 +638,7 @@ export async function getOrganizationMembers(req: Request, res: Response): Promi
       return sendError(res, 403, 'Forbidden: Can only view members of your organization');
     }
 
-    const org = await Organization.findById(id)
+    const org = await Organization.findById(toOrgId(id))
       .populate({ path: 'members', select: '_id username email role isEmailVerified createdAt updatedAt' })
       .populate('owner', '_id username email')
       .lean();
@@ -682,7 +697,7 @@ export async function addMemberToOrganization(req: Request, res: Response): Prom
     }
 
     await session.withTransaction(async () => {
-      const org = await Organization.findById(id).session(session);
+      const org = await Organization.findById(toOrgId(id)).session(session);
       if (!org) throw new Error('ORG_NOT_FOUND');
 
       const user = userId
@@ -746,7 +761,7 @@ export async function removeMemberFromOrganization(req: Request, res: Response):
     }
 
     await session.withTransaction(async () => {
-      const org = await Organization.findById(id).session(session);
+      const org = await Organization.findById(toOrgId(id)).session(session);
       if (!org) throw new Error('ORG_NOT_FOUND');
 
       const user = await User.findById(userId).session(session);
@@ -805,7 +820,7 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
       return sendError(res, 400, 'Valid role (user or admin) is required');
     }
 
-    const org = await Organization.findById(id);
+    const org = await Organization.findById(toOrgId(id));
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
@@ -858,7 +873,7 @@ export async function transferOrganizationOwnership(req: Request, res: Response)
       return sendError(res, 400, 'New owner ID is required');
     }
 
-    const checkOrg = await Organization.findById(id);
+    const checkOrg = await Organization.findById(toOrgId(id));
     if (!checkOrg) {
       return sendError(res, 404, 'Organization not found');
     }
@@ -870,7 +885,7 @@ export async function transferOrganizationOwnership(req: Request, res: Response)
     }
 
     await session.withTransaction(async () => {
-      const org = await Organization.findById(id).session(session);
+      const org = await Organization.findById(toOrgId(id)).session(session);
       if (!org) throw new Error('ORG_NOT_FOUND');
 
       const newOwner = await User.findById(newOwnerId).session(session);
