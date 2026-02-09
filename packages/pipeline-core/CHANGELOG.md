@@ -1,3 +1,13 @@
+## 1.9.4 (2026-02-09)
+
+### 🩹 Fixes
+
+- added form to frontend ([63d39e9](https://github.com/mwashburn160/pipeline-builder/commit/63d39e9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.3 (2026-02-08)
 
 ### 🩹 Fixes
