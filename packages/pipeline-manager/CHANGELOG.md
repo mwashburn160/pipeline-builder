@@ -1,3 +1,13 @@
+## 1.9.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded api-server=1.9.0 ([38a6664](https://github.com/mwashburn160/pipeline-builder/commit/38a6664))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.0 (2026-02-09)
 
 ### 🚀 Features
