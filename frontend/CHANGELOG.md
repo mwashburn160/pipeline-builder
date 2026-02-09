@@ -1,3 +1,13 @@
+## 1.8.2 (2026-02-09)
+
+### 🩹 Fixes
+
+- updated filters ([230423c](https://github.com/mwashburn160/pipeline-builder/commit/230423c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.1 (2026-02-09)
 
 ### 🩹 Fixes
