@@ -1,3 +1,13 @@
+## 1.10.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded pipeline-data=1.10.0 ([43019bc](https://github.com/mwashburn160/pipeline-builder/commit/43019bc))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.0 (2026-02-09)
 
 ### 🚀 Features

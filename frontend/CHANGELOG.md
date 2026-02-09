@@ -1,3 +1,18 @@
+## 1.5.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded pipeline-data=1.10.0 ([43019bc](https://github.com/mwashburn160/pipeline-builder/commit/43019bc))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.11.0
+- Updated @mwashburn160/api-server to 1.8.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.0 (2026-02-09)
 
 ### 🚀 Features
