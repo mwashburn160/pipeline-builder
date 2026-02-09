@@ -1,5 +1,6 @@
 import { config } from '../config';
 import logger from './logger';
+import { ServiceError, BaseServiceClient } from './base-service';
 
 /**
  * Plugin filter parameters for list/get operations
@@ -82,13 +83,9 @@ export interface PluginUploadResponse {
 /**
  * Service error class
  */
-export class PluginServiceError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number,
-    public code?: string,
-  ) {
-    super(message);
+export class PluginServiceError extends ServiceError {
+  constructor(message: string, statusCode: number, code?: string) {
+    super(message, statusCode, code);
     this.name = 'PluginServiceError';
   }
 }
@@ -97,97 +94,21 @@ export class PluginServiceError extends Error {
  * Plugin Service Client
  * Handles communication with plugin microservices
  */
-class PluginServiceClient {
+class PluginServiceClient extends BaseServiceClient {
+  protected serviceName = 'PluginService';
   private listPluginsUrl: string;
   private getPluginUrl: string;
   private uploadPluginUrl: string;
-  private timeout: number;
 
   constructor() {
+    super(config.services.timeout);
     this.listPluginsUrl = config.services.listPlugins;
     this.getPluginUrl = config.services.getPlugin;
     this.uploadPluginUrl = config.services.uploadPlugin;
-    this.timeout = config.services.timeout;
   }
 
-  /**
-   * Build query string from filter object
-   */
-  private buildQueryString(filter: PluginFilter): string {
-    const params = new URLSearchParams();
-
-    Object.entries(filter).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        params.append(key, String(value));
-      }
-    });
-
-    const query = params.toString();
-    return query ? `?${query}` : '';
-  }
-
-  /**
-   * Make HTTP request with timeout and error handling
-   */
-  private async request<T>(
-    url: string,
-    options: RequestInit & { orgId: string; userId?: string; token: string },
-  ): Promise<T> {
-    const { orgId, userId, token, ...fetchOptions } = options;
-
-    if (!token) {
-      throw new PluginServiceError('Authentication token is required', 401, 'TOKEN_REQUIRED');
-    }
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-org-id': orgId,
-      ...(userId && { 'x-user-id': userId }),
-      'Authorization': `Bearer ${token}`,
-      ...(fetchOptions.headers as Record<string, string>),
-    };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      logger.debug(`[PluginService] Request: ${fetchOptions.method || 'GET'} ${url}`);
-
-      const response = await fetch(url, {
-        ...fetchOptions,
-        headers,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const data = await response.json() as Record<string, unknown>;
-
-      if (!response.ok) {
-        throw new PluginServiceError(
-          String(data.message || data.error || 'Request failed'),
-          response.status,
-          data.code as string | undefined,
-        );
-      }
-
-      return data as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error instanceof PluginServiceError) {
-        throw error;
-      }
-
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw new PluginServiceError('Request timeout', 504, 'TIMEOUT');
-        }
-        throw new PluginServiceError(error.message, 500, 'SERVICE_ERROR');
-      }
-
-      throw new PluginServiceError('Unknown error', 500, 'UNKNOWN_ERROR');
-    }
+  protected createError(message: string, statusCode: number, code?: string): PluginServiceError {
+    return new PluginServiceError(message, statusCode, code);
   }
 
   /**

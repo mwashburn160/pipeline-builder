@@ -7,39 +7,7 @@ import {
   PluginServiceError,
   PluginFilter,
 } from '../utils';
-
-interface AuthContext {
-  userId: string;
-  orgId: string;
-  token: string;
-}
-
-/**
- * Extract and validate authentication context from request.
- */
-function getAuthContext(req: Request, res: Response, action: string): AuthContext | null {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return null;
-  }
-
-  const orgId = req.user.organizationId;
-  if (!orgId) {
-    sendError(res, 400, `You must belong to an organization to ${action}`);
-    return null;
-  }
-
-  const authHeader = req.headers.authorization;
-  const header = Array.isArray(authHeader) ? authHeader[0] : authHeader;
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-
-  if (!token) {
-    sendError(res, 401, 'Authentication token is required');
-    return null;
-  }
-
-  return { userId: req.user.sub, orgId, token };
-}
+import { getAuthContext } from './helpers';
 
 /**
  * Build plugin filter from request query parameters.

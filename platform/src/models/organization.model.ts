@@ -39,6 +39,8 @@ export interface IOrganization extends Document {
   members: Types.ObjectId[];
   quotas: IQuotaLimits;
   usage: IQuotaUsageTracking;
+  createdAt: Date;
+  updatedAt: Date;
   // Methods
   checkQuota(type: 'plugins' | 'pipelines' | 'apiCalls'): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date };
   incrementUsage(type: 'plugins' | 'pipelines' | 'apiCalls', amount?: number): Promise<IOrganization>;

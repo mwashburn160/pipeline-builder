@@ -4,31 +4,20 @@ import { config } from '../config';
 import { Invitation, Organization, User } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation.model';
 import { logger, sendError, emailService } from '../utils';
+import { requireOrgMembership, handleTransactionError } from './helpers';
 
 // ============================================================================
-// Auth & Validation Helpers
+// Validation Helpers
 // ============================================================================
 
-function requireAuth(req: Request, res: Response): boolean {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return false;
-  }
-  return true;
+interface InvitationParams {
+  email?: string;
+  role?: string;
+  invitationType?: string;
+  allowedOAuthProviders?: string[];
 }
 
-function requireOrgMembership(req: Request, res: Response): string | null {
-  if (!requireAuth(req, res)) return null;
-
-  const orgId = req.user!.organizationId;
-  if (!orgId) {
-    sendError(res, 400, 'You must belong to an organization');
-    return null;
-  }
-  return orgId;
-}
-
-function validateInvitationParams(body: any, res: Response): boolean {
+function validateInvitationParams(body: InvitationParams, res: Response): boolean {
   const { email, role = 'user', invitationType = 'any', allowedOAuthProviders } = body;
 
   if (!email) {
@@ -56,18 +45,6 @@ function validateInvitationParams(body: any, res: Response): boolean {
   }
 
   return true;
-}
-
-// ============================================================================
-// Error Handling
-// ============================================================================
-
-type ErrorMap = Record<string, { status: number; message: string }>;
-
-function handleTransactionError(res: Response, err: any, errorMap: ErrorMap, fallbackMessage: string): void {
-  logger.error(fallbackMessage, err);
-  const error = errorMap[err.message] || { status: 500, message: fallbackMessage };
-  sendError(res, error.status, error.message);
 }
 
 // ============================================================================

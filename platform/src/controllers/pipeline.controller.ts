@@ -7,22 +7,7 @@ import {
   PipelineServiceError,
   PipelineFilter,
 } from '../utils';
-
-/**
- * Extract JWT token from Authorization header
- */
-function extractToken(req: Request): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return null;
-  }
-  // Handle case where header could be string or string[]
-  const header = Array.isArray(authHeader) ? authHeader[0] : authHeader;
-  if (!header?.startsWith('Bearer ')) {
-    return null;
-  }
-  return header.split(' ')[1];
-}
+import { extractToken } from './helpers';
 
 /**
  * List pipelines with optional filters

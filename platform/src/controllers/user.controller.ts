@@ -2,57 +2,7 @@ import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { User, Organization } from '../models';
 import { logger, sendError, generateTokenPair } from '../utils';
-
-// ============================================================================
-// Auth Helpers
-// ============================================================================
-
-function isSystemAdmin(req: Request): boolean {
-  if (req.user?.role !== 'admin') return false;
-  const orgId = req.user?.organizationId?.toLowerCase();
-  const orgName = req.user?.organizationName?.toLowerCase();
-  return orgId === 'system' || orgName === 'system';
-}
-
-function isOrgAdmin(req: Request): boolean {
-  return req.user?.role === 'admin' && !isSystemAdmin(req);
-}
-
-interface AdminContext {
-  isSysAdmin: boolean;
-  isOrgAdmin: boolean;
-  adminType: string;
-}
-
-function getAdminContext(req: Request, res: Response): AdminContext | null {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return null;
-  }
-
-  const isSysAdmin = isSystemAdmin(req);
-  const isOrgAdminUser = isOrgAdmin(req);
-
-  if (!isSysAdmin && !isOrgAdminUser) {
-    sendError(res, 403, 'Forbidden: Admin access required');
-    return null;
-  }
-
-  return {
-    isSysAdmin,
-    isOrgAdmin: isOrgAdminUser,
-    adminType: isSysAdmin ? 'system admin' : 'org admin',
-  };
-}
-
-function requireAuth(req: Request, res: Response): string | null {
-  const userId = req.user?.sub;
-  if (!userId) {
-    sendError(res, 401, 'Unauthorized');
-    return null;
-  }
-  return userId;
-}
+import { requireAuthUserId, requireAdminContext } from './helpers';
 
 // ============================================================================
 // Org Lookup Helper
@@ -64,7 +14,25 @@ async function getOrgName(orgId: string | undefined): Promise<string | null> {
   return org?.name || null;
 }
 
-function formatUserResponse(user: any, organizationName: string | null, organization?: any) {
+interface UserResponseInput {
+  _id: Types.ObjectId;
+  username: string;
+  email: string;
+  role: string;
+  isEmailVerified: boolean;
+  organizationId?: Types.ObjectId | string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  tokenVersion?: number;
+}
+
+interface OrgSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+function formatUserResponse(user: UserResponseInput, organizationName: string | null, organization?: OrgSummary) {
   return {
     id: user._id.toString(),
     username: user.username,
@@ -89,7 +57,7 @@ function formatUserResponse(user: any, organizationName: string | null, organiza
  * GET /user/profile
  */
 export async function getUser(req: Request, res: Response): Promise<void> {
-  const userId = requireAuth(req, res);
+  const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
   try {
@@ -119,7 +87,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
  * PATCH /user/profile
  */
 export async function updateUser(req: Request, res: Response): Promise<void> {
-  const userId = requireAuth(req, res);
+  const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
   try {
@@ -174,7 +142,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
  * DELETE /user/account
  */
 export async function deleteUser(req: Request, res: Response): Promise<void> {
-  const userId = requireAuth(req, res);
+  const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
   try {
@@ -198,7 +166,7 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
  * POST /user/change-password
  */
 export async function changePassword(req: Request, res: Response): Promise<void> {
-  const userId = requireAuth(req, res);
+  const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
   try {
@@ -236,7 +204,7 @@ export async function changePassword(req: Request, res: Response): Promise<void>
  * POST /user/generate-token
  */
 export async function generateToken(req: Request, res: Response): Promise<void> {
-  const userId = requireAuth(req, res);
+  const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
   try {
@@ -263,7 +231,7 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
  * GET /users
  */
 export async function listAllUsers(req: Request, res: Response): Promise<void> {
-  const admin = getAdminContext(req, res);
+  const admin = requireAdminContext(req, res);
   if (!admin) return;
 
   try {
@@ -334,7 +302,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
  * GET /users/:id
  */
 export async function getUserById(req: Request, res: Response): Promise<void> {
-  const admin = getAdminContext(req, res);
+  const admin = requireAdminContext(req, res);
   if (!admin) return;
 
   try {
@@ -379,7 +347,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
  * PUT /users/:id
  */
 export async function updateUserById(req: Request, res: Response): Promise<void> {
-  const admin = getAdminContext(req, res);
+  const admin = requireAdminContext(req, res);
   if (!admin) return;
 
   try {
@@ -491,7 +459,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
  * DELETE /users/:id
  */
 export async function deleteUserById(req: Request, res: Response): Promise<void> {
-  const admin = getAdminContext(req, res);
+  const admin = requireAdminContext(req, res);
   if (!admin) return;
 
   try {

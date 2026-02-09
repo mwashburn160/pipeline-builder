@@ -1,183 +1,25 @@
-import * as http from 'http';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { Organization, User } from '../models';
 import { logger, sendError } from '../utils';
-
-// =============================================================================
-// Quota Service Configuration (consolidated into single service)
-// =============================================================================
-
-const QUOTA_SERVICE_HOST = process.env.QUOTA_SERVICE_HOST || 'quota';
-const QUOTA_SERVICE_PORT = parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10);
-
-/**
- * Fetch quota status from the quota microservice.
- */
-async function fetchQuotaFromService(
-  orgId: string,
-  quotaType: string,
-  authHeader: string,
-): Promise<{ limit: number; used: number; remaining: number; resetAt: string; unlimited: boolean } | null> {
-  return new Promise((resolve) => {
-    const options: http.RequestOptions = {
-      hostname: QUOTA_SERVICE_HOST,
-      port: QUOTA_SERVICE_PORT,
-      path: `/quotas/${encodeURIComponent(orgId)}/${encodeURIComponent(quotaType)}`,
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': authHeader,
-        'x-org-id': orgId,
-      },
-      timeout: 5000,
-    };
-
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(data);
-          if (response.success && response.status) {
-            resolve({
-              limit: response.status.limit,
-              used: response.status.used,
-              remaining: response.status.remaining,
-              resetAt: response.status.resetAt,
-              unlimited: response.status.unlimited,
-            });
-          } else {
-            resolve(null);
-          }
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.end();
-  });
-}
-
-/**
- * Update quota limits via the quota microservice.
- */
-async function updateQuotaViaService(
-  orgId: string,
-  quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number },
-  authHeader: string,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const body = JSON.stringify({ quotaLimits });
-
-    const options: http.RequestOptions = {
-      hostname: QUOTA_SERVICE_HOST,
-      port: QUOTA_SERVICE_PORT,
-      path: `/quotas/${encodeURIComponent(orgId)}`,
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        'Authorization': authHeader,
-        'x-org-id': orgId,
-      },
-      timeout: 5000,
-    };
-
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        resolve(res.statusCode === 200 || res.statusCode === 201);
-      });
-    });
-
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
-    req.write(body);
-    req.end();
-  });
-}
-
-// ============================================================================
-// Auth Helpers
-// ============================================================================
-
-function isSystemAdmin(req: Request): boolean {
-  if (req.user?.role !== 'admin') return false;
-  const orgId = req.user?.organizationId?.toLowerCase();
-  const orgName = req.user?.organizationName?.toLowerCase();
-  return orgId === 'system' || orgName === 'system';
-}
-
-function isOrgAdmin(req: Request): boolean {
-  return req.user?.role === 'admin' && !isSystemAdmin(req);
-}
-
-function requireAuth(req: Request, res: Response): boolean {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return false;
-  }
-  return true;
-}
-
-function requireSystemAdmin(req: Request, res: Response): boolean {
-  if (!requireAuth(req, res)) return false;
-  if (!isSystemAdmin(req)) {
-    sendError(res, 403, 'Forbidden: System admin access required');
-    return false;
-  }
-  return true;
-}
-
-interface AdminContext {
-  isSysAdmin: boolean;
-  isOrgAdmin: boolean;
-  adminType: string;
-}
-
-function getAdminContext(req: Request): AdminContext {
-  const isSysAdmin = isSystemAdmin(req);
-  return {
-    isSysAdmin,
-    isOrgAdmin: isOrgAdmin(req),
-    adminType: isSysAdmin ? 'system admin' : 'org admin',
-  };
-}
-
-// ============================================================================
-// Error Handling
-// ============================================================================
-
-type ErrorMap = Record<string, { status: number; message: string }>;
-
-function handleTransactionError(res: Response, err: any, errorMap: ErrorMap, fallbackMessage: string): void {
-  logger.error(fallbackMessage, err);
-  const error = errorMap[err.message] || { status: 500, message: fallbackMessage };
-  sendError(res, error.status, error.message);
-}
+import {
+  getOrganizationQuotaStatus,
+  updateQuotaLimits,
+  QuotaType,
+} from '../middleware/quota.middleware';
+import {
+  isSystemAdmin,
+  requireAuth,
+  requireSystemAdmin,
+  getAdminContext,
+  handleTransactionError,
+  toOrgId,
+} from './helpers';
 
 // ============================================================================
 // Quota Helpers
 // ============================================================================
-
-/**
- * Convert a string org ID to ObjectId when valid.
- * Organization._id is Mixed type to support both string IDs ('system')
- * and ObjectId values. findById won't auto-cast strings to ObjectId
- * for Mixed fields, so we must do it explicitly.
- */
-function toOrgId(id: string | string[]): string | mongoose.Types.ObjectId {
-  const idStr = Array.isArray(id) ? id[0] : id;
-  return mongoose.Types.ObjectId.isValid(idStr) && idStr.length === 24
-    ? new mongoose.Types.ObjectId(idStr)
-    : idStr;
-}
 
 function formatQuotaValue(value: number): number | string {
   return value === -1 ? 'unlimited' : value;
@@ -211,11 +53,11 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       id: org._id.toString(),
       name: org.name,
       slug: org.slug,
-      description: (org as any).description || '',
+      description: org.description || '',
       memberCount: org.members?.length || 0,
       ownerId: org.owner?.toString(),
-      createdAt: (org as any).createdAt,
-      updatedAt: (org as any).updatedAt,
+      createdAt: org.createdAt,
+      updatedAt: org.updatedAt,
     }));
 
     res.json({ success: true, statusCode: 200, organizations: orgsWithCount });
@@ -255,12 +97,12 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
         id: org._id.toString(),
         name: org.name,
         slug: org.slug,
-        description: (org as any).description || '',
+        description: org.description || '',
         memberCount: org.members?.length || 0,
         ownerId: org.owner?.toString(),
         members: org.members,
-        createdAt: (org as any).createdAt,
-        updatedAt: (org as any).updatedAt,
+        createdAt: org.createdAt,
+        updatedAt: org.updatedAt,
       },
     });
   } catch (err) {
@@ -286,7 +128,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
     }
 
     if (name !== undefined) org.name = name;
-    if (description !== undefined) (org as any).description = description;
+    if (description !== undefined) org.description = description;
 
     await org.save();
 
@@ -300,7 +142,7 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
         id: org._id.toString(),
         name: org.name,
         slug: org.slug,
-        description: (org as any).description || '',
+        description: org.description || '',
       },
     });
   } catch (err) {
@@ -374,7 +216,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
 
     // Fetch quota status from the quota microservice
     for (const type of quotaTypes) {
-      const quotaStatus = await fetchQuotaFromService(id, type, authHeader);
+      const quotaStatus = await getOrganizationQuotaStatus(id, type as QuotaType, authHeader);
 
       if (quotaStatus) {
         quotas[type] = {
@@ -438,12 +280,12 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
 
     // Try to update via quota service first
     const authHeader = req.headers.authorization || '';
-    const serviceUpdated = await updateQuotaViaService(id, quotaLimits, authHeader);
+    const serviceUpdated = await updateQuotaLimits(id, quotaLimits, authHeader);
 
     if (!serviceUpdated) {
       // Fallback: Update organization directly in MongoDB
       if (!org.quotas) {
-        (org as any).quotas = {
+        org.quotas = {
           plugins: config.quota.organization.plugins,
           pipelines: config.quota.organization.pipelines,
           apiCalls: config.quota.organization.apiCalls,
@@ -513,109 +355,6 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
   } catch (err) {
     logger.error('[GET ORG] Fetch Error:', err);
     return sendError(res, 500, 'Error fetching organization');
-  }
-}
-
-/**
- * Add member to organization (legacy endpoint)
- * POST /organization/members
- */
-export async function addMember(req: Request, res: Response): Promise<void> {
-  if (!requireAuth(req, res)) return;
-
-  const session = await mongoose.startSession();
-
-  try {
-    const { email } = req.body;
-    const organizationId = req.user!.organizationId;
-    const requesterId = req.user!.sub;
-
-    if (!organizationId || !requesterId) {
-      return sendError(res, 401, 'Unauthorized');
-    }
-
-    if (!email) {
-      return sendError(res, 400, 'Email is required');
-    }
-
-    await session.withTransaction(async () => {
-      const org = await Organization.findById(toOrgId(organizationId as string)).session(session);
-
-      if (!org || org.owner.toString() !== requesterId) {
-        throw new Error('UNAUTHORIZED');
-      }
-
-      const newUser = await User.findOne({ email: email.toLowerCase() }).session(session);
-      if (!newUser) throw new Error('NOT_FOUND');
-
-      if (org.members.some(id => id.toString() === newUser._id.toString())) {
-        throw new Error('ALREADY_MEMBER');
-      }
-
-      org.members.push(newUser._id as any);
-      newUser.organizationId = org._id as any;
-
-      await org.save({ session });
-      await newUser.save({ session });
-    });
-
-    logger.info(`[ADD MEMBER] User ${email} added to Org ${organizationId}`);
-    res.json({ success: true, statusCode: 200, message: 'Member added successfully' });
-  } catch (err: any) {
-    const errorMap: Record<string, number> = { UNAUTHORIZED: 403, NOT_FOUND: 404, ALREADY_MEMBER: 400 };
-    const status = errorMap[err.message] || 400;
-    logger.error('[ADD MEMBER] Transaction Failed:', err);
-    return sendError(res, status, err.message);
-  } finally {
-    await session.endSession();
-  }
-}
-
-/**
- * Transfer organization ownership (legacy endpoint)
- * PATCH /organization/transfer-owner
- */
-export async function transferOwnership(req: Request, res: Response): Promise<void> {
-  if (!requireAuth(req, res)) return;
-
-  const session = await mongoose.startSession();
-
-  try {
-    const { newOwnerId } = req.body;
-    const organizationId = req.user!.organizationId;
-    const currentOwnerId = req.user!.sub;
-
-    if (!organizationId || !currentOwnerId) {
-      return sendError(res, 401, 'Unauthorized');
-    }
-
-    if (!newOwnerId) {
-      return sendError(res, 400, 'New owner ID is required');
-    }
-
-    await session.withTransaction(async () => {
-      const org = await Organization.findById(toOrgId(organizationId as string)).session(session);
-
-      if (!org || org.owner.toString() !== currentOwnerId) {
-        throw new Error('UNAUTHORIZED');
-      }
-
-      if (!org.members.some(id => id.toString() === newOwnerId)) {
-        throw new Error('NEW_OWNER_MUST_BE_MEMBER');
-      }
-
-      org.owner = newOwnerId as any;
-      await org.save({ session });
-    });
-
-    logger.info(`[TRANSFER OWNERSHIP] Org ${organizationId} transferred to ${newOwnerId}`);
-    res.json({ success: true, statusCode: 200, message: 'Ownership transferred successfully' });
-  } catch (err: any) {
-    const status = err.message === 'UNAUTHORIZED' ? 403 : 400;
-    logger.error('[TRANSFER OWNERSHIP] Failed:', err);
-    return sendError(res, status, err.message);
-  } finally {
-    await session.endSession();
   }
 }
 

@@ -8,6 +8,7 @@ export { default as logger } from './logger';
 export * from './response';
 export * from './token';
 export { emailService } from './email';
+export { ServiceError } from './base-service';
 export { pluginService, PluginServiceError } from './plugin-service';
 export type { Plugin, PluginFilter, PluginListResponse, PluginUploadData, PluginUploadResponse } from './plugin-service';
 export { pipelineService, PipelineServiceError } from './pipeline-service';

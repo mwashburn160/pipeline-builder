@@ -12,8 +12,6 @@ import {
   updateOrganization,
   getOrganizationQuotas,
   updateOrganizationQuotas,
-  addMember,
-  transferOwnership,
   getOrganizationMembers,
   addMemberToOrganization,
   removeMemberFromOrganization,
@@ -21,7 +19,7 @@ import {
   transferOrganizationOwnership,
   deleteOrganization,
 } from '../controllers';
-import { isAuthenticated, authorize } from '../middleware';
+import { isAuthenticated } from '../middleware';
 
 const router = Router();
 
@@ -77,15 +75,5 @@ router.patch('/:id/members/:userId', isAuthenticated, updateMemberRole);
 
 /** PATCH /organization/:id/transfer-owner - Transfer organization ownership */
 router.patch('/:id/transfer-owner', isAuthenticated, transferOrganizationOwnership);
-
-/*
- * Legacy Endpoints (for org admins managing their own org)
- */
-
-/** POST /organization/members - Add member to own organization (org admin only) */
-router.post('/members', isAuthenticated, authorize('admin'), addMember);
-
-/** PATCH /organization/transfer-owner - Transfer own organization ownership (org admin only) */
-router.patch('/transfer-owner', isAuthenticated, authorize('admin'), transferOwnership);
 
 export default router;
