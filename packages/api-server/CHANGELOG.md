@@ -1,3 +1,17 @@
+## 1.7.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded api-core=1.8.27 ([fccf551](https://github.com/mwashburn160/pipeline-builder/commit/fccf551))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.10.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.27 (2026-02-09)
 
 ### 🧱 Updated Dependencies

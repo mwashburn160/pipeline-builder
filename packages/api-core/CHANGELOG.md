@@ -1,3 +1,13 @@
+## 1.9.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded api-core=1.8.27 ([fccf551](https://github.com/mwashburn160/pipeline-builder/commit/fccf551))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.27 (2026-02-09)
 
 ### 🩹 Fixes
