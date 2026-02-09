@@ -20,9 +20,19 @@ export interface TagEntry {
   value: string;
 }
 
+export interface FormPluginFilter {
+  name: string;
+  namePattern: string;
+  version: string;
+  versionMin: string;
+  versionMax: string;
+  imageTag: string;
+}
+
 export interface FormPluginOptions {
   name: string;
   alias: string;
+  filter: FormPluginFilter;
   metadata: MetadataEntry[];
 }
 
@@ -123,8 +133,12 @@ export function createEmptyNetworkConfig(): FormNetworkConfig {
   };
 }
 
+export function createEmptyPluginFilter(): FormPluginFilter {
+  return { name: '', namePattern: '', version: '', versionMin: '', versionMax: '', imageTag: '' };
+}
+
 export function createEmptyPlugin(): FormPluginOptions {
-  return { name: '', alias: '', metadata: [] };
+  return { name: '', alias: '', filter: createEmptyPluginFilter(), metadata: [] };
 }
 
 export function createEmptyStep(): FormStep {

@@ -256,9 +256,26 @@ function assembleSecurityGroupConfig(
   }
 }
 
+function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<string, unknown> | undefined {
+  const result: Record<string, unknown> = {};
+  if (filter.name) result.name = filter.name;
+  if (filter.namePattern) result.namePattern = filter.namePattern;
+  if (filter.version) result.version = filter.version;
+  if (filter.versionMin || filter.versionMax) {
+    result.versionRange = {
+      ...(filter.versionMin && { min: filter.versionMin }),
+      ...(filter.versionMax && { max: filter.versionMax }),
+    };
+  }
+  if (filter.imageTag) result.imageTag = filter.imageTag;
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function assemblePluginOptions(plugin: FormPluginOptions): Record<string, unknown> {
   const result: Record<string, unknown> = { name: plugin.name };
   if (plugin.alias) result.alias = plugin.alias;
+  const filter = assemblePluginFilter(plugin.filter);
+  if (filter) result.filter = filter;
   const meta = assembleMetadata(plugin.metadata);
   if (meta) result.metadata = meta;
   return result;

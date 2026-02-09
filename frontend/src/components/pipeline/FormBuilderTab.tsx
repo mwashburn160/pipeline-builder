@@ -40,21 +40,19 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           errors={validationErrors}
         />
 
-        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-          <SynthSection
-            synth={state.synth}
-            onSourceTypeChange={(v) => dispatch({ type: 'SET_SYNTH_SOURCE_TYPE', value: v })}
-            onS3Change={(field, value) => dispatch({ type: 'SET_SYNTH_S3', field, value })}
-            onGithubChange={(field, value) => dispatch({ type: 'SET_SYNTH_GITHUB', field, value })}
-            onCodestarChange={(field, value) => dispatch({ type: 'SET_SYNTH_CODESTAR', field, value })}
-            onPluginChange={(v) => dispatch({ type: 'SET_SYNTH_PLUGIN', value: v })}
-            onMetadataChange={(v) => dispatch({ type: 'SET_SYNTH_METADATA', value: v })}
-            onNetworkTypeChange={(v) => dispatch({ type: 'SET_SYNTH_NETWORK_TYPE', value: v })}
-            onNetworkChange={(v) => dispatch({ type: 'SET_SYNTH_NETWORK', value: v })}
-            disabled={disabled}
-            errors={validationErrors}
-          />
-        </div>
+        <SynthSection
+          synth={state.synth}
+          onSourceTypeChange={(v) => dispatch({ type: 'SET_SYNTH_SOURCE_TYPE', value: v })}
+          onS3Change={(field, value) => dispatch({ type: 'SET_SYNTH_S3', field, value })}
+          onGithubChange={(field, value) => dispatch({ type: 'SET_SYNTH_GITHUB', field, value })}
+          onCodestarChange={(field, value) => dispatch({ type: 'SET_SYNTH_CODESTAR', field, value })}
+          onPluginChange={(v) => dispatch({ type: 'SET_SYNTH_PLUGIN', value: v })}
+          onMetadataChange={(v) => dispatch({ type: 'SET_SYNTH_METADATA', value: v })}
+          onNetworkTypeChange={(v) => dispatch({ type: 'SET_SYNTH_NETWORK_TYPE', value: v })}
+          onNetworkChange={(v) => dispatch({ type: 'SET_SYNTH_NETWORK', value: v })}
+          disabled={disabled}
+          errors={validationErrors}
+        />
 
         <CollapsibleSection title="Global Metadata" hasContent={state.global.length > 0}>
           <div className="mt-3">

@@ -25,54 +25,57 @@ export default function SynthSection({
   onPluginChange, onMetadataChange, onNetworkTypeChange, onNetworkChange,
   disabled, errors = {},
 }: SynthSectionProps) {
+  const hasContent = synth.sourceType !== 's3' || synth.plugin.name !== '' ||
+    synth.metadata.length > 0 || synth.networkType !== 'none';
+
   return (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Synthesis Configuration</h3>
-
-      <SourceTypeEditor
-        sourceType={synth.sourceType}
-        s3={synth.s3}
-        github={synth.github}
-        codestar={synth.codestar}
-        onSourceTypeChange={onSourceTypeChange}
-        onS3Change={onS3Change}
-        onGithubChange={onGithubChange}
-        onCodestarChange={onCodestarChange}
-        disabled={disabled}
-        errors={errors}
-      />
-
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <PluginOptionsEditor
-          value={synth.plugin}
-          onChange={onPluginChange}
+    <CollapsibleSection title="Synthesis Configuration" defaultOpen={true} hasContent={hasContent}>
+      <div className="mt-3 space-y-4">
+        <SourceTypeEditor
+          sourceType={synth.sourceType}
+          s3={synth.s3}
+          github={synth.github}
+          codestar={synth.codestar}
+          onSourceTypeChange={onSourceTypeChange}
+          onS3Change={onS3Change}
+          onGithubChange={onGithubChange}
+          onCodestarChange={onCodestarChange}
           disabled={disabled}
-          error={errors['synth.plugin.name']}
-          label="Synth Plugin"
+          errors={errors}
         />
+
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <PluginOptionsEditor
+            value={synth.plugin}
+            onChange={onPluginChange}
+            disabled={disabled}
+            error={errors['synth.plugin.name']}
+            label="Synth Plugin"
+          />
+        </div>
+
+        <CollapsibleSection title="Synth Metadata" hasContent={synth.metadata.length > 0}>
+          <div className="mt-3">
+            <MetadataEditor
+              value={synth.metadata}
+              onChange={onMetadataChange}
+              disabled={disabled}
+            />
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Synth Network" hasContent={synth.networkType !== 'none'}>
+          <div className="mt-3">
+            <NetworkConfigEditor
+              networkType={synth.networkType}
+              network={synth.network}
+              onTypeChange={onNetworkTypeChange}
+              onNetworkChange={onNetworkChange}
+              disabled={disabled}
+            />
+          </div>
+        </CollapsibleSection>
       </div>
-
-      <CollapsibleSection title="Synth Metadata" hasContent={synth.metadata.length > 0}>
-        <div className="mt-3">
-          <MetadataEditor
-            value={synth.metadata}
-            onChange={onMetadataChange}
-            disabled={disabled}
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Synth Network" hasContent={synth.networkType !== 'none'}>
-        <div className="mt-3">
-          <NetworkConfigEditor
-            networkType={synth.networkType}
-            network={synth.network}
-            onTypeChange={onNetworkTypeChange}
-            onNetworkChange={onNetworkChange}
-            disabled={disabled}
-          />
-        </div>
-      </CollapsibleSection>
-    </div>
+    </CollapsibleSection>
   );
 }
