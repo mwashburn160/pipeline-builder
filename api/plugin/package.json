@@ -39,7 +39,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-core": "1.8.27",
     "@mwashburn160/api-server": "workspace:*",
     "@mwashburn160/pipeline-core": "workspace:*",
     "adm-zip": "0.5.16",
@@ -61,7 +61,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.2.26",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
