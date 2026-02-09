@@ -1,3 +1,13 @@
+## 1.9.8 (2026-02-09)
+
+### 🩹 Fixes
+
+- remove legacy endpoints ([0b6cd09](https://github.com/mwashburn160/pipeline-builder/commit/0b6cd09))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.7 (2026-02-09)
 
 ### 🩹 Fixes
