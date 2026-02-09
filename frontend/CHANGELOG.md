@@ -1,3 +1,13 @@
+## 1.3.26 (2026-02-09)
+
+### 🩹 Fixes
+
+- code cleanup ([5d7e8ac](https://github.com/mwashburn160/pipeline-builder/commit/5d7e8ac))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.3.25 (2026-02-09)
 
 ### 🩹 Fixes
