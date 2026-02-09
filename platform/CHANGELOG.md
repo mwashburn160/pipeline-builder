@@ -1,3 +1,13 @@
+## 1.4.25 (2026-02-09)
+
+### 🩹 Fixes
+
+- created strong secret ([afe5ed4](https://github.com/mwashburn160/pipeline-builder/commit/afe5ed4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.24 (2026-02-09)
 
 ### 🩹 Fixes
