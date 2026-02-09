@@ -1,3 +1,7 @@
+## 1.7.0 (2026-02-09)
+
+This was a version bump only for plugin to align it with other projects, there were no code changes.
+
 ## 1.6.1 (2026-02-09)
 
 ### 🩹 Fixes

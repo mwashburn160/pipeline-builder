@@ -1,3 +1,13 @@
+## 1.8.0 (2026-02-09)
+
+### 🚀 Features
+
+- updated look--n-feel ([3f40e0c](https://github.com/mwashburn160/pipeline-builder/commit/3f40e0c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.1 (2026-02-09)
 
 ### 🩹 Fixes
