@@ -1,3 +1,13 @@
+## 1.8.1 (2026-02-09)
+
+### 🩹 Fixes
+
+- updated collapsible section ([e1011bb](https://github.com/mwashburn160/pipeline-builder/commit/e1011bb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.0 (2026-02-09)
 
 ### 🚀 Features
