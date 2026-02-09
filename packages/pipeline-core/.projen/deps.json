@@ -77,7 +77,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-data",
-      "version": "workspace:*",
+      "version": "1.10.0",
       "type": "runtime"
     },
     {

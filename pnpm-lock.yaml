@@ -513,8 +513,8 @@ importers:
         specifier: 1.8.27
         version: 1.8.27
       '@mwashburn160/pipeline-data':
-        specifier: workspace:*
-        version: link:../pipeline-data
+        specifier: 1.10.0
+        version: 1.10.0(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.237.0
         version: 2.237.0(constructs@10.4.5)
@@ -1912,6 +1912,10 @@ packages:
 
   '@mwashburn160/api-core@1.8.27':
     resolution: {integrity: sha512-jhpods1hyAN/7zsoKkn56v/LuE+4AUFqmnkIVsYzxOa0sm6ByY0ZjrMqBny9lBDaC7VyOIeb9wFL3Hu8BEfm/A==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.8.27/eac549e66ecab8a34bbe17f92bc8b814a1469472}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/pipeline-data@1.10.0':
+    resolution: {integrity: sha512-jmBPkZ/1Ga5BSv3Wb8Cfx64msWxwq3/O73z/B73WAyyGRhmRXQVZY0sfOJpNGrYfj7excU1R6MeZfEVISmYG3Q==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.10.0/67fd6e328fe9eb36d306326b7c06a5aacc24a8e4}
     engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -7388,6 +7392,44 @@ snapshots:
       winston: 3.17.0
     transitivePeerDependencies:
       - debug
+      - supports-color
+
+  '@mwashburn160/pipeline-data@1.10.0(@types/pg@8.16.0)':
+    dependencies:
+      '@mwashburn160/api-core': 1.8.27
+      drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
+      pg: 8.16.3
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - debug
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
       - supports-color
 
   '@napi-rs/wasm-runtime@0.2.12':
