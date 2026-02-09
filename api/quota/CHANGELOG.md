@@ -1,3 +1,13 @@
+## 1.7.1 (2026-02-09)
+
+### 🩹 Fixes
+
+- added framer-motion ([d80be91](https://github.com/mwashburn160/pipeline-builder/commit/d80be91))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.0 (2026-02-09)
 
 This was a version bump only for quota to align it with other projects, there were no code changes.
