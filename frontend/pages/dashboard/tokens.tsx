@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/router';
-import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Badge } from '@/components/ui/Badge';
+import { CopyButton } from '@/components/ui/CopyButton';
 import api from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -23,10 +24,8 @@ function decodeJwt(token: string): JwtParts | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-
     const header = JSON.parse(atob(parts[0]));
     const payload = JSON.parse(atob(parts[1]));
-
     return { header, payload, signature: parts[2] };
   } catch {
     return null;
@@ -35,7 +34,6 @@ function decodeJwt(token: string): JwtParts | null {
 
 function formatTimestamp(value: unknown): string | null {
   if (typeof value !== 'number') return null;
-  // JWT timestamps are seconds‑based; convert to ms
   const ms = value < 1e12 ? value * 1000 : value;
   return new Date(ms).toLocaleString();
 }
@@ -55,69 +53,6 @@ function expiresIn(payload: JwtPayload): string | null {
   if (days > 0) return `${days}d ${hrs % 24}h`;
   if (hrs > 0) return `${hrs}h ${mins % 60}m`;
   return `${mins}m`;
-}
-
-// ---------------------------------------------------------------------------
-// Small UI pieces
-// ---------------------------------------------------------------------------
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback: select‑all inside a temp textarea
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  return (
-    <button
-      onClick={copy}
-      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors"
-    >
-      {copied ? (
-        <>
-          <svg className="w-3.5 h-3.5 mr-1 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          Copied
-        </>
-      ) : (
-        <>
-          <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-          Copy
-        </>
-      )}
-    </button>
-  );
-}
-
-function Badge({ children, color }: { children: React.ReactNode; color: 'green' | 'red' | 'gray' | 'blue' }) {
-  const colors = {
-    green: 'bg-green-100 text-green-800',
-    red: 'bg-red-100 text-red-800',
-    gray: 'bg-gray-100 text-gray-800',
-    blue: 'bg-blue-100 text-blue-800',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
-      {children}
-    </span>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -185,12 +120,10 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
       </div>
 
       {showRaw ? (
-        /* Raw JWT */
         <pre className="bg-gray-50 border border-gray-200 rounded-md p-4 text-xs font-mono text-gray-700 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {token}
         </pre>
       ) : decoded ? (
-        /* Decoded view */
         <div className="space-y-4">
           {/* Header */}
           <div>
@@ -259,27 +192,18 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 // ---------------------------------------------------------------------------
 
 export default function TokensPage() {
-  const router = useRouter();
-  const { user, isAuthenticated, isInitialized, isLoading: authLoading } = useAuth();
+  const { user, isReady, isAuthenticated } = useAuthGuard();
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
-
   const [generating, setGenerating] = useState(false);
   const [genSuccess, setGenSuccess] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // Sync tokens from api client
   const syncTokens = useCallback(() => {
     setAccessToken(api.getRawAccessToken());
     setRefreshToken(api.getRawRefreshToken());
   }, []);
-
-  useEffect(() => {
-    if (isInitialized && !authLoading && !isAuthenticated) {
-      router.push('/auth/login');
-    }
-  }, [isAuthenticated, isInitialized, authLoading, router]);
 
   useEffect(() => {
     if (isAuthenticated) syncTokens();
@@ -301,67 +225,47 @@ export default function TokensPage() {
     }
   };
 
-  if (!isInitialized || authLoading) {
-    return <LoadingPage message="Loading..." />;
-  }
-
-  if (!isAuthenticated || !user) {
-    return <LoadingPage message="Redirecting..." />;
-  }
+  if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <Link href="/dashboard" className="text-gray-500 hover:text-gray-700">
-              ← Back
-            </Link>
-            <h1 className="text-2xl font-bold text-gray-900">API Tokens</h1>
+    <DashboardLayout title="API Tokens" maxWidth="4xl">
+      {/* Generate Token */}
+      <div className="bg-white shadow rounded-lg p-6 mb-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-2">Generate New Token</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Generate a fresh access / refresh token pair. This replaces your current session tokens and
+          can be used for CLI or API access.
+        </p>
+
+        {genError && (
+          <div className="rounded-md bg-red-50 p-3 mb-4">
+            <p className="text-sm text-red-800">{genError}</p>
           </div>
-        </div>
-      </header>
+        )}
+        {genSuccess && (
+          <div className="rounded-md bg-green-50 p-3 mb-4">
+            <p className="text-sm text-green-800">{genSuccess}</p>
+          </div>
+        )}
 
-      {/* Main content */}
-      <main className="max-w-4xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
-        {/* Generate Token */}
-        <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-2">Generate New Token</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Generate a fresh access / refresh token pair. This replaces your current session tokens and
-            can be used for CLI or API access.
-          </p>
-
-          {genError && (
-            <div className="rounded-md bg-red-50 p-3 mb-4">
-              <p className="text-sm text-red-800">{genError}</p>
-            </div>
+        <button
+          onClick={handleGenerateToken}
+          disabled={generating}
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+        >
+          {generating ? <LoadingSpinner size="sm" className="mr-2" /> : (
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
           )}
-          {genSuccess && (
-            <div className="rounded-md bg-green-50 p-3 mb-4">
-              <p className="text-sm text-green-800">{genSuccess}</p>
-            </div>
-          )}
+          {generating ? 'Generating...' : 'Generate Token'}
+        </button>
+      </div>
 
-          <button
-            onClick={handleGenerateToken}
-            disabled={generating}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            {generating ? <LoadingSpinner size="sm" className="mr-2" /> : (
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            {generating ? 'Generating...' : 'Generate Token'}
-          </button>
-        </div>
-
-        {/* Current tokens */}
+      <div className="space-y-6">
         <TokenCard title="Access Token" token={accessToken} />
         <TokenCard title="Refresh Token" token={refreshToken} />
-      </main>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }

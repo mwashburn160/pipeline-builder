@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
-import { isSystemAdmin as checkSystemAdmin } from '@/types';
+import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import api from '@/lib/api';
 
@@ -18,60 +17,6 @@ const QUOTA_META: Record<QuotaType, { label: string; description: string }> = {
   pipelines: { label: 'Pipelines', description: 'Pipeline configurations' },
   apiCalls: { label: 'API Calls', description: 'Requests this period' },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function pct(used: number, limit: number): number {
-  if (limit <= 0) return 0;
-  return Math.min(100, Math.round((used / limit) * 100));
-}
-
-function fmtNum(n: number): string {
-  return n === -1 ? '∞' : n.toLocaleString();
-}
-
-function daysUntil(iso: string): string {
-  const d = Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5);
-  if (d <= 0) return 'Today';
-  if (d === 1) return 'Tomorrow';
-  return `${d}d`;
-}
-
-function statusInfo(used: number, limit: number) {
-  if (limit === -1) return { label: 'Unlimited', color: 'purple' as const };
-  const p = pct(used, limit);
-  if (p >= 90) return { label: 'Critical', color: 'red' as const };
-  if (p >= 70) return { label: 'Warning', color: 'yellow' as const };
-  return { label: 'Healthy', color: 'green' as const };
-}
-
-const statusStyles = {
-  green: 'bg-green-100 text-green-800',
-  yellow: 'bg-yellow-100 text-yellow-800',
-  red: 'bg-red-100 text-red-800',
-  purple: 'bg-purple-100 text-purple-800',
-};
-
-const barStyles = {
-  green: 'bg-green-500',
-  yellow: 'bg-yellow-500',
-  red: 'bg-red-500',
-  purple: 'bg-blue-500',
-};
-
-function overallHealthColor(quotas: OrgQuotaResponse['quotas']): string {
-  let worst = 0;
-  for (const k of QUOTA_KEYS) {
-    const q = quotas[k];
-    if (q.limit === -1) continue;
-    worst = Math.max(worst, pct(q.used, q.limit));
-  }
-  if (worst >= 90) return 'bg-red-500';
-  if (worst >= 70) return 'bg-yellow-500';
-  return 'bg-green-500';
-}
 
 // ---------------------------------------------------------------------------
 // Components
@@ -225,15 +170,12 @@ function Toast({ message, type, onDone }: { message: string; type: 'success' | '
 // ---------------------------------------------------------------------------
 
 export default function QuotasPage() {
-  const router = useRouter();
-  const { user, isAuthenticated, isInitialized, isLoading: authLoading } = useAuth();
-  const isSysAdmin = checkSystemAdmin(user);
+  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
 
-  // Sidebar org list (admin only) — sourced from platform API so ALL orgs appear
+  // Sidebar org list (admin only)
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
-  // Track health colors per org as quotas are loaded
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
   // Current org data
@@ -248,14 +190,7 @@ export default function QuotasPage() {
   const [editSlug, setEditSlug] = useState('');
   const [dirty, setDirty] = useState(false);
 
-  // Auth guard
-  useEffect(() => {
-    if (isInitialized && !authLoading && !isAuthenticated) {
-      router.push('/auth/login');
-    }
-  }, [isAuthenticated, isInitialized, authLoading, router]);
-
-  // Fetch all orgs from platform API (admin) — shows every org, not just ones with quota records
+  // Fetch all orgs from platform API (admin)
   const fetchAllOrgs = useCallback(async () => {
     if (!isSysAdmin) return;
     try {
@@ -265,7 +200,6 @@ export default function QuotasPage() {
       setPlatformOrgs(orgs);
       if (orgs.length > 0 && !selectedOrgId) setSelectedOrgId(orgs[0].id);
     } catch {
-      // Platform API unavailable — try quota service as fallback
       try {
         const res = await api.getAllOrgQuotas();
         const quotaOrgs = (res.data?.organizations || []) as OrgQuotaResponse[];
@@ -294,7 +228,6 @@ export default function QuotasPage() {
   }, [isSysAdmin, platformOrgs]);
 
   function applyOrgData(d: OrgQuotaResponse, orgId?: string) {
-    // Resolve name: quota API → platform sidebar → auth context → orgId
     const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || d.orgId));
     const name = d.name || sidebarOrg?.name || user?.organizationName || d.orgId;
     const slug = d.slug || sidebarOrg?.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || d.orgId;
@@ -309,7 +242,6 @@ export default function QuotasPage() {
     setEditSlug(resolved.slug);
     setDirty(false);
 
-    // Update health color for sidebar
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));
   }
 
@@ -382,8 +314,7 @@ export default function QuotasPage() {
   });
 
   // Loading states
-  if (!isInitialized || authLoading) return <LoadingPage message="Loading..." />;
-  if (!isAuthenticated || !user) return <LoadingPage message="Redirecting..." />;
+  if (!isReady || !user) return <LoadingPage />;
 
   return (
     <div className="min-h-screen bg-gray-50 flex">

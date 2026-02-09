@@ -1,26 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
-import { isSystemAdmin, isOrgAdmin } from '@/types';
+import { Badge } from '@/components/ui/Badge';
+import { pct, fmtNum, barColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import api from '@/lib/api';
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { user, isAuthenticated, isInitialized, isLoading: authLoading, logout } = useAuth();
-
-  // Determine user permissions
-  const isSysAdmin = isSystemAdmin(user);
-  const isOrgAdminUser = isOrgAdmin(user);
-  const isAdmin = isSysAdmin || isOrgAdminUser;
-
-  useEffect(() => {
-    if (isInitialized && !authLoading && !isAuthenticated) {
-      router.push('/auth/login');
-    }
-  }, [isAuthenticated, isInitialized, authLoading, router]);
+  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin, logout } = useAuthGuard();
 
   // Fetch quota data for the widget
   const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);
@@ -38,13 +26,7 @@ export default function DashboardPage() {
     if (isAuthenticated) fetchQuotas();
   }, [isAuthenticated, fetchQuotas]);
 
-  if (!isInitialized || authLoading) {
-    return <LoadingPage message="Loading..." />;
-  }
-
-  if (!isAuthenticated || !user) {
-    return <LoadingPage message="Redirecting..." />;
-  }
+  if (!isReady || !user) return <LoadingPage />;
 
   const navigationItems = [
     {
@@ -136,6 +118,8 @@ export default function DashboardPage() {
     return true;
   });
 
+  const QUOTA_LABELS: Record<QuotaType, string> = { plugins: 'Plugins', pipelines: 'Pipelines', apiCalls: 'API Calls' };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -155,16 +139,8 @@ export default function DashboardPage() {
                 <span className="text-gray-400 ml-2">({user.organizationName})</span>
               )}
             </div>
-            {isSysAdmin && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                System Admin
-              </span>
-            )}
-            {isOrgAdminUser && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                Org Admin
-              </span>
-            )}
+            {isSysAdmin && <Badge color="red">System Admin</Badge>}
+            {isOrgAdminUser && <Badge color="blue">Org Admin</Badge>}
             <button
               onClick={logout}
               className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
@@ -238,25 +214,21 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 {(['plugins', 'pipelines', 'apiCalls'] as QuotaType[]).map((key) => {
                   const q = quotaData.quotas[key];
-                  const p = q.limit <= 0 ? 0 : Math.min(100, Math.round((q.used / q.limit) * 100));
+                  const p = pct(q.used, q.limit);
                   const pDisplay = q.unlimited ? 15 : p;
-                  const barColor = q.unlimited
-                    ? 'bg-blue-500'
-                    : p >= 90 ? 'bg-red-500' : p >= 70 ? 'bg-yellow-500' : 'bg-green-500';
-                  const labels: Record<QuotaType, string> = { plugins: 'Plugins', pipelines: 'Pipelines', apiCalls: 'API Calls' };
-                  const fmt = (n: number) => n === -1 ? '∞' : n.toLocaleString();
+                  const color = barColor(q.used, q.limit, q.unlimited);
 
                   return (
                     <div key={key}>
                       <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="font-medium text-gray-700">{labels[key]}</span>
+                        <span className="font-medium text-gray-700">{QUOTA_LABELS[key]}</span>
                         <span className="text-gray-500 tabular-nums">
-                          {fmt(q.used)} / {fmt(q.limit)}
+                          {fmtNum(q.used)} / {fmtNum(q.limit)}
                         </span>
                       </div>
                       <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+                          className={`h-full rounded-full transition-all duration-700 ${color}`}
                           style={{ width: `${pDisplay}%` }}
                         />
                       </div>
