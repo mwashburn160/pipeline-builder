@@ -55,7 +55,7 @@ let expressVersion = '5.2.1'
 let apiCoreVersion = '1.13.1';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.11.0';
+let apiServerVersion = '1.11.4';
 
 /** @mwashburn160/pipeline-data package version */
 let pipelineDataVersion = '1.14.2';
