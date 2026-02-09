@@ -56,38 +56,34 @@ export async function register(req: Request, res: Response): Promise<void> {
         throw new Error('DUPLICATE_CREDENTIALS');
       }
 
-      const isCreatingOrg = organizationName?.trim().length >= 2;
+      const effectiveOrgName = organizationName?.trim().length >= 2
+        ? organizationName.trim()
+        : username;
 
       const user = new User({
         username,
         email,
         password,
-        role: isCreatingOrg ? 'admin' : 'user',
+        role: 'admin',
       });
 
-      let orgName: string | null = null;
-      let orgId: string | null = null;
+      const isSystemOrg = effectiveOrgName.toLowerCase() === 'system';
 
-      if (isCreatingOrg) {
-        const trimmedOrgName = organizationName.trim();
-        const isSystemOrg = trimmedOrgName.toLowerCase() === 'system';
+      const orgData: any = {
+        name: isSystemOrg ? 'system' : effectiveOrgName,
+        owner: user._id,
+        members: [user._id],
+      };
 
-        const orgData: any = {
-          name: isSystemOrg ? 'system' : trimmedOrgName,
-          owner: user._id,
-          members: [user._id],
-        };
-
-        if (isSystemOrg) {
-          orgData._id = 'system';
-          orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
-        }
-
-        const [org] = await Organization.create([orgData], { session });
-        user.organizationId = org._id as any;
-        orgName = org.name;
-        orgId = String(org._id);
+      if (isSystemOrg) {
+        orgData._id = 'system';
+        orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
       }
+
+      const [org] = await Organization.create([orgData], { session });
+      user.organizationId = org._id as any;
+      const orgName = org.name;
+      const orgId = String(org._id);
 
       await user.save({ session });
 
