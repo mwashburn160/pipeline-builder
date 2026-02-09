@@ -17,12 +17,12 @@
     },
     {
       "name": "@types/react",
-      "version": "19.2.10",
+      "version": "19.2.13",
       "type": "build"
     },
     {
       "name": "autoprefixer",
-      "version": "10.4.23",
+      "version": "10.4.24",
       "type": "build"
     },
     {
@@ -37,22 +37,27 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.12.0",
+      "version": "1.13.0",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.10.0",
+      "version": "1.11.0",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.13.0",
+      "version": "1.14.0",
       "type": "runtime"
     },
     {
       "name": "clsx",
       "version": "^2.1.1",
+      "type": "runtime"
+    },
+    {
+      "name": "framer-motion",
+      "version": "12.34.0",
       "type": "runtime"
     },
     {

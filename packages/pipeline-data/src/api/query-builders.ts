@@ -2,6 +2,8 @@ import { eq, or, sql, SQL } from 'drizzle-orm';
 import { PipelineFilter, PluginFilter } from '../core/query-filters';
 import { schema } from '../database/drizzle-schema';
 
+const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Access control behavior based on accessModifier filter
  */
@@ -78,9 +80,14 @@ export function buildPipelineConditions(
       );
   }
 
-  // ID filter
+  // ID filter (supports partial UUID prefix matching)
   if (filter.id !== undefined) {
-    conditions.push(eq(schema.pipeline.id, filter.id as string));
+    const id = (filter.id as string).toLowerCase();
+    if (FULL_UUID.test(id)) {
+      conditions.push(eq(schema.pipeline.id, id));
+    } else {
+      conditions.push(sql`${schema.pipeline.id}::text LIKE ${id + '%'}`);
+    }
   }
 
   // Project filter
@@ -150,9 +157,14 @@ export function buildPluginConditions(
       );
   }
 
-  // ID filter
+  // ID filter (supports partial UUID prefix matching)
   if (filter.id !== undefined) {
-    conditions.push(eq(schema.plugin.id, filter.id as string));
+    const id = (filter.id as string).toLowerCase();
+    if (FULL_UUID.test(id)) {
+      conditions.push(eq(schema.plugin.id, id));
+    } else {
+      conditions.push(sql`${schema.plugin.id}::text LIKE ${id + '%'}`);
+    }
   }
 
   // OrgId filter (explicit)

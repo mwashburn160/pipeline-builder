@@ -602,14 +602,15 @@ let frontend = new FrontEndProject({
     'react-dom@18.2.0',                                   // DOM renderer
     'lucide-react@0.563.0',                               // Icons
     'clsx@^2.1.1',                                        // Conditional classes
-    'tailwindcss@4.1.18'                                  // CSS framework
+    'tailwindcss@4.1.18',                                 // CSS framework
+    'framer-motion@12.34.0'                               // Animation library
   ],
   devDeps: [
     '@types/node@24.9.0',              // Node.js types
-    '@types/react@19.2.10',            // React types
+    '@types/react@19.2.13',            // React types
     '@types/react-dom@19.2.3',         // React DOM types
     '@tailwindcss/postcss@4.1.18',     // Tailwind PostCSS plugin
-    'autoprefixer@10.4.23',            // CSS autoprefixer
+    'autoprefixer@10.4.24',            // CSS autoprefixer
     'postcss@8.5.6',                   // CSS post-processor
     `typescript@${typescriptVersion}`   // TypeScript compiler
   ]
