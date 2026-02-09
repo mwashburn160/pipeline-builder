@@ -50,7 +50,7 @@ export default function SynthSection({
             onChange={onPluginChange}
             disabled={disabled}
             error={errors['synth.plugin.name']}
-            label="Synth Plugin"
+            label="Plugin"
           />
         </div>
 

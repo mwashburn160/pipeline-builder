@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Search, Puzzle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -13,17 +14,41 @@ import UploadPluginModal from '@/components/plugin/UploadPluginModal';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
+interface PluginFilters {
+  name: string;
+  id: string;
+  orgId: string;
+  version: string;
+  imageTag: string;
+  pluginType: string;
+  computeType: string;
+  access: 'all' | 'public' | 'private';
+  status: 'all' | 'active' | 'inactive';
+  default: 'all' | 'default' | 'non-default';
+}
+
+const initialFilters: PluginFilters = {
+  name: '', id: '', orgId: '', version: '', imageTag: '',
+  pluginType: 'all', computeType: 'all',
+  access: 'all', status: 'all', default: 'all',
+};
+
 export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [accessFilter, setAccessFilter] = useState<'all' | 'public' | 'private'>('all');
-  const [nameSearch, setNameSearch] = useState('');
-  const [pluginTypeFilter, setPluginTypeFilter] = useState<string>('all');
-  const [computeTypeFilter, setComputeTypeFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [filters, setFilters] = useState<PluginFilters>(initialFilters);
+  const updateFilter = <K extends keyof PluginFilters>(key: K, value: PluginFilters[K]) =>
+    setFilters(prev => ({ ...prev, [key]: value }));
+
+  // Debounce text inputs to avoid API calls on every keystroke
+  const debouncedName = useDebounce(filters.name, 300);
+  const debouncedId = useDebounce(filters.id, 300);
+  const debouncedOrgId = useDebounce(filters.orgId, 300);
+  const debouncedVersion = useDebounce(filters.version, 300);
+  const debouncedImageTag = useDebounce(filters.imageTag, 300);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
@@ -33,16 +58,27 @@ export default function PluginsPage() {
   const canViewPublic = isSysAdmin;
   const canUploadPublic = isSysAdmin;
 
-  const fetchPlugins = async () => {
+  const fetchPlugins = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
       setIsLoading(true);
       const params: Record<string, string> = {};
-      if (accessFilter !== 'all') {
-        params.accessModifier = accessFilter;
+      if (debouncedId.trim()) params.id = debouncedId.trim();
+      if (debouncedOrgId.trim()) params.orgId = debouncedOrgId.trim();
+      if (filters.access !== 'all') {
+        params.accessModifier = filters.access;
       } else if (!canViewPublic) {
         params.accessModifier = 'private';
       }
+      if (filters.status !== 'all') {
+        params.isActive = filters.status === 'active' ? 'true' : 'false';
+      }
+      if (filters.default !== 'all') {
+        params.isDefault = filters.default === 'default' ? 'true' : 'false';
+      }
+      if (debouncedName.trim()) params.name = debouncedName.trim();
+      if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
+      if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
       const response = await api.listPlugins(params);
       setPlugins((response.plugins || []) as Plugin[]);
     } catch (err) {
@@ -50,37 +86,24 @@ export default function PluginsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, canViewPublic]);
 
   useEffect(() => {
     if (isAuthenticated) fetchPlugins();
-  }, [isAuthenticated, accessFilter, canViewPublic]);
+  }, [isAuthenticated, fetchPlugins]);
 
-  const hasActiveFilters = nameSearch !== '' || pluginTypeFilter !== 'all' || computeTypeFilter !== 'all' || statusFilter !== 'all' || accessFilter !== 'all';
+  const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
+    if (['access', 'status', 'default', 'pluginType', 'computeType'].includes(key)) return value !== 'all';
+    return value !== '';
+  });
 
-  const clearFilters = () => {
-    setNameSearch('');
-    setPluginTypeFilter('all');
-    setComputeTypeFilter('all');
-    setStatusFilter('all');
-    setAccessFilter('all');
-  };
+  const clearFilters = () => setFilters(initialFilters);
 
+  // Server-side handles CommonFilter + PluginFilter; client-side only for pluginType/computeType
   const filteredPlugins = plugins.filter(plugin => {
     if (!canViewPublic && plugin.accessModifier === 'public') return false;
-    if (accessFilter !== 'all' && plugin.accessModifier !== accessFilter) return false;
-    if (nameSearch) {
-      const q = nameSearch.toLowerCase();
-      const matchesName = plugin.name.toLowerCase().includes(q);
-      const matchesDesc = (plugin.description || '').toLowerCase().includes(q);
-      const matchesKeywords = (plugin.keywords || []).some(k => k.toLowerCase().includes(q));
-      if (!matchesName && !matchesDesc && !matchesKeywords) return false;
-    }
-    if (pluginTypeFilter !== 'all' && plugin.pluginType !== pluginTypeFilter) return false;
-    if (computeTypeFilter !== 'all' && plugin.computeType !== computeTypeFilter) return false;
-    if (statusFilter !== 'all') {
-      if (plugin.isActive !== (statusFilter === 'active')) return false;
-    }
+    if (filters.pluginType !== 'all' && plugin.pluginType !== filters.pluginType) return false;
+    if (filters.computeType !== 'all' && plugin.computeType !== filters.computeType) return false;
     return true;
   });
 
@@ -130,28 +153,37 @@ export default function PluginsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" value={nameSearch} onChange={(e) => setNameSearch(e.target.value)} placeholder="Search plugins..." className="filter-input" />
+            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Plugin name..." className="filter-input" />
           </div>
-          <select value={pluginTypeFilter} onChange={(e) => setPluginTypeFilter(e.target.value)} className="filter-select">
+          <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+          <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+          <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
+          <input type="text" value={filters.imageTag} onChange={(e) => updateFilter('imageTag', e.target.value)} placeholder="Image tag..." className="filter-input max-w-[140px]" />
+          <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
             <option value="all">All Types</option>
             <option value="CodeBuildStep">CodeBuildStep</option>
             <option value="ShellStep">ShellStep</option>
             <option value="ManualApprovalStep">ManualApprovalStep</option>
           </select>
-          <select value={computeTypeFilter} onChange={(e) => setComputeTypeFilter(e.target.value)} className="filter-select">
+          <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
             <option value="all">All Compute</option>
             <option value="SMALL">SMALL</option>
             <option value="MEDIUM">MEDIUM</option>
             <option value="LARGE">LARGE</option>
             <option value="X2_LARGE">X2_LARGE</option>
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select">
+          <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
             <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
+            <option value="all">All Default</option>
+            <option value="default">Default</option>
+            <option value="non-default">Non-Default</option>
+          </select>
           {canViewPublic && (
-            <select value={accessFilter} onChange={(e) => setAccessFilter(e.target.value as 'all' | 'public' | 'private')} className="filter-select">
+            <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
               <option value="all">All Access</option>
               <option value="public">Public</option>
               <option value="private">Private</option>
@@ -193,6 +225,7 @@ export default function PluginsPage() {
                 <th>Compute</th>
                 <th>Access</th>
                 <th>Status</th>
+                <th>Default</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -218,6 +251,9 @@ export default function PluginsPage() {
                   </td>
                   <td>
                     <Badge color={plugin.isActive ? 'green' : 'red'}>{plugin.isActive ? 'Active' : 'Inactive'}</Badge>
+                  </td>
+                  <td>
+                    {plugin.isDefault && <Badge color="blue">Default</Badge>}
                   </td>
                   <td className="text-sm">
                     <div className="flex items-center space-x-3">

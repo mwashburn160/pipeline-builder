@@ -1,6 +1,9 @@
+import { useCallback } from 'react';
+import { Plugin } from '@/types';
 import { FormPluginOptions, FormPluginFilter } from '@/types/form-types';
 import CollapsibleSection from './CollapsibleSection';
 import MetadataEditor from './MetadataEditor';
+import PluginNameCombobox from './PluginNameCombobox';
 
 interface PluginOptionsEditorProps {
   value: FormPluginOptions;
@@ -17,24 +20,41 @@ export default function PluginOptionsEditor({
   const updateFilter = (fields: Partial<FormPluginFilter>) =>
     update({ filter: { ...value.filter, ...fields } });
 
-  const hasFilter = value.filter.name !== '' || value.filter.namePattern !== '' ||
-    value.filter.version !== '' || value.filter.versionMin !== '' ||
-    value.filter.versionMax !== '' || value.filter.imageTag !== '';
+  const handlePluginSelect = useCallback((plugin: Plugin) => {
+    onChange({
+      ...value,
+      name: plugin.name,
+      filter: {
+        ...value.filter,
+        id: plugin.id,
+        orgId: plugin.orgId,
+        accessModifier: plugin.accessModifier,
+        isDefault: String(plugin.isDefault),
+        isActive: String(plugin.isActive),
+        name: plugin.name,
+        version: plugin.version,
+        imageTag: plugin.imageTag,
+      },
+    });
+  }, [value, onChange]);
+
+  const hasFilter = value.filter.id !== '' || value.filter.orgId !== '' ||
+    value.filter.accessModifier !== '' || value.filter.isDefault !== '' ||
+    value.filter.isActive !== '' || value.filter.name !== '' ||
+    value.filter.namePattern !== '' || value.filter.version !== '' ||
+    value.filter.versionMin !== '' || value.filter.versionMax !== '' ||
+    value.filter.imageTag !== '';
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="label">{label} Name *</label>
-        <input
-          type="text"
-          value={value.name}
-          onChange={(e) => update({ name: e.target.value })}
-          placeholder="plugin-name"
-          disabled={disabled}
-          className="input"
-        />
-        {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      </div>
+      <PluginNameCombobox
+        value={value.name}
+        onChange={(name) => update({ name })}
+        onSelectPlugin={handlePluginSelect}
+        disabled={disabled}
+        label={label}
+        error={error}
+      />
       <div>
         <label className="label">{label} Alias</label>
         <input
@@ -48,6 +68,71 @@ export default function PluginOptionsEditor({
       </div>
       <CollapsibleSection title={`${label} Filters`} hasContent={hasFilter}>
         <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Plugin ID</label>
+              <input
+                type="text"
+                value={value.filter.id}
+                onChange={(e) => updateFilter({ id: e.target.value })}
+                placeholder="Plugin UUID"
+                disabled={disabled}
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="label">Org ID</label>
+              <input
+                type="text"
+                value={value.filter.orgId}
+                onChange={(e) => updateFilter({ orgId: e.target.value })}
+                placeholder="Organization ID"
+                disabled={disabled}
+                className="input"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Access Modifier</label>
+              <select
+                value={value.filter.accessModifier}
+                onChange={(e) => updateFilter({ accessModifier: e.target.value })}
+                disabled={disabled}
+                className="input"
+              >
+                <option value="">Any</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Is Default</label>
+              <select
+                value={value.filter.isDefault}
+                onChange={(e) => updateFilter({ isDefault: e.target.value })}
+                disabled={disabled}
+                className="input"
+              >
+                <option value="">Any</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Is Active</label>
+              <select
+                value={value.filter.isActive}
+                onChange={(e) => updateFilter({ isActive: e.target.value })}
+                disabled={disabled}
+                className="input"
+              >
+                <option value="">Any</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Filter Name</label>

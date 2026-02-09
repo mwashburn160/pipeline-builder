@@ -258,6 +258,13 @@ function assembleSecurityGroupConfig(
 
 function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<string, unknown> | undefined {
   const result: Record<string, unknown> = {};
+  // Common filter properties
+  if (filter.id) result.id = filter.id;
+  if (filter.orgId) result.orgId = filter.orgId;
+  if (filter.accessModifier) result.accessModifier = filter.accessModifier;
+  if (filter.isDefault) result.isDefault = filter.isDefault === 'true';
+  if (filter.isActive) result.isActive = filter.isActive === 'true';
+  // Plugin-specific filter properties
   if (filter.name) result.name = filter.name;
   if (filter.namePattern) result.namePattern = filter.namePattern;
   if (filter.version) result.version = filter.version;
@@ -348,7 +355,7 @@ function assembleBuilderPropsFromState(
   }
 
   // Validate synth plugin
-  if (!state.synth.plugin.name.trim()) errors['synth.plugin.name'] = 'Synth plugin name is required';
+  if (!state.synth.plugin.name.trim()) errors['synth.plugin.name'] = 'Plugin name is required';
 
   // Build synth
   const synthNetwork = assembleNetworkConfig(state.synth.networkType, state.synth.network);

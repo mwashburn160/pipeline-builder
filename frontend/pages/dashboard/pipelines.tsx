@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Search, GitBranch } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -13,15 +14,38 @@ import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 
+interface PipelineFilters {
+  name: string;
+  id: string;
+  orgId: string;
+  project: string;
+  organization: string;
+  access: 'all' | 'public' | 'private';
+  status: 'all' | 'active' | 'inactive';
+  default: 'all' | 'default' | 'non-default';
+}
+
+const initialFilters: PipelineFilters = {
+  name: '', id: '', orgId: '', project: '', organization: '',
+  access: 'all', status: 'all', default: 'all',
+};
+
 export default function PipelinesPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [accessFilter, setAccessFilter] = useState<'all' | 'public' | 'private'>('all');
-  const [nameSearch, setNameSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [filters, setFilters] = useState<PipelineFilters>(initialFilters);
+  const updateFilter = <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) =>
+    setFilters(prev => ({ ...prev, [key]: value }));
+
+  // Debounce text inputs to avoid API calls on every keystroke
+  const debouncedName = useDebounce(filters.name, 300);
+  const debouncedId = useDebounce(filters.id, 300);
+  const debouncedOrgId = useDebounce(filters.orgId, 300);
+  const debouncedProject = useDebounce(filters.project, 300);
+  const debouncedOrganization = useDebounce(filters.organization, 300);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
@@ -34,16 +58,27 @@ export default function PipelinesPage() {
   const canViewPublic = isSysAdmin;
   const canCreatePublic = isSysAdmin;
 
-  const fetchPipelines = async () => {
+  const fetchPipelines = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
       setIsLoading(true);
       const params: Record<string, string> = {};
-      if (accessFilter !== 'all') {
-        params.accessModifier = accessFilter;
+      if (debouncedId.trim()) params.id = debouncedId.trim();
+      if (debouncedOrgId.trim()) params.orgId = debouncedOrgId.trim();
+      if (filters.access !== 'all') {
+        params.accessModifier = filters.access;
       } else if (!canViewPublic) {
         params.accessModifier = 'private';
       }
+      if (filters.status !== 'all') {
+        params.isActive = filters.status === 'active' ? 'true' : 'false';
+      }
+      if (filters.default !== 'all') {
+        params.isDefault = filters.default === 'default' ? 'true' : 'false';
+      }
+      if (debouncedProject.trim()) params.project = debouncedProject.trim();
+      if (debouncedOrganization.trim()) params.organization = debouncedOrganization.trim();
+      if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
       const response = await api.listPipelines(params);
       setPipelines((response.pipelines || []) as Pipeline[]);
     } catch (err) {
@@ -51,35 +86,22 @@ export default function PipelinesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default, canViewPublic]);
 
   useEffect(() => {
     if (isAuthenticated) fetchPipelines();
-  }, [isAuthenticated, accessFilter, canViewPublic]);
+  }, [isAuthenticated, fetchPipelines]);
 
-  const hasActiveFilters = nameSearch !== '' || statusFilter !== 'all' || accessFilter !== 'all';
-
-  const clearFilters = () => {
-    setNameSearch('');
-    setStatusFilter('all');
-    setAccessFilter('all');
-  };
-
-  const filteredPipelines = pipelines.filter(pipeline => {
-    if (!canViewPublic && pipeline.accessModifier === 'public') return false;
-    if (accessFilter !== 'all' && pipeline.accessModifier !== accessFilter) return false;
-    if (nameSearch) {
-      const q = nameSearch.toLowerCase();
-      const matchesName = (pipeline.pipelineName || '').toLowerCase().includes(q);
-      const matchesDesc = (pipeline.description || '').toLowerCase().includes(q);
-      const matchesProject = (pipeline.project || '').toLowerCase().includes(q);
-      if (!matchesName && !matchesDesc && !matchesProject) return false;
-    }
-    if (statusFilter !== 'all') {
-      if (pipeline.isActive !== (statusFilter === 'active')) return false;
-    }
-    return true;
+  const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
+    if (['access', 'status', 'default'].includes(key)) return value !== 'all';
+    return value !== '';
   });
+
+  const clearFilters = () => setFilters(initialFilters);
+
+  const filteredPipelines = canViewPublic
+    ? pipelines
+    : pipelines.filter(p => p.accessModifier !== 'public');
 
   const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private') => {
     setCreateLoading(true);
@@ -153,15 +175,24 @@ export default function PipelinesPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" value={nameSearch} onChange={(e) => setNameSearch(e.target.value)} placeholder="Search pipelines..." className="filter-input" />
+            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Pipeline name..." className="filter-input" />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="filter-select">
+          <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+          <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+          <input type="text" value={filters.project} onChange={(e) => updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
+          <input type="text" value={filters.organization} onChange={(e) => updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
+          <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PipelineFilters['status'])} className="filter-select">
             <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PipelineFilters['default'])} className="filter-select">
+            <option value="all">All Default</option>
+            <option value="default">Default</option>
+            <option value="non-default">Non-Default</option>
+          </select>
           {canViewPublic && (
-            <select value={accessFilter} onChange={(e) => setAccessFilter(e.target.value as 'all' | 'public' | 'private')} className="filter-select">
+            <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PipelineFilters['access'])} className="filter-select">
               <option value="all">All Access</option>
               <option value="public">Public</option>
               <option value="private">Private</option>
@@ -202,6 +233,7 @@ export default function PipelinesPage() {
                 <th>Organization</th>
                 <th>Access</th>
                 <th>Status</th>
+                <th>Default</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -226,6 +258,9 @@ export default function PipelinesPage() {
                   </td>
                   <td>
                     <Badge color={pipeline.isActive ? 'green' : 'red'}>{pipeline.isActive ? 'Active' : 'Inactive'}</Badge>
+                  </td>
+                  <td>
+                    {pipeline.isDefault && <Badge color="blue">Default</Badge>}
                   </td>
                   <td className="text-sm">
                     <div className="flex items-center space-x-3">

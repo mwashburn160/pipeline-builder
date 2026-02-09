@@ -21,6 +21,13 @@ export interface TagEntry {
 }
 
 export interface FormPluginFilter {
+  // Common filter properties
+  id: string;
+  orgId: string;
+  accessModifier: string;
+  isDefault: string;
+  isActive: string;
+  // Plugin-specific filter properties
   name: string;
   namePattern: string;
   version: string;
@@ -134,7 +141,7 @@ export function createEmptyNetworkConfig(): FormNetworkConfig {
 }
 
 export function createEmptyPluginFilter(): FormPluginFilter {
-  return { name: '', namePattern: '', version: '', versionMin: '', versionMax: '', imageTag: '' };
+  return { id: '', orgId: '', accessModifier: '', isDefault: '', isActive: '', name: '', namePattern: '', version: '', versionMin: '', versionMax: '', imageTag: '' };
 }
 
 export function createEmptyPlugin(): FormPluginOptions {
