@@ -1,3 +1,13 @@
+## 1.12.0 (2026-02-09)
+
+### 🚀 Features
+
+- upgraded pipeline-core=1.11.0 ([bbee6fb](https://github.com/mwashburn160/pipeline-builder/commit/bbee6fb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.11.0 (2026-02-09)
 
 ### 🚀 Features
