@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps, isSystemAdmin, isOrgAdmin } from '@/types';
+import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 
 export default function PipelinesPage() {
   const router = useRouter();
@@ -14,12 +15,8 @@ export default function PipelinesPage() {
   const [error, setError] = useState<string | null>(null);
   const [accessFilter, setAccessFilter] = useState<'all' | 'public' | 'private'>('all');
 
-  // Create pipeline modal state - props (BuilderProps) + access modifier only
+  // Create pipeline modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [propsInput, setPropsInput] = useState('');
-  const [propsFile, setPropsFile] = useState<File | null>(null);
-  const [propsError, setPropsError] = useState<string | null>(null);
-  const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
@@ -102,100 +99,34 @@ export default function PipelinesPage() {
 
   const openCreateModal = () => {
     setShowCreateModal(true);
-    setPropsInput('');
-    setPropsFile(null);
-    setPropsError(null);
-    setCreateAccess('private');
     setCreateError(null);
     setCreateSuccess(null);
   };
 
-  // Parse and validate props from input or file
-  const parseBuilderProps = async (): Promise<BuilderProps | null> => {
-    let propsData: BuilderProps;
-
-    try {
-      if (propsFile) {
-        // Read props from uploaded file
-        const fileContent = await propsFile.text();
-        propsData = JSON.parse(fileContent);
-      } else if (propsInput.trim()) {
-        // Parse props from text input
-        propsData = JSON.parse(propsInput);
-      } else {
-        setPropsError('Please upload a props file or enter props JSON');
-        return null;
-      }
-
-      // Validate required props fields
-      if (!propsData.project || typeof propsData.project !== 'string') {
-        setPropsError('Props must include "project" (string)');
-        return null;
-      }
-      if (!propsData.organization || typeof propsData.organization !== 'string') {
-        setPropsError('Props must include "organization" (string)');
-        return null;
-      }
-
-      return propsData;
-    } catch (parseErr) {
-      setPropsError('Invalid JSON format. Please check your props.');
-      return null;
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.name.endsWith('.json')) {
-        setPropsError('Please upload a JSON file');
-        return;
-      }
-      setPropsFile(file);
-      setPropsInput(''); // Clear text input when file is selected
-      setPropsError(null);
-    }
-  };
-
-  const handleCreatePipeline = async () => {
+  const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private') => {
     setCreateLoading(true);
     setCreateError(null);
-    setPropsError(null);
     setCreateSuccess(null);
 
     try {
-      // Parse and validate BuilderProps from input/file
-      const props = await parseBuilderProps();
-      
-      if (!props) {
-        setCreateLoading(false);
-        return;
-      }
-
       const response = await api.createPipeline({
         props,
-        accessModifier: createAccess,
+        accessModifier,
       });
 
       if (response.success) {
         setCreateSuccess('Pipeline created successfully!');
-        
-        // Refresh pipeline list
         await fetchPipelines();
-        
-        // Close modal after delay
         setTimeout(() => {
           setShowCreateModal(false);
           setCreateSuccess(null);
         }, 2000);
       }
     } catch (err) {
-      // Extract detailed error message
       let errorMessage = 'Failed to create pipeline';
       if (err instanceof Error) {
         errorMessage = err.message;
       }
-      // Check if it's an API error with additional details
       if (err && typeof err === 'object' && 'code' in err) {
         const apiErr = err as { message?: string; code?: string; statusCode?: number };
         errorMessage = apiErr.message || errorMessage;
@@ -503,156 +434,15 @@ export default function PipelinesPage() {
       </main>
 
       {/* Create Pipeline Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium text-gray-900">Create Pipeline</h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {createError && (
-              <div className="mb-4 rounded-md bg-red-50 p-3">
-                <p className="text-sm text-red-800">{createError}</p>
-              </div>
-            )}
-            {createSuccess && (
-              <div className="mb-4 rounded-md bg-green-50 p-3">
-                <p className="text-sm text-green-800">{createSuccess}</p>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {/* Pipeline Props */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Pipeline Props (JSON)
-                </label>
-                
-                {/* File Upload */}
-                <div className="mb-3">
-                  <label
-                    htmlFor="propsFile"
-                    className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:border-blue-400 transition-colors"
-                  >
-                    <div className="text-center">
-                      <svg className="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <p className="mt-1 text-sm text-gray-600">
-                        {propsFile ? propsFile.name : 'Click to upload props.json'}
-                      </p>
-                    </div>
-                    <input
-                      id="propsFile"
-                      type="file"
-                      accept=".json"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                      disabled={createLoading}
-                    />
-                  </label>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300" />
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500">or paste JSON</span>
-                  </div>
-                </div>
-
-                {/* JSON Text Input */}
-                <textarea
-                  id="propsInput"
-                  value={propsInput}
-                  onChange={(e) => {
-                    setPropsInput(e.target.value);
-                    setPropsFile(null); // Clear file when typing
-                    setPropsError(null);
-                  }}
-                  placeholder={`{
-  "project": "my-project",
-  "organization": "my-org"
-}`}
-                  rows={6}
-                  className="mt-3 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs"
-                  disabled={createLoading}
-                />
-                
-                {propsError && (
-                  <p className="mt-2 text-sm text-red-600">{propsError}</p>
-                )}
-                
-                <p className="mt-2 text-xs text-gray-500">
-                  Required: project, organization. Optional: pipelineName
-                </p>
-              </div>
-
-              {/* Access Modifier */}
-              <div>
-                <label htmlFor="pipelineAccess" className="block text-sm font-medium text-gray-700 mb-1">
-                  Access Modifier
-                </label>
-                <select
-                  id="pipelineAccess"
-                  value={createAccess}
-                  onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  disabled={createLoading || !canCreatePublic}
-                >
-                  <option value="private">Private (Organization only)</option>
-                  {canCreatePublic && (
-                    <option value="public">Public (Available to all)</option>
-                  )}
-                </select>
-                {!canCreatePublic && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Only admins can create public pipelines
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end space-x-3">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                disabled={createLoading}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreatePipeline}
-                disabled={createLoading || (!propsInput.trim() && !propsFile)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {createLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-2" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Create
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreatePipelineModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreatePipeline}
+        createLoading={createLoading}
+        createError={createError}
+        createSuccess={createSuccess}
+        canCreatePublic={canCreatePublic}
+      />
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
