@@ -1,3 +1,13 @@
+## 1.9.7 (2026-02-09)
+
+### 🩹 Fixes
+
+- organization find by id ([24ed2c0](https://github.com/mwashburn160/pipeline-builder/commit/24ed2c0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.6 (2026-02-09)
 
 ### 🩹 Fixes
