@@ -37,15 +37,15 @@ export default function DefaultsSection({
             checked={defaults.enabled}
             onChange={(e) => onEnabledChange(e.target.checked)}
             disabled={disabled}
-            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
           />
-          <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-gray-700">
+          <label htmlFor="defaultsEnabled" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
             Configure pipeline-level CodeBuild defaults
           </label>
         </div>
 
         {defaults.enabled && (
-          <div className="space-y-4 pl-4 border-l-2 border-blue-200">
+          <div className="space-y-4 pl-4 border-l-2 border-blue-200 dark:border-blue-800">
             <CollapsibleSection title="Network" hasContent={defaults.networkType !== 'none'}>
               <div className="mt-3">
                 <NetworkConfigEditor

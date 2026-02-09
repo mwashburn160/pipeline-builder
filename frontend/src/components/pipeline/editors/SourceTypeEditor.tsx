@@ -21,12 +21,12 @@ export default function SourceTypeEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
+        <label className="label">Source Type</label>
         <select
           value={sourceType}
           onChange={(e) => onSourceTypeChange(e.target.value as FormBuilderState['synth']['sourceType'])}
           disabled={disabled}
-          className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          className="input"
         >
           <option value="github">GitHub</option>
           <option value="s3">S3</option>
@@ -35,37 +35,37 @@ export default function SourceTypeEditor({
       </div>
 
       {sourceType === 's3' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Bucket Name *</label>
+            <label className="label">Bucket Name *</label>
             <input
               type="text"
               value={s3.bucketName}
               onChange={(e) => onS3Change('bucketName', e.target.value)}
               placeholder="my-source-bucket"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
-            {errors['synth.s3.bucketName'] && <p className="mt-1 text-xs text-red-600">{errors['synth.s3.bucketName']}</p>}
+            {errors['synth.s3.bucketName'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.s3.bucketName']}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Object Key</label>
+            <label className="label">Object Key</label>
             <input
               type="text"
               value={s3.objectKey}
               onChange={(e) => onS3Change('objectKey', e.target.value)}
               placeholder="source.zip"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Trigger</label>
+            <label className="label">Trigger</label>
             <select
               value={s3.trigger}
               onChange={(e) => onS3Change('trigger', e.target.value)}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
@@ -75,48 +75,48 @@ export default function SourceTypeEditor({
       )}
 
       {sourceType === 'github' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Repository *</label>
+            <label className="label">Repository *</label>
             <input
               type="text"
               value={github.repo}
               onChange={(e) => onGithubChange('repo', e.target.value)}
               placeholder="owner/repo"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
-            {errors['synth.github.repo'] && <p className="mt-1 text-xs text-red-600">{errors['synth.github.repo']}</p>}
+            {errors['synth.github.repo'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.github.repo']}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+            <label className="label">Branch</label>
             <input
               type="text"
               value={github.branch}
               onChange={(e) => onGithubChange('branch', e.target.value)}
               placeholder="main"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Token (PAT)</label>
+            <label className="label">Token (PAT)</label>
             <input
               type="password"
               value={github.token}
               onChange={(e) => onGithubChange('token', e.target.value)}
               placeholder="ghp_..."
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Trigger</label>
+            <label className="label">Trigger</label>
             <select
               value={github.trigger}
               onChange={(e) => onGithubChange('trigger', e.target.value)}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
@@ -126,49 +126,49 @@ export default function SourceTypeEditor({
       )}
 
       {sourceType === 'codestar' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Repository *</label>
+            <label className="label">Repository *</label>
             <input
               type="text"
               value={codestar.repo}
               onChange={(e) => onCodestarChange('repo', e.target.value)}
               placeholder="owner/repo"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
-            {errors['synth.codestar.repo'] && <p className="mt-1 text-xs text-red-600">{errors['synth.codestar.repo']}</p>}
+            {errors['synth.codestar.repo'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.codestar.repo']}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+            <label className="label">Branch</label>
             <input
               type="text"
               value={codestar.branch}
               onChange={(e) => onCodestarChange('branch', e.target.value)}
               placeholder="main"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Connection ARN *</label>
+            <label className="label">Connection ARN *</label>
             <input
               type="text"
               value={codestar.connectionArn}
               onChange={(e) => onCodestarChange('connectionArn', e.target.value)}
               placeholder="arn:aws:codestar-connections:..."
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
-            {errors['synth.codestar.connectionArn'] && <p className="mt-1 text-xs text-red-600">{errors['synth.codestar.connectionArn']}</p>}
+            {errors['synth.codestar.connectionArn'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.codestar.connectionArn']}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Trigger</label>
+            <label className="label">Trigger</label>
             <select
               value={codestar.trigger}
               onChange={(e) => onCodestarChange('trigger', e.target.value)}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             >
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
@@ -181,9 +181,9 @@ export default function SourceTypeEditor({
               checked={codestar.codeBuildCloneOutput}
               onChange={(e) => onCodestarChange('codeBuildCloneOutput', e.target.checked)}
               disabled={disabled}
-              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
             />
-            <label htmlFor="codeBuildCloneOutput" className="ml-2 text-sm text-gray-700">
+            <label htmlFor="codeBuildCloneOutput" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
               CodeBuild Clone Output
             </label>
           </div>

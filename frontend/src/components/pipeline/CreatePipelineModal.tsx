@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { Plus } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
@@ -56,14 +57,14 @@ export default function CreatePipelineModal({
   const isSubmitDisabled = createLoading;
 
   return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+    <div className="modal-backdrop">
+      <div className="modal-panel max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-900">Create Pipeline</h2>
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Create Pipeline</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
+            className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -72,24 +73,24 @@ export default function CreatePipelineModal({
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 px-6">
+        <div className="border-b border-gray-200 dark:border-gray-700 px-6">
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('upload')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm ${
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'upload'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               Upload Configuration
             </button>
             <button
               onClick={() => setActiveTab('form')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm ${
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'form'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               Form Builder
@@ -100,13 +101,13 @@ export default function CreatePipelineModal({
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {createError && (
-            <div className="mb-4 rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-800">{createError}</p>
+            <div className="alert-error mb-4">
+              <p>{createError}</p>
             </div>
           )}
           {createSuccess && (
-            <div className="mb-4 rounded-md bg-green-50 p-3">
-              <p className="text-sm text-green-800">{createSuccess}</p>
+            <div className="alert-success mb-4">
+              <p>{createSuccess}</p>
             </div>
           )}
 
@@ -117,49 +118,49 @@ export default function CreatePipelineModal({
           )}
 
           {previewError && (
-            <div className="mt-4 rounded-md bg-yellow-50 p-3">
-              <p className="text-sm text-yellow-800">{previewError}</p>
+            <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-300">{previewError}</p>
             </div>
           )}
 
           {/* JSON Preview Panel */}
           {showPreview && previewJson && (
-            <div className="mt-4 border border-gray-200 rounded-md">
-              <div className="flex items-center justify-between px-4 py-2 bg-gray-100 border-b border-gray-200 rounded-t-md">
-                <span className="text-sm font-medium text-gray-700">JSON Preview</span>
+            <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
                 <button
                   onClick={() => setShowPreview(false)}
-                  className="text-gray-400 hover:text-gray-600 text-sm"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
                 >
                   Close
                 </button>
               </div>
-              <pre className="p-4 text-xs font-mono text-gray-800 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 rounded-b-md">
+              <pre className="p-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
                 {previewJson}
               </pre>
             </div>
           )}
         </div>
 
-        {/* Footer - shared access modifier + submit */}
-        <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 rounded-b-lg">
+        {/* Footer */}
+        <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <label htmlFor="pipelineAccess" className="text-sm font-medium text-gray-700">
+              <label htmlFor="pipelineAccess" className="label !mb-0">
                 Access:
               </label>
               <select
                 id="pipelineAccess"
                 value={createAccess}
                 onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
-                className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="input !w-auto"
                 disabled={createLoading || !canCreatePublic}
               >
                 <option value="private">Private</option>
                 {canCreatePublic && <option value="public">Public</option>}
               </select>
               {!canCreatePublic && (
-                <span className="text-xs text-gray-500">Only admins can create public pipelines</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Only admins can create public pipelines</span>
               )}
             </div>
 
@@ -167,21 +168,21 @@ export default function CreatePipelineModal({
               <button
                 onClick={handlePreview}
                 disabled={createLoading}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="btn btn-secondary"
               >
                 Preview JSON
               </button>
               <button
                 onClick={onClose}
                 disabled={createLoading}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="btn btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitDisabled}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn btn-primary"
               >
                 {createLoading ? (
                   <>
@@ -190,9 +191,7 @@ export default function CreatePipelineModal({
                   </>
                 ) : (
                   <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
+                    <Plus className="w-4 h-4 mr-2" />
                     Create
                   </>
                 )}

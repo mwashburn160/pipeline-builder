@@ -82,11 +82,11 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white pb-2">
-          <h2 className="text-lg font-medium text-gray-900">Edit Plugin</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+    <div className="modal-backdrop">
+      <div className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white dark:bg-gray-900 pb-2 z-10">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Edit Plugin</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -94,94 +94,94 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-3">
-            <p className="text-sm text-red-800">{error}</p>
+          <div className="alert-error">
+            <p>{error}</p>
           </div>
         )}
         {success && (
-          <div className="mb-4 rounded-md bg-green-50 p-3">
-            <p className="text-sm text-green-800">{success}</p>
+          <div className="alert-success">
+            <p>{success}</p>
           </div>
         )}
 
         <div className="space-y-4">
           {/* Read-only Fields */}
-          <div className="border-b pb-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">System Information (Read-only)</h3>
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">ID</label>
-                <p className="text-sm text-gray-700 font-mono bg-gray-50 px-2 py-1 rounded">{plugin.id}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.id}</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Org ID</label>
-                <p className="text-sm text-gray-700 bg-gray-50 px-2 py-1 rounded">{plugin.orgId}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.orgId}</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Created By</label>
-                <p className="text-sm text-gray-700 bg-gray-50 px-2 py-1 rounded">{plugin.createdBy}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.createdBy}</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Created At</label>
-                <p className="text-sm text-gray-700 bg-gray-50 px-2 py-1 rounded">{new Date(plugin.createdAt).toLocaleString()}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.createdAt).toLocaleString()}</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Updated By</label>
-                <p className="text-sm text-gray-700 bg-gray-50 px-2 py-1 rounded">{plugin.updatedBy}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.updatedBy}</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Updated At</label>
-                <p className="text-sm text-gray-700 bg-gray-50 px-2 py-1 rounded">{new Date(plugin.updatedAt).toLocaleString()}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.updatedAt).toLocaleString()}</p>
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Image Tag</label>
-                <p className="text-sm text-gray-700 font-mono bg-gray-50 px-2 py-1 rounded break-all">{plugin.imageTag}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image Tag</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{plugin.imageTag}</p>
               </div>
               {plugin.dockerfile && (
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Dockerfile</label>
-                  <pre className="text-xs text-gray-700 bg-gray-50 px-2 py-1 rounded overflow-x-auto max-h-24">{plugin.dockerfile}</pre>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dockerfile</label>
+                  <pre className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{plugin.dockerfile}</pre>
                 </div>
               )}
             </div>
           </div>
 
           {/* Core Information */}
-          <div className="border-b pb-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Core Information</h3>
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading} />
+              <label className="label">Name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input" disabled={loading} />
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading} />
+              <label className="label">Description</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input" disabled={loading} />
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Keywords (comma-separated)</label>
-              <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading} />
+              <label className="label">Keywords (comma-separated)</label>
+              <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="input" disabled={loading} />
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Version</label>
-              <input type="text" value={version} onChange={(e) => setVersion(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading} />
+              <label className="label">Version</label>
+              <input type="text" value={version} onChange={(e) => setVersion(e.target.value)} className="input" disabled={loading} />
             </div>
           </div>
 
           {/* Plugin Configuration */}
-          <div className="border-b pb-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Plugin Configuration</h3>
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Plugin Configuration</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Plugin Type</label>
-                <select value={pluginType} onChange={(e) => setPluginType(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading}>
+                <label className="label">Plugin Type</label>
+                <select value={pluginType} onChange={(e) => setPluginType(e.target.value)} className="input" disabled={loading}>
                   <option value="CodeBuildStep">CodeBuildStep</option>
                   <option value="ShellStep">ShellStep</option>
                   <option value="ManualApprovalStep">ManualApprovalStep</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Compute Type</label>
-                <select value={computeType} onChange={(e) => setComputeType(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={loading}>
+                <label className="label">Compute Type</label>
+                <select value={computeType} onChange={(e) => setComputeType(e.target.value)} className="input" disabled={loading}>
                   <option value="SMALL">SMALL</option>
                   <option value="MEDIUM">MEDIUM</option>
                   <option value="LARGE">LARGE</option>
@@ -190,61 +190,61 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
               </div>
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Metadata (JSON)</label>
-              <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
+              <label className="label">Metadata (JSON)</label>
+              <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
             </div>
           </div>
 
           {/* Build Configuration */}
-          <div className="border-b pb-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Build Configuration</h3>
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Environment Variables (JSON)</label>
-              <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
+              <label className="label">Environment Variables (JSON)</label>
+              <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Install Commands (one per line)</label>
-              <textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
+              <label className="label">Install Commands (one per line)</label>
+              <textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
             </div>
             <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Commands (one per line)</label>
-              <textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
+              <label className="label">Commands (one per line)</label>
+              <textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
             </div>
           </div>
 
           {/* Access & Status */}
           <div>
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Access & Status</h3>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Access Modifier</label>
-                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm disabled:bg-gray-100 disabled:text-gray-500" disabled={loading || !isSysAdmin}>
+                <label className="label">Access Modifier</label>
+                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSysAdmin}>
                   <option value="private">Private</option>
                   <option value="public">Public</option>
                 </select>
                 {!isSysAdmin && (
-                  <p className="text-xs text-gray-400 mt-1">Only system admins can change access level</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Only system admins can change access level</p>
                 )}
               </div>
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <input id="editIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" disabled={loading} />
-                <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700">Active</label>
+                <input id="editIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+                <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
               </div>
               <div className="flex items-center">
-                <input id="editIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" disabled={loading} />
-                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700">Default</label>
+                <input id="editIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end space-x-3 sticky bottom-0 bg-white pt-4">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+        <div className="mt-6 flex justify-end space-x-3 sticky bottom-0 bg-white dark:bg-gray-900 pt-4 z-10">
+          <button onClick={onClose} disabled={loading} className="btn btn-secondary">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={loading} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button onClick={handleSave} disabled={loading} className="btn btn-primary">
             {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
           </button>
         </div>

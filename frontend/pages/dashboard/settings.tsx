@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react';
+import { motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -7,14 +8,12 @@ import api from '@/lib/api';
 export default function SettingsPage() {
   const { user, isReady, refreshUser } = useAuthGuard();
 
-  // Profile form state
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  // Password form state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -22,7 +21,6 @@ export default function SettingsPage() {
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // Delete account state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -107,117 +105,113 @@ export default function SettingsPage() {
   return (
     <DashboardLayout title="Settings" maxWidth="3xl">
       {/* Profile Settings */}
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Profile Settings</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="card mb-6"
+      >
+        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Profile Settings</h2>
 
         <form onSubmit={handleProfileSubmit} className="space-y-4">
           {profileError && (
-            <div className="rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-800">{profileError}</p>
-            </div>
+            <div className="alert-error"><p>{profileError}</p></div>
           )}
           {profileSuccess && (
-            <div className="rounded-md bg-green-50 p-3">
-              <p className="text-sm text-green-800">{profileSuccess}</p>
-            </div>
+            <div className="alert-success"><p>{profileSuccess}</p></div>
           )}
 
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700">Username</label>
-            <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={profileLoading} />
+            <label htmlFor="username" className="label">Username</label>
+            <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="input" disabled={profileLoading} />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
-            <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={profileLoading} />
+            <label htmlFor="email" className="label">Email</label>
+            <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" disabled={profileLoading} />
           </div>
 
-          <button type="submit" disabled={profileLoading} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
+          <button type="submit" disabled={profileLoading} className="btn btn-primary">
             {profileLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
             Save Changes
           </button>
         </form>
-      </div>
+      </motion.div>
 
       {/* Change Password */}
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Change Password</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.1 }}
+        className="card mb-6"
+      >
+        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Change Password</h2>
 
         <form onSubmit={handlePasswordSubmit} className="space-y-4">
           {passwordError && (
-            <div className="rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-800">{passwordError}</p>
-            </div>
+            <div className="alert-error"><p>{passwordError}</p></div>
           )}
           {passwordSuccess && (
-            <div className="rounded-md bg-green-50 p-3">
-              <p className="text-sm text-green-800">{passwordSuccess}</p>
-            </div>
+            <div className="alert-success"><p>{passwordSuccess}</p></div>
           )}
 
           <div>
-            <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700">Current Password</label>
-            <input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={passwordLoading} />
+            <label htmlFor="currentPassword" className="label">Current Password</label>
+            <input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="input" disabled={passwordLoading} />
           </div>
 
           <div>
-            <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700">New Password</label>
-            <input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={passwordLoading} />
+            <label htmlFor="newPassword" className="label">New Password</label>
+            <input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="input" disabled={passwordLoading} />
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">Confirm New Password</label>
-            <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={passwordLoading} />
+            <label htmlFor="confirmPassword" className="label">Confirm New Password</label>
+            <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="input" disabled={passwordLoading} />
           </div>
 
-          <button type="submit" disabled={passwordLoading} className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
+          <button type="submit" disabled={passwordLoading} className="btn btn-primary">
             {passwordLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
             Change Password
           </button>
         </form>
-      </div>
+      </motion.div>
 
       {/* Danger Zone */}
-      <div className="bg-white shadow rounded-lg p-6 border border-red-200">
-        <h2 className="text-lg font-medium text-red-600 mb-4">Danger Zone</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.2 }}
+        className="card border-red-200/60 dark:border-red-800/60"
+      >
+        <h2 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">Danger Zone</h2>
 
         {!showDeleteConfirm ? (
           <div>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               Once you delete your account, there is no going back. Please be certain.
             </p>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-            >
+            <button onClick={() => setShowDeleteConfirm(true)} className="btn btn-danger">
               Delete Account
             </button>
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-red-600 font-medium">
+            <p className="text-sm text-red-600 dark:text-red-400 font-medium">
               Are you absolutely sure you want to delete your account? This action cannot be undone.
             </p>
             <div className="flex space-x-3">
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleteLoading}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
-              >
+              <button onClick={handleDeleteAccount} disabled={deleteLoading} className="btn btn-danger">
                 {deleteLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
                 Yes, Delete My Account
               </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleteLoading}
-                className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-              >
+              <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} className="btn btn-secondary">
                 Cancel
               </button>
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
     </DashboardLayout>
   );
 }

@@ -1,7 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { ArrowLeft, Sun, Moon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { Toast } from '@/components/ui/Toast';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import api from '@/lib/api';
@@ -52,48 +55,43 @@ function QuotaCard({
 
   return (
     <div className="card">
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-gray-900">{meta.label}</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{meta.description}</p>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label}</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{meta.description}</p>
         </div>
         <StatusBadge used={quota.used} limit={quota.limit} />
       </div>
 
-      {/* Usage numbers */}
       <div className="flex items-baseline justify-between mb-2">
-        <span className="text-2xl font-semibold text-gray-900 tabular-nums">
+        <span className="text-2xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
           {fmtNum(quota.used)}
         </span>
-        <span className="text-sm text-gray-500 tabular-nums">
+        <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
           / {fmtNum(quota.limit)}
         </span>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mb-3">
+      <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
         <div
           className={`h-full rounded-full transition-all duration-700 ease-out ${barStyles[color]}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
 
-      {/* Footer */}
-      <div className="flex justify-between text-xs text-gray-500">
+      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{quota.unlimited ? 'No limit' : `${fmtNum(quota.remaining)} remaining`}</span>
         <span>Resets {daysUntil(quota.resetAt)}</span>
       </div>
 
-      {/* Admin edit controls */}
       {isAdmin && (
-        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200">
-          <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Limit</span>
+        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Limit</span>
           <input
             type="number"
             min={0}
             value={isUnlimited ? '' : editVal}
-            placeholder={isUnlimited ? '∞' : ''}
+            placeholder={isUnlimited ? '\u221E' : ''}
             disabled={isUnlimited}
             className="input w-24 !py-1.5 tabular-nums"
             onChange={(e) => {
@@ -104,13 +102,13 @@ function QuotaCard({
           <button
             type="button"
             onClick={() => onEditChange(quotaKey, isUnlimited ? (quota.limit === -1 ? 100 : quota.limit) : -1)}
-            className={`text-xs font-medium px-2.5 py-1.5 rounded-md border transition-colors ${
+            className={`text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
               isUnlimited
-                ? 'border-purple-300 bg-purple-50 text-purple-700'
-                : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+                ? 'border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
-            ∞ Unlimited
+            &infin; Unlimited
           </button>
         </div>
       )}
@@ -135,33 +133,18 @@ function OrgListItem({
       onClick={onClick}
       className={`flex items-center gap-3 w-full text-left px-4 py-3 border-l-2 transition-colors ${
         selected
-          ? 'bg-blue-50 border-blue-500'
-          : 'border-transparent hover:bg-gray-50'
+          ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500'
+          : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
       }`}
     >
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${healthColor || 'bg-gray-300'}`} />
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${healthColor || 'bg-gray-300 dark:bg-gray-600'}`} />
       <div className="min-w-0 flex-1">
-        <div className={`text-sm truncate ${selected ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+        <div className={`text-sm truncate ${selected ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-400'}`}>
           {org.name}
         </div>
-        {org.slug && <div className="text-xs text-gray-400 font-mono truncate">{org.slug}</div>}
+        {org.slug && <div className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate">{org.slug}</div>}
       </div>
     </button>
-  );
-}
-
-function Toast({ message, type, onDone }: { message: string; type: 'success' | 'error'; onDone: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 3500);
-    return () => clearTimeout(t);
-  }, [onDone]);
-
-  return (
-    <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-lg text-sm font-medium shadow-lg ${
-      type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'
-    }`}>
-      {message}
-    </div>
   );
 }
 
@@ -171,26 +154,23 @@ function Toast({ message, type, onDone }: { message: string; type: 'success' | '
 
 export default function QuotasPage() {
   const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
+  const { isDark, toggle } = useDarkMode();
 
-  // Sidebar org list (admin only)
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
-  // Current org data
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Edit state
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0 });
   const [editName, setEditName] = useState('');
   const [editSlug, setEditSlug] = useState('');
   const [dirty, setDirty] = useState(false);
 
-  // Fetch all orgs from platform API (admin)
   const fetchAllOrgs = useCallback(async () => {
     if (!isSysAdmin) return;
     try {
@@ -211,7 +191,6 @@ export default function QuotasPage() {
     }
   }, [isSysAdmin, selectedOrgId]);
 
-  // Fetch single org quota data
   const fetchOrg = useCallback(async (orgId: string) => {
     setLoading(true);
     try {
@@ -241,7 +220,6 @@ export default function QuotasPage() {
     setEditName(resolved.name);
     setEditSlug(resolved.slug);
     setDirty(false);
-
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));
   }
 
@@ -254,7 +232,6 @@ export default function QuotasPage() {
     if (orgId) fetchOrg(orgId);
   }, [selectedOrgId, isSysAdmin, user?.organizationId, fetchOrg]);
 
-  // Handlers
   function handleEditChange(key: QuotaType, value: number) {
     setEditValues((prev) => ({ ...prev, [key]: value }));
     setDirty(true);
@@ -306,33 +283,31 @@ export default function QuotasPage() {
     }
   }
 
-  // Filter
   const filteredOrgs = platformOrgs.filter((o) => {
     if (!searchFilter) return true;
     const q = searchFilter.toLowerCase();
     return o.name.toLowerCase().includes(q) || (o.slug || '').toLowerCase().includes(q) || o.id.toLowerCase().includes(q);
   });
 
-  // Loading states
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar — admin only */}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex transition-colors">
+      {/* Sidebar */}
       {isSysAdmin && (
-        <div className="w-64 min-w-[16rem] border-r border-gray-200 bg-white flex flex-col">
-          <div className="p-4 border-b border-gray-200">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+        <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
               Organizations
             </p>
             <input
               type="text"
-              placeholder="Filter…"
+              placeholder="Filter..."
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
               className="input !py-1.5 text-xs"
             />
-            <p className="text-xs text-gray-400 mt-2">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
               {platformOrgs.length} org{platformOrgs.length !== 1 ? 's' : ''}
             </p>
           </div>
@@ -347,7 +322,7 @@ export default function QuotasPage() {
               />
             ))}
             {filteredOrgs.length === 0 && (
-              <p className="p-5 text-sm text-gray-400 text-center">No matches</p>
+              <p className="p-5 text-sm text-gray-400 dark:text-gray-500 text-center">No matches</p>
             )}
           </div>
         </div>
@@ -355,46 +330,49 @@ export default function QuotasPage() {
 
       {/* Main panel */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="bg-white shadow">
+        <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              <Link href="/dashboard" className="text-gray-500 hover:text-gray-700">
-                ← Back
+              <Link href="/dashboard" className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors">
+                <ArrowLeft className="w-5 h-5" />
               </Link>
-              <h1 className="text-xl font-semibold text-gray-900">
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
                 {isSysAdmin ? 'Organization Quotas' : 'Quotas'}
               </h1>
             </div>
             <div className="flex items-center gap-3">
               {isSysAdmin && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300">
                   System Admin
                 </span>
               )}
               {!loading && orgData && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 font-mono">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
                   {orgData.orgId}
                 </span>
               )}
+              <button
+                onClick={toggle}
+                className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Toggle dark mode"
+              >
+                {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
             </div>
           </div>
         </header>
 
-        {/* Content */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-4xl">
-            {/* Org info subtitle */}
             {!loading && orgData && (
-              <p className="text-sm text-gray-500 mb-6">
-                {orgData.name} · <span className="font-mono">{orgData.slug}</span>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                {orgData.name} &middot; <span className="font-mono">{orgData.slug}</span>
               </p>
             )}
 
-            {/* Org identity fields (admin) */}
             {!loading && orgData && isSysAdmin && (
               <div className="mb-8">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                   Organization
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -418,18 +396,17 @@ export default function QuotasPage() {
                   </div>
                   <div>
                     <label className="label">Org ID</label>
-                    <p className="text-sm text-gray-900 font-mono pt-2">{orgData.orgId}</p>
+                    <p className="text-sm text-gray-900 dark:text-gray-100 font-mono pt-2">{orgData.orgId}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Quota cards */}
             <div className="mb-8">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                 Quota Usage
                 {isSysAdmin && (
-                  <span className="font-normal normal-case tracking-normal ml-2 text-gray-400">
+                  <span className="font-normal normal-case tracking-normal ml-2 text-gray-400 dark:text-gray-500">
                     — edit limits below each card
                   </span>
                 )}
@@ -438,11 +415,11 @@ export default function QuotasPage() {
               {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[0, 1, 2].map((i) => (
-                    <div key={i} className="card animate-pulse">
-                      <div className="h-4 bg-gray-200 rounded w-1/2 mb-4" />
-                      <div className="h-8 bg-gray-200 rounded w-1/3 mb-3" />
-                      <div className="h-1.5 bg-gray-200 rounded mb-3" />
-                      <div className="h-3 bg-gray-200 rounded w-2/3" />
+                    <div key={i} className="card">
+                      <div className="h-4 skeleton w-1/2 mb-4" />
+                      <div className="h-8 skeleton w-1/3 mb-3" />
+                      <div className="h-1.5 skeleton rounded-full mb-3" />
+                      <div className="h-3 skeleton w-2/3" />
                     </div>
                   ))}
                 </div>
@@ -462,31 +439,19 @@ export default function QuotasPage() {
               ) : null}
             </div>
 
-            {/* Save / Discard (admin) */}
             {isSysAdmin && !loading && (
               <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  disabled={!dirty}
-                  className="btn btn-secondary disabled:opacity-40"
-                >
+                <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary disabled:opacity-40">
                   Discard
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={!dirty || saving}
-                  className="btn btn-primary disabled:opacity-40"
-                >
-                  {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving…</> : 'Save Changes'}
+                <button type="button" onClick={handleSave} disabled={!dirty || saving} className="btn btn-primary disabled:opacity-40">
+                  {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save Changes'}
                 </button>
               </div>
             )}
 
-            {/* Non-admin hint */}
             {!isSysAdmin && !loading && (
-              <p className="text-sm text-gray-400 text-center mt-6">
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
                 Contact a system administrator to change quota limits.
               </p>
             )}

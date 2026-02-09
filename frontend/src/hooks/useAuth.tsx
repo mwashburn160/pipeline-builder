@@ -32,9 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const response = await api.getProfile();
 
         // Handle both response formats:
-        // Backend returns: { success, statusCode, user: {...} }
-        // Standardized format: { success, data: { user: {...} } }
-        const rawUser = (response as any).user || response.data?.user;
+        // Legacy: { success, statusCode, user: {...} }
+        // Standardized: { success, data: { user: {...} } }
+        type ProfileResponse = typeof response & { user?: Record<string, any> };
+        const rawUser = (response as ProfileResponse).user || response.data?.user as Record<string, any> | undefined;
         
         if (response.success && rawUser) {
           // Normalize user data - backend uses _id/sub, frontend uses id

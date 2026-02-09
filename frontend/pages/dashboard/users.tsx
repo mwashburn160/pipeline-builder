@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { EmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 
 interface UserListItem {
@@ -26,7 +29,6 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin'>('all');
 
-  // Edit modal state
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
   const [newPassword, setNewPassword] = useState('');
@@ -34,7 +36,6 @@ export default function UsersPage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
-  // Delete state
   const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -124,19 +125,20 @@ export default function UsersPage() {
       <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="users" orgName={user.organizationName} />
 
       {error && (
-        <div className="mb-6 rounded-md bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-800">{error}</p>
-          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 underline">Dismiss</button>
+        <div className="alert-error">
+          <p>{error}</p>
+          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">Dismiss</button>
         </div>
       )}
 
       {/* Filters */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4">
-        <div className="flex-1">
-          <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-        </div>
-        <div>
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+      <div className="filter-bar">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+          </div>
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
             <option value="all">All Roles</option>
             <option value="user">Users</option>
             <option value="admin">Admins</option>
@@ -147,48 +149,51 @@ export default function UsersPage() {
       {isLoading ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
       ) : users.length === 0 ? (
-        <div className="bg-white shadow rounded-lg p-6 text-center">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
-          <h3 className="mt-4 text-lg font-medium text-gray-900">No users found</h3>
-          <p className="mt-2 text-sm text-gray-500">{searchQuery ? 'Try adjusting your search criteria.' : 'No users to display.'}</p>
-        </div>
+        <EmptyState
+          icon={Users}
+          title="No users found"
+          description={searchQuery ? 'Try adjusting your search criteria.' : 'No users to display.'}
+        />
       ) : (
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+        <div className="data-table">
+          <table className="min-w-full">
+            <thead>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                {isSysAdmin && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>}
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th>User</th>
+                <th>Role</th>
+                {isSysAdmin && <th>Organization</th>}
+                <th>Status</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {users.map((userItem) => (
-                <tr key={userItem.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{userItem.username}</div>
-                    <div className="text-sm text-gray-500">{userItem.email}</div>
+            <tbody>
+              {users.map((userItem, i) => (
+                <motion.tr
+                  key={userItem.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: i * 0.03 }}
+                >
+                  <td>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{userItem.username}</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">{userItem.email}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td>
                     <Badge color={userItem.role === 'admin' ? 'purple' : 'gray'}>{userItem.role}</Badge>
                   </td>
                   {isSysAdmin && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{userItem.organizationName || 'None'}</td>
+                    <td className="text-sm text-gray-500 dark:text-gray-400">{userItem.organizationName || 'None'}</td>
                   )}
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td>
                     <Badge color={userItem.isEmailVerified ? 'green' : 'yellow'}>{userItem.isEmailVerified ? 'Verified' : 'Unverified'}</Badge>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => handleEditUser(userItem)} className="text-blue-600 hover:text-blue-900 mr-4" disabled={userItem.id === user.id}>Edit</button>
+                  <td className="text-right text-sm font-medium">
+                    <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors" disabled={userItem.id === user.id}>Edit</button>
                     {userItem.id !== user.id && (
-                      <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 hover:text-red-900">Delete</button>
+                      <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
                     )}
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>
@@ -207,39 +212,39 @@ export default function UsersPage() {
 
       {/* Edit User Modal */}
       {editingUser && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Edit User: {editingUser.username}</h2>
+        <div className="modal-backdrop">
+          <div className="modal-panel max-w-md">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User: {editingUser.username}</h2>
 
             {editError && (
-              <div className="mb-4 rounded-md bg-red-50 p-3"><p className="text-sm text-red-800">{editError}</p></div>
+              <div className="alert-error"><p>{editError}</p></div>
             )}
             {editSuccess && (
-              <div className="mb-4 rounded-md bg-green-50 p-3"><p className="text-sm text-green-800">{editSuccess}</p></div>
+              <div className="alert-success"><p>{editSuccess}</p></div>
             )}
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
-                <input type="text" value={editingUser.email} disabled className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-500 sm:text-sm" />
+                <label className="label">Email</label>
+                <input type="text" value={editingUser.email} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={editLoading}>
+                <label className="label">Role</label>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading}>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">New Password (leave blank to keep current)</label>
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" disabled={editLoading} />
-                <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
+                <label className="label">New Password (leave blank to keep current)</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="input" disabled={editLoading} />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Minimum 8 characters</p>
               </div>
             </div>
 
             <div className="mt-6 flex justify-end space-x-3">
-              <button onClick={() => setEditingUser(null)} disabled={editLoading} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Cancel</button>
-              <button onClick={handleSaveUser} disabled={editLoading} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
+              <button onClick={() => setEditingUser(null)} disabled={editLoading} className="btn btn-secondary">Cancel</button>
+              <button onClick={handleSaveUser} disabled={editLoading} className="btn btn-primary">
                 {editLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
                 Save Changes
               </button>

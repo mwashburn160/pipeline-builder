@@ -1,16 +1,28 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { Sun, Moon, GitBranch, Puzzle, Users, Building2, BarChart3, Settings, KeyRound, ChevronRight } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { pct, fmtNum, barColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import api from '@/lib/api';
 
+const navItems = [
+  { title: 'Pipelines', description: 'Manage and monitor your data pipelines', href: '/dashboard/pipelines', icon: GitBranch, color: 'bg-blue-500' },
+  { title: 'Plugins', description: 'Browse and manage available plugins', href: '/dashboard/plugins', icon: Puzzle, color: 'bg-purple-500' },
+  { title: 'Users', description: 'Manage organization members and roles', href: '/dashboard/users', icon: Users, color: 'bg-green-500', adminOnly: true },
+  { title: 'Organizations', description: 'Manage organizations and settings', href: '/dashboard/organizations', icon: Building2, color: 'bg-yellow-500', systemAdminOnly: true },
+  { title: 'Quotas', description: 'View and manage resource quotas', href: '/dashboard/quotas', icon: BarChart3, color: 'bg-indigo-500' },
+  { title: 'Settings', description: 'Configure your account and preferences', href: '/dashboard/settings', icon: Settings, color: 'bg-gray-500' },
+  { title: 'API Tokens', description: 'View JWT tokens and generate new token pairs', href: '/dashboard/tokens', icon: KeyRound, color: 'bg-teal-500' },
+];
+
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin, logout } = useAuthGuard();
-
-  // Fetch quota data for the widget
+  const { isDark, toggle } = useDarkMode();
   const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);
 
   const fetchQuotas = useCallback(async () => {
@@ -18,7 +30,7 @@ export default function DashboardPage() {
       const res = await api.getOwnQuotas();
       setQuotaData((res.data?.quota || res.data) as OrgQuotaResponse);
     } catch {
-      // Quota service may not be reachable — widget simply won't show
+      // Quota service may not be reachable
     }
   }, []);
 
@@ -28,122 +40,44 @@ export default function DashboardPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
-  const navigationItems = [
-    {
-      title: 'Pipelines',
-      description: 'Manage and monitor your data pipelines',
-      href: '/dashboard/pipelines',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-        </svg>
-      ),
-      color: 'bg-blue-500',
-    },
-    {
-      title: 'Plugins',
-      description: 'Browse and manage available plugins',
-      href: '/dashboard/plugins',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
-        </svg>
-      ),
-      color: 'bg-purple-500',
-    },
-    {
-      title: 'Users',
-      description: 'Manage organization members and roles',
-      href: '/dashboard/users',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      ),
-      color: 'bg-green-500',
-      adminOnly: true,
-    },
-    {
-      title: 'Organizations',
-      description: 'Manage organizations and settings',
-      href: '/dashboard/organizations',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-        </svg>
-      ),
-      color: 'bg-yellow-500',
-      systemAdminOnly: true,
-    },
-    {
-      title: 'Quotas',
-      description: 'View and manage resource quotas',
-      href: '/dashboard/quotas',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      ),
-      color: 'bg-indigo-500',
-    },
-    {
-      title: 'Settings',
-      description: 'Configure your account and preferences',
-      href: '/dashboard/settings',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-      color: 'bg-gray-500',
-    },
-    {
-      title: 'API Tokens',
-      description: 'View JWT tokens and generate new token pairs',
-      href: '/dashboard/tokens',
-      icon: (
-        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-        </svg>
-      ),
-      color: 'bg-teal-500',
-    },
-  ];
-
-  // Filter navigation items based on user permissions
-  const visibleItems = navigationItems.filter((item) => {
-    if (item.systemAdminOnly && !isSysAdmin) return false;
-    if (item.adminOnly && !isAdmin) return false;
+  const visibleItems = navItems.filter((item) => {
+    if ('systemAdminOnly' in item && item.systemAdminOnly && !isSysAdmin) return false;
+    if ('adminOnly' in item && item.adminOnly && !isAdmin) return false;
     return true;
   });
 
   const QUOTA_LABELS: Record<QuotaType, string> = { plugins: 'Plugins', pipelines: 'Pipelines', apiCalls: 'API Calls' };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
+      <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-4">
-            <Link href="/" className="text-xl font-bold text-blue-600 hover:text-blue-800">
+            <Link href="/" className="text-xl font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors">
               Home
             </Link>
-            <span className="text-gray-300">/</span>
-            <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
+            <span className="text-gray-300 dark:text-gray-600">/</span>
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Dashboard</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <div className="text-sm text-gray-600">
-              <span className="font-medium">{user.username}</span>
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="font-medium text-gray-900 dark:text-gray-200">{user.username}</span>
               {user.organizationName && (
-                <span className="text-gray-400 ml-2">({user.organizationName})</span>
+                <span className="text-gray-400 dark:text-gray-500 ml-2">({user.organizationName})</span>
               )}
             </div>
             {isSysAdmin && <Badge color="red">System Admin</Badge>}
             {isOrgAdminUser && <Badge color="blue">Org Admin</Badge>}
             <button
+              onClick={toggle}
+              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Toggle dark mode"
+            >
+              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+            <button
               onClick={logout}
-              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              className="btn btn-secondary text-sm py-1.5"
             >
               Log out
             </button>
@@ -151,61 +85,67 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="mb-8"
+        >
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             Welcome back, {user.username}!
           </h2>
-          <p className="mt-1 text-gray-600">
-            Here's an overview of your dashboard. Select a section to get started.
+          <p className="mt-1 text-gray-600 dark:text-gray-400">
+            Here&apos;s an overview of your dashboard. Select a section to get started.
           </p>
-        </div>
+        </motion.div>
 
         {/* Navigation Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {visibleItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-blue-300 transition-all duration-200"
-            >
-              <div className="flex items-start space-x-4">
-                <div className={`${item.color} rounded-lg p-3 text-white group-hover:scale-110 transition-transform duration-200`}>
-                  {item.icon}
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
-                    {item.title}
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {item.description}
-                  </p>
-                </div>
-                <svg
-                  className="w-5 h-5 text-gray-400 group-hover:text-blue-500 group-hover:translate-x-1 transition-all"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+          {visibleItems.map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <motion.div
+                key={item.href}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.05 }}
+              >
+                <Link
+                  href={item.href}
+                  className="group card block hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_4px_12px_rgba(0,0,0,0.3),0_12px_40px_rgba(0,0,0,0.2)] hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </Link>
-          ))}
+                  <div className="flex items-start space-x-4">
+                    <div className={`${item.color} rounded-xl p-3 text-white group-hover:scale-110 transition-transform duration-200`}>
+                      <Icon className="w-8 h-8" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        {item.title}
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        {item.description}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+                  </div>
+                </Link>
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* Quota Usage + User Info */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Quota usage widget — spans 2 cols */}
-          <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.3 }}
+            className="lg:col-span-2 card"
+          >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-900">Quota Usage</h3>
-              <Link
-                href="/dashboard/quotas"
-                className="text-xs font-medium text-blue-600 hover:text-blue-800"
-              >
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Quota Usage</h3>
+              <Link href="/dashboard/quotas" className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
                 Manage →
               </Link>
             </div>
@@ -221,12 +161,12 @@ export default function DashboardPage() {
                   return (
                     <div key={key}>
                       <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="font-medium text-gray-700">{QUOTA_LABELS[key]}</span>
-                        <span className="text-gray-500 tabular-nums">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{QUOTA_LABELS[key]}</span>
+                        <span className="text-gray-500 dark:text-gray-400 tabular-nums">
                           {fmtNum(q.used)} / {fmtNum(q.limit)}
                         </span>
                       </div>
-                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-700 ${color}`}
                           style={{ width: `${pDisplay}%` }}
@@ -239,35 +179,39 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-4">
                 {[0, 1, 2].map((i) => (
-                  <div key={i} className="animate-pulse">
-                    <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
-                    <div className="h-1.5 bg-gray-200 rounded-full" />
+                  <div key={i}>
+                    <div className="h-4 skeleton w-1/3 mb-2" />
+                    <div className="h-1.5 skeleton rounded-full" />
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </motion.div>
 
-          {/* User info card */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">Account</h3>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.35 }}
+            className="card space-y-4"
+          >
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Account</h3>
             <div>
-              <p className="text-xs font-medium text-gray-500">Role</p>
-              <p className="text-sm font-semibold text-gray-900 capitalize">{user.role}</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Role</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 capitalize">{user.role}</p>
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500">Email</p>
-              <p className="text-sm text-gray-900">
-                {user.isEmailVerified ? '✓ Verified' : '✗ Not Verified'}
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Email</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {user.isEmailVerified ? 'Verified' : 'Not Verified'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500">Organization</p>
-              <p className="text-sm font-semibold text-gray-900">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Organization</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {user.organizationName || 'None'}
               </p>
             </div>
-          </div>
+          </motion.div>
         </div>
       </main>
     </div>

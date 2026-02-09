@@ -32,6 +32,7 @@
     "@mwashburn160/api-server": "1.10.0",
     "@mwashburn160/pipeline-core": "1.13.0",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.34.0",
     "lucide-react": "0.563.0",
     "next": "^16.1.6",
     "react": "^19.2.4",

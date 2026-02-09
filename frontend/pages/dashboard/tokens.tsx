@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { RefreshCw, ChevronRight } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -85,9 +87,9 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
   if (!token) {
     return (
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-2">{title}</h2>
-        <p className="text-sm text-gray-500">No token available</p>
+      <div className="card">
+        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No token available</p>
       </div>
     );
   }
@@ -96,11 +98,10 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
   const ttl = decoded ? expiresIn(decoded.payload) : null;
 
   return (
-    <div className="bg-white shadow rounded-lg p-6">
-      {/* Header row */}
+    <div className="card">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
-          <h2 className="text-lg font-medium text-gray-900">{title}</h2>
+          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
           {decoded && (
             expired
               ? <Badge color="red">Expired</Badge>
@@ -111,7 +112,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowRaw(!showRaw)}
-            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
           >
             {showRaw ? 'Decoded' : 'Raw'}
           </button>
@@ -120,38 +121,29 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
       </div>
 
       {showRaw ? (
-        <pre className="bg-gray-50 border border-gray-200 rounded-md p-4 text-xs font-mono text-gray-700 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+        <pre className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {token}
         </pre>
       ) : decoded ? (
         <div className="space-y-4">
-          {/* Header */}
           <div>
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-700"
+              className="flex items-center text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
             >
-              <svg
-                className={`w-3.5 h-3.5 mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <ChevronRight className={`w-3.5 h-3.5 mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               Header
             </button>
             {expanded && (
-              <pre className="mt-2 bg-gray-50 border border-gray-200 rounded-md p-3 text-xs font-mono text-gray-600">
+              <pre className="mt-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400">
                 {JSON.stringify(decoded.header, null, 2)}
               </pre>
             )}
           </div>
 
-          {/* Payload */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Payload</p>
-            <div className="border border-gray-200 rounded-md divide-y divide-gray-100">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Payload</p>
+            <div className="border border-gray-200 dark:border-gray-700 rounded-xl divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
               {Object.entries(decoded.payload).map(([key, value]) => {
                 const label = FIELD_LABELS[key] || key;
                 const isTime = KNOWN_TIME_FIELDS.has(key);
@@ -159,14 +151,14 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
                 return (
                   <div key={key} className="flex items-start px-4 py-2.5 text-sm">
-                    <span className="w-44 shrink-0 font-medium text-gray-500 truncate" title={key}>
+                    <span className="w-44 shrink-0 font-medium text-gray-500 dark:text-gray-400 truncate" title={key}>
                       {label}
                     </span>
-                    <span className="text-gray-900 break-all font-mono text-xs leading-5">
+                    <span className="text-gray-900 dark:text-gray-200 break-all font-mono text-xs leading-5">
                       {formattedTime ? (
                         <span>
                           {formattedTime}
-                          <span className="ml-2 text-gray-400">({String(value)})</span>
+                          <span className="ml-2 text-gray-400 dark:text-gray-500">({String(value)})</span>
                         </span>
                       ) : typeof value === 'object' ? (
                         JSON.stringify(value)
@@ -181,7 +173,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
           </div>
         </div>
       ) : (
-        <p className="text-sm text-red-600">Failed to decode token</p>
+        <p className="text-sm text-red-600 dark:text-red-400">Failed to decode token</p>
       )}
     </div>
   );
@@ -229,42 +221,38 @@ export default function TokensPage() {
 
   return (
     <DashboardLayout title="API Tokens" maxWidth="4xl">
-      {/* Generate Token */}
-      <div className="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-2">Generate New Token</h2>
-        <p className="text-sm text-gray-500 mb-4">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="card mb-6"
+      >
+        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Generate New Token</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           Generate a fresh access / refresh token pair. This replaces your current session tokens and
           can be used for CLI or API access.
         </p>
 
         {genError && (
-          <div className="rounded-md bg-red-50 p-3 mb-4">
-            <p className="text-sm text-red-800">{genError}</p>
-          </div>
+          <div className="alert-error"><p>{genError}</p></div>
         )}
         {genSuccess && (
-          <div className="rounded-md bg-green-50 p-3 mb-4">
-            <p className="text-sm text-green-800">{genSuccess}</p>
-          </div>
+          <div className="alert-success"><p>{genSuccess}</p></div>
         )}
 
-        <button
-          onClick={handleGenerateToken}
-          disabled={generating}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-        >
-          {generating ? <LoadingSpinner size="sm" className="mr-2" /> : (
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          )}
+        <button onClick={handleGenerateToken} disabled={generating} className="btn btn-primary">
+          {generating ? <LoadingSpinner size="sm" className="mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
           {generating ? 'Generating...' : 'Generate Token'}
         </button>
-      </div>
+      </motion.div>
 
       <div className="space-y-6">
-        <TokenCard title="Access Token" token={accessToken} />
-        <TokenCard title="Refresh Token" token={refreshToken} />
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
+          <TokenCard title="Access Token" token={accessToken} />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }}>
+          <TokenCard title="Refresh Token" token={refreshToken} />
+        </motion.div>
       </div>
     </DashboardLayout>
   );

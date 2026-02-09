@@ -28,12 +28,12 @@ export default function NetworkConfigEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Network Type</label>
+        <label className="label">Network Type</label>
         <select
           value={networkType}
           onChange={(e) => onTypeChange(e.target.value as NetworkType)}
           disabled={disabled}
-          className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          className="input"
         >
           <option value="none">None</option>
           <option value="subnetIds">Subnet IDs</option>
@@ -43,16 +43,16 @@ export default function NetworkConfigEditor({
       </div>
 
       {networkType === 'subnetIds' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">VPC ID *</label>
+            <label className="label">VPC ID *</label>
             <input
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
               placeholder="vpc-..."
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <StringArrayEditor
@@ -75,25 +75,25 @@ export default function NetworkConfigEditor({
       )}
 
       {networkType === 'vpcId' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">VPC ID *</label>
+            <label className="label">VPC ID *</label>
             <input
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
               placeholder="vpc-..."
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Subnet Type</label>
+            <label className="label">Subnet Type</label>
             <select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             >
               <option value="PRIVATE_WITH_EGRESS">Private with Egress</option>
               <option value="PRIVATE_WITH_NAT">Private with NAT</option>
@@ -110,13 +110,13 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Subnet Group Name</label>
+            <label className="label">Subnet Group Name</label>
             <input
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <StringArrayEditor
@@ -131,9 +131,9 @@ export default function NetworkConfigEditor({
       )}
 
       {networkType === 'vpcLookup' && (
-        <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Tags *</label>
+            <label className="label">Tags *</label>
             <div className="space-y-2">
               {network.tags.map((tag: TagEntry, idx: number) => (
                 <div key={idx} className="flex items-center space-x-2">
@@ -143,7 +143,7 @@ export default function NetworkConfigEditor({
                     onChange={(e) => handleTagChange(idx, 'key', e.target.value)}
                     placeholder="Tag Key"
                     disabled={disabled}
-                    className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
                   <input
                     type="text"
@@ -151,13 +151,13 @@ export default function NetworkConfigEditor({
                     onChange={(e) => handleTagChange(idx, 'value', e.target.value)}
                     placeholder="Tag Value"
                     disabled={disabled}
-                    className="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => removeTag(idx)}
                     disabled={disabled}
-                    className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
+                    className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-2 py-1 transition-colors"
                   >
                     Remove
                   </button>
@@ -168,39 +168,39 @@ export default function NetworkConfigEditor({
               type="button"
               onClick={addTag}
               disabled={disabled}
-              className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+              className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
             >
               + Add Tag
             </button>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">VPC Name</label>
+            <label className="label">VPC Name</label>
             <input
               type="text"
               value={network.vpcName}
               onChange={(e) => update({ vpcName: e.target.value })}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Region</label>
+            <label className="label">Region</label>
             <input
               type="text"
               value={network.region}
               onChange={(e) => update({ region: e.target.value })}
               placeholder="us-east-1"
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Subnet Type</label>
+            <label className="label">Subnet Type</label>
             <select
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             >
               <option value="PRIVATE_WITH_EGRESS">Private with Egress</option>
               <option value="PRIVATE_WITH_NAT">Private with NAT</option>
@@ -217,13 +217,13 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Subnet Group Name</label>
+            <label className="label">Subnet Group Name</label>
             <input
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}
               disabled={disabled}
-              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="input"
             />
           </div>
           <StringArrayEditor

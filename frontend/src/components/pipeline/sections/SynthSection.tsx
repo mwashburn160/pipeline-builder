@@ -27,7 +27,7 @@ export default function SynthSection({
 }: SynthSectionProps) {
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Synthesis Configuration</h3>
+      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">Synthesis Configuration</h3>
 
       <SourceTypeEditor
         sourceType={synth.sourceType}
@@ -42,7 +42,7 @@ export default function SynthSection({
         errors={errors}
       />
 
-      <div className="border-t border-gray-200 pt-4">
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
         <PluginOptionsEditor
           value={synth.plugin}
           onChange={onPluginChange}

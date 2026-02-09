@@ -63,10 +63,7 @@ function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title="Pre-Install Commands"
-        hasContent={step.preInstallCommands.length > 0}
-      >
+      <CollapsibleSection title="Pre-Install Commands" hasContent={step.preInstallCommands.length > 0}>
         <div className="mt-3">
           <StringArrayEditor
             value={step.preInstallCommands}
@@ -78,10 +75,7 @@ function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title="Post-Install Commands"
-        hasContent={step.postInstallCommands.length > 0}
-      >
+      <CollapsibleSection title="Post-Install Commands" hasContent={step.postInstallCommands.length > 0}>
         <div className="mt-3">
           <StringArrayEditor
             value={step.postInstallCommands}
@@ -134,14 +128,14 @@ export default function StagesSection({
     <CollapsibleSection title={`Pipeline Stages (${stages.length})`} hasContent={stages.length > 0}>
       <div className="mt-3 space-y-4">
         {stages.map((stage, stageIdx) => (
-          <div key={stageIdx} className="border border-gray-300 rounded-md p-4">
+          <div key={stageIdx} className="border border-gray-300 dark:border-gray-600 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-gray-800">Stage {stageIdx + 1}</h4>
+              <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">Stage {stageIdx + 1}</h4>
               <button
                 type="button"
                 onClick={() => onRemoveStage(stageIdx)}
                 disabled={disabled}
-                className="text-red-500 hover:text-red-700 text-sm"
+                className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm transition-colors"
               >
                 Remove Stage
               </button>
@@ -150,47 +144,47 @@ export default function StagesSection({
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Stage Name *</label>
+                  <label className="label">Stage Name *</label>
                   <input
                     type="text"
                     value={stage.stageName}
                     onChange={(e) => onStageFieldChange(stageIdx, 'stageName', e.target.value)}
                     placeholder="deploy"
                     disabled={disabled}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="input"
                   />
                   {errors[`stages.${stageIdx}.stageName`] && (
-                    <p className="mt-1 text-xs text-red-600">{errors[`stages.${stageIdx}.stageName`]}</p>
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors[`stages.${stageIdx}.stageName`]}</p>
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Alias</label>
+                  <label className="label">Alias</label>
                   <input
                     type="text"
                     value={stage.alias}
                     onChange={(e) => onStageFieldChange(stageIdx, 'alias', e.target.value)}
                     placeholder="Optional alias"
                     disabled={disabled}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="input"
                   />
                 </div>
               </div>
 
               {errors[`stages.${stageIdx}.steps`] && (
-                <p className="text-xs text-red-600">{errors[`stages.${stageIdx}.steps`]}</p>
+                <p className="text-xs text-red-600 dark:text-red-400">{errors[`stages.${stageIdx}.steps`]}</p>
               )}
 
               <div className="space-y-3">
-                <h5 className="text-sm font-medium text-gray-700">Steps ({stage.steps.length})</h5>
+                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Steps ({stage.steps.length})</h5>
                 {stage.steps.map((step, stepIdx) => (
-                  <div key={stepIdx} className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                  <div key={stepIdx} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs font-medium text-gray-600">Step {stepIdx + 1}</span>
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Step {stepIdx + 1}</span>
                       <button
                         type="button"
                         onClick={() => onRemoveStep(stageIdx, stepIdx)}
                         disabled={disabled}
-                        className="text-red-500 hover:text-red-700 text-xs"
+                        className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs transition-colors"
                       >
                         Remove Step
                       </button>
@@ -210,7 +204,7 @@ export default function StagesSection({
                 type="button"
                 onClick={() => onAddStep(stageIdx)}
                 disabled={disabled}
-                className="text-sm text-blue-600 hover:text-blue-800"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
               >
                 + Add Step
               </button>
@@ -222,7 +216,7 @@ export default function StagesSection({
           type="button"
           onClick={onAddStage}
           disabled={disabled}
-          className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors"
+          className="w-full py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
         >
           + Add Stage
         </button>

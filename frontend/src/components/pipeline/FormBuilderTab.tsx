@@ -29,7 +29,6 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
 
     return (
       <div className="space-y-6">
-        {/* Core Information */}
         <CoreSection
           project={state.project}
           organization={state.organization}
@@ -41,8 +40,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           errors={validationErrors}
         />
 
-        {/* Synth Configuration */}
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <SynthSection
             synth={state.synth}
             onSourceTypeChange={(v) => dispatch({ type: 'SET_SYNTH_SOURCE_TYPE', value: v })}
@@ -58,7 +56,6 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           />
         </div>
 
-        {/* Global Metadata */}
         <CollapsibleSection title="Global Metadata" hasContent={state.global.length > 0}>
           <div className="mt-3">
             <MetadataEditor
@@ -69,7 +66,6 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           </div>
         </CollapsibleSection>
 
-        {/* Pipeline Defaults */}
         <DefaultsSection
           defaults={state.defaults}
           onEnabledChange={(v) => dispatch({ type: 'SET_DEFAULTS_ENABLED', value: v })}
@@ -81,7 +77,6 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           disabled={disabled}
         />
 
-        {/* IAM Role */}
         <RoleSection
           role={state.role}
           onTypeChange={(v) => dispatch({ type: 'SET_ROLE_TYPE', value: v })}
@@ -91,7 +86,6 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           errors={validationErrors}
         />
 
-        {/* Stages */}
         <StagesSection
           stages={state.stages}
           onAddStage={() => dispatch({ type: 'ADD_STAGE' })}
@@ -104,10 +98,9 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           errors={validationErrors}
         />
 
-        {/* Validation error summary */}
         {Object.keys(validationErrors).length > 0 && (
-          <div className="rounded-md bg-red-50 p-3">
-            <p className="text-sm font-medium text-red-800">
+          <div className="alert-error">
+            <p className="font-medium">
               Please fix {Object.keys(validationErrors).length} validation error(s) above.
             </p>
           </div>
