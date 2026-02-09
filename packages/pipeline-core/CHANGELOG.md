@@ -1,3 +1,13 @@
+## 1.13.1 (2026-02-09)
+
+### 🩹 Fixes
+
+- version ([db9ef29](https://github.com/mwashburn160/pipeline-builder/commit/db9ef29))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.0 (2026-02-09)
 
 ### 🚀 Features
