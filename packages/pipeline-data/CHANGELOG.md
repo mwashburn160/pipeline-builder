@@ -1,3 +1,9 @@
+## 1.9.14 (2026-02-09)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.8.27
+
 ## 1.9.13 (2026-02-09)
 
 This was a version bump only for @mwashburn160/pipeline-data to align it with other projects, there were no code changes.

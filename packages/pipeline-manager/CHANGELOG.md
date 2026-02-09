@@ -1,3 +1,9 @@
+## 1.5.26 (2026-02-09)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.9.7
+
 ## 1.5.25 (2026-02-09)
 
 ### 🧱 Updated Dependencies
