@@ -1,3 +1,13 @@
+## 1.9.6 (2026-02-09)
+
+### 🩹 Fixes
+
+- updated register process ([a792ba9](https://github.com/mwashburn160/pipeline-builder/commit/a792ba9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.5 (2026-02-09)
 
 ### 🩹 Fixes
