@@ -37,7 +37,6 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   const status = err.status || 500;
-  const isDevelopment = process.env.NODE_ENV === 'development';
 
   logger.error(`${req.method} ${req.originalUrl} - ${status}`, {
     message: err.message,
@@ -48,6 +47,5 @@ export function errorHandler(
     success: false,
     statusCode: status,
     message: err.message,
-    ...(isDevelopment && { stack: err.stack }),
   });
 }

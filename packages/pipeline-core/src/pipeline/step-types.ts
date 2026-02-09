@@ -131,7 +131,7 @@ export interface PluginManifest {
 
   /**
    * Environment variables to set in the build environment
-   * @example { NODE_ENV: 'production', API_URL: 'https://api.example.com' }
+   * @example { API_URL: 'https://api.example.com', LOG_LEVEL: 'info' }
    */
   readonly env?: Record<string, string>;
 }

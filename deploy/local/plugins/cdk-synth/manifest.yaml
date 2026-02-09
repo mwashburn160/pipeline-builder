@@ -23,6 +23,5 @@ installCommands:
 commands:
 - npx cdk synth --quiet --no-notices
 env:
-  NODE_ENV: production
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
   CDK_DEFAULT_REGION: ${AWS_REGION}

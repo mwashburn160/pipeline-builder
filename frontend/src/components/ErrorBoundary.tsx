@@ -25,11 +25,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to console in development
-    if (process.env.NODE_ENV === 'development') {
-      console.error('ErrorBoundary caught an error:', error, errorInfo);
-    }
-
     // Call optional error handler
     this.props.onError?.(error, errorInfo);
   }
@@ -70,11 +65,6 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-600 mb-4">
               An unexpected error occurred. Please try again.
             </p>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <pre className="text-left text-xs bg-gray-100 p-4 rounded mb-4 overflow-auto max-h-32">
-                {this.state.error.message}
-              </pre>
-            )}
             <button
               onClick={this.handleRetry}
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"

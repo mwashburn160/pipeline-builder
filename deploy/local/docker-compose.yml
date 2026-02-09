@@ -28,7 +28,6 @@ x-api-defaults:
 
 # -- Env shared by ALL api services (platform, plugin, pipeline, quota) --
 x-common-env: &common-env
-  NODE_ENV: '${NODE_ENV:-production}'
   LOG_LEVEL: '${LOG_LEVEL:-info}'
   JWT_SECRET: '${JWT_SECRET}'
   PLATFORM_BASE_URL: '${PLATFORM_BASE_URL:-https://localhost:8443}'
@@ -303,7 +302,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.3.11'
+    image: 'ghcr.io/mwashburn160/frontend:1.3.24'
     container_name: frontend
     restart: always
     networks:
@@ -337,7 +336,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.4.11'
+    image: 'ghcr.io/mwashburn160/platform:1.4.24'
     container_name: platform
     depends_on:
       mongodb:
@@ -412,7 +411,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.2.11'
+    image: 'ghcr.io/mwashburn160/plugin:1.2.24'
     container_name: plugin
     depends_on:
       postgres:
@@ -438,7 +437,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.2.11'
+    image: 'ghcr.io/mwashburn160/pipeline:1.2.24'
     container_name: pipeline
     depends_on:
       postgres:
@@ -455,7 +454,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.2.11'
+    image: 'ghcr.io/mwashburn160/quota:1.2.24'
     container_name: quota
     depends_on:
       mongodb:

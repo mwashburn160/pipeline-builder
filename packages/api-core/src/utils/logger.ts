@@ -17,19 +17,6 @@ const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) =
 });
 
 /**
- * Custom log format for JSON output (production).
- */
-const jsonFormat = printf(({ level, message, timestamp, service, ...meta }) => {
-  return JSON.stringify({
-    timestamp,
-    level,
-    service,
-    message,
-    ...meta,
-  });
-});
-
-/**
  * Create a logger instance for a service.
  *
  * @param serviceName - Name of the service for log identification
@@ -45,8 +32,7 @@ const jsonFormat = printf(({ level, message, timestamp, service, ...meta }) => {
  * ```
  */
 export function createLogger(serviceName: string): winston.Logger {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const logLevel = process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug');
+  const logLevel = process.env.LOG_LEVEL || 'info';
 
   return winston.createLogger({
     level: logLevel,
@@ -57,9 +43,7 @@ export function createLogger(serviceName: string): winston.Logger {
     ),
     transports: [
       new winston.transports.Console({
-        format: combine(
-          isProduction ? jsonFormat : combine(colorize(), consoleFormat),
-        ),
+        format: combine(colorize(), consoleFormat),
       }),
     ],
   });

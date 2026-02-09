@@ -16,20 +16,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/**
- * Check if we're in development mode
- */
-const isDev = process.env.NODE_ENV === 'development';
-
-/**
- * Development-only logger
- */
-const devLog = (...args: unknown[]) => {
-  if (isDev) {
-    console.log('[Auth]', ...args);
-  }
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,12 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Uses useCallback to maintain stable reference
    */
   const refreshUser = useCallback(async () => {
-    devLog('refreshUser called, isAuthenticated:', api.isAuthenticated());
     try {
       if (api.isAuthenticated()) {
-        devLog('Fetching profile...');
+
         const response = await api.getProfile();
-        devLog('Profile response:', response);
+
         
         // Handle both response formats:
         // Backend returns: { success, statusCode, user: {...} }
@@ -77,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setUser(null);
     } catch (error) {
-      devLog('Failed to refresh user:', error);
+
       setUser(null);
     }
   }, []);
@@ -103,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && api.isAuthenticated()) {
-        devLog('Tab visible — checking token freshness');
+
         refreshUser();
       }
     };
@@ -115,15 +100,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Login with email/username and password
    */
   const login = useCallback(async (email: string, password: string) => {
-    devLog('Login called');
+
     setIsLoading(true);
     
     try {
       const response = await api.login(email, password);
-      devLog('Login response:', response);
+
       
       if (response.success) {
-        devLog('Login successful, refreshing user...');
+
         await refreshUser();
         // Use Next.js router for client-side navigation
         router.push('/dashboard');
@@ -154,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       // Registration successful - user should login
-      devLog('Registration successful');
+
     } finally {
       setIsLoading(false);
     }

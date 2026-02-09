@@ -4,20 +4,6 @@ import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, Builder
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
 /**
- * Check if we're in development mode
- */
-const isDev = process.env.NODE_ENV === 'development';
-
-/**
- * Development-only logger
- */
-const devLog = (...args: unknown[]) => {
-  if (isDev) {
-    console.log('[API]', ...args);
-  }
-};
-
-/**
  * Custom error class for API errors
  */
 export class ApiError extends Error {
@@ -122,9 +108,9 @@ class ApiClient {
     const delay = expiryMs - Date.now() - ApiClient.REFRESH_BUFFER_MS;
     if (delay <= 0) return; // already past the refresh window — let the pre-request check handle it
 
-    devLog(`Proactive refresh scheduled in ${Math.round(delay / 1000)}s`);
+
     this.refreshTimer = setTimeout(async () => {
-      devLog('Proactive refresh timer fired');
+
       await this.refreshAccessToken();
     }, delay);
   }
@@ -140,7 +126,7 @@ class ApiClient {
     if (!expiryMs) return;
 
     if (expiryMs - Date.now() <= ApiClient.REFRESH_BUFFER_MS) {
-      devLog('Token expiring soon — proactive refresh');
+
       await this.refreshAccessToken();
     }
   }
@@ -249,7 +235,6 @@ class ApiClient {
       headers['x-org-id'] = this.organizationId;
     }
 
-    devLog(`${options.method || 'GET'} ${endpoint}`);
 
     const response = await fetch(url, {
       ...options,
@@ -266,7 +251,6 @@ class ApiClient {
     
     const statusCode = data.statusCode || response.status;
     
-    devLog(`${options.method || 'GET'} ${endpoint} -> ${statusCode}`);
 
     // Handle 401 - try to refresh token
     if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh')) {
@@ -287,7 +271,7 @@ class ApiClient {
         }));
         
         const retryStatusCode = retryData.statusCode || retryResponse.status;
-        devLog(`Retry ${endpoint} -> ${retryStatusCode}`);
+
         
         if (retryStatusCode >= 400) {
           throw new ApiError(
@@ -365,8 +349,6 @@ class ApiClient {
   // ============================================
 
   async login(email: string, password: string) {
-    devLog('Login attempt');
-    
     const response = await this.request<ApiResponse<{ accessToken: string; refreshToken: string }>>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier: email, password }),
