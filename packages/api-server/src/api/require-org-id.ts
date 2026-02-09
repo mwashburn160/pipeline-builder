@@ -1,13 +1,14 @@
 /**
- * @module middleware/require-org-id
+ * @module api/require-org-id
  * @description Middleware that validates the requesting user has an orgId.
  *
  * Must be used after `authenticateToken`.
  */
 
 import { ErrorCode } from '@mwashburn160/api-core';
-import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { Request, Response, NextFunction } from 'express';
+import { createRequestContext } from './request-types';
+import type { SSEManager } from '../http/sse-connection-manager';
 
 /**
  * Create middleware that validates the request has an orgId in the identity headers.

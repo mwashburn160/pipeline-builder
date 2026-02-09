@@ -1,5 +1,5 @@
 export * from './sse-connection-manager';
-export * from './quota-service';
 
-// Re-export from api-core for convenience
-export { QuotaType, QuotaCheckResult } from '@mwashburn160/api-core';
+// Re-export quota service from api-core (canonical source)
+export { createQuotaService } from '@mwashburn160/api-core';
+export type { QuotaService, QuotaServiceConfig, QuotaType, QuotaCheckResult } from '@mwashburn160/api-core';

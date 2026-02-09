@@ -25,6 +25,9 @@ export interface CreateAppOptions {
   urlEncodedLimit?: string;
   /** Custom SSE manager instance */
   sseManager?: SSEManager;
+  /** Skip default PostgreSQL health/metrics endpoints (default: false).
+   *  When true, the service should provide its own health check. */
+  skipDefaultHealthCheck?: boolean;
 }
 
 /**
@@ -74,6 +77,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     enableUrlEncoded = true,
     urlEncodedLimit = '1mb',
     sseManager = new SSEManager(),
+    skipDefaultHealthCheck = false,
   } = options;
 
   const config = Config.get();
@@ -112,42 +116,43 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Trust proxy
   app.set('trust proxy', config.server.trustProxy);
 
-  // Health check endpoint
-  app.get('/health', async (_req: Request, res: Response) => {
-    try {
-      const connection = getConnection();
-      const isHealthy = await connection.testConnection();
+  // Default PostgreSQL health/metrics endpoints (skipped when service provides its own)
+  if (!skipDefaultHealthCheck) {
+    app.get('/health', async (_req: Request, res: Response) => {
+      try {
+        const connection = getConnection();
+        const isHealthy = await connection.testConnection();
 
-      res.status(isHealthy ? 200 : 503).json({
-        status: isHealthy ? 'healthy' : 'unhealthy',
-        timestamp: new Date().toISOString(),
-        database: isHealthy ? 'connected' : 'disconnected',
-      });
-    } catch (error) {
-      res.status(503).json({
-        status: 'unhealthy',
-        timestamp: new Date().toISOString(),
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  });
-
-  // Metrics endpoint
-  app.get('/metrics', (_req: Request, res: Response) => {
-    const connection = getConnection();
-    const stats = connection.getStats();
-
-    res.json({
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      cpu: process.cpuUsage(),
-      database: {
-        totalConnections: stats.totalCount,
-        idleConnections: stats.idleCount,
-        waitingConnections: stats.waitingCount,
-      },
+        res.status(isHealthy ? 200 : 503).json({
+          status: isHealthy ? 'healthy' : 'unhealthy',
+          timestamp: new Date().toISOString(),
+          database: isHealthy ? 'connected' : 'disconnected',
+        });
+      } catch (error) {
+        res.status(503).json({
+          status: 'unhealthy',
+          timestamp: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
     });
-  });
+
+    app.get('/metrics', (_req: Request, res: Response) => {
+      const connection = getConnection();
+      const stats = connection.getStats();
+
+      res.json({
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        cpu: process.cpuUsage(),
+        database: {
+          totalConnections: stats.totalCount,
+          idleConnections: stats.idleCount,
+          waitingConnections: stats.waitingCount,
+        },
+      });
+    });
+  }
 
   // SSE logs endpoint
   app.get('/logs/:requestId', sseManager.middleware());

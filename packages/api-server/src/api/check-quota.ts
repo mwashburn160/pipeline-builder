@@ -1,13 +1,15 @@
 /**
- * @module middleware/check-quota
+ * @module api/check-quota
  * @description Middleware that checks quota before allowing the request to proceed.
  *
  * Must be used after `authenticateToken` and `requireOrgId`.
  */
 
 import { ErrorCode, createLogger } from '@mwashburn160/api-core';
-import { createRequestContext, SSEManager, QuotaType, QuotaService } from '@mwashburn160/api-server';
+import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
+import { createRequestContext } from './request-types';
+import type { SSEManager } from '../http/sse-connection-manager';
 
 const logger = createLogger('check-quota');
 

@@ -10,17 +10,12 @@
  *   - Regular users: can delete private plugins only
  */
 
-import { getParam, ErrorCode, isSystemAdmin } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { db, schema, buildPluginConditions } from '@mwashburn160/pipeline-core';
 import { and } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
-import {
-  errorMessage,
-  sendBadRequest,
-  sendPluginNotFound,
-  sendInternalError,
-} from '../helpers/plugin-helpers';
+import { sendPluginNotFound } from '../helpers/plugin-helpers';
 
 /**
  * Register the DELETE route on a router.

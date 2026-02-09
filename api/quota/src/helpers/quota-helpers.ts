@@ -70,11 +70,6 @@ export function validateQuotaValues(
 // Error helpers
 // ---------------------------------------------------------------------------
 
-/** Extract a message string from an unknown catch value. */
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Send a 404 "organization not found" response. */
 export function sendOrgNotFound(res: Response): void {
   sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);

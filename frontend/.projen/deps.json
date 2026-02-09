@@ -37,17 +37,17 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.8.17",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.6.23",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.9.1",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

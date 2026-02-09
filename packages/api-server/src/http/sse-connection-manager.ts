@@ -7,7 +7,7 @@ const log = createLogger('SSEManager');
 /**
  * Event types for SSE logging
  */
-export type SSEEventType = 'INFO' | 'ERROR' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
+export type SSEEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
 
 /**
  * SSE payload structure

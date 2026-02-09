@@ -13,11 +13,9 @@
  */
 
 import { createLogger } from '@mwashburn160/api-core';
-import { createApp, runServer, authenticateToken, createQuotaService } from '@mwashburn160/api-server';
+import { createApp, runServer, authenticateToken, createQuotaService, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import { RequestHandler } from 'express';
 
-import { checkQuota } from './middleware/check-quota';
-import { requireOrgId } from './middleware/require-org-id';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createReadPluginRoutes } from './routes/read-plugins';
 import { createUpdatePluginRoutes } from './routes/update-plugin';

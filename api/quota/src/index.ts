@@ -13,32 +13,18 @@
  *   POST   /quotas/:orgId/increment   — increment usage (same-org or admin)
  */
 
-import { createLogger, createHealthRouter } from '@mwashburn160/api-core';
-import cors from 'cors';
-import express from 'express';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
+import { createHealthRouter } from '@mwashburn160/api-core';
+import { createApp, runServer } from '@mwashburn160/api-server';
 import mongoose from 'mongoose';
 
 import { config } from './config';
-import { connectDatabase, registerShutdown } from './helpers/database';
+import { connectDatabase } from './helpers/database';
 import getQuotaRoutes from './routes/get-quota';
 import updateQuotaRoutes from './routes/update-quota';
 
-const logger = createLogger('quota');
-
 // -- Express app ---------------------------------------------------------------
 
-const app: express.Express = express();
-
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-app.use(rateLimit({
-  windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.max,
-  message: { success: false, statusCode: 429, message: 'Too many requests' },
-}));
+const { app } = createApp({ skipDefaultHealthCheck: true });
 
 app.use(createHealthRouter({
   serviceName: 'quota',
@@ -52,26 +38,12 @@ app.use('/quotas', updateQuotaRoutes);
 
 // -- Startup -------------------------------------------------------------------
 
-async function startServer(): Promise<void> {
-  try {
-    logger.info('Starting quota service...');
-
-    await connectDatabase(config.mongodb.uri);
-
-    const server = app.listen(config.port, () => {
-      logger.info(`Quota service listening on port ${config.port}`);
-    });
-
-    registerShutdown(server);
-  } catch (error) {
-    logger.error('Failed to start server', { error });
-    process.exit(1);
-  }
-}
-
-startServer().catch((error) => {
-  logger.error('Unhandled error during startup', { error });
-  process.exit(1);
+runServer(app, {
+  name: 'Quota Service',
+  port: config.port,
+  onBeforeStart: () => connectDatabase(config.mongodb.uri),
+  testDatabase: async () => mongoose.connection.readyState === 1,
+  closeDatabase: async () => { await mongoose.connection.close(false); },
 });
 
 export { app };

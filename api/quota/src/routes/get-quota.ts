@@ -16,6 +16,7 @@ import {
   ErrorCode,
   createLogger,
   getParam,
+  errorMessage,
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -26,7 +27,6 @@ import {
   buildOrgQuotaResponse,
   computeQuotaStatus,
   isValidQuotaType,
-  errorMessage,
   sendMissingOrgId,
   sendInvalidQuotaType,
 } from '../helpers/quota-helpers';

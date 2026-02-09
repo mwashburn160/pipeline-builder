@@ -1,7 +1,10 @@
 import { Server } from 'http';
+import { createLogger } from '@mwashburn160/api-core';
 import { Config, getConnection, closeConnection } from '@mwashburn160/pipeline-core';
 import { Express } from 'express';
 import { SSEManager } from '../http/sse-connection-manager';
+
+const logger = createLogger('Server');
 
 /**
  * Options for starting a server
@@ -19,6 +22,12 @@ export interface StartServerOptions {
   onStart?: (port: number) => void;
   /** Callback before shutdown */
   onShutdown?: () => Promise<void>;
+  /** Runs before database check (e.g., connectDatabase for MongoDB) */
+  onBeforeStart?: () => Promise<void>;
+  /** Custom database health check, or false to skip. Default: PostgreSQL testConnection */
+  testDatabase?: (() => Promise<boolean>) | false;
+  /** Custom database close, or false to skip. Default: PostgreSQL closeConnection */
+  closeDatabase?: (() => Promise<void>) | false;
 }
 
 /**
@@ -70,32 +79,43 @@ export async function startServer(
     shutdownTimeoutMs = 15000,
     onStart,
     onShutdown,
+    onBeforeStart,
+    testDatabase,
+    closeDatabase,
   } = options;
   const port = options.port ?? config.server.port;
 
-  console.log(`[Server] Starting ${name}...`);
+  logger.info(`Starting ${name}...`);
 
-  // Test database connection
-  const connection = getConnection();
-  const dbHealthy = await connection.testConnection();
-
-  if (!dbHealthy) {
-    throw new Error('Database connection failed');
+  // Pre-start hook (e.g., connect to MongoDB)
+  if (onBeforeStart) {
+    await onBeforeStart();
   }
 
-  console.log('[Server] Database connection established');
+  // Test database connection
+  if (testDatabase !== false) {
+    const dbHealthy = testDatabase
+      ? await testDatabase()
+      : await getConnection().testConnection();
+
+    if (!dbHealthy) {
+      throw new Error('Database connection failed');
+    }
+
+    logger.info('Database connection established');
+  }
 
   // Start server
   const server = app.listen(port, () => {
-    console.log(`✅ ${name} listening on port: ${port}`);
-    console.log(`✅ Platform URL: ${config.server.platformUrl}`);
+    logger.info(`${name} listening on port: ${port}`);
+    logger.info(`Platform URL: ${config.server.platformUrl}`);
     onStart?.(port);
   });
 
   // Shutdown handler
   const shutdown = async (signal?: string) => {
     if (signal) {
-      console.log(`\n${signal} received, shutting down gracefully...`);
+      logger.info(`${signal} received, shutting down gracefully...`);
     }
 
     // Custom shutdown callback
@@ -103,26 +123,32 @@ export async function startServer(
       try {
         await onShutdown();
       } catch (error) {
-        console.error('❌ Error in onShutdown callback:', error);
+        logger.error('Error in onShutdown callback', { error });
       }
     }
 
     // Close SSE connections
     if (sseManager) {
       sseManager.shutdown();
-      console.log('✅ SSE connections closed');
+      logger.info('SSE connections closed');
     }
 
     // Close HTTP server
     server.close(async () => {
-      console.log('✅ HTTP server closed');
+      logger.info('HTTP server closed');
 
       // Close database connection
-      try {
-        await closeConnection();
-        console.log('✅ Database connection closed');
-      } catch (error) {
-        console.error('❌ Error closing database:', error);
+      if (closeDatabase !== false) {
+        try {
+          if (closeDatabase) {
+            await closeDatabase();
+          } else {
+            await closeConnection();
+          }
+          logger.info('Database connection closed');
+        } catch (error) {
+          logger.error('Error closing database', { error });
+        }
       }
 
       process.exit(0);
@@ -130,7 +156,7 @@ export async function startServer(
 
     // Force shutdown after timeout
     setTimeout(() => {
-      console.error('❌ Forced shutdown after timeout');
+      logger.error('Forced shutdown after timeout');
       process.exit(1);
     }, shutdownTimeoutMs);
   };
@@ -162,7 +188,7 @@ export async function startServer(
  */
 export function runServer(app: Express, options: StartServerOptions = {}): void {
   startServer(app, options).catch((error) => {
-    console.error('❌ Failed to start server:', error);
+    logger.error('Failed to start server', { error });
     process.exit(1);
   });
 }

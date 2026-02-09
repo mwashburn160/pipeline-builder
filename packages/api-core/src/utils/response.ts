@@ -259,3 +259,53 @@ export function extractDbError(error: unknown): Record<string, unknown> {
 
   return details;
 }
+
+// ---------------------------------------------------------------------------
+// Convenience helpers (shared across plugin, pipeline, quota services)
+// ---------------------------------------------------------------------------
+
+/** Extract a message string from an unknown catch value. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Send a 400 bad-request response. */
+export function sendBadRequest(
+  res: Response,
+  message: string,
+  code: ErrorCode | string = ErrorCode.VALIDATION_ERROR,
+): Response {
+  return res.status(400).json({ success: false, statusCode: 400, message, code });
+}
+
+/** Send a 500 internal error response. */
+export function sendInternalError(
+  res: Response,
+  message: string,
+  details?: Record<string, unknown>,
+): Response {
+  return res.status(500).json({ success: false, statusCode: 500, message, code: ErrorCode.INTERNAL_ERROR, ...details });
+}
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+/** Common pagination + sorting parameters. */
+export interface PaginationParams {
+  limit: number;
+  offset: number;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+/** Parse pagination/sort params from query string, clamping to safe defaults. */
+export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {
+  const limit = Math.min(Math.max(parseInt(String(query.limit), 10) || 10, 1), 100);
+  const offset = Math.max(parseInt(String(query.offset), 10) || 0, 0);
+  const sortBy = String(query.sortBy || 'createdAt');
+  const sortOrder: 'asc' | 'desc' =
+    String(query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+  return { limit, offset, sortBy, sortOrder };
+}
