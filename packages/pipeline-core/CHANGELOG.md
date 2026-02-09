@@ -1,3 +1,9 @@
+## 1.9.6 (2026-02-09)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.9.13
+
 ## 1.9.5 (2026-02-09)
 
 ### 🩹 Fixes
