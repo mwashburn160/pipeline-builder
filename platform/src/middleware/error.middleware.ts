@@ -23,7 +23,6 @@ export function notFoundHandler(_req: Request, res: Response): void {
 /**
  * Global error handler for uncaught errors in route handlers.
  * Logs error details and returns a standardized error response.
- * Stack traces are only included in development mode.
  *
  * @param err - Error object with optional status code
  * @param req - Express request object

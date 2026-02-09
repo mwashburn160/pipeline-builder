@@ -29,10 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       if (api.isAuthenticated()) {
-
         const response = await api.getProfile();
 
-        
         // Handle both response formats:
         // Backend returns: { success, statusCode, user: {...} }
         // Standardized format: { success, data: { user: {...} } }
@@ -61,8 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
       setUser(null);
-    } catch (error) {
-
+    } catch {
       setUser(null);
     }
   }, []);
@@ -88,7 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && api.isAuthenticated()) {
-
         refreshUser();
       }
     };
@@ -100,15 +96,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Login with email/username and password
    */
   const login = useCallback(async (email: string, password: string) => {
-
     setIsLoading(true);
-    
+
     try {
       const response = await api.login(email, password);
 
-      
       if (response.success) {
-
         await refreshUser();
         // Use Next.js router for client-side navigation
         router.push('/dashboard');
@@ -138,8 +131,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(response.message || 'Registration failed');
       }
       
-      // Registration successful - user should login
-
     } finally {
       setIsLoading(false);
     }

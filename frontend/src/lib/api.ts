@@ -108,9 +108,7 @@ class ApiClient {
     const delay = expiryMs - Date.now() - ApiClient.REFRESH_BUFFER_MS;
     if (delay <= 0) return; // already past the refresh window — let the pre-request check handle it
 
-
     this.refreshTimer = setTimeout(async () => {
-
       await this.refreshAccessToken();
     }, delay);
   }
@@ -126,7 +124,6 @@ class ApiClient {
     if (!expiryMs) return;
 
     if (expiryMs - Date.now() <= ApiClient.REFRESH_BUFFER_MS) {
-
       await this.refreshAccessToken();
     }
   }
@@ -235,7 +232,6 @@ class ApiClient {
       headers['x-org-id'] = this.organizationId;
     }
 
-
     const response = await fetch(url, {
       ...options,
       headers,
@@ -250,7 +246,6 @@ class ApiClient {
     }));
     
     const statusCode = data.statusCode || response.status;
-    
 
     // Handle 401 - try to refresh token
     if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh')) {
@@ -272,7 +267,6 @@ class ApiClient {
         
         const retryStatusCode = retryData.statusCode || retryResponse.status;
 
-        
         if (retryStatusCode >= 400) {
           throw new ApiError(
             retryData.message || 'Request failed',
