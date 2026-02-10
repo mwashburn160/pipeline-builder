@@ -1,3 +1,13 @@
+## 1.9.12 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([ec575b6](https://github.com/mwashburn160/pipeline-builder/commit/ec575b6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.11 (2026-02-10)
 
 ### 🩹 Fixes

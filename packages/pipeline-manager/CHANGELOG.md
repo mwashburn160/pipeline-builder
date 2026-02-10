@@ -1,3 +1,17 @@
+## 1.10.9 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([ec575b6](https://github.com/mwashburn160/pipeline-builder/commit/ec575b6))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.14.9
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.8 (2026-02-10)
 
 ### 🩹 Fixes
