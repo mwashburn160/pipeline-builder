@@ -1,3 +1,13 @@
+## 1.8.17 (2026-02-10)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.14.15 ([3d4ff5e](https://github.com/mwashburn160/pipeline-builder/commit/3d4ff5e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.16 (2026-02-10)
 
 ### 🩹 Fixes
