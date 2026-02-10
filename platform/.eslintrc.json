@@ -115,17 +115,7 @@
       "error",
       "always"
     ],
-    "@stylistic/max-len": [
-      "error",
-      {
-        "code": 150,
-        "ignoreUrls": true,
-        "ignoreStrings": true,
-        "ignoreTemplateLiterals": true,
-        "ignoreComments": true,
-        "ignoreRegExpLiterals": true
-      }
-    ],
+    "@stylistic/max-len": "off",
     "@stylistic/quote-props": [
       "error",
       "consistent-as-needed"

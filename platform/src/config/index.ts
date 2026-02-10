@@ -46,13 +46,18 @@ export const config = {
     credentials: process.env.CORS_CREDENTIALS !== 'false',
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : '*',
+      : [process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443'],
   },
   rateLimit: {
     max: parseInt(process.env.LIMITER_MAX || '100'),
     windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000'),
+    auth: {
+      max: parseInt(process.env.AUTH_LIMITER_MAX || '20'),
+      windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000'),
+    },
   },
   auth: {
+    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8'),
     jwt: {
       secret: process.env.JWT_SECRET || 'no-secret',
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
@@ -92,6 +97,7 @@ export const config = {
   oauth: {
     /** Base URL for OAuth callback redirects (e.g. https://yourdomain.com) */
     callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
+    stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000'),
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',
@@ -108,6 +114,10 @@ export const config = {
     timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000'),
   },
   quota: {
+    // Quota microservice connection
+    serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
+    servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000'),
+    serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000'),
     // Organization ID that bypasses all quotas
     bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
     // Default window in milliseconds (60 seconds)

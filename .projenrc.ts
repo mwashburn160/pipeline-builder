@@ -512,6 +512,7 @@ let platform = new WebTokenProject({
     `express@${expressVersion}`,  // Web framework
     'express-rate-limit@8.2.1',   // Rate limiting
     'nodemailer@7.0.13',          // Email sending
+    'zod@4.3.6',
     '@aws-sdk/client-sesv2@3.821.0', // AWS SES v2 email transport
     'jsonwebtoken@9.0.3',         // JWT tokens
     'slugify@1.6.6',              // URL slugs
@@ -555,6 +556,7 @@ platform.addScripts({
   'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)'
 });
 // Disable problematic ESLint rules for this service
+platform.eslint?.addRules({ '@stylistic/max-len': 'off' });
 platform.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 platform.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 

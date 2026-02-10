@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
+import { User } from '../models';
 import { IUser } from '../models/user.model';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types';
 
@@ -65,6 +66,16 @@ export function generateTokenPair(user: IUser): { accessToken: string; refreshTo
  */
 export function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Generate and persist new token pair for user.
+ */
+export async function issueTokens(user: IUser): Promise<{ accessToken: string; refreshToken: string }> {
+  const { accessToken, refreshToken } = generateTokenPair(user);
+  const hashedRefresh = hashRefreshToken(refreshToken);
+  await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
+  return { accessToken, refreshToken };
 }
 
 /**

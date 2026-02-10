@@ -1,52 +1,29 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { User, Organization } from '../models';
-import { logger, sendError, generateTokenPair, hashRefreshToken } from '../utils';
+import { logger, sendError, issueTokens, hashRefreshToken, validateBody, registerSchema, loginSchema, refreshSchema } from '../utils';
+import { handleControllerError } from './helpers';
 
-/**
- * Handle known error codes with appropriate responses.
- */
-function handleKnownError(res: Response, err: Error, fallbackMessage: string): void {
-  const errorMap: Record<string, { status: number; message: string }> = {
-    MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
-    DUPLICATE_CREDENTIALS: { status: 409, message: 'Credentials already in use' },
-  };
-
-  const mapped = errorMap[err.message];
-  if (mapped) {
-    sendError(res, mapped.status, mapped.message);
-  } else {
-    sendError(res, 500, fallbackMessage);
-  }
-}
-
-/**
- * Generate and persist new token pair for user.
- */
-async function issueTokens(user: any): Promise<{ accessToken: string; refreshToken: string }> {
-  const { accessToken, refreshToken } = generateTokenPair(user);
-  const hashedRefresh = hashRefreshToken(refreshToken);
-
-  await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
-
-  return { accessToken, refreshToken };
-}
+/** Error map for registration errors */
+const registerErrorMap: Record<string, { status: number; message: string }> = {
+  MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
+  DUPLICATE_CREDENTIALS: { status: 409, message: 'Credentials already in use' },
+};
 
 /**
  * Register a new user
  * POST /auth/register
  */
 export async function register(req: Request, res: Response): Promise<void> {
+  const body = validateBody(registerSchema, req.body, res);
+  if (!body) return;
+
   const session = await mongoose.startSession();
   let result;
 
   try {
     await session.withTransaction(async () => {
-      const { username, email, password, organizationName } = req.body;
-
-      if (!username || !email || !password) {
-        throw new Error('MISSING_FIELDS');
-      }
+      const { username, email, password, organizationName } = body;
 
       const existing = await User.exists({
         $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
@@ -56,8 +33,9 @@ export async function register(req: Request, res: Response): Promise<void> {
         throw new Error('DUPLICATE_CREDENTIALS');
       }
 
-      const effectiveOrgName = organizationName?.trim().length >= 2
-        ? organizationName.trim()
+      const trimmedOrgName = organizationName?.trim();
+      const effectiveOrgName = trimmedOrgName && trimmedOrgName.length >= 2
+        ? trimmedOrgName
         : username;
 
       const user = new User({
@@ -69,7 +47,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
       const isSystemOrg = effectiveOrgName.toLowerCase() === 'system';
 
-      const orgData: any = {
+      const orgData: Record<string, unknown> = {
         name: isSystemOrg ? 'system' : effectiveOrgName,
         owner: user._id,
         members: [user._id],
@@ -81,7 +59,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       }
 
       const [org] = await Organization.create([orgData], { session });
-      user.organizationId = org._id as any;
+      user.organizationId = org._id as mongoose.Types.ObjectId;
       const orgName = org.name;
       const orgId = String(org._id);
 
@@ -97,9 +75,8 @@ export async function register(req: Request, res: Response): Promise<void> {
     });
 
     res.status(201).json({ success: true, statusCode: 201, data: { user: result } });
-  } catch (err: any) {
-    logger.error('Registration Failed', err);
-    handleKnownError(res, err, 'Registration failed');
+  } catch (err) {
+    handleControllerError(res, err, 'Registration failed', registerErrorMap);
   } finally {
     await session.endSession();
   }
@@ -111,11 +88,10 @@ export async function register(req: Request, res: Response): Promise<void> {
  */
 export async function login(req: Request, res: Response): Promise<void> {
   try {
-    const { identifier, password } = req.body;
+    const body = validateBody(loginSchema, req.body, res);
+    if (!body) return;
 
-    if (!identifier || !password) {
-      return sendError(res, 400, 'Missing required fields');
-    }
+    const { identifier, password } = body;
 
     const user = await User.findOne({
       $or: [{ email: identifier.toLowerCase() }, { username: identifier.toLowerCase() }],
@@ -137,6 +113,9 @@ export async function login(req: Request, res: Response): Promise<void> {
 /**
  * Refresh tokens
  * POST /auth/refresh
+ *
+ * Uses atomic findOneAndUpdate to swap the refresh token hash,
+ * preventing race conditions where the same refresh token is used twice.
  */
 export async function refresh(req: Request, res: Response): Promise<void> {
   try {
@@ -144,9 +123,30 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return sendError(res, 401, 'Unauthorized');
     }
 
-    const user = await User.findById(req.user.sub);
+    const body = validateBody(refreshSchema, req.body, res);
+    if (!body) return;
+
+    const oldRefreshToken = body.refreshToken;
+
+    const oldHash = hashRefreshToken(oldRefreshToken);
+
+    // Atomically verify old hash and fetch user
+    const user = await User.findOne({
+      _id: req.user.sub,
+      refreshToken: oldHash,
+    }).select('+refreshToken +tokenVersion');
+
     if (!user) {
-      return sendError(res, 404, 'User not found');
+      // Old refresh token hash doesn't match — possible reuse/theft
+      // Invalidate all sessions for this user as a precaution
+      await User.updateOne(
+        { _id: req.user.sub },
+        { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+      );
+      logger.warn('[AUTH] Refresh token reuse detected, invalidated all sessions', {
+        userId: req.user.sub,
+      });
+      return sendError(res, 401, 'Session invalidated — please log in again');
     }
 
     const tokens = await issueTokens(user);

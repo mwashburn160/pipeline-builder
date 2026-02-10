@@ -293,7 +293,7 @@ organizationSchema.pre<IOrganization>('validate', async function () {
   if (existingOrgs.length === 0) {
     this.slug = baseSlug;
   } else {
-    const suffixes = existingOrgs.map((org: any) => {
+    const suffixes = existingOrgs.map((org: { slug: string }) => {
       const parts = org.slug.split('-');
       const lastPart = parseInt(parts[parts.length - 1]);
       return isNaN(lastPart) ? 0 : lastPart;

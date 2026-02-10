@@ -19,7 +19,7 @@ import {
   transferOrganizationOwnership,
   deleteOrganization,
 } from '../controllers';
-import { isAuthenticated } from '../middleware';
+import { isAuthenticated, authorize } from '../middleware';
 
 const router = Router();
 
@@ -37,11 +37,11 @@ router.get('/', isAuthenticated, getMyOrganization);
 /** GET /organization/:id - Get organization by ID */
 router.get('/:id', isAuthenticated, getOrganizationById);
 
-/** PUT /organization/:id - Update organization */
-router.put('/:id', isAuthenticated, updateOrganization);
+/** PUT /organization/:id - Update organization (admin only) */
+router.put('/:id', isAuthenticated, authorize('admin'), updateOrganization);
 
-/** DELETE /organization/:id - Delete organization */
-router.delete('/:id', isAuthenticated, deleteOrganization);
+/** DELETE /organization/:id - Delete organization (admin only) */
+router.delete('/:id', isAuthenticated, authorize('admin'), deleteOrganization);
 
 /*
  * Organization Quotas
@@ -51,29 +51,29 @@ router.delete('/:id', isAuthenticated, deleteOrganization);
 router.get('/:id/quotas', isAuthenticated, getOrganizationQuotas);
 
 /** PUT /organization/:id/quotas - Update organization quota limits (system admin only) */
-router.put('/:id/quotas', isAuthenticated, updateOrganizationQuotas);
+router.put('/:id/quotas', isAuthenticated, authorize('admin'), updateOrganizationQuotas);
 
 /*
- * Organization Members (system admin can manage any org)
+ * Organization Members (admin can manage any org)
  */
 
 /** GET /organization/:id/members - List organization members */
 router.get('/:id/members', isAuthenticated, getOrganizationMembers);
 
-/** POST /organization/:id/members - Add member to organization */
-router.post('/:id/members', isAuthenticated, addMemberToOrganization);
+/** POST /organization/:id/members - Add member to organization (admin only) */
+router.post('/:id/members', isAuthenticated, authorize('admin'), addMemberToOrganization);
 
-/** DELETE /organization/:id/members/:userId - Remove member from organization */
-router.delete('/:id/members/:userId', isAuthenticated, removeMemberFromOrganization);
+/** DELETE /organization/:id/members/:userId - Remove member from organization (admin only) */
+router.delete('/:id/members/:userId', isAuthenticated, authorize('admin'), removeMemberFromOrganization);
 
-/** PATCH /organization/:id/members/:userId - Update member role */
-router.patch('/:id/members/:userId', isAuthenticated, updateMemberRole);
+/** PATCH /organization/:id/members/:userId - Update member role (admin only) */
+router.patch('/:id/members/:userId', isAuthenticated, authorize('admin'), updateMemberRole);
 
 /*
  * Ownership Transfer
  */
 
-/** PATCH /organization/:id/transfer-owner - Transfer organization ownership */
-router.patch('/:id/transfer-owner', isAuthenticated, transferOrganizationOwnership);
+/** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only) */
+router.patch('/:id/transfer-owner', isAuthenticated, authorize('admin'), transferOrganizationOwnership);
 
 export default router;

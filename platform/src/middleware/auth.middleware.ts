@@ -15,6 +15,17 @@ import {
   hashRefreshToken,
 } from '../utils';
 
+/** Minimal user shape needed by populateRequestUser (works with lean objects and documents). */
+interface UserLike {
+  _id: { toString(): string };
+  username: string;
+  email: string;
+  role: 'user' | 'admin';
+  isEmailVerified: boolean;
+  organizationId?: { toString(): string } | string;
+  tokenVersion: number;
+}
+
 /**
  * Populate the request.user object with user details from the database.
  * Includes organization name lookup if user belongs to an organization.
@@ -23,7 +34,7 @@ import {
  * @param user - User document from database
  * @internal
  */
-async function populateRequestUser(req: Request, user: any): Promise<void> {
+async function populateRequestUser(req: Request, user: UserLike): Promise<void> {
   let organizationName: string | undefined;
 
   // Look up organization name if user has an organizationId

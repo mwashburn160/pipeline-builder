@@ -11,42 +11,60 @@
  * - Health check and metrics endpoints
  */
 
+import crypto from 'crypto';
 import net from 'net';
 import cors from 'cors';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 
 import { config } from './config';
-import { notFoundHandler, errorHandler } from './middleware';
+import { isAuthenticated, notFoundHandler, errorHandler } from './middleware';
 import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes } from './routes';
 import { logger } from './utils';
 
 /** Express application instance */
 const app = express();
 
-/**
- * Rate limiter configuration.
- * Extracts client IP from x-forwarded-for header for proxy support.
- */
+/** Extract client IP from request, handling proxies */
+function extractClientIp(req: express.Request): string {
+  let ip = req.ip;
+  if (req.headers['x-forwarded-for']) {
+    ip = (req.headers['x-forwarded-for'] as string).split(',')[0].trim();
+  }
+  if (!ip || net.isIPv6(ip)) {
+    return ipKeyGenerator(ip || 'unknown', 64);
+  }
+  return ip;
+}
+
+/** General rate limiter */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.max,
-  keyGenerator: (req) => {
-    let ip = req.ip;
-    if (req.headers['x-forwarded-for']) {
-      ip = (req.headers['x-forwarded-for'] as string).split(',')[0].trim();
-    }
-    if (!ip || net.isIPv6(ip)) {
-      return ipKeyGenerator(ip || 'unknown', 64);
-    }
-    return ip;
-  },
+  keyGenerator: extractClientIp,
   message: { success: false, statusCode: 429, message: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+/** Strict rate limiter for auth endpoints (login, register, OAuth) */
+const authLimiter = rateLimit({
+  windowMs: config.rateLimit.auth.windowMs,
+  max: config.rateLimit.auth.max,
+  keyGenerator: extractClientIp,
+  message: { success: false, statusCode: 429, message: 'Too many authentication attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** Request ID middleware — attaches a unique ID to each request for log correlation */
+function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+  req.headers['x-request-id'] = requestId;
+  next();
+}
 
 /** Configure security and parsing middleware */
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -54,6 +72,7 @@ app.use(cors(config.cors));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.set('trust proxy', config.server.trustProxy);
+app.use(requestIdMiddleware);
 app.use(limiter);
 
 /**
@@ -85,12 +104,12 @@ app.get('/health', async (_req: Request, res: Response) => {
 
 /**
  * Metrics endpoint for monitoring and observability.
- * Returns process uptime, memory usage, CPU usage, and database state.
+ * Requires authentication to prevent information disclosure.
  *
  * @route GET /metrics
  * @returns {Object} 200 - Service metrics
  */
-app.get('/metrics', (_req: Request, res: Response) => {
+app.get('/metrics', isAuthenticated, (_req: Request, res: Response) => {
   const readyStates: Record<number, string> = {
     0: 'disconnected',
     1: 'connected',
@@ -113,8 +132,8 @@ app.get('/metrics', (_req: Request, res: Response) => {
  * API Routes
  * Note: nginx strips /api prefix before proxying to this service
  */
-app.use('/auth', authRoutes);
-app.use('/auth/oauth', oauthRoutes);
+app.use('/auth', authLimiter, authRoutes);
+app.use('/auth/oauth', authLimiter, oauthRoutes);
 app.use('/user', userRoutes);
 app.use('/users', usersRoutes);
 app.use('/organization', organizationRoutes);

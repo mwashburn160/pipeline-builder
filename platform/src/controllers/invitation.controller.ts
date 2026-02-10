@@ -1,51 +1,10 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
-import { Invitation, Organization, User } from '../models';
+import { Invitation, IInvitation, Organization, IOrganization, User, IUser } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation.model';
-import { logger, sendError, emailService } from '../utils';
+import { logger, sendError, emailService, validateBody, sendInvitationSchema } from '../utils';
 import { requireOrgMembership, handleTransactionError } from './helpers';
-
-// ============================================================================
-// Validation Helpers
-// ============================================================================
-
-interface InvitationParams {
-  email?: string;
-  role?: string;
-  invitationType?: string;
-  allowedOAuthProviders?: string[];
-}
-
-function validateInvitationParams(body: InvitationParams, res: Response): boolean {
-  const { email, role = 'user', invitationType = 'any', allowedOAuthProviders } = body;
-
-  if (!email) {
-    sendError(res, 400, 'Email is required');
-    return false;
-  }
-
-  if (!['user', 'admin'].includes(role)) {
-    sendError(res, 400, 'Invalid role. Must be "user" or "admin"');
-    return false;
-  }
-
-  if (!['email', 'oauth', 'any'].includes(invitationType)) {
-    sendError(res, 400, 'Invalid invitation type. Must be "email", "oauth", or "any"');
-    return false;
-  }
-
-  if (allowedOAuthProviders && Array.isArray(allowedOAuthProviders)) {
-    const validProviders = ['google'];
-    const invalidProviders = allowedOAuthProviders.filter((p: string) => !validProviders.includes(p));
-    if (invalidProviders.length > 0) {
-      sendError(res, 400, `Invalid OAuth providers: ${invalidProviders.join(', ')}`);
-      return false;
-    }
-  }
-
-  return true;
-}
 
 // ============================================================================
 // Invitation Helpers
@@ -55,7 +14,7 @@ function getExpirationDate(): Date {
   return new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
 }
 
-async function notifyInviter(invitation: any, user: any, org: any, session: mongoose.ClientSession): Promise<void> {
+async function notifyInviter(invitation: IInvitation, user: IUser, org: IOrganization, session: mongoose.ClientSession): Promise<void> {
   const inviter = await User.findById(invitation.invitedBy).session(session);
   if (inviter) {
     emailService.sendInvitationAccepted(
@@ -68,10 +27,10 @@ async function notifyInviter(invitation: any, user: any, org: any, session: mong
 }
 
 async function processInvitationAcceptance(
-  invitation: any,
-  user: any,
-  org: any,
-  acceptedVia: string,
+  invitation: IInvitation,
+  user: IUser,
+  org: IOrganization,
+  acceptedVia: 'email' | InvitationOAuthProvider,
   session: mongoose.ClientSession,
 ): Promise<void> {
   org.members.push(user._id);
@@ -104,12 +63,13 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  if (!validateInvitationParams(req.body, res)) return;
+  const body = validateBody(sendInvitationSchema, req.body, res);
+  if (!body) return;
 
   const session = await mongoose.startSession();
 
   try {
-    const { email, role = 'user', invitationType = 'any', allowedOAuthProviders } = req.body;
+    const { email, role, invitationType, allowedOAuthProviders } = body;
     const inviterId = req.user!.sub;
 
     const result = await session.withTransaction(async () => {
@@ -145,7 +105,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         await existingInvitation.save({ session });
       }
 
-      const invitationData: any = {
+      const invitationData: Record<string, unknown> = {
         email: email.toLowerCase(),
         organizationId: orgId,
         invitedBy: inviterId,
@@ -203,7 +163,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         allowedOAuthProviders: result?.allowedOAuthProviders,
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     handleTransactionError(res, err, {
       ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
       UNAUTHORIZED: { status: 403, message: 'You are not authorized to send invitations' },
@@ -285,7 +245,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
     });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation accepted successfully' });
-  } catch (err: any) {
+  } catch (err) {
     handleTransactionError(res, err, {
       INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
       INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
@@ -394,7 +354,7 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
     });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation accepted successfully via OAuth' });
-  } catch (err: any) {
+  } catch (err) {
     handleTransactionError(res, err, {
       INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
       INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
@@ -474,7 +434,7 @@ export async function listInvitations(req: Request, res: Response): Promise<void
     const { status, invitationType, page = 1, limit = 20 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const query: any = { organizationId: orgId };
+    const query: Record<string, unknown> = { organizationId: orgId };
     if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
       query.status = status;
     }

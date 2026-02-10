@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
+import { config } from '../config';
 import { User, Organization } from '../models';
-import { logger, sendError, generateTokenPair } from '../utils';
+import { logger, sendError, generateTokenPair, validateBody, updateProfileSchema, changePasswordSchema } from '../utils';
 import { requireAuthUserId, requireAdminContext } from './helpers';
 
 // ============================================================================
@@ -91,15 +92,13 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
   if (!userId) return;
 
   try {
-    const { username, email } = req.body;
-    const updates: Record<string, any> = {};
+    const body = validateBody(updateProfileSchema, req.body, res);
+    if (!body) return;
 
-    if (username) updates.username = username.trim().toLowerCase();
-    if (email) updates.email = email.trim().toLowerCase();
+    const updates: Partial<{ username: string; email: string; isEmailVerified: boolean }> = {};
 
-    if (Object.keys(updates).length === 0) {
-      return sendError(res, 400, 'No valid fields to update', 'INVALID_FIELDS');
-    }
+    if (body.username) updates.username = body.username.trim().toLowerCase();
+    if (body.email) updates.email = body.email.trim().toLowerCase();
 
     if (updates.email) {
       const existing = await User.findOne({
@@ -170,11 +169,10 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   if (!userId) return;
 
   try {
-    const { currentPassword, newPassword } = req.body;
+    const body = validateBody(changePasswordSchema, req.body, res);
+    if (!body) return;
 
-    if (!currentPassword || !newPassword) {
-      return sendError(res, 400, 'Missing password fields', 'MISSING_FIELDS');
-    }
+    const { currentPassword, newPassword } = body;
 
     const user = await User.findById(userId).select('+password +tokenVersion');
     if (!user || !user.password) {
@@ -237,7 +235,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
   try {
     const { organizationId, role, search, page = '1', limit = '20' } = req.query;
 
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
 
     if (admin.isOrgAdmin) {
       filter.organizationId = req.user!.organizationId;
@@ -321,7 +319,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
     }
 
     let organizationName: string | null = null;
-    let organization: any = null;
+    let organization: OrgSummary | null = null;
 
     if (user.organizationId) {
       const org = await Organization.findById(user.organizationId).select('_id name slug').lean();
@@ -334,7 +332,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
     res.json({
       success: true,
       statusCode: 200,
-      user: formatUserResponse(user, organizationName, organization),
+      user: formatUserResponse(user, organizationName, organization ?? undefined),
     });
   } catch (err) {
     logger.error('[GET USER BY ID] Error:', err);
@@ -400,8 +398,8 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
     }
 
     if (password !== undefined) {
-      if (password.length < 8) {
-        return sendError(res, 400, 'Password must be at least 8 characters', 'INVALID_PASSWORD');
+      if (password.length < config.auth.passwordMinLength) {
+        return sendError(res, 400, `Password must be at least ${config.auth.passwordMinLength} characters`, 'INVALID_PASSWORD');
       }
       user.password = password;
       user.tokenVersion = (user.tokenVersion || 0) + 1;
@@ -430,7 +428,7 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
           await newOrg.save();
         }
 
-        user.organizationId = organizationId as any;
+        user.organizationId = organizationId;
         changes.push('organizationId');
       }
     }

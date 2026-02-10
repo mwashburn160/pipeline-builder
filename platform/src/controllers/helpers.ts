@@ -177,9 +177,96 @@ export type ErrorMap = Record<string, { status: number; message: string }>;
  * Handle transaction errors by mapping known error messages to HTTP responses.
  */
 export function handleTransactionError(res: Response, err: any, errorMap: ErrorMap, fallbackMessage: string): void {
+  handleControllerError(res, err, fallbackMessage, errorMap);
+}
+
+// ============================================================================
+// Mongoose Error Handling
+// ============================================================================
+
+/**
+ * Map Mongoose/MongoDB errors to appropriate HTTP responses.
+ * Returns null if the error is not a recognized Mongoose error.
+ */
+export function mapMongooseError(err: any): { status: number; message: string; code: string } | null {
+  if (!err) return null;
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError' && err.errors) {
+    const messages = Object.values(err.errors)
+      .map((e: any) => (e as { message: string }).message)
+      .join(', ');
+    return { status: 400, message: messages, code: 'VALIDATION_ERROR' };
+  }
+
+  // MongoDB duplicate key error (E11000)
+  if (err.code === 11000) {
+    const field = err.keyPattern ? Object.keys(err.keyPattern)[0] : 'field';
+    return { status: 409, message: `Duplicate value for ${field}`, code: 'DUPLICATE_KEY' };
+  }
+
+  // Mongoose cast error (invalid ObjectId, etc.)
+  if (err.name === 'CastError') {
+    return { status: 400, message: `Invalid ${err.path}: ${err.value}`, code: 'INVALID_ID' };
+  }
+
+  return null;
+}
+
+/**
+ * Unified controller error handler.
+ * Checks transaction error maps, Mongoose errors, ServiceError, then falls back to 500.
+ */
+export function handleControllerError(
+  res: Response,
+  err: any,
+  fallbackMessage: string,
+  errorMap?: ErrorMap,
+): void {
+  // 1. Check transaction error map
+  if (errorMap && err?.message && errorMap[err.message]) {
+    logger.error(fallbackMessage, err);
+    const mapped = errorMap[err.message];
+    return sendError(res, mapped.status, mapped.message);
+  }
+
+  // 2. Check Mongoose errors
+  const mongoErr = mapMongooseError(err);
+  if (mongoErr) {
+    logger.error(fallbackMessage, err);
+    return sendError(res, mongoErr.status, mongoErr.message, mongoErr.code);
+  }
+
+  // 3. Check ServiceError (from plugin/pipeline service clients)
+  if (err && typeof err.statusCode === 'number' && err.name?.includes('ServiceError')) {
+    return sendError(res, err.statusCode, err.message, err.code);
+  }
+
+  // 4. Fallback
   logger.error(fallbackMessage, err);
-  const error = errorMap[err.message] || { status: 500, message: fallbackMessage };
-  sendError(res, error.status, error.message);
+  sendError(res, 500, fallbackMessage);
+}
+
+// ============================================================================
+// Transaction Helper
+// ============================================================================
+
+/**
+ * Execute a callback within a MongoDB transaction, with automatic session cleanup.
+ */
+export async function withTransaction<T>(
+  fn: (session: mongoose.ClientSession) => Promise<T>,
+): Promise<T> {
+  const session = await mongoose.startSession();
+  try {
+    let result: T;
+    await session.withTransaction(async () => {
+      result = await fn(session);
+    });
+    return result!;
+  } finally {
+    await session.endSession();
+  }
 }
 
 // ============================================================================

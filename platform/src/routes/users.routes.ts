@@ -11,20 +11,20 @@ import {
   updateUserById,
   deleteUserById,
 } from '../controllers';
-import { isAuthenticated } from '../middleware';
+import { isAuthenticated, authorize } from '../middleware';
 
 const router = Router();
 
 /** GET /users - List all users (system admin only) */
-router.get('/', isAuthenticated, listAllUsers);
+router.get('/', isAuthenticated, authorize('admin'), listAllUsers);
 
 /** GET /users/:id - Get user by ID (system admin only) */
-router.get('/:id', isAuthenticated, getUserById);
+router.get('/:id', isAuthenticated, authorize('admin'), getUserById);
 
 /** PUT /users/:id - Update user by ID (system admin only) */
-router.put('/:id', isAuthenticated, updateUserById);
+router.put('/:id', isAuthenticated, authorize('admin'), updateUserById);
 
 /** DELETE /users/:id - Delete user by ID (system admin only) */
-router.delete('/:id', isAuthenticated, deleteUserById);
+router.delete('/:id', isAuthenticated, authorize('admin'), deleteUserById);
 
 export default router;

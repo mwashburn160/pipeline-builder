@@ -1,6 +1,6 @@
 import { config } from '../config';
-import logger from './logger';
 import { ServiceError, BaseServiceClient } from './base-service';
+import logger from './logger';
 
 /**
  * Pipeline filter parameters for list/get operations

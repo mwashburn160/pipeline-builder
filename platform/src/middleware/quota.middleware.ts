@@ -8,14 +8,8 @@
  */
 
 import * as http from 'http';
+import { config } from '../config';
 import logger from '../utils/logger';
-
-// =============================================================================
-// Configuration (consolidated into single quota service)
-// =============================================================================
-
-const QUOTA_SERVICE_HOST = process.env.QUOTA_SERVICE_HOST || 'quota';
-const QUOTA_SERVICE_PORT = parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10);
 
 // =============================================================================
 // Types
@@ -69,8 +63,8 @@ export async function checkQuotaService(
 ): Promise<QuotaCheckResult> {
   return new Promise((resolve) => {
     const options: http.RequestOptions = {
-      hostname: QUOTA_SERVICE_HOST,
-      port: QUOTA_SERVICE_PORT,
+      hostname: config.quota.serviceHost,
+      port: config.quota.servicePort,
       path: `/quotas/${encodeURIComponent(orgId)}/${encodeURIComponent(quotaType)}`,
       method: 'GET',
       headers: {
@@ -78,7 +72,7 @@ export async function checkQuotaService(
         'Authorization': authHeader,
         'x-org-id': orgId,
       },
-      timeout: 5000,
+      timeout: config.quota.serviceTimeout,
     };
 
     const req = http.request(options, (res) => {
@@ -151,8 +145,8 @@ export async function updateQuotaLimits(
     const body = JSON.stringify({ quotaLimits });
 
     const options: http.RequestOptions = {
-      hostname: QUOTA_SERVICE_HOST,
-      port: QUOTA_SERVICE_PORT,
+      hostname: config.quota.serviceHost,
+      port: config.quota.servicePort,
       path: `/quotas/${encodeURIComponent(orgId)}`,
       method: 'PUT',
       headers: {
@@ -161,7 +155,7 @@ export async function updateQuotaLimits(
         'Authorization': authHeader,
         'x-org-id': orgId,
       },
-      timeout: 5000,
+      timeout: config.quota.serviceTimeout,
     };
 
     const req = http.request(options, (res) => {

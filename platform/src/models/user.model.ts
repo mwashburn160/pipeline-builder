@@ -101,10 +101,27 @@ const userSchema = new Schema<IUser>(
 );
 
 /**
- * Hash password before saving
+ * Validate password strength: min 8 chars, at least one uppercase, one lowercase, one digit.
+ */
+function validatePasswordStrength(password: string): string | null {
+  if (password.length < config.auth.passwordMinLength) return `Password must be at least ${config.auth.passwordMinLength} characters`;
+  if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter';
+  if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter';
+  if (!/[0-9]/.test(password)) return 'Password must contain at least one digit';
+  return null;
+}
+
+/**
+ * Validate and hash password before saving
  */
 userSchema.pre<IUser>('save', async function () {
   if (!this.isModified('password') || !this.password) return;
+
+  const strengthError = validatePasswordStrength(this.password);
+  if (strengthError) {
+    throw new Error(strengthError);
+  }
+
   const salt = await bcrypt.genSalt(config.auth.jwt.saltRounds);
   this.password = await bcrypt.hash(this.password, salt);
 });
@@ -142,8 +159,10 @@ userSchema.methods.getLinkedProviders = function (): string[] {
 };
 
 /**
- * Indexes for OAuth provider lookups
+ * Indexes
  */
 userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
+userSchema.index({ organizationId: 1, role: 1 }); // listAllUsers filter: org + role
+userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
 export default mongoose.model<IUser>('User', userSchema);

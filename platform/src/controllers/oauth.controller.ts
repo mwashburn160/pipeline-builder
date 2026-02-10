@@ -15,10 +15,25 @@
  *   - Issues a platform JWT token pair (access + refresh)
  */
 
+import crypto from 'crypto';
 import { Request, Response } from 'express';
 import { config } from '../config';
 import { User } from '../models';
-import { logger, sendError, generateTokenPair, hashRefreshToken } from '../utils';
+import { logger, sendError, issueTokens, validateBody, oauthCallbackSchema } from '../utils';
+
+// ---------------------------------------------------------------------------
+// OAuth State (CSRF protection)
+// ---------------------------------------------------------------------------
+
+/** In-memory store for OAuth state tokens. Each expires after the configured TTL. */
+const pendingOAuthStates = new Map<string, number>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, createdAt] of pendingOAuthStates) {
+    if (now - createdAt > config.oauth.stateTtlMs) pendingOAuthStates.delete(key);
+  }
+}, 60_000);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,7 +82,7 @@ async function exchangeCode(code: string): Promise<string> {
     body: params.toString(),
   });
 
-  const data = await res.json() as Record<string, any>;
+  const data = await res.json() as Record<string, unknown>;
   if (!res.ok || !data.access_token) {
     logger.error('[OAUTH] Google token exchange failed', { status: res.status, error: data });
     throw new Error('TOKEN_EXCHANGE_FAILED');
@@ -84,8 +99,13 @@ async function fetchGoogleUser(accessToken: string): Promise<OAuthUserInfo> {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('Failed to fetch Google user info');
-  const data = await res.json() as Record<string, any>;
-  return { id: data.id, email: data.email, name: data.name, picture: data.picture };
+  const data = await res.json() as Record<string, unknown>;
+  return {
+    id: data.id as string,
+    email: data.email as string,
+    name: data.name as string | undefined,
+    picture: data.picture as string | undefined,
+  };
 }
 
 /**
@@ -156,16 +176,6 @@ async function findOrCreateUser(userInfo: OAuthUserInfo) {
   return newUser;
 }
 
-/**
- * Issue tokens and persist refresh hash (mirrors auth.controller issueTokens).
- */
-async function issueTokens(user: any) {
-  const { accessToken, refreshToken } = generateTokenPair(user);
-  const hashedRefresh = hashRefreshToken(refreshToken);
-  await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
-  return { accessToken, refreshToken };
-}
-
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
@@ -186,6 +196,9 @@ export async function getAuthUrl(req: Request, res: Response): Promise<void> {
     return sendError(res, 400, 'Google OAuth is not configured');
   }
 
+  const state = crypto.randomBytes(32).toString('hex');
+  pendingOAuthStates.set(state, Date.now());
+
   const params = new URLSearchParams({
     client_id: config.oauth.google.clientId,
     redirect_uri: buildCallbackUrl(),
@@ -193,11 +206,12 @@ export async function getAuthUrl(req: Request, res: Response): Promise<void> {
     scope: GOOGLE_SCOPES.join(' '),
     access_type: 'offline',
     prompt: 'select_account',
+    state,
   });
 
   const url = `${GOOGLE_AUTHORIZE_URL}?${params.toString()}`;
 
-  res.json({ success: true, statusCode: 200, data: { url } });
+  res.json({ success: true, statusCode: 200, data: { url, state } });
 }
 
 /**
@@ -210,19 +224,23 @@ export async function getAuthUrl(req: Request, res: Response): Promise<void> {
  */
 export async function handleCallback(req: Request, res: Response): Promise<void> {
   const provider = req.params.provider;
-  const { code } = req.body;
 
   if (provider !== 'google') {
     return sendError(res, 400, `Unsupported OAuth provider: ${provider}`);
   }
 
-  if (!code) {
-    return sendError(res, 400, 'Authorization code is required');
+  const body = validateBody(oauthCallbackSchema, req.body, res);
+  if (!body) return;
+
+  // Validate CSRF state parameter
+  if (!pendingOAuthStates.has(body.state)) {
+    return sendError(res, 403, 'Invalid or expired OAuth state');
   }
+  pendingOAuthStates.delete(body.state);
 
   try {
     // Exchange code for Google access token
-    const googleAccessToken = await exchangeCode(code);
+    const googleAccessToken = await exchangeCode(body.code);
 
     // Fetch user info from Google
     const userInfo = await fetchGoogleUser(googleAccessToken);
@@ -243,17 +261,18 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
     });
 
     res.json({ success: true, statusCode: 200, data: tokens });
-  } catch (err: any) {
+  } catch (err: unknown) {
     const errorMap: Record<string, { status: number; message: string }> = {
       TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange authorization code with Google' },
     };
 
-    const mapped = errorMap[err.message];
+    const message = err instanceof Error ? err.message : String(err);
+    const mapped = errorMap[message];
     if (mapped) {
       return sendError(res, mapped.status, mapped.message);
     }
 
-    logger.error('[OAUTH] Google callback error', { error: err.message });
+    logger.error('[OAUTH] Google callback error', { error: message });
     return sendError(res, 500, 'OAuth authentication failed');
   }
 }
