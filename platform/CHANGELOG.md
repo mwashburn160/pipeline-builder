@@ -1,3 +1,7 @@
+## 1.9.9 (2026-02-10)
+
+This was a version bump only for platform to align it with other projects, there were no code changes.
+
 ## 1.9.8 (2026-02-09)
 
 ### 🩹 Fixes

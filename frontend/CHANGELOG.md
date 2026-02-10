@@ -1,3 +1,13 @@
+## 1.8.7 (2026-02-10)
+
+### 🩹 Fixes
+
+- reversion ([9cde1a5](https://github.com/mwashburn160/pipeline-builder/commit/9cde1a5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.6 (2026-02-09)
 
 ### 🩹 Fixes

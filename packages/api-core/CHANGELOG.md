@@ -1,3 +1,7 @@
+## 1.13.6 (2026-02-10)
+
+This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.
+
 ## 1.13.5 (2026-02-09)
 
 ### 🩹 Fixes
