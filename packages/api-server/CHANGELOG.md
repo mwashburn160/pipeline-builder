@@ -1,3 +1,13 @@
+## 1.11.17 (2026-02-10)
+
+### 🩹 Fixes
+
+- upgraded ap=i-server=1.11.16 ([5a22718](https://github.com/mwashburn160/pipeline-builder/commit/5a22718))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.11.16 (2026-02-10)
 
 ### 🩹 Fixes
