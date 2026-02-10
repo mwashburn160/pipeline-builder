@@ -103,6 +103,8 @@ export interface PluginManifest {
    */
   readonly computeType?: ComputeType;
 
+
+  readonly primaryOutputDirectory?: string;
   /**
    * Additional metadata that can be accessed during plugin execution
    * Keys should use the format 'aws:cdk:{namespace}:{key}' (all lowercase)
