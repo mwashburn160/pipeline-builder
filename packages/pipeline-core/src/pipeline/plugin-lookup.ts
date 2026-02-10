@@ -189,6 +189,7 @@ export class PluginLookup extends Construct {
       metadata: {},
       pluginType: 'CodeBuildStep',
       computeType: 'SMALL',
+      primaryOutputDirectory: 'dist',
       env: {},
       installCommands: [],
       commands: [],
