@@ -129,6 +129,7 @@ export function createUploadPluginRoutes(
               metadata: plugin.manifest.metadata || {},
               pluginType: (plugin.manifest.pluginType || 'CodeBuildStep') as PluginType,
               computeType: (plugin.manifest.computeType || 'SMALL') as ComputeType,
+              primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
               installCommands: plugin.manifest.installCommands || [],
