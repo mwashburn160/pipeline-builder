@@ -1,3 +1,13 @@
+## 1.14.15 (2026-02-10)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.14.15 ([6ebed59](https://github.com/mwashburn160/pipeline-builder/commit/6ebed59))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.14 (2026-02-10)
 
 ### 🩹 Fixes
