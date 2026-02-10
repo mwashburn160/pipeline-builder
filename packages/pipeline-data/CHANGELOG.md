@@ -1,3 +1,13 @@
+## 1.14.12 (2026-02-10)
+
+### 🩹 Fixes
+
+- updated plugin manifest ([6ece09e](https://github.com/mwashburn160/pipeline-builder/commit/6ece09e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.11 (2026-02-10)
 
 ### 🩹 Fixes
