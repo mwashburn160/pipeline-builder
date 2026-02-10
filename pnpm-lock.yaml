@@ -54,8 +54,8 @@ importers:
         specifier: 1.11.10
         version: 1.11.10(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -145,8 +145,8 @@ importers:
         specifier: 1.11.10
         version: 1.11.10(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -248,8 +248,8 @@ importers:
         specifier: 1.11.10
         version: 1.11.10(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -330,8 +330,8 @@ importers:
         specifier: 1.11.10
         version: 1.11.10(@types/pg@8.16.0)
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -440,8 +440,8 @@ importers:
         specifier: 1.13.10
         version: 1.13.10
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -635,8 +635,8 @@ importers:
   packages/pipeline-manager:
     dependencies:
       '@mwashburn160/pipeline-core':
-        specifier: 1.14.10
-        version: 1.14.10(@types/pg@8.16.0)
+        specifier: 1.14.12
+        version: 1.14.12(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.237.0
         version: 2.237.0(constructs@10.4.5)
@@ -1936,8 +1936,8 @@ packages:
     resolution: {integrity: sha512-35HtjE7kDVjhibEuMVyJFsbC38LyPJKkSd0+E0VUoD8OHhBl83w03jXOFV1WnWvyTn78rdbDo9x+wLfkAiXuoA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-server/1.11.10/6fd01649c333850b223123d4cfd74c68faab131f}
     engines: {node: '>= 24.9.0'}
 
-  '@mwashburn160/pipeline-core@1.14.10':
-    resolution: {integrity: sha512-hbxuDrC+uBJI4YFirjOKutc9vWqB0XdchR5PrlaqRxvE30S0+kQSU6zQqncMTabStvAU6FzbnxNiJgN3tx82Ow==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.14.10/6f8f1bf98192ef31cebca5da8001202a53bb627f}
+  '@mwashburn160/pipeline-core@1.14.12':
+    resolution: {integrity: sha512-LPhDg8l5pXFgFP1uLTADfCX6FKIogqJ6bbr/1CIawwx1MN1uGTsy2wkvId7FDFAXFFqT0upqu9h1SQgRL9jOSA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.14.12/2ebf5c16cde33bb044ca2382f2f7150fb69dc213}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/pipeline-core@1.14.9':
@@ -1950,10 +1950,6 @@ packages:
 
   '@mwashburn160/pipeline-data@1.14.8':
     resolution: {integrity: sha512-qR2joiwW0GQOXKLSE9BCrEuglpGsZxL1EKYbNx+/fxt9oo1H7JX89h97xPJUmxeDa0iZpPs4Nx5gD/oftuVa+Q==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.14.8/217cdb1f3cc600dd4eaf37fb79f250e3cf3658d0}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-data@1.14.9':
-    resolution: {integrity: sha512-DArEnKBCZrhk4YQ+LdshohCntOBlYLuhwpEDZ++MimlwKnIsEYOsga2n4aMXu0kDTFyJYlmYVUe7BCBYITu4/w==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.14.9/9e364c9d84d234560d7cdaabb0436d6ef8ec7649}
     engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -7528,10 +7524,10 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@mwashburn160/pipeline-core@1.14.10(@types/pg@8.16.0)':
+  '@mwashburn160/pipeline-core@1.14.12(@types/pg@8.16.0)':
     dependencies:
-      '@mwashburn160/api-core': 1.13.9
-      '@mwashburn160/pipeline-data': 1.14.9(@types/pg@8.16.0)
+      '@mwashburn160/api-core': 1.13.10
+      '@mwashburn160/pipeline-data': 1.14.12(@types/pg@8.16.0)
       aws-cdk-lib: 2.237.0(constructs@10.4.5)
       axios: 1.13.3
       constructs: 10.4.5
@@ -7653,44 +7649,6 @@ snapshots:
   '@mwashburn160/pipeline-data@1.14.8(@types/pg@8.16.0)':
     dependencies:
       '@mwashburn160/api-core': 1.13.7
-      drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
-      pg: 8.16.3
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - debug
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-data@1.14.9(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.13.8
       drizzle-orm: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
       pg: 8.16.3
     transitivePeerDependencies:

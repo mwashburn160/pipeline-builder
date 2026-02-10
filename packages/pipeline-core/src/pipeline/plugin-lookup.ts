@@ -148,7 +148,7 @@ export class PluginLookup extends Construct {
     return {
       name: plugin.name,
       alias: plugin.alias ?? `${plugin.name}-alias`,
-      filter: plugin.filter ?? { name: plugin.name, isDefault: true },
+      filter: plugin.filter ?? { name: plugin.name, isActive: true, isDefault: true, accessModifier: 'public' },
       metadata: plugin.metadata,
     };
   }
