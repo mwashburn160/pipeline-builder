@@ -111,6 +111,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   return new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,
+    primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
       environmentVariables: toCodeBuildEnvVars(env),
