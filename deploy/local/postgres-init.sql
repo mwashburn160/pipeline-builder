@@ -47,9 +47,10 @@ CREATE TABLE IF NOT EXISTS plugins (
     metadata            JSONB NOT NULL DEFAULT '{}',
     
     -- Build Configuration
-    plugin_type         VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
-    compute_type        VARCHAR(20) NOT NULL DEFAULT 'SMALL',
-    dockerfile          TEXT,
+    plugin_type              VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
+    compute_type             VARCHAR(20) NOT NULL DEFAULT 'SMALL',
+    dockerfile               TEXT,
+    primary_output_directory VARCHAR(28),
     
     -- Runtime Configuration
     env                 JSONB NOT NULL DEFAULT '{}',

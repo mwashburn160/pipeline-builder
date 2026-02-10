@@ -11,6 +11,7 @@ keywords:
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
+primaryOutputDirectory: cdk.out
 metadata:
   custom:aws:codepipeline:selfMutation: true
   custom:aws:codepipeline:dockerEnabledForSelfMutation: true

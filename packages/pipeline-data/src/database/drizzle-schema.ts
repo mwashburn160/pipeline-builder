@@ -87,6 +87,7 @@ export const plugin = pgTable('plugins', {
     .$type<ComputeType>()
     .default('SMALL' as ComputeType)
     .notNull(),
+  primaryOutputDirectory: varchar('primary_output_directory', { length: 28 }),
 
   // Build configuration
   env: jsonb('env')
