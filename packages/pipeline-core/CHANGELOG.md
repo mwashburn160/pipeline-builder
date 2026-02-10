@@ -1,3 +1,13 @@
+## 1.14.14 (2026-02-10)
+
+### 🩹 Fixes
+
+- updated plugin manifest ([422bcda](https://github.com/mwashburn160/pipeline-builder/commit/422bcda))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.13 (2026-02-10)
 
 ### 🩹 Fixes
