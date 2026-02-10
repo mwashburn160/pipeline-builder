@@ -1,3 +1,13 @@
+## 1.9.10 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([7e09126](https://github.com/mwashburn160/pipeline-builder/commit/7e09126))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.9 (2026-02-10)
 
 This was a version bump only for platform to align it with other projects, there were no code changes.
