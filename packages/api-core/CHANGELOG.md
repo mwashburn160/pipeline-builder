@@ -1,3 +1,13 @@
+## 1.13.12 (2026-02-10)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.14.12 ([ade84e3](https://github.com/mwashburn160/pipeline-builder/commit/ade84e3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.11 (2026-02-10)
 
 ### 🩹 Fixes
