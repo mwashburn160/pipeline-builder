@@ -1,3 +1,13 @@
+## 1.10.10 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([6ecd1c3](https://github.com/mwashburn160/pipeline-builder/commit/6ecd1c3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.9 (2026-02-10)
 
 ### 🩹 Fixes

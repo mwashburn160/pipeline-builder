@@ -1,3 +1,17 @@
+## 1.7.10 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([6ecd1c3](https://github.com/mwashburn160/pipeline-builder/commit/6ecd1c3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-server to 1.11.10
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.9 (2026-02-10)
 
 ### 🩹 Fixes
