@@ -1,3 +1,13 @@
+## 1.11.11 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([c53ddd5](https://github.com/mwashburn160/pipeline-builder/commit/c53ddd5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.11.10 (2026-02-10)
 
 ### 🩹 Fixes
