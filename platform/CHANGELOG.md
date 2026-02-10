@@ -1,3 +1,13 @@
+## 1.9.11 (2026-02-10)
+
+### 🩹 Fixes
+
+- rebuild ([85395b1](https://github.com/mwashburn160/pipeline-builder/commit/85395b1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.10 (2026-02-10)
 
 ### 🩹 Fixes
