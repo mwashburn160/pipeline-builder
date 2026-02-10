@@ -109,7 +109,7 @@ export function createUploadPluginRoutes(
         ctx.log('INFO', 'Image pushed', { fullImage });
 
         // -- Persist to database ----------------------------------------------
-        const result = await db.transaction(async (tx: any) => {
+        const result = await db.transaction(async (tx) => {
           await tx
             .update(schema.plugin)
             .set({

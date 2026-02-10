@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.13.5';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.11.5';
+let apiServerVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.14.5';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.14.5';
+let pipelineCoreVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -391,6 +391,7 @@ let api_server = new PackageProject({
 });
 // Disable problematic ESLint rules for this package
 api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+api_server.eslint?.addRules({ 'import/no-unresolved': 'off' });
 api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================

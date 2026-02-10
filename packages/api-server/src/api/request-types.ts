@@ -4,42 +4,6 @@ import { v7 as uuid } from 'uuid';
 import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
 
 /**
- * Generic typed request with body, query, and params
- *
- * @example
- * ```typescript
- * // Request with body
- * type CreateRequest = TypedRequest<{ name: string }>;
- *
- * // Request with query params
- * type SearchRequest = TypedRequest<unknown, { q: string }>;
- *
- * // Request with URL params
- * type GetByIdRequest = TypedRequest<unknown, unknown, { id: string }>;
- * ```
- */
-export type TypedRequest<
-  TBody = unknown,
-  TQuery = unknown,
-  TParams = unknown,
-> = Request<TParams, unknown, TBody, TQuery>;
-
-/**
- * Request with only body typing
- */
-export type BodyRequest<TBody = unknown> = Request<unknown, unknown, TBody, unknown>;
-
-/**
- * Request with only query typing
- */
-export type QueryRequest<TQuery = unknown> = Request<unknown, unknown, unknown, TQuery>;
-
-/**
- * Request with only params typing
- */
-export type ParamsRequest<TParams = unknown> = Request<TParams, unknown, unknown, unknown>;
-
-/**
  * Request logger function type
  */
 export type RequestLogger = (type: SSEEventType, message: string, data?: unknown) => void;

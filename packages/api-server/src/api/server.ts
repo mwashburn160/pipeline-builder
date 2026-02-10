@@ -85,6 +85,9 @@ export async function startServer(
   } = options;
   const port = options.port ?? config.server.port;
 
+  // Validate auth configuration at server startup (not during CDK synthesis)
+  Config.validateAuth(config);
+
   logger.info(`Starting ${name}...`);
 
   // Pre-start hook (e.g., connect to MongoDB)

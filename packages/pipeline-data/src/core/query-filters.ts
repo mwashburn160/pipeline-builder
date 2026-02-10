@@ -277,7 +277,7 @@ export function validatePipelineFilter(filter: PipelineFilter): void {
  * Useful for cleaning up filters before sending to API
  */
 export function sanitizeFilter<T extends CommonFilter>(filter: T): Partial<T> {
-  const sanitized: any = {};
+  const sanitized = {} as Record<string, unknown>;
 
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined && value !== null) {
@@ -285,7 +285,7 @@ export function sanitizeFilter<T extends CommonFilter>(filter: T): Partial<T> {
     }
   }
 
-  return sanitized;
+  return sanitized as Partial<T>;
 }
 
 /**

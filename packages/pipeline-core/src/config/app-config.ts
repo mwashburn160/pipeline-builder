@@ -60,12 +60,12 @@ export class Config {
       server: {
         port: parseInt(process.env.PORT || '3000'),
         cors: {
-          credentials: process.env.CORS_CREDENTIALS === 'false' ? false : true,
+          credentials: process.env.CORS_CREDENTIALS !== 'false',
           origin: process.env.CORS_ORIGIN
             ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-            : '*',
+            : [process.env.PLATFORM_BASE_URL || 'https://localhost:8443'],
         },
-        trustProxy: parseInt(process.env.TRUST_PROXY || '0'),
+        trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
         platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
       },
       auth: {
@@ -172,54 +172,16 @@ export class Config {
   }
 
   /**
-   * Validate configuration for security issues
+   * Validate infrastructure configuration (runs on every Config.get() call)
    */
   static validate(config: AppConfig): void {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check for insecure secrets
-    const insecureSecrets = [
-      'secret',
-      'password',
-      'changeme',
-      'default',
-      '123456',
-      'admin',
-    ];
-
-    const jwtSecretLower = config.auth.jwt.secret.toLowerCase();
-    if (insecureSecrets.some(s => jwtSecretLower.includes(s))) {
-      errors.push('JWT secret appears to be insecure or default value');
-    }
-
-    const refreshSecretLower = config.auth.refreshToken.secret.toLowerCase();
-    if (insecureSecrets.some(s => refreshSecretLower.includes(s))) {
-      errors.push('Refresh token secret appears to be insecure or default value');
-    }
-
-    // Check secret length
-    if (config.auth.jwt.secret.length < 32) {
-      errors.push('JWT secret should be at least 32 characters long');
-    }
-
-    if (config.auth.refreshToken.secret.length < 32) {
-      errors.push('Refresh token secret should be at least 32 characters long');
-    }
-
     // Check CORS configuration
-    if (config.server.cors.origin === '*') {
+    const origin = config.server.cors.origin;
+    if (origin === '*' || (Array.isArray(origin) && origin.includes('*'))) {
       warnings.push('CORS origin set to wildcard (*) - consider restricting to specific domains');
-    }
-
-    // Check JWT expiration times
-    if (config.auth.jwt.expiresIn > 7200) {
-      warnings.push('JWT expiration time is greater than 2 hours - shorter expiration recommended');
-    }
-
-    // Check algorithm
-    if (!CoreConstants.ALLOWED_JWT_ALGORITHMS.includes(config.auth.jwt.algorithm)) {
-      errors.push(`JWT algorithm ${config.auth.jwt.algorithm} is not in the allowed list`);
     }
 
     // Check pool size
@@ -243,6 +205,68 @@ export class Config {
     if (errors.length > 0) {
       throw new Error(
         `Configuration validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`,
+      );
+    }
+  }
+
+  /**
+   * Validate auth configuration (JWT secrets, algorithms, expiration)
+   * Call this at server startup, not during CDK synthesis.
+   */
+  static validateAuth(config?: AppConfig): void {
+    const cfg = config ?? this.get();
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check for insecure secrets
+    const insecureSecrets = [
+      'secret',
+      'password',
+      'changeme',
+      'default',
+      '123456',
+      'admin',
+    ];
+
+    const jwtSecretLower = cfg.auth.jwt.secret.toLowerCase();
+    if (insecureSecrets.some(s => jwtSecretLower.includes(s))) {
+      errors.push('JWT secret appears to be insecure or default value');
+    }
+
+    const refreshSecretLower = cfg.auth.refreshToken.secret.toLowerCase();
+    if (insecureSecrets.some(s => refreshSecretLower.includes(s))) {
+      errors.push('Refresh token secret appears to be insecure or default value');
+    }
+
+    // Check secret length
+    if (cfg.auth.jwt.secret.length < 32) {
+      errors.push('JWT secret should be at least 32 characters long');
+    }
+
+    if (cfg.auth.refreshToken.secret.length < 32) {
+      errors.push('Refresh token secret should be at least 32 characters long');
+    }
+
+    // Check JWT expiration times
+    if (cfg.auth.jwt.expiresIn > 7200) {
+      warnings.push('JWT expiration time is greater than 2 hours - shorter expiration recommended');
+    }
+
+    // Check algorithm
+    if (!CoreConstants.ALLOWED_JWT_ALGORITHMS.includes(cfg.auth.jwt.algorithm)) {
+      errors.push(`JWT algorithm ${cfg.auth.jwt.algorithm} is not in the allowed list`);
+    }
+
+    // Display warnings
+    if (warnings.length > 0) {
+      log.warn('Auth configuration warnings:');
+      warnings.forEach(warning => log.warn(`  - ${warning}`));
+    }
+
+    // Throw errors
+    if (errors.length > 0) {
+      throw new Error(
+        `Auth configuration validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`,
       );
     }
   }

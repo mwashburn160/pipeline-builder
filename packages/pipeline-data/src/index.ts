@@ -14,7 +14,6 @@ export * from './database';
 
 // Query builders
 export * from './api/query-builders';
-export * from './api/typed-query-builders';
 
 // Filters
 export * from './core/query-filters';

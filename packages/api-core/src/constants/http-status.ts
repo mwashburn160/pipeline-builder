@@ -33,24 +33,3 @@ export const HttpStatus = {
  * Type for valid HTTP status codes.
  */
 export type HttpStatusCode = (typeof HttpStatus)[keyof typeof HttpStatus];
-
-/**
- * Check if a status code indicates success (2xx).
- */
-export function isSuccessStatus(statusCode: number): boolean {
-  return statusCode >= 200 && statusCode < 300;
-}
-
-/**
- * Check if a status code indicates a client error (4xx).
- */
-export function isClientError(statusCode: number): boolean {
-  return statusCode >= 400 && statusCode < 500;
-}
-
-/**
- * Check if a status code indicates a server error (5xx).
- */
-export function isServerError(statusCode: number): boolean {
-  return statusCode >= 500 && statusCode < 600;
-}

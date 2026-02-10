@@ -108,9 +108,6 @@ export function listPipelines(program: Command): void {
     .option('--pipeline-name <name>', 'Filter by exact pipeline name')
     .option('--pipeline-name-pattern <pattern>', 'Filter by pipeline name pattern (e.g., "deploy-*", "*-prod")')
 
-    // Legacy compatibility options
-    .option('--page <number>', '[Deprecated] Use --offset and --limit instead')
-
     // Output options
     .option('-f, --format <format>', 'Output format (json, yaml, table, csv)', 'table')
     .option('-o, --output <file>', 'Save output to file')
@@ -148,16 +145,8 @@ export function listPipelines(program: Command): void {
         }
 
         // Pagination
-        if (options.page) {
-          const page = validateNumber(options.page, 'page', 1);
-          const limit = validateNumber(options.limit, 'limit', 1, 1000);
-          filterParams.limit = limit;
-          filterParams.offset = (page - 1) * limit;
-          printWarning('--page is deprecated, using calculated offset. Consider using --offset directly');
-        } else {
-          filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
-          filterParams.offset = validateNumber(options.offset, 'offset', 0);
-        }
+        filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
+        filterParams.offset = validateNumber(options.offset, 'offset', 0);
 
         // Sort
         if (options.sort) {

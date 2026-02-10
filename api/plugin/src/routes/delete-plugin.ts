@@ -10,7 +10,7 @@
  *   - Regular users: can delete private plugins only
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { db, schema, buildPluginConditions } from '@mwashburn160/pipeline-core';
 import { and } from 'drizzle-orm';
@@ -48,12 +48,7 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
         ctx.log('INFO', 'Non-system-admin denied deletion of non-private plugin', {
           id, accessModifier: existing.accessModifier,
         });
-        return res.status(403).json({
-          success: false,
-          statusCode: 403,
-          error: 'Only system admins can delete public plugins.',
-          code: ErrorCode.INSUFFICIENT_PERMISSIONS,
-        });
+        return sendError(res, 403, 'Only system admins can delete public plugins.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
       await db

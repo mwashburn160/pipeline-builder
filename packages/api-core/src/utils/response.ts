@@ -5,7 +5,7 @@
 
 import { Response } from 'express';
 import { QuotaInfo } from '../types/common';
-import { ErrorCode, ErrorCodeStatus } from '../types/error-codes';
+import { ErrorCode } from '../types/error-codes';
 
 /**
  * Send a standardized success response.
@@ -131,31 +131,6 @@ export function sendQuotaExceeded(
     code: ErrorCode.QUOTA_EXCEEDED,
     quota,
   });
-}
-
-/**
- * Send an error using an ErrorCode enum value.
- * Automatically determines the HTTP status code.
- *
- * @param res - Express response object
- * @param code - Error code from ErrorCode enum
- * @param message - Error message
- * @param details - Optional additional details
- *
- * @example
- * ```typescript
- * sendErrorByCode(res, ErrorCode.NOT_FOUND, 'Plugin not found');
- * sendErrorByCode(res, ErrorCode.VALIDATION_ERROR, 'Invalid name', { field: 'name' });
- * ```
- */
-export function sendErrorByCode(
-  res: Response,
-  code: ErrorCode,
-  message: string,
-  details?: unknown,
-): void {
-  const statusCode = ErrorCodeStatus[code] || 500;
-  sendError(res, statusCode, message, code, details);
 }
 
 /**

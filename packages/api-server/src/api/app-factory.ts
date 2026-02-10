@@ -84,12 +84,12 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   const app = express();
 
   // Security middleware
-  if (enableCors) {
-    app.use(cors(config.server.cors));
-  }
-
   if (enableHelmet) {
     app.use(helmet({ contentSecurityPolicy: false }));
+  }
+
+  if (enableCors) {
+    app.use(cors(config.server.cors));
   }
 
   // Body parsing
@@ -100,6 +100,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   if (enableUrlEncoded) {
     app.use(express.urlencoded({ extended: true, limit: urlEncodedLimit }));
   }
+
+  // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
+  app.set('trust proxy', config.server.trustProxy);
 
   // Rate limiting
   if (enableRateLimit) {
@@ -112,9 +115,6 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     });
     app.use(limiter);
   }
-
-  // Trust proxy
-  app.set('trust proxy', config.server.trustProxy);
 
   // Default PostgreSQL health/metrics endpoints (skipped when service provides its own)
   if (!skipDefaultHealthCheck) {

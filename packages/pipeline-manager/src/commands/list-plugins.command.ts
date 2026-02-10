@@ -102,10 +102,6 @@ export function listPlugins(program: Command): void {
     .option('--version-max <version>', 'Maximum version (inclusive)')
     .option('--image-tag <tag>', 'Filter by Docker image tag')
 
-    // Legacy compatibility options
-    .option('--is-public <boolean>', '[Deprecated] Use --access-modifier instead')
-    .option('--page <number>', '[Deprecated] Use --offset and --limit instead')
-
     // Output options
     .option('-f, --format <format>', 'Output format (json, yaml, table, csv)', 'table')
     .option('-o, --output <file>', 'Save output to file')
@@ -132,10 +128,6 @@ export function listPlugins(program: Command): void {
 
         if (options.accessModifier) {
           filterParams.accessModifier = options.accessModifier;
-        } else if (options.isPublic !== undefined) {
-          const isPublic = validateBoolean(options.isPublic, 'is-public');
-          filterParams.accessModifier = isPublic ? 'public' : 'private';
-          printWarning('--is-public is deprecated, use --access-modifier public/private instead');
         }
 
         if (options.isDefault !== undefined) {
@@ -147,16 +139,8 @@ export function listPlugins(program: Command): void {
         }
 
         // Pagination
-        if (options.page) {
-          const page = validateNumber(options.page, 'page', 1);
-          const limit = validateNumber(options.limit, 'limit', 1, 1000);
-          filterParams.limit = limit;
-          filterParams.offset = (page - 1) * limit;
-          printWarning('--page is deprecated, using calculated offset. Consider using --offset directly');
-        } else {
-          filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
-          filterParams.offset = validateNumber(options.offset, 'offset', 0);
-        }
+        filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
+        filterParams.offset = validateNumber(options.offset, 'offset', 0);
 
         // Sort
         if (options.sort) {
