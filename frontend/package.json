@@ -28,9 +28,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.13.1",
-    "@mwashburn160/api-server": "1.11.4",
-    "@mwashburn160/pipeline-core": "1.14.3",
+    "@mwashburn160/api-core": "1.13.5",
+    "@mwashburn160/api-server": "1.11.5",
+    "@mwashburn160/pipeline-core": "1.14.5",
     "clsx": "^2.1.1",
     "framer-motion": "12.34.0",
     "lucide-react": "0.563.0",

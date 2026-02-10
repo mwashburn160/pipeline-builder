@@ -35,8 +35,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.13.1",
-    "@mwashburn160/pipeline-data": "1.14.2",
+    "@mwashburn160/api-core": "1.13.5",
+    "@mwashburn160/pipeline-data": "1.14.5",
     "aws-cdk-lib": "2.237.0",
     "axios": "1.13.3",
     "constructs": "10.4.5",
