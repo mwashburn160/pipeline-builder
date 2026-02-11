@@ -22,28 +22,21 @@ Pipeline Builder is a type-safe, plugin-based construct library that simplifies 
 
 ## Overview
 
-Pipeline Builder is a **100% AWS CDK Construct library** for building CodePipeline infrastructure as code. This is fundamentally a construct library, not a SaaS platform or managed service.
+### 100% AWS Construct Solution
 
-### Why 100% AWS Construct?
+Pipeline Builder is not a "Black Box" SaaS. It is an Infrastructure-as-Code (IaC) library.
 
-✅ **Pure Infrastructure as Code** - The `PipelineBuilder` construct creates actual AWS CodePipeline infrastructure in your AWS account
-✅ **Standard CDK Workflow** - Install the library, import constructs, define pipelines in TypeScript, deploy with `cdk deploy`
-✅ **Direct AWS Resource Creation** - Generates CloudFormation templates that provision CodePipeline, CodeBuild, S3, and IAM resources
-✅ **Type-Safe Configuration** - Full TypeScript type safety with fluent builder API for readable pipeline definitions
-✅ **AWS Native** - Builds on AWS CDK best practices and integrates seamlessly with existing CDK applications
+- **Full Ownership**: Everything runs in your AWS account. No third-party servers ever touch your code or credentials.
+- **Native Integration**: Synthesizes directly to standard AWS CloudFormation. You can view, debug, and manage your resources in the AWS Console.
+- **No Vendor Lock-in**: Because it generates standard AWS resources, you can migrate to raw CDK at any time.
 
-### Core Capabilities
+### Plugin-First Reusability
 
-- **Build AWS CodePipelines programmatically** using TypeScript/JavaScript with a fluent, type-safe API
-- **Define pipeline infrastructure** using AWS CDK constructs and best practices
-- **Create reusable plugins** for standardized build steps (synth, test, deploy, etc.)
-- **Leverage metadata-driven configuration** for flexible pipeline definitions
-- **Support multiple source types** including GitHub, CodeStar connections, and S3
-- **Deploy pipelines to AWS** using standard CDK deployment workflows
+Define build logic once (e.g., "Standard-Java-Build") and reuse it across hundreds of pipelines. Update a plugin version to roll out CI/CD improvements organization-wide.
 
-### Optional Supporting Services
+### Type-Safe Metadata Engine
 
-The library includes optional supporting infrastructure (REST APIs, databases, web UI) for storing and managing pipeline configurations as reusable templates. These services are **not required** to use Pipeline Builder - the core value is the **AWS CDK construct library** that transforms configuration into deployed AWS CodePipeline infrastructure.
+Use MetadataKeys to override granular settings (IAM roles, VPCs, Compute Types) with full TypeScript IntelliSense, ensuring your pipeline is valid before you even run cdk synth.
 
 ## Architecture
 
@@ -101,16 +94,16 @@ The library includes optional supporting services for storing and managing pipel
                         │           PostgreSQL Database             │
                         │    (Pipelines, Plugins, Users, Orgs)      │
                         └───────────────────────────────────────────┘
-         │
-    ┌────▼────┐
-    │  Quota  │
-    │ Service │
-    └────┬────┘
-         │
-    ┌────▼────────┐
-    │   MongoDB   │
-    │   (Quotas)  │
-    └─────────────┘
+                                          │
+                                     ┌────▼────┐
+                                     │  Quota  │
+                                     │ Service │
+                                     └────┬────┘
+                                          │
+                                     ┌────▼────────┐
+                                     │   MongoDB   │
+                                     │   (Quotas)  │
+                                     └─────────────┘
 ```
 
 **Note**: The supporting services provide optional configuration storage and management capabilities, but the core solution is the **AWS CDK construct library** that creates CodePipeline infrastructure.
