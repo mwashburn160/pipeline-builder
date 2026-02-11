@@ -1,3 +1,13 @@
+## 1.13.6 (2026-02-11)
+
+### 🩹 Fixes
+
+- version ([f5f90f8](https://github.com/mwashburn160/pipeline-builder/commit/f5f90f8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.5 (2026-02-11)
 
 ### 🩹 Fixes
