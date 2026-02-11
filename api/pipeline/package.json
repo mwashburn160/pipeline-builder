@@ -37,7 +37,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-core": "1.14.0",
     "@mwashburn160/api-server": "workspace:*",
     "@mwashburn160/pipeline-core": "workspace:*",
     "cors": "2.8.6",
@@ -57,7 +57,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.8.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
