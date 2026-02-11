@@ -72,40 +72,6 @@ Use MetadataKeys to override granular settings (IAM roles, VPCs, Compute Types) 
                     │  └────────────────┘  │
                     └──────────────────────┘
 ```
-
-### Supporting Infrastructure (Configuration Management)
-
-The library includes optional supporting services for storing and managing pipeline configurations:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          NGINX Reverse Proxy                        │
-│                    (SSL/TLS, JWT Auth, Load Balancing)              │
-└────────┬───────────────────┬──────────────────┬──────────────┬──────┘
-         │                   │                  │              │
-         │                   │                  │              │
-    ┌────▼────┐         ┌────▼────┐      ┌─────▼─────┐   ┌───▼────┐
-    │Frontend │         │Platform │      │  Plugin   │   │Pipeline│
-    │ (Next.js│         │ Service │      │  Service  │   │Service │
-    │  React) │         │         │      │           │   │        │
-    └─────────┘         └────┬────┘      └─────┬─────┘   └────┬───┘
-                             │                  │              │
-                        ┌────▼──────────────────▼──────────────▼────┐
-                        │           PostgreSQL Database             │
-                        │    (Pipelines, Plugins, Users, Orgs)      │
-                        └───────────────────────────────────────────┘
-                                          │
-                                     ┌────▼────┐
-                                     │  Quota  │
-                                     │ Service │
-                                     └────┬────┘
-                                          │
-                                     ┌────▼────────┐
-                                     │   MongoDB   │
-                                     │   (Quotas)  │
-                                     └─────────────┘
-```
-
 **Note**: The supporting services provide optional configuration storage and management capabilities, but the core solution is the **AWS CDK construct library** that creates CodePipeline infrastructure.
 
 ### Component Responsibilities
