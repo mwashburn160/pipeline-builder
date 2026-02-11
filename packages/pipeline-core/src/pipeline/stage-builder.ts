@@ -8,6 +8,26 @@ import { createCodeBuildStep, merge } from '../core/pipeline-helpers';
 import type { MetaDataType } from '../core/pipeline-types';
 
 /**
+ * Configuration properties for the StageBuilder
+ */
+export interface StageBuilderProps {
+  /** CDK construct scope for creating child constructs */
+  readonly scope: Construct;
+
+  /** Plugin lookup service for resolving plugin references to CDK constructs */
+  readonly pluginLookup: PluginLookup;
+
+  /** Unique ID generator for creating deterministic construct IDs */
+  readonly uniqueId: UniqueId;
+
+  /** Global metadata inherited by all stage steps */
+  readonly globalMetadata: MetaDataType;
+
+  /** Default CodeBuild compute type for steps that don't specify one */
+  readonly defaultComputeType?: CdkComputeType;
+}
+
+/**
  * Builds and adds pipeline stages (waves) to a CodePipeline.
  *
  * Each stage is resolved from high-level configuration (plugin names)
@@ -15,7 +35,12 @@ import type { MetaDataType } from '../core/pipeline-types';
  *
  * @example
  * ```typescript
- * const stageBuilder = new StageBuilder(this, pluginLookup, uniqueId, mergedMetadata);
+ * const stageBuilder = new StageBuilder({
+ *   scope: this,
+ *   pluginLookup,
+ *   uniqueId,
+ *   globalMetadata: mergedMetadata,
+ * });
  * stageBuilder.addStage(pipeline, {
  *   stageName: 'Integration Tests',
  *   alias: 'integration',
@@ -27,13 +52,19 @@ import type { MetaDataType } from '../core/pipeline-types';
  * ```
  */
 export class StageBuilder {
-  constructor(
-    private readonly scope: Construct,
-    private readonly pluginLookup: PluginLookup,
-    private readonly uniqueId: UniqueId,
-    private readonly globalMetadata: MetaDataType,
-    private readonly defaultComputeType?: CdkComputeType,
-  ) {}
+  private readonly scope: Construct;
+  private readonly pluginLookup: PluginLookup;
+  private readonly uniqueId: UniqueId;
+  private readonly globalMetadata: MetaDataType;
+  private readonly defaultComputeType?: CdkComputeType;
+
+  constructor(props: StageBuilderProps) {
+    this.scope = props.scope;
+    this.pluginLookup = props.pluginLookup;
+    this.uniqueId = props.uniqueId;
+    this.globalMetadata = props.globalMetadata;
+    this.defaultComputeType = props.defaultComputeType;
+  }
 
   /**
    * Resolves a stage's plugin-based step configs into CodeBuild steps

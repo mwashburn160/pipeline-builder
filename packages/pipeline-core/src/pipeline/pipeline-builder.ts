@@ -140,9 +140,13 @@ export class PipelineBuilder extends Construct {
 
     // Add stages as waves via StageBuilder
     if (props.stages) {
-      const stageBuilder = new StageBuilder(
-        this, pluginLookup, uniqueId, this.config.metadata.merged, defaultComputeType,
-      );
+      const stageBuilder = new StageBuilder({
+        scope: this,
+        pluginLookup,
+        uniqueId,
+        globalMetadata: this.config.metadata.merged,
+        defaultComputeType,
+      });
       stageBuilder.addStages(this.pipeline, props.stages);
     }
 
