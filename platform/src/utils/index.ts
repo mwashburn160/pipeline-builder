@@ -1,10 +1,10 @@
 /**
  * @module utils
  * @description Utility functions and services for the platform.
- * Includes logging, HTTP responses, JWT tokens, email, and service clients.
+ * Includes HTTP responses, JWT tokens, email, and service clients.
+ * Note: Logging now uses createLogger from @mwashburn160/api-core
  */
 
-export { default as logger } from './logger';
 export * from './response';
 export * from './token';
 export { emailService } from './email';

@@ -12,7 +12,7 @@
 
 import * as fs from 'fs';
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendError } from '@mwashburn160/api-core';
 import { authenticateToken, createRequestContext, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
@@ -62,12 +62,7 @@ export function createUploadPluginRoutes(
         // Only admins (system or org) can upload plugins
         if (ctx.identity.role !== 'admin') {
           ctx.log('INFO', 'Non-admin denied plugin upload');
-          return res.status(403).json({
-            success: false,
-            statusCode: 403,
-            error: 'Only administrators can upload plugins.',
-            code: ErrorCode.INSUFFICIENT_PERMISSIONS,
-          });
+          return sendError(res, 403, 'Only administrators can upload plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
         const orgId = ctx.identity.orgId!.toLowerCase();

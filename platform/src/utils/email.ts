@@ -1,8 +1,10 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import { createLogger } from '@mwashburn160/api-core';
 import nodemailer, { Transporter } from 'nodemailer';
 import { config } from '../config';
+
+const logger = createLogger('platform-api');
 import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';
-import logger from './logger';
 
 /**
  * Email options interface

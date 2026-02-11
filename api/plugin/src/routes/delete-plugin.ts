@@ -12,10 +12,9 @@
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
-import { db, schema, buildPluginConditions } from '@mwashburn160/pipeline-core';
-import { and } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
 import { sendPluginNotFound } from '../helpers/plugin-helpers';
+import { pluginService } from '../services/plugin-service';
 
 /**
  * Register the DELETE route on a router.
@@ -35,11 +34,7 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
     ctx.log('INFO', 'Plugin delete request received', { id });
 
     try {
-      const conditions = buildPluginConditions({ id }, ctx.identity.orgId!);
-      const [existing] = await db
-        .select()
-        .from(schema.plugin)
-        .where(and(...conditions));
+      const existing = await pluginService.findById(id, ctx.identity.orgId!);
 
       if (!existing) return sendPluginNotFound(res);
 
@@ -51,9 +46,7 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
         return sendError(res, 403, 'Only system admins can delete public plugins.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
-      await db
-        .delete(schema.plugin)
-        .where(and(...conditions));
+      await pluginService.delete(id, ctx.identity.orgId!, ctx.identity.userId || 'system');
 
       ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name });
 

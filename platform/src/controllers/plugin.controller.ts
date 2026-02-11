@@ -1,13 +1,13 @@
+import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
+import { getAuthContext } from '../helpers/controller-helper';
 import {
-  logger,
-  sendError,
-  sendSuccess,
   pluginService,
   PluginServiceError,
   PluginFilter,
 } from '../utils';
-import { getAuthContext } from './helpers';
+
+const logger = createLogger('PluginController');
 
 /**
  * Build plugin filter from request query parameters.
@@ -108,7 +108,7 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
       pluginName: plugin.name,
     });
 
-    sendSuccess(res, plugin);
+    sendSuccess(res, 200, plugin);
   } catch (err) {
     logger.error('[GET PLUGIN] Failed:', err);
     handleError(res, err, 'get plugin');
@@ -144,7 +144,7 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
       pluginName: plugin.name,
     });
 
-    sendSuccess(res, plugin);
+    sendSuccess(res, 200, plugin);
   } catch (err) {
     logger.error('[GET PLUGIN] Search failed:', err);
     handleError(res, err, 'get plugin');

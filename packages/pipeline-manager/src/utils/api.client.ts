@@ -117,17 +117,17 @@ export class ApiClient {
     }
   }
 
-  async get<T = any>(url: string, params?: Record<string, any>, headers?: Record<string, string>): Promise<T> {
+  async get<T = unknown>(url: string, params?: Record<string, unknown>, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.get<T>(url, { params, headers });
     return response.data;
   }
 
-  async post<T = any>(url: string, data?: any, headers?: Record<string, string>): Promise<T> {
+  async post<T = unknown>(url: string, data?: unknown, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.post<T>(url, data, { headers });
     return response.data;
   }
 
-  async postForm<T = any>(url: string, formData: FormData, headers?: Record<string, string>): Promise<T> {
+  async postForm<T = unknown>(url: string, formData: FormData, headers?: Record<string, string>): Promise<T> {
     const uploadTimeout = this.config.api.uploadTimeout || 15 * 60 * 1000; // default 15 minutes
     const response = await this.client.post<T>(url, formData, {
       headers: { ...formData.getHeaders(), ...headers },
@@ -138,17 +138,17 @@ export class ApiClient {
     return response.data;
   }
 
-  async put<T = any>(url: string, data?: any, headers?: Record<string, string>): Promise<T> {
+  async put<T = unknown>(url: string, data?: unknown, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.put<T>(url, data, { headers });
     return response.data;
   }
 
-  async delete<T = any>(url: string, headers?: Record<string, string>): Promise<T> {
+  async delete<T = unknown>(url: string, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.delete<T>(url, { headers });
     return response.data;
   }
 
-  async patch<T = any>(url: string, data?: any, headers?: Record<string, string>): Promise<T> {
+  async patch<T = unknown>(url: string, data?: unknown, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.patch<T>(url, data, { headers });
     return response.data;
   }

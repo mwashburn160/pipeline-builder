@@ -13,8 +13,7 @@
  */
 
 import { createLogger } from '@mwashburn160/api-core';
-import { createApp, runServer, authenticateToken, createQuotaService, checkQuota, requireOrgId } from '@mwashburn160/api-server';
-import { RequestHandler } from 'express';
+import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createReadPluginRoutes } from './routes/read-plugins';
@@ -25,19 +24,17 @@ const logger = createLogger('plugin');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp();
 
-// -- Shared middleware for authenticated routes --------------------------------
-const auth: RequestHandler = authenticateToken as RequestHandler;
-const orgId: RequestHandler = requireOrgId(sseManager);
-const apiQuota: RequestHandler = checkQuota(quotaService, sseManager, 'apiCalls') as RequestHandler;
+// -- Attach request context to all requests -----------------------------------
+app.use(attachRequestContext(sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/plugins', auth, orgId, apiQuota, createReadPluginRoutes(sseManager, quotaService));
+app.use('/plugins', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPluginRoutes(sseManager, quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/plugins', auth, orgId, createUpdatePluginRoutes(sseManager));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePluginRoutes(sseManager));
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/plugins', auth, orgId, createDeletePluginRoutes(sseManager));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePluginRoutes(sseManager));
 
 // -- Upload route — manages its own middleware (multer → auth → plugins quota)
 app.use('/plugins', createUploadPluginRoutes(sseManager, quotaService));

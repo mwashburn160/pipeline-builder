@@ -43,7 +43,7 @@ async function populateRequestUser(req: Request, user: UserLike): Promise<void> 
     organizationName = org?.name;
   }
 
-  req.user = {
+  (req.user as any) = {
     sub: user._id.toString(),
     username: user.username,
     email: user.email,
@@ -159,7 +159,7 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
   const orgId = req.params.orgId || req.body.organizationId;
 
   if (!req.user?.organizationId || req.user.organizationId !== orgId) {
-    if (!req.user?.isAdmin) {
+    if (req.user?.role !== 'admin') {
       return sendForbidden(res, 'You do not belong to this organization');
     }
   }

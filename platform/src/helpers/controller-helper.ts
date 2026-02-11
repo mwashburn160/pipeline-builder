@@ -4,9 +4,11 @@
  * authorization, error handling, and request parsing.
  */
 
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import { logger, sendError } from '../utils';
+
+const logger = createLogger('platform-api');
 
 // ============================================================================
 // Auth Helpers

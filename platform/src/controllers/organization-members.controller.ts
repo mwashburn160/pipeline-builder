@@ -3,17 +3,25 @@
  * @description Organization member management and ownership transfer.
  */
 
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import { Organization, User } from '../models';
-import { logger, sendError, validateBody, addMemberSchema, updateMemberRoleSchema, transferOwnershipSchema } from '../utils';
 import {
   isSystemAdmin,
   requireAuth,
   getAdminContext,
   handleTransactionError,
   toOrgId,
-} from './helpers';
+} from '../helpers/controller-helper';
+import { Organization, User } from '../models';
+import { validateBody } from '../utils/auth-utils';
+import {
+  addMemberSchema,
+  updateMemberRoleSchema,
+  transferOwnershipSchema,
+} from '../validation/schemas';
+
+const logger = createLogger('OrganizationMembersController');
 
 // ============================================================================
 // Member Management (Admin endpoints)
@@ -239,7 +247,8 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
       return sendError(res, 404, 'User not found');
     }
 
-    user.role = body.role;
+    // Map organization role to user role ('member' -> 'user', 'admin' -> 'admin')
+    user.role = body.role === 'member' ? 'user' : 'admin';
     await user.save();
 
     logger.info(`[UPDATE MEMBER ROLE] User ${userId} role updated to ${body.role} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);

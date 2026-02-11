@@ -1,3 +1,6 @@
+
+const logger = createLogger('platform-api');
+
 /**
  * @module middleware/quota
  * @description Quota service utilities for organization quota management.
@@ -8,8 +11,8 @@
  */
 
 import * as http from 'http';
+import { createLogger } from '@mwashburn160/api-core';
 import { config } from '../config';
-import logger from '../utils/logger';
 
 // =============================================================================
 // Types

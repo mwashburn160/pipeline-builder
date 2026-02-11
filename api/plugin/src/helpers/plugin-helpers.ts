@@ -6,9 +6,17 @@
  * normalization, and standardised error responses.
  */
 
-import { ErrorCode } from '@mwashburn160/api-core';
-import { schema, validatePluginFilter } from '@mwashburn160/pipeline-core';
-import type { PluginFilter } from '@mwashburn160/pipeline-core';
+import {
+  normalizeArrayFields,
+  createOrderByResolver,
+  sendEntityNotFound,
+  initUpdateData,
+  validateAccessModifier,
+  validateQuery,
+  PluginFilterSchema,
+  ValidationResult,
+} from '@mwashburn160/api-core';
+import { schema } from '@mwashburn160/pipeline-core';
 import { asc, desc } from 'drizzle-orm';
 import { Request, Response } from 'express';
 
@@ -21,12 +29,7 @@ import { Request, Response } from 'express';
  * Ensures jsonb array fields are always arrays (guards against bad data).
  */
 export function normalizePlugin<T extends Record<string, unknown>>(record: T): T {
-  return {
-    ...record,
-    keywords: Array.isArray(record.keywords) ? record.keywords : [],
-    installCommands: Array.isArray(record.installCommands) ? record.installCommands : [],
-    commands: Array.isArray(record.commands) ? record.commands : [],
-  };
+  return normalizeArrayFields(record, ['keywords', 'installCommands', 'commands']);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +63,7 @@ export function buildUpdateData(
   body: PluginUpdateBody,
   userId: string,
 ): { data: Record<string, unknown>; error?: string } {
-  const data: Record<string, unknown> = {
-    updatedAt: new Date(),
-    updatedBy: userId || 'system',
-  };
+  const data = initUpdateData(userId);
 
   if (body.name !== undefined) data.name = body.name;
   if (body.description !== undefined) data.description = body.description;
@@ -82,8 +82,9 @@ export function buildUpdateData(
   if (body.isDefault !== undefined) data.isDefault = Boolean(body.isDefault);
 
   if (body.accessModifier !== undefined) {
-    if (!['public', 'private'].includes(body.accessModifier)) {
-      return { data, error: 'accessModifier must be "public" or "private"' };
+    const validation = validateAccessModifier(body.accessModifier);
+    if (!validation.valid) {
+      return { data, error: validation.error };
     }
     data.accessModifier = body.accessModifier;
   }
@@ -105,31 +106,27 @@ const SORTABLE_COLUMNS = {
   isDefault: schema.plugin.isDefault,
 } as const;
 
-type SortableColumn = keyof typeof SORTABLE_COLUMNS;
-
 /** Resolve a sort column + direction into a Drizzle `orderBy` clause. */
-export function resolveOrderBy(sortBy: string, sortOrder: 'asc' | 'desc') {
-  const column = SORTABLE_COLUMNS[sortBy as SortableColumn] ?? schema.plugin.createdAt;
-  return (sortOrder === 'asc' ? asc : desc)(column);
-}
+export const resolveOrderBy = createOrderByResolver(
+  SORTABLE_COLUMNS,
+  schema.plugin.createdAt,
+  asc,
+  desc,
+);
 
 // ---------------------------------------------------------------------------
-// Filter validation
+// Filter validation (Zod-based)
 // ---------------------------------------------------------------------------
 
-type FilterResult =
-  | { ok: true; value: Partial<PluginFilter> }
-  | { ok: false; error: string };
-
-/** Validate plugin filter params from query string. */
-export function validateFilter(req: Request): FilterResult {
-  const filter = req.query as unknown as Partial<PluginFilter>;
-  try {
-    validatePluginFilter(filter as PluginFilter);
-    return { ok: true, value: filter };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Invalid filter' };
-  }
+/**
+ * Validate plugin filter params from query string using Zod schema.
+ * Provides runtime type-safe validation with automatic type coercion.
+ *
+ * @param req - Express request with query parameters
+ * @returns Validation result with parsed filter or error message
+ */
+export function validateFilter(req: Request): ValidationResult<any> {
+  return validateQuery(req, PluginFilterSchema);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,5 +135,5 @@ export function validateFilter(req: Request): FilterResult {
 
 /** Send a 404 "plugin not found" response. */
 export function sendPluginNotFound(res: Response): Response {
-  return res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.', code: ErrorCode.NOT_FOUND });
+  return sendEntityNotFound(res, 'Plugin');
 }

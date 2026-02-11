@@ -2,30 +2,24 @@ import { createLogger } from '@mwashburn160/api-core';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, PoolConfig, PoolClient } from 'pg';
 import { schema } from './drizzle-schema';
+import { ConnectionRetryStrategy } from './retry-strategy';
 
 const log = createLogger('Database');
 
 /**
  * Get database configuration from environment variables
- * Supports both naming conventions:
- * - DB_* (used by docker-compose)
+ * Note: Uses environment variables directly to avoid circular dependency with pipeline-core
  */
 function getDatabaseConfig() {
   return {
-    database: {
-      postgres: {
-        host: process.env.DB_HOST || 'postgres',
-        port: parseInt(process.env.DB_PORT || '5432'),
-        database: process.env.DATABASE || 'pipeline-builder',
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || 'password',
-      },
-      drizzle: {
-        maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
-        idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
-        connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000'),
-      },
-    },
+    host: process.env.DB_HOST || 'postgres',
+    port: parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DATABASE || 'pipeline-builder',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
+    idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
+    connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000'),
   };
 }
 
@@ -91,8 +85,8 @@ export class Connection {
 
   private readonly pool: Pool;
   private readonly options: Required<ConnectionOptions>;
+  private readonly retryStrategy: ConnectionRetryStrategy;
   private isShuttingDown = false;
-  private connectionAttempts = 0;
 
   /**
    * Private constructor to enforce singleton pattern.
@@ -110,18 +104,24 @@ export class Connection {
       ssl: options.ssl ?? false,
     };
 
+    // Initialize retry strategy
+    this.retryStrategy = new ConnectionRetryStrategy({
+      maxRetries: this.options.maxRetries,
+      baseDelay: this.options.retryDelay,
+    });
+
     try {
       const config = getDatabaseConfig();
 
       const poolConfig: PoolConfig = {
-        host: config.database.postgres.host,
-        port: config.database.postgres.port,
-        database: config.database.postgres.database,
-        user: config.database.postgres.user,
-        password: config.database.postgres.password,
-        max: config.database.drizzle.maxPoolSize,
-        idleTimeoutMillis: config.database.drizzle.idleTimeoutMillis,
-        connectionTimeoutMillis: config.database.drizzle.connectionTimeoutMillis,
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        user: config.user,
+        password: config.password,
+        max: config.maxPoolSize,
+        idleTimeoutMillis: config.idleTimeoutMillis,
+        connectionTimeoutMillis: config.connectionTimeoutMillis,
         ssl: this.options.ssl,
       };
 
@@ -302,15 +302,15 @@ export class Connection {
     this.pool.on('error', (err) => {
       log.error('Unexpected error on idle client:', err);
 
-      if (this.options.enableAutoRetry && this.connectionAttempts < this.options.maxRetries) {
-        void this.handleConnectionError(err).catch((retryErr) => {
+      if (this.options.enableAutoRetry && this.retryStrategy.getAttempts() < this.options.maxRetries) {
+        void this.retryStrategy.handleConnectionError(err, () => this.testConnection()).catch((retryErr) => {
           log.error('Connection retry error:', retryErr);
         });
       }
     });
 
     this.pool.on('connect', () => {
-      this.connectionAttempts = 0; // Reset on successful connection
+      this.retryStrategy.reset(); // Reset on successful connection
 
       if (this.options.enableLogging) {
         log.debug('New database connection established');
@@ -326,34 +326,6 @@ export class Connection {
         log.debug('Client removed from pool');
       }
     });
-  }
-
-  /**
-   * Handles connection errors with retry logic
-   */
-  private async handleConnectionError(error: Error): Promise<void> {
-    this.connectionAttempts++;
-
-    log.error(
-      `Connection error (attempt ${this.connectionAttempts}/${this.options.maxRetries}):`,
-      error.message,
-    );
-
-    if (this.connectionAttempts < this.options.maxRetries) {
-      const delay = this.options.retryDelay * this.connectionAttempts;
-      log.info(`Retrying connection in ${delay}ms...`);
-
-      await new Promise(resolve => setTimeout(resolve, delay));
-
-      try {
-        await this.testConnection();
-        log.info('Connection restored');
-      } catch (retryError) {
-        log.error('Retry failed:', retryError);
-      }
-    } else {
-      log.error('Max connection retry attempts reached');
-    }
   }
 
   /**

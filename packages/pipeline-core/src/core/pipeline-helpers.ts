@@ -77,6 +77,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     id, plugin, input, metadata, network, scope,
     preInstallCommands, postInstallCommands, preCommands, postCommands,
     env: customEnv,
+    artifactManager, stageName, stageAlias, pluginAlias,
   } = options;
 
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
@@ -108,7 +109,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     : {};
 
   // Metadata spread last so it can override programmatic defaults
-  return new CodeBuildStep(id, {
+  const step = new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
@@ -119,6 +120,22 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     },
     ...metadataBuilder.forCodeBuildStep(),
   });
+
+  // Register with artifact manager if primaryOutputDirectory is set
+  if (plugin.primaryOutputDirectory && artifactManager && stageName) {
+    artifactManager.add(
+      {
+        stageName,
+        stageAlias: stageAlias ?? `${stageName}-alias`,
+        pluginName: plugin.name,
+        pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
+      },
+      step,
+      'primary',
+    );
+  }
+
+  return step;
 }
 
 /**

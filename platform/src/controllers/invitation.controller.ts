@@ -1,10 +1,15 @@
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
+import { requireOrgMembership, handleTransactionError } from '../helpers/controller-helper';
 import { Invitation, IInvitation, Organization, IOrganization, User, IUser } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation.model';
-import { logger, sendError, emailService, validateBody, sendInvitationSchema } from '../utils';
-import { requireOrgMembership, handleTransactionError } from './helpers';
+import { validateBody } from '../utils/auth-utils';
+import { emailService } from '../utils/email';
+import { sendInvitationSchema } from '../validation/schemas';
+
+const logger = createLogger('InvitationController');
 
 // ============================================================================
 // Invitation Helpers
@@ -76,7 +81,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
       const org = await Organization.findById(orgId).session(session);
       if (!org) throw new Error('ORGANIZATION_NOT_FOUND');
 
-      if (org.owner.toString() !== inviterId && !req.user?.isAdmin) {
+      if (org.owner.toString() !== inviterId && req.user?.role !== 'admin') {
         throw new Error('UNAUTHORIZED');
       }
 
@@ -491,7 +496,7 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
     }
 
     const org = await Organization.findById(orgId);
-    if (!org || (org.owner.toString() !== req.user!.sub && !req.user!.isAdmin)) {
+    if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
       return sendError(res, 403, 'You are not authorized to revoke invitations');
     }
 
@@ -524,7 +529,7 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
     }
 
     const org = await Organization.findById(orgId);
-    if (!org || (org.owner.toString() !== req.user!.sub && !req.user!.isAdmin)) {
+    if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
       return sendError(res, 403, 'You are not authorized to resend invitations');
     }
 

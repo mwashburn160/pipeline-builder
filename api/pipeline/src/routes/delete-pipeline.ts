@@ -12,10 +12,9 @@
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
-import { db, schema, buildPipelineConditions } from '@mwashburn160/pipeline-core';
-import { and } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
 import { sendPipelineNotFound } from '../helpers/pipeline-helpers';
+import { pipelineService } from '../services/pipeline-service';
 
 /**
  * Register the DELETE route on a router.
@@ -35,11 +34,7 @@ export function createDeletePipelineRoutes(sseManager: SSEManager): Router {
     ctx.log('INFO', 'Pipeline delete request received', { id });
 
     try {
-      const conditions = buildPipelineConditions({ id }, ctx.identity.orgId!);
-      const [existing] = await db
-        .select()
-        .from(schema.pipeline)
-        .where(and(...conditions));
+      const existing = await pipelineService.findById(id, ctx.identity.orgId!);
 
       if (!existing) return sendPipelineNotFound(res);
 
@@ -51,9 +46,7 @@ export function createDeletePipelineRoutes(sseManager: SSEManager): Router {
         return sendError(res, 403, 'Only system admins can delete public pipelines.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
-      await db
-        .delete(schema.pipeline)
-        .where(and(...conditions));
+      await pipelineService.delete(id, ctx.identity.orgId!, ctx.identity.userId || 'system');
 
       ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
 

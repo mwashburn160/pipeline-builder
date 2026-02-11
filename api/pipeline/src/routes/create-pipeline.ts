@@ -8,22 +8,13 @@
  * project/organization to non-default before inserting the new one.
  */
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError } from '@mwashburn160/api-core';
-import { createRequestContext, authenticateToken, checkQuota, requireOrgId, SSEManager, QuotaService } from '@mwashburn160/api-server';
-import { db, schema, BuilderProps, AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
-import { and, eq } from 'drizzle-orm';
-import { Router, Request, Response, RequestHandler } from 'express';
+import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
+import { createRequestContext, createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
+import { BuilderProps, AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
+import { Router, Request, Response } from 'express';
+import { pipelineService } from '../services/pipeline-service';
 
 const logger = createLogger('create-pipeline');
-
-/** Request body for pipeline creation. */
-interface PipelineRequestBody {
-  readonly project?: string;
-  readonly organization?: string;
-  readonly pipelineName?: string;
-  readonly accessModifier?: AccessModifier;
-  readonly props: BuilderProps;
-}
 
 /**
  * Register the CREATE route on a router.
@@ -39,12 +30,17 @@ export function createCreatePipelineRoutes(
 
   router.post(
     '/',
-    authenticateToken as RequestHandler,
-    requireOrgId(sseManager) as RequestHandler,
-    checkQuota(quotaService, sseManager, 'pipelines') as RequestHandler,
+    ...createProtectedRoute(sseManager, quotaService, 'pipelines'),
     async (req: Request, res: Response) => {
       const ctx = createRequestContext(req, res, sseManager);
-      const body = req.body as PipelineRequestBody;
+
+      // Validate request body with Zod
+      const validation = validateBody(req, PipelineCreateSchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+      }
+
+      const body = validation.value;
 
       try {
         let accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
@@ -55,75 +51,32 @@ export function createCreatePipelineRoutes(
           ctx.log('INFO', 'Non-system-admin forced to private access');
         }
 
-        if (!body.props || typeof body.props !== 'object') {
-          return sendBadRequest(res, 'props object is required', ErrorCode.MISSING_REQUIRED_FIELD);
-        }
+        // Normalize project and organization names
+        const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
+        const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
 
-        // Resolve project & organization: prefer top-level fields,
-        // fall back to values inside props for backward compatibility.
-        const rawProps = body.props as unknown as Record<string, unknown>;
-        const resolvedProject: string | undefined = body.project ?? rawProps.project as string | undefined;
-        const resolvedOrganization: string | undefined = body.organization ?? rawProps.organization as string | undefined;
+        // Default pipelineName if not provided
+        const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
-        if (!resolvedProject || !resolvedOrganization) {
-          return sendBadRequest(res, 'project and organization are required', ErrorCode.MISSING_REQUIRED_FIELD);
-        }
-
-        // Extract the actual BuilderProps to store.
-        // If props contains a nested "props" key with a "synth" object, the caller
-        // sent a full pipeline payload as the props — unwrap one level.
-        const builderProps: BuilderProps =
-          rawProps.props && typeof rawProps.props === 'object' && (rawProps.props as Record<string, unknown>).synth
-            ? rawProps.props as BuilderProps
-            : body.props as BuilderProps;
-
-        const project = replaceNonAlphanumeric(resolvedProject, '_').toLowerCase();
-        const organization = replaceNonAlphanumeric(resolvedOrganization, '_').toLowerCase();
-
-        // Resolve pipelineName using same strategy as pipeline-builder.ts:
-        //   props.pipelineName ?? `${organization}-${project}-pipeline`
-        const builderPropsRecord = builderProps as unknown as Record<string, unknown>;
-        const pipelineName: string =
-          body.pipelineName
-          ?? builderPropsRecord.pipelineName as string
-          ?? `${organization}-${project}-pipeline`;
+        const builderProps = body.props as unknown as BuilderProps;
 
         const orgId = ctx.identity.orgId!.toLowerCase();
         ctx.log('INFO', 'Pipeline creation request received', { project, organization, orgId });
 
-        const result = await db.transaction(async (tx) => {
-          await tx
-            .update(schema.pipeline)
-            .set({
-              isDefault: false,
-              updatedAt: new Date(),
-              updatedBy: ctx.identity.userId || 'system',
-            })
-            .where(
-              and(
-                eq(schema.pipeline.project, project),
-                eq(schema.pipeline.organization, organization),
-                eq(schema.pipeline.isDefault, true),
-              ),
-            );
-
-          const [inserted] = await tx
-            .insert(schema.pipeline)
-            .values({
-              orgId,
-              project,
-              organization,
-              pipelineName,
-              props: builderProps,
-              accessModifier: accessModifier as AccessModifier,
-              isDefault: true,
-              isActive: true,
-              createdBy: ctx.identity.userId || 'system',
-            })
-            .returning();
-
-          return inserted;
-        });
+        const result = await pipelineService.createAsDefault(
+          {
+            orgId,
+            project,
+            organization,
+            pipelineName,
+            props: builderProps,
+            accessModifier: accessModifier as AccessModifier,
+            createdBy: ctx.identity.userId || 'system',
+          },
+          ctx.identity.userId || 'system',
+          project,
+          organization,
+        );
 
         void quotaService.increment(orgId, 'pipelines', req.headers.authorization || '');
 

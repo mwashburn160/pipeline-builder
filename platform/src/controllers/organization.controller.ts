@@ -1,19 +1,23 @@
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
+import {
+  isSystemAdmin,
+  requireAuth,
+  requireSystemAdmin,
+  toOrgId,
+} from '../helpers/controller-helper';
 import {
   getOrganizationQuotaStatus,
   updateQuotaLimits,
   QuotaType,
 } from '../middleware/quota.middleware';
 import { Organization, User } from '../models';
-import { logger, sendError, validateBody, updateOrganizationSchema, updateQuotasSchema } from '../utils';
-import {
-  isSystemAdmin,
-  requireAuth,
-  requireSystemAdmin,
-  toOrgId,
-} from './helpers';
+import { validateBody } from '../utils/auth-utils';
+import { updateOrganizationSchema, updateQuotasSchema } from '../validation/schemas';
+
+const logger = createLogger('OrganizationController');
 
 // ============================================================================
 // Quota Helpers

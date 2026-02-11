@@ -3,8 +3,10 @@
  * @description Global error handling middleware for Express application.
  */
 
+import { createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
-import { logger } from '../utils';
+
+const logger = createLogger('platform-api');
 
 /**
  * Handle requests to non-existent routes.
@@ -13,11 +15,7 @@ import { logger } from '../utils';
  * @param res - Express response object
  */
 export function notFoundHandler(_req: Request, res: Response): void {
-  res.status(404).json({
-    success: false,
-    statusCode: 404,
-    message: 'The requested resource could not be found',
-  });
+  sendError(res, 404, 'The requested resource could not be found', ErrorCode.NOT_FOUND);
 }
 
 /**
@@ -42,9 +40,5 @@ export function errorHandler(
     stack: err.stack,
   });
 
-  res.status(status).json({
-    success: false,
-    statusCode: status,
-    message: err.message,
-  });
+  sendError(res, status, err.message, ErrorCode.INTERNAL_ERROR);
 }

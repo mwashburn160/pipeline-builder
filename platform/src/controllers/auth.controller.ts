@@ -1,8 +1,18 @@
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { handleControllerError } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
-import { logger, sendError, issueTokens, hashRefreshToken, validateBody, registerSchema, loginSchema, refreshSchema } from '../utils';
-import { handleControllerError } from './helpers';
+import {
+  validateBody,
+  registerSchema,
+  loginSchema,
+  refreshSchema,
+  issueTokens,
+  hashRefreshToken,
+} from '../utils/auth-utils';
+
+const logger = createLogger('AuthController');
 
 /** Error map for registration errors */
 const registerErrorMap: Record<string, { status: number; message: string }> = {

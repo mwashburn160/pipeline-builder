@@ -13,6 +13,7 @@
 
 import crypto from 'crypto';
 import net from 'net';
+import { createLogger } from '@mwashburn160/api-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -22,7 +23,8 @@ import mongoose from 'mongoose';
 import { config } from './config';
 import { isAuthenticated, notFoundHandler, errorHandler } from './middleware';
 import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes } from './routes';
-import { logger } from './utils';
+
+const logger = createLogger('platform-api');
 
 /** Express application instance */
 const app = express();

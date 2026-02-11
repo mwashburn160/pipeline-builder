@@ -242,4 +242,25 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * @default ComputeType.SMALL
    */
   readonly defaultComputeType?: CdkComputeType;
+
+  /**
+   * Optional artifact manager for tracking build outputs
+   * When provided and primaryOutputDirectory is set, the step will be registered
+   */
+  readonly artifactManager?: import('../core/artifact-manager').ArtifactManager;
+
+  /**
+   * Stage name for artifact key generation
+   */
+  readonly stageName?: string;
+
+  /**
+   * Stage alias for artifact key generation
+   */
+  readonly stageAlias?: string;
+
+  /**
+   * Plugin alias for artifact key generation
+   */
+  readonly pluginAlias?: string;
 }

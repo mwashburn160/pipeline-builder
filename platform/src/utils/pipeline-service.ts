@@ -1,6 +1,8 @@
+import { createLogger } from '@mwashburn160/api-core';
 import { config } from '../config';
 import { ServiceError, BaseServiceClient } from './base-service';
-import logger from './logger';
+
+const logger = createLogger('PipelineService');
 
 /**
  * Pipeline filter parameters for list/get operations

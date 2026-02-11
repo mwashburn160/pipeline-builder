@@ -26,9 +26,9 @@ export interface RequestOptions {
 }
 
 /**
- * HTTP response wrapper.
+ * HTTP client response wrapper.
  */
-export interface HttpResponse<T = unknown> {
+export interface HttpClientResponse<T = unknown> {
   /** HTTP status code */
   statusCode: number;
   /** Response body (parsed JSON) */
@@ -75,7 +75,7 @@ export class InternalHttpClient {
    * @param options - Request options
    * @returns Promise resolving to response
    */
-  async get<T = unknown>(path: string, options?: RequestOptions): Promise<HttpResponse<T>> {
+  async get<T = unknown>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T>> {
     return this.request<T>('GET', path, undefined, options);
   }
 
@@ -91,7 +91,7 @@ export class InternalHttpClient {
     path: string,
     body?: unknown,
     options?: RequestOptions,
-  ): Promise<HttpResponse<T>> {
+  ): Promise<HttpClientResponse<T>> {
     return this.request<T>('POST', path, body, options);
   }
 
@@ -107,7 +107,7 @@ export class InternalHttpClient {
     path: string,
     body?: unknown,
     options?: RequestOptions,
-  ): Promise<HttpResponse<T>> {
+  ): Promise<HttpClientResponse<T>> {
     return this.request<T>('PUT', path, body, options);
   }
 
@@ -118,7 +118,7 @@ export class InternalHttpClient {
    * @param options - Request options
    * @returns Promise resolving to response
    */
-  async delete<T = unknown>(path: string, options?: RequestOptions): Promise<HttpResponse<T>> {
+  async delete<T = unknown>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T>> {
     return this.request<T>('DELETE', path, undefined, options);
   }
 
@@ -130,7 +130,7 @@ export class InternalHttpClient {
     path: string,
     body?: unknown,
     options?: RequestOptions,
-  ): Promise<HttpResponse<T>> {
+  ): Promise<HttpClientResponse<T>> {
     return new Promise((resolve, reject) => {
       const bodyStr = body ? JSON.stringify(body) : undefined;
 
@@ -227,7 +227,7 @@ export function createSafeClient(config: ServiceConfig) {
     /**
      * Safe GET request - returns null on error.
      */
-    async get<T>(path: string, options?: RequestOptions): Promise<HttpResponse<T> | null> {
+    async get<T>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.get<T>(path, options);
       } catch {
@@ -242,7 +242,7 @@ export function createSafeClient(config: ServiceConfig) {
       path: string,
       body?: unknown,
       options?: RequestOptions,
-    ): Promise<HttpResponse<T> | null> {
+    ): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.post<T>(path, body, options);
       } catch {
@@ -257,7 +257,7 @@ export function createSafeClient(config: ServiceConfig) {
       path: string,
       body?: unknown,
       options?: RequestOptions,
-    ): Promise<HttpResponse<T> | null> {
+    ): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.put<T>(path, body, options);
       } catch {

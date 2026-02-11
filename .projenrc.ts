@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.13.16';
-
-/** @mwashburn160/api-server package version */
-let apiServerVersion = '1.11.16';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.14.17';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.14.16';
+let pipelineCoreVersion = 'workspace:*';
+
+/** @mwashburn160/api-server package version */
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -199,7 +199,8 @@ let api_core = new PackageProject({
     `express@${expressVersion}`,  // Express types for middleware definitions
     'jsonwebtoken@9.0.3',         // JWT authentication
     'winston@3.17.0',             // Structured logging
-    'axios@1.13.3'                // HTTP client
+    'axios@1.13.3',               // HTTP client
+    'zod@4.3.6'                   // Runtime type validation
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express type definitions
@@ -510,10 +511,11 @@ let platform = new WebTokenProject({
   minNodeVersion: root.minNodeVersion,
   typescriptVersion: typescriptVersion,
   deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`, // API core utilities (logging, validation, errors)
     `express@${expressVersion}`,  // Web framework
     'express-rate-limit@8.2.1',   // Rate limiting
     'nodemailer@7.0.13',          // Email sending
-    'zod@4.3.6',
+    'zod@4.3.6',                  // Runtime type validation
     '@aws-sdk/client-sesv2@3.821.0', // AWS SES v2 email transport
     'jsonwebtoken@9.0.3',         // JWT tokens
     'slugify@1.6.6',              // URL slugs

@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';
 import { config } from '../config';
 
@@ -282,7 +282,7 @@ organizationSchema.pre<IOrganization>('validate', async function () {
   const baseSlug = slugify(this.name, { lower: true, strict: true });
   const slugRegex = new RegExp(`^(${baseSlug})(-[0-9]+)?$`, 'i');
 
-  const existingOrgs = await (this.constructor as any)
+  const existingOrgs = await (this.constructor as Model<IOrganization>)
     .find({
       slug: slugRegex,
       _id: { $ne: this._id },

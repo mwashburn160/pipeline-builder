@@ -4,7 +4,9 @@
  * Provides shared HTTP request logic, error handling, and query string building.
  */
 
-import logger from './logger';
+import { createLogger } from '@mwashburn160/api-core';
+
+const logger = createLogger('platform-api');
 
 /**
  * Base error class for service client errors.

@@ -7,8 +7,6 @@
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
-import { db, schema, buildPluginConditions } from '@mwashburn160/pipeline-core';
-import { and } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
 import {
   buildUpdateData,
@@ -16,6 +14,7 @@ import {
   sendPluginNotFound,
   PluginUpdateBody,
 } from '../helpers/plugin-helpers';
+import { pluginService } from '../services/plugin-service';
 
 /**
  * Register the UPDATE route on a router.
@@ -35,11 +34,7 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
     ctx.log('INFO', 'Plugin update request received', { id });
 
     try {
-      const conditions = buildPluginConditions({ id }, ctx.identity.orgId!);
-      const [existing] = await db
-        .select()
-        .from(schema.plugin)
-        .where(and(...conditions));
+      const existing = await pluginService.findById(id, ctx.identity.orgId!);
 
       if (!existing) return sendPluginNotFound(res);
 
@@ -58,11 +53,14 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
       if (validationError) return sendBadRequest(res, validationError);
 
-      const [updated] = await db
-        .update(schema.plugin)
-        .set(updateData)
-        .where(and(...conditions))
-        .returning();
+      const updated = await pluginService.update(
+        id,
+        updateData,
+        ctx.identity.orgId!,
+        ctx.identity.userId || 'system',
+      );
+
+      if (!updated) return sendPluginNotFound(res);
 
       ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 

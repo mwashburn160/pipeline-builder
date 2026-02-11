@@ -1,9 +1,13 @@
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { config } from '../config';
+import { requireAuthUserId, requireAdminContext } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
-import { logger, sendError, generateTokenPair, validateBody, updateProfileSchema, changePasswordSchema } from '../utils';
-import { requireAuthUserId, requireAdminContext } from './helpers';
+import { validateBody, issueTokens } from '../utils/auth-utils';
+import { updateProfileSchema, changePasswordSchema } from '../validation/schemas';
+
+const logger = createLogger('UserController');
 
 // ============================================================================
 // Org Lookup Helper
@@ -211,7 +215,7 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
       return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
-    const { accessToken, refreshToken } = generateTokenPair(user);
+    const { accessToken, refreshToken } = await issueTokens(user);
 
     res.json({ success: true, statusCode: 200, accessToken, refreshToken });
   } catch (err) {

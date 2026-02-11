@@ -12,7 +12,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger } from '@mwashburn160/pipeline-core';
+import { createLogger } from '@mwashburn160/api-core';
 
 const logger = createLogger('docker-build');
 

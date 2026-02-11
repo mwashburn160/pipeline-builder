@@ -6,8 +6,17 @@
  * normalization, and standardised error responses.
  */
 
-import { ErrorCode } from '@mwashburn160/api-core';
-import { schema, validatePipelineFilter, BuilderProps, PipelineFilter } from '@mwashburn160/pipeline-core';
+import {
+  normalizeArrayFields,
+  createOrderByResolver,
+  sendEntityNotFound,
+  initUpdateData,
+  validateAccessModifier,
+  validateQuery,
+  PipelineFilterSchema,
+  ValidationResult,
+} from '@mwashburn160/api-core';
+import { schema, BuilderProps } from '@mwashburn160/pipeline-core';
 import { asc, desc } from 'drizzle-orm';
 import { Request, Response } from 'express';
 
@@ -20,10 +29,7 @@ import { Request, Response } from 'express';
  * Ensures jsonb array fields are always arrays (guards against bad data).
  */
 export function normalizePipeline<T extends Record<string, unknown>>(record: T): T {
-  return {
-    ...record,
-    keywords: Array.isArray(record.keywords) ? record.keywords : [],
-  };
+  return normalizeArrayFields(record, ['keywords']);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +57,7 @@ export function buildUpdateData(
   body: PipelineUpdateBody,
   userId: string,
 ): { data: Record<string, unknown>; error?: string } {
-  const data: Record<string, unknown> = {
-    updatedAt: new Date(),
-    updatedBy: userId || 'system',
-  };
+  const data = initUpdateData(userId);
 
   if (body.pipelineName !== undefined) data.pipelineName = body.pipelineName;
   if (body.description !== undefined) data.description = body.description;
@@ -64,8 +67,9 @@ export function buildUpdateData(
   if (body.isDefault !== undefined) data.isDefault = Boolean(body.isDefault);
 
   if (body.accessModifier !== undefined) {
-    if (!['public', 'private'].includes(body.accessModifier)) {
-      return { data, error: 'accessModifier must be "public" or "private"' };
+    const validation = validateAccessModifier(body.accessModifier);
+    if (!validation.valid) {
+      return { data, error: validation.error };
     }
     data.accessModifier = body.accessModifier;
   }
@@ -88,31 +92,27 @@ const SORTABLE_COLUMNS = {
   isDefault: schema.pipeline.isDefault,
 } as const;
 
-type SortableColumn = keyof typeof SORTABLE_COLUMNS;
-
 /** Resolve a sort column + direction into a Drizzle `orderBy` clause. */
-export function resolveOrderBy(sortBy: string, sortOrder: 'asc' | 'desc') {
-  const column = SORTABLE_COLUMNS[sortBy as SortableColumn] ?? schema.pipeline.createdAt;
-  return (sortOrder === 'asc' ? asc : desc)(column);
-}
+export const resolveOrderBy = createOrderByResolver(
+  SORTABLE_COLUMNS,
+  schema.pipeline.createdAt,
+  asc,
+  desc,
+);
 
 // ---------------------------------------------------------------------------
-// Filter validation
+// Filter validation (Zod-based)
 // ---------------------------------------------------------------------------
 
-type FilterResult =
-  | { ok: true; value: Partial<PipelineFilter> }
-  | { ok: false; error: string };
-
-/** Validate pipeline filter params from query string. */
-export function validateFilter(req: Request): FilterResult {
-  const filter = req.query as unknown as Partial<PipelineFilter>;
-  try {
-    validatePipelineFilter(filter as PipelineFilter);
-    return { ok: true, value: filter };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Invalid filter' };
-  }
+/**
+ * Validate pipeline filter params from query string using Zod schema.
+ * Provides runtime type-safe validation with automatic type coercion.
+ *
+ * @param req - Express request with query parameters
+ * @returns Validation result with parsed filter or error message
+ */
+export function validateFilter(req: Request): ValidationResult<any> {
+  return validateQuery(req, PipelineFilterSchema);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,5 +121,5 @@ export function validateFilter(req: Request): FilterResult {
 
 /** Send a 404 "pipeline not found" response. */
 export function sendPipelineNotFound(res: Response): Response {
-  return res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.', code: ErrorCode.NOT_FOUND });
+  return sendEntityNotFound(res, 'Pipeline');
 }

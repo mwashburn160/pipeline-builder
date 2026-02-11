@@ -1,13 +1,13 @@
+import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
+import { extractToken } from '../helpers/controller-helper';
 import {
-  logger,
-  sendError,
-  sendSuccess,
   pipelineService,
   PipelineServiceError,
   PipelineFilter,
 } from '../utils';
-import { extractToken } from './helpers';
+
+const logger = createLogger('PipelineController');
 
 /**
  * List pipelines with optional filters
@@ -133,7 +133,7 @@ export async function getPipelineById(req: Request, res: Response): Promise<void
       project: pipeline.project,
     });
 
-    sendSuccess(res, pipeline);
+    sendSuccess(res, 200, pipeline);
   } catch (err) {
     logger.error('[GET PIPELINE] Failed:', err);
 
@@ -209,7 +209,7 @@ export async function getPipeline(req: Request, res: Response): Promise<void> {
       project: pipeline.project,
     });
 
-    sendSuccess(res, pipeline);
+    sendSuccess(res, 200, pipeline);
   } catch (err) {
     logger.error('[GET PIPELINE] Search failed:', err);
 

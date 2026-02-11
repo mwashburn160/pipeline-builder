@@ -22,6 +22,7 @@ export * from './core/security-group-types';
 export * from './core/id-generator';
 export { replaceNonAlphanumeric } from './core/pipeline-helpers';
 export { MetadataBuilder } from './core/metadata-builder';
+export * from './core/artifact-manager';
 
 // Re-export from api-core (only items consumed by external packages)
 export {
@@ -48,6 +49,10 @@ export {
   // Query filter types
   type PluginFilter,
   type PipelineFilter,
+
+  // CRUD service
+  CrudService,
+  type BaseEntity,
 } from '@mwashburn160/pipeline-data';
 
 // Pipeline (CDK constructs)

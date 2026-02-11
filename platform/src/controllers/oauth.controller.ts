@@ -16,10 +16,14 @@
  */
 
 import crypto from 'crypto';
+import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { config } from '../config';
 import { User } from '../models';
-import { logger, sendError, issueTokens, validateBody, oauthCallbackSchema } from '../utils';
+import { validateBody, issueTokens } from '../utils/auth-utils';
+import { oauthCallbackSchema } from '../validation/schemas';
+
+const logger = createLogger('OAuthController');
 
 // ---------------------------------------------------------------------------
 // OAuth State (CSRF protection)

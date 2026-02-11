@@ -1,7 +1,9 @@
-import { getIdentity, RequestIdentity } from '@mwashburn160/api-core';
+import { getIdentity, RequestIdentity, createLogger, HttpRequest } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
 import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
+
+const logger = createLogger('api-server');
 
 /**
  * Request logger function type
@@ -53,15 +55,15 @@ export function createRequestContext(
   res: Response,
   sseManager: SSEManager,
 ): RequestContext {
-  const identity = getIdentity(req as any);
+  const identity = getIdentity(req as HttpRequest);
   const requestId = identity.requestId || uuid();
 
   // Set request ID header for tracing
   res.setHeader('X-Request-Id', requestId);
 
-  // Create logger that outputs to console and SSE
+  // Create logger that outputs to Winston and SSE
   const log: RequestLogger = (type, message, data) => {
-    console.log(`[${requestId}] [${type}] ${message}`, data ?? '');
+    logger.info(message, { requestId, type, data });
     sseManager.send(requestId, type, message, data);
   };
 
