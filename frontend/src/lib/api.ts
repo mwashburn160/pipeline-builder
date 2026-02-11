@@ -614,7 +614,7 @@ class ApiClient {
     return data as ApiResponse<{ plugin: unknown; warning?: string }>;
   }
 
-  async updatePlugin(id: string, data: { 
+  async updatePlugin(id: string, data: {
     name?: string;
     description?: string;
     keywords?: string[];
@@ -628,6 +628,7 @@ class ApiClient {
     accessModifier?: 'public' | 'private';
     isDefault?: boolean;
     isActive?: boolean;
+    primaryOutputDirectory?: string | null;
   }) {
     return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/${id}`, {
       method: 'PUT',

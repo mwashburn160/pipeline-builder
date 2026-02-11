@@ -118,6 +118,9 @@ export interface Plugin {
   installCommands: string[];
   commands: string[];
   
+  // Output configuration
+  primaryOutputDirectory?: string;
+
   // Docker configuration
   imageTag: string;
   dockerfile?: string;

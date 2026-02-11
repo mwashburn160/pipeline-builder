@@ -23,6 +23,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const [commands, setCommands] = useState(plugin.commands?.join('\n') || '');
   const [isActive, setIsActive] = useState(plugin.isActive);
   const [isDefault, setIsDefault] = useState(plugin.isDefault);
+  const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState(plugin.primaryOutputDirectory || '');
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
         isActive,
         isDefault,
         accessModifier,
+        primaryOutputDirectory: primaryOutputDirectory.trim() || null,
       });
 
       if (response.success) {
@@ -188,6 +190,11 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
                   <option value="X2_LARGE">X2_LARGE</option>
                 </select>
               </div>
+            </div>
+            <div className="mb-3">
+              <label className="label">Primary Output Directory</label>
+              <input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} className="input" disabled={loading} placeholder="e.g. cdk.out, dist, build" />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Directory where build artifacts are output (used for pipeline artifact tracking)</p>
             </div>
             <div className="mb-3">
               <label className="label">Metadata (JSON)</label>

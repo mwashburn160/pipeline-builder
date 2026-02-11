@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
+import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 
 interface EditPipelineModalProps {
   pipeline: Pipeline;
@@ -11,27 +12,50 @@ interface EditPipelineModalProps {
 }
 
 export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
+  const [activeTab, setActiveTab] = useState<'form' | 'json'>('form');
   const [pipelineName, setPipelineName] = useState(pipeline.pipelineName || '');
   const [description, setDescription] = useState(pipeline.description || '');
   const [keywords, setKeywords] = useState(pipeline.keywords?.join(', ') || '');
-  const [props, setProps] = useState(JSON.stringify(pipeline.props || {}, null, 2));
+  const [jsonProps, setJsonProps] = useState(JSON.stringify(pipeline.props || {}, null, 2));
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewJson, setPreviewJson] = useState<string | null>(null);
+
+  const formRef = useRef<FormBuilderTabRef>(null);
+
+  const resolveProps = (): BuilderProps | null => {
+    if (activeTab === 'form') {
+      return formRef.current?.getProps() ?? null;
+    }
+    try {
+      return jsonProps.trim() ? JSON.parse(jsonProps) : null;
+    } catch {
+      setError('Invalid JSON in props field');
+      return null;
+    }
+  };
+
+  const handlePreview = () => {
+    setError(null);
+    const props = resolveProps();
+    if (props) {
+      setPreviewJson(JSON.stringify(props, null, 2));
+      setShowPreview(true);
+    }
+  };
 
   const handleSave = async () => {
     setLoading(true);
     setError(null);
     setSuccess(null);
 
-    let parsedProps: BuilderProps;
-    try {
-      parsedProps = props.trim() ? JSON.parse(props) : {};
-    } catch {
-      setError('Invalid JSON in props field');
+    const parsedProps = resolveProps();
+    if (!parsedProps) {
       setLoading(false);
       return;
     }
@@ -61,8 +85,9 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
 
   return (
     <div className="modal-backdrop">
-      <div className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white dark:bg-gray-900 pb-2 z-10">
+      <div className="modal-panel max-w-4xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Edit Pipeline</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -71,20 +96,21 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
           </button>
         </div>
 
-        {error && (
-          <div className="alert-error">
-            <p>{error}</p>
-          </div>
-        )}
-        {success && (
-          <div className="alert-success">
-            <p>{success}</p>
-          </div>
-        )}
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {error && (
+            <div className="alert-error mb-4">
+              <p>{error}</p>
+            </div>
+          )}
+          {success && (
+            <div className="alert-success mb-4">
+              <p>{success}</p>
+            </div>
+          )}
 
-        <div className="space-y-4">
           {/* Read-only Fields */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -123,7 +149,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
           </div>
 
           {/* Core Information */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
             <div className="mb-3">
               <label className="label">Pipeline Name</label>
@@ -139,14 +165,53 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
             </div>
           </div>
 
-          {/* Pipeline Configuration */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          {/* Pipeline Configuration - Tabbed */}
+          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Pipeline Configuration</h3>
-            <div className="mb-3">
-              <label className="label">Props (JSON)</label>
-              <textarea value={props} onChange={(e) => setProps(e.target.value)} rows={8} className="input font-mono text-xs" disabled={loading} placeholder='{"project": "my-project", "organization": "my-org"}' />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Builder configuration including project, organization, and pipeline settings</p>
+
+            {/* Tabs */}
+            <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
+              <nav className="-mb-px flex space-x-8">
+                <button
+                  onClick={() => setActiveTab('form')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'form'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  Form Builder
+                </button>
+                <button
+                  onClick={() => setActiveTab('json')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'json'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  Raw JSON
+                </button>
+              </nav>
             </div>
+
+            {activeTab === 'form' ? (
+              <FormBuilderTab ref={formRef} disabled={loading} initialProps={pipeline.props} />
+            ) : (
+              <div>
+                <textarea
+                  value={jsonProps}
+                  onChange={(e) => setJsonProps(e.target.value)}
+                  rows={12}
+                  className="input font-mono text-xs"
+                  disabled={loading}
+                  placeholder='{"project": "my-project", "organization": "my-org"}'
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Builder configuration including project, organization, and pipeline settings
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Access & Status */}
@@ -175,15 +240,43 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
               </div>
             </div>
           </div>
+
+          {/* JSON Preview Panel */}
+          {showPreview && previewJson && (
+            <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
+                <button
+                  onClick={() => setShowPreview(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+              <pre className="p-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+                {previewJson}
+              </pre>
+            </div>
+          )}
         </div>
 
-        <div className="mt-6 flex justify-end space-x-3 sticky bottom-0 bg-white dark:bg-gray-900 pt-4 z-10">
-          <button onClick={onClose} disabled={loading} className="btn btn-secondary">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={loading} className="btn btn-primary">
-            {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
-          </button>
+        {/* Footer */}
+        <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+          <div className="flex items-center justify-end space-x-3">
+            <button
+              onClick={handlePreview}
+              disabled={loading}
+              className="btn btn-secondary"
+            >
+              Preview JSON
+            </button>
+            <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={loading} className="btn btn-primary">
+              {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

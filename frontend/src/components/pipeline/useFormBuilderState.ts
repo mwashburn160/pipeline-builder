@@ -457,8 +457,12 @@ function assembleBuilderPropsFromState(
 
 // ─── Hook ──────────────────────────────────────────────────────
 
-export function useFormBuilderState() {
-  const [state, dispatch] = useReducer(formReducer, undefined, createInitialFormState);
+export function useFormBuilderState(initialState?: FormBuilderState) {
+  const [state, dispatch] = useReducer(
+    formReducer,
+    initialState,
+    (init) => init ?? createInitialFormState(),
+  );
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const assembleBuilderProps = useCallback((): BuilderProps | null => {

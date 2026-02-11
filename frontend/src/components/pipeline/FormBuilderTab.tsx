@@ -1,5 +1,6 @@
-import { useImperativeHandle, forwardRef } from 'react';
+import { useImperativeHandle, forwardRef, useMemo } from 'react';
 import { BuilderProps } from '@/types';
+import { propsToFormState, FormBuilderState } from '@/types/form-types';
 import { useFormBuilderState } from './useFormBuilderState';
 import CoreSection from './sections/CoreSection';
 import SynthSection from './sections/SynthSection';
@@ -15,11 +16,17 @@ export interface FormBuilderTabRef {
 
 interface FormBuilderTabProps {
   disabled?: boolean;
+  initialProps?: BuilderProps;
 }
 
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
-  ({ disabled }, ref) => {
-    const { state, dispatch, validationErrors, assembleBuilderProps } = useFormBuilderState();
+  ({ disabled, initialProps }, ref) => {
+    const initialState = useMemo<FormBuilderState | undefined>(
+      () => initialProps ? propsToFormState(initialProps) : undefined,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [],
+    );
+    const { state, dispatch, validationErrors, assembleBuilderProps } = useFormBuilderState(initialState);
 
     useImperativeHandle(ref, () => ({
       getProps: (): BuilderProps | null => {
