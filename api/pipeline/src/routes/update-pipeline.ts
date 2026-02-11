@@ -5,14 +5,13 @@
  * PUT /pipelines/:id — update a pipeline by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PipelineUpdateSchema } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
+import { BuilderProps } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import {
-  buildUpdateData,
   normalizePipeline,
   sendPipelineNotFound,
-  PipelineUpdateBody,
 } from '../helpers/pipeline-helpers';
 import { pipelineService } from '../services/pipeline-service';
 
@@ -31,6 +30,14 @@ export function createUpdatePipelineRoutes(sseManager: SSEManager): Router {
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
+    // Validate request body with Zod
+    const validation = validateBody(req, PipelineUpdateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const body = validation.value;
+
     ctx.log('INFO', 'Pipeline update request received', { id });
 
     try {
@@ -46,12 +53,28 @@ export function createUpdatePipelineRoutes(sseManager: SSEManager): Router {
         return sendError(res, 403, 'Only system admins can edit public pipelines.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
-      const { data: updateData, error: validationError } = buildUpdateData(
-        req.body as PipelineUpdateBody,
-        ctx.identity.userId || 'system',
-      );
+      // Build update data from validated body
+      const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+        updatedBy: ctx.identity.userId || 'system',
+      };
 
-      if (validationError) return sendBadRequest(res, validationError);
+      if (body.pipelineName !== undefined) updateData.pipelineName = body.pipelineName;
+      if (body.description !== undefined) updateData.description = body.description;
+      if (body.keywords !== undefined) updateData.keywords = body.keywords;
+      if (body.props !== undefined) updateData.props = body.props as unknown as BuilderProps;
+      if (body.isActive !== undefined) updateData.isActive = body.isActive;
+      if (body.isDefault !== undefined) updateData.isDefault = body.isDefault;
+
+      // Handle access modifier (only system admins can set to public)
+      if (body.accessModifier !== undefined) {
+        let accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
+        if (!isSystemAdmin(req) && accessModifier === 'public') {
+          accessModifier = 'private';
+          ctx.log('INFO', 'Non-system-admin forced to private access');
+        }
+        updateData.accessModifier = accessModifier;
+      }
 
       const updated = await pipelineService.update(
         id,

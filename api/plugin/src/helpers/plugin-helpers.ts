@@ -45,6 +45,7 @@ export interface PluginUpdateBody {
   metadata?: Record<string, unknown>;
   pluginType?: string;
   computeType?: string;
+  primaryOutputDirectory?: string | null;
   env?: Record<string, string>;
   installCommands?: string[];
   commands?: string[];
@@ -73,6 +74,7 @@ export function buildUpdateData(
   if (body.metadata !== undefined) data.metadata = typeof body.metadata === 'object' ? body.metadata : {};
   if (body.pluginType !== undefined) data.pluginType = body.pluginType;
   if (body.computeType !== undefined) data.computeType = body.computeType;
+  if (body.primaryOutputDirectory !== undefined) data.primaryOutputDirectory = body.primaryOutputDirectory;
 
   if (body.env !== undefined) data.env = typeof body.env === 'object' ? body.env : {};
   if (body.installCommands !== undefined) data.installCommands = Array.isArray(body.installCommands) ? body.installCommands : [];

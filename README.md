@@ -15,7 +15,7 @@ Pipeline Builder is a type-safe, plugin-based construct library that simplifies 
 - [Architecture](#architecture)
 - [Key Features](#key-features)
 - [Getting Started](#getting-started)
-- [Local Development](#local-development)
+- [Deploy](#deploy)
 - [Usage Examples](#usage-examples)
 - [Package Structure](#package-structure)
 - [API Reference](#api-reference)
