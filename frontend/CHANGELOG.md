@@ -1,3 +1,18 @@
+## 1.11.3 (2026-02-11)
+
+### 🩹 Fixes
+
+- cast instead of as any ([b8188f4](https://github.com/mwashburn160/pipeline-builder/commit/b8188f4))
+- upgraded pipeline-core=1.16.2 ([5dc5320](https://github.com/mwashburn160/pipeline-builder/commit/5dc5320))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.16.3
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.11.2 (2026-02-11)
 
 ### 🩹 Fixes
