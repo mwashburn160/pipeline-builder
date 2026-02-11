@@ -32,6 +32,15 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
             return null;
           }
 
+          // If the uploaded JSON wraps BuilderProps inside a "props" key
+          // (e.g., a full pipeline creation payload), extract the inner props.
+          if (propsData.props && typeof propsData.props === 'object') {
+            const inner = propsData.props as Record<string, unknown>;
+            if (inner.synth || inner.stages) {
+              propsData = inner as BuilderProps;
+            }
+          }
+
           if (!propsData.project || typeof propsData.project !== 'string') {
             setPropsError('Props must include "project" (string)');
             return null;

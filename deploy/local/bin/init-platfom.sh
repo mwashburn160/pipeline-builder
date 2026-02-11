@@ -27,5 +27,5 @@ if [ $? -eq 0 ]; then
      -H "x-org-id: system" \
      -F "plugin=@{}" \
      -F "accessModifier=public" \
-     --insecure;
+     --insecure \;
 fi

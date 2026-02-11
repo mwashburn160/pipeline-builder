@@ -308,9 +308,23 @@ function parseSteps(steps: unknown[]): FormStep[] {
 /**
  * Convert BuilderProps (from API) back into FormBuilderState (for edit mode).
  * This is the reverse of assembleBuilderPropsFromState in useFormBuilderState.ts.
+ *
+ * Handles a nested `props.props` structure that can occur when a full pipeline
+ * creation payload (with project, keywords, accessModifier at the top level)
+ * is stored as the props JSONB column. In that case the actual BuilderProps
+ * (containing synth, global, stages, etc.) lives under `props.props`.
  */
-export function propsToFormState(props: AnyRecord): FormBuilderState {
+export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
   const base = createInitialFormState();
+
+  // Detect nested props: if rawProps.props exists and contains BuilderProps
+  // keys (synth, global, or stages), use it as the effective props.
+  const props: AnyRecord =
+    rawProps.props &&
+    typeof rawProps.props === 'object' &&
+    ('synth' in (rawProps.props as object) || 'stages' in (rawProps.props as object))
+      ? (rawProps.props as AnyRecord)
+      : rawProps;
 
   // Core
   base.project = String(props.project || '');
