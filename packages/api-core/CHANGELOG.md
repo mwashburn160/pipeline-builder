@@ -1,3 +1,13 @@
+## 1.14.7 (2026-02-11)
+
+### 🩹 Fixes
+
+- sync schema ([7b9f379](https://github.com/mwashburn160/pipeline-builder/commit/7b9f379))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.6 (2026-02-11)
 
 ### 🩹 Fixes
