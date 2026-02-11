@@ -1,3 +1,18 @@
+## 1.12.8 (2026-02-11)
+
+### 🩹 Fixes
+
+- updated zod validation ([e5fb4dd](https://github.com/mwashburn160/pipeline-builder/commit/e5fb4dd))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.15.8
+- Updated @mwashburn160/api-core to 1.14.8
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.7 (2026-02-11)
 
 ### 🩹 Fixes
