@@ -1,3 +1,13 @@
+## 1.11.0 (2026-02-11)
+
+### 🚀 Features
+
+- code cleanup ([0e2d9a2](https://github.com/mwashburn160/pipeline-builder/commit/0e2d9a2))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.13 (2026-02-11)
 
 ### 🩹 Fixes
