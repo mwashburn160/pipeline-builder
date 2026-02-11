@@ -1,3 +1,13 @@
+## 1.12.6 (2026-02-11)
+
+### 🩹 Fixes
+
+- logger circular dependency ([0fe927d](https://github.com/mwashburn160/pipeline-builder/commit/0fe927d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.5 (2026-02-11)
 
 ### 🩹 Fixes
