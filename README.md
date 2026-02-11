@@ -18,8 +18,6 @@ Pipeline Builder is a type-safe, plugin-based construct library that simplifies 
 - [Usage Examples](#usage-examples)
 - [Package Structure](#package-structure)
 - [API Reference](#api-reference)
-- [Technology Stack](#technology-stack)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
@@ -234,43 +232,6 @@ cdk deploy
 - **AWS CDK** >= 2.237.0
 - **AWS Account** with appropriate permissions
 - **AWS CLI** configured with credentials
-
-### Full Development Setup (Including Supporting Services)
-
-1. **Clone the repository**
-
-```bash
-git clone https://github.com/mwashburn160/pipeline-builder.git
-cd pipeline-builder
-```
-
-2. **Install dependencies**
-
-```bash
-pnpm install
-```
-
-3. **Configure environment**
-
-```bash
-cd deploy/local
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-4. **Start services with Docker Compose**
-
-```bash
-cd deploy/local
-docker-compose up -d
-```
-
-5. **Access the application**
-
-- Frontend: https://localhost:8443
-- API Gateway: https://localhost:8443/api
-- Mongo Express: http://localhost:27081
-- pgAdmin: http://localhost:5050
 
 ## Usage Examples
 
@@ -665,36 +626,6 @@ Express server infrastructure for supporting services:
 | POST | `/quota/check` | Check if action is allowed under quota |
 | POST | `/quota/track` | Record usage of a quota type |
 | GET | `/quota/:orgId` | Get quota status for organization |
-
-## Technology Stack
-
-- **Language**: TypeScript 5.9.3
-- **Runtime**: Node.js >= 24.9.0
-- **Package Manager**: PNPM 10.25.0
-- **Build Tool**: Projen
-- **Monorepo**: PNPM Workspaces + Nx
-- **Web Framework**: Express.js 5.2.1
-- **Frontend**: Next.js 15 + React 19
-- **Database**: PostgreSQL 16+ (pipelines, plugins), MongoDB 8+ (quotas)
-- **ORM**: Drizzle ORM 0.45.1
-- **Infrastructure**: AWS CDK 2.237.0
-- **Testing**: Jest 30.2.0
-- **Logging**: Winston
-- **Security**: Helmet.js, CORS, JWT
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please ensure:
-- All tests pass (`pnpm test`)
-- Code follows TypeScript/ESLint standards
-- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
-- Documentation is updated for new features
 
 ## License
 
