@@ -1,3 +1,13 @@
+## 1.12.11 (2026-02-11)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.15.10 ([dc6be96](https://github.com/mwashburn160/pipeline-builder/commit/dc6be96))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.10 (2026-02-11)
 
 ### 🩹 Fixes
