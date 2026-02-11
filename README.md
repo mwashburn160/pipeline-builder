@@ -178,7 +178,7 @@ new PipelineBuilder(stack, 'MyPipeline', {
       }
     },
     plugin: {
-      name: 'nodejs-synth',
+      name: 'cdk-synth',
       version: '1.0.0'
     }
   }
@@ -233,7 +233,7 @@ new PipelineBuilder(stack, 'MyPipeline', {
       }
     },
     plugin: {
-      name: 'nodejs-synth',
+      name: 'cdk-synth',
       version: '1.0.0'
     }
   },
