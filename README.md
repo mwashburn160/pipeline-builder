@@ -1,6 +1,8 @@
 # Pipeline Builder
 
-A comprehensive platform for creating, managing, and deploying AWS CDK Pipelines with a microservices architecture. Pipeline Builder simplifies the process of building continuous deployment pipelines by providing a plugin-based system, multi-tenant support, and a modern web interface.
+**An AWS CDK Construct Library for building CodePipeline infrastructure as code.**
+
+Pipeline Builder is a type-safe, plugin-based construct library that simplifies the creation of AWS CodePipelines using AWS CDK. Define your CI/CD pipelines with a fluent TypeScript API, leverage reusable build plugins, and deploy CodePipeline infrastructure using standard CDK workflows. Optional supporting services provide configuration storage and management capabilities.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24.9.0-brightgreen.svg)](https://nodejs.org)
@@ -16,28 +18,61 @@ A comprehensive platform for creating, managing, and deploying AWS CDK Pipelines
 - [Usage Examples](#usage-examples)
 - [Package Structure](#package-structure)
 - [API Reference](#api-reference)
-- [Development](#development)
+- [Technology Stack](#technology-stack)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
 
-Pipeline Builder is a **complete platform** for managing AWS CDK Pipelines, not just a CDK construct library. While it includes AWS CDK constructs (~10% of the codebase), the majority of the solution is a full-featured microservices platform that enables teams to:
+Pipeline Builder is an **AWS CDK Construct library** for building CodePipeline infrastructure as code. At its core, this is a 100% AWS Construct solution that enables teams to:
 
-- **Build CDK Pipelines programmatically** using TypeScript/JavaScript with a fluent API
-- **Manage pipeline configurations** through REST APIs with full CRUD operations
-- **Create reusable plugins** for common build steps (synth, test, deploy, etc.)
-- **Support multi-tenancy** with organization-level isolation and access control
-- **Monitor quotas and usage** with built-in rate limiting and quota management
-- **Deploy locally or to AWS** with Docker Compose for development and AWS CDK for production
-- **Web-based UI** for non-technical users to manage pipelines
-- **Plugin marketplace** for sharing and discovering build configurations
+- **Build AWS CodePipelines programmatically** using TypeScript/JavaScript with a fluent, type-safe API
+- **Define pipeline infrastructure** using AWS CDK constructs and best practices
+- **Create reusable plugins** for standardized build steps (synth, test, deploy, etc.)
+- **Leverage metadata-driven configuration** for flexible pipeline definitions
+- **Support multiple source types** including GitHub, CodeStar connections, and S3
+- **Deploy pipelines to AWS** using standard CDK deployment workflows
 
-The platform uses a microservices architecture where each service has a specific responsibility, making it scalable, maintainable, and easy to extend. The AWS CDK constructs are just one component—the real value is in the complete ecosystem for pipeline lifecycle management.
+The library includes supporting infrastructure (REST APIs, databases, web UI) for managing and storing pipeline configurations, but the core value proposition is the **AWS CDK construct library** that transforms configuration into deployed AWS CodePipeline infrastructure.
 
 ## Architecture
 
-### Complete Platform (90% of Solution)
+### AWS CDK Construct Library (Core Solution)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     AWS CDK Construct Library                         │
+│                        (pipeline-core)                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌────────────────┐      ┌─────────────────┐                        │
+│  │ PipelineBuilder│─────▶│  AWS CodePipeline│                        │
+│  │   (Construct)  │      │   Infrastructure │                        │
+│  └────────┬───────┘      └─────────────────┘                        │
+│           │                                                           │
+│           ├──▶ SourceBuilder (GitHub, CodeStar, S3)                  │
+│           ├──▶ StageBuilder (Pipeline Stages)                        │
+│           ├──▶ PluginLookup (Reusable Build Steps)                   │
+│           └──▶ MetadataBuilder (Configuration Management)            │
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ deploys to
+                              ▼
+                    ┌──────────────────────┐
+                    │    AWS Account       │
+                    │  ┌────────────────┐  │
+                    │  │  CodePipeline  │  │
+                    │  │  CodeBuild     │  │
+                    │  │  S3 Artifacts  │  │
+                    │  │  IAM Roles     │  │
+                    │  └────────────────┘  │
+                    └──────────────────────┘
+```
+
+### Supporting Infrastructure (Configuration Management)
+
+The library includes optional supporting services for storing and managing pipeline configurations:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -66,103 +101,141 @@ The platform uses a microservices architecture where each service has a specific
     │   MongoDB   │
     │   (Quotas)  │
     └─────────────┘
-
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Core Packages (90%)                           │
-├──────────────────────────────────────────────────────────────────────┤
-│ api-core        │ Shared utilities, auth, logging, error handling    │
-│ api-server      │ Express infrastructure, SSE, middleware            │
-│ pipeline-data   │ Database schemas, ORM, query builders, services    │
-└──────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────────┐
-│                      AWS CDK Constructs (10%)                         │
-├──────────────────────────────────────────────────────────────────────┤
-│ pipeline-core   │ CDK constructs, pipeline builder, plugin system    │
-└──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Note**: The AWS CDK constructs in `pipeline-core` represent only ~10% of the codebase. The majority of the platform is the **microservices infrastructure** (REST APIs, database layer, authentication, quota management, web UI) that makes pipeline management accessible and scalable.
+**Note**: The supporting services provide optional configuration storage and management capabilities, but the core solution is the **AWS CDK construct library** that creates CodePipeline infrastructure.
 
-### Service Responsibilities
+### Component Responsibilities
 
-| Service | Port | Database | Purpose | % of Solution |
-|---------|------|----------|---------|---------------|
-| **Frontend** | 3001 | - | Next.js React application for pipeline management UI | ~25% |
-| **Platform Service** | 3000 | PostgreSQL | User authentication, organization management, system administration | ~20% |
-| **Pipeline Service** | 3000 | PostgreSQL | CRUD operations for pipeline configurations | ~15% |
-| **Plugin Service** | 3000 | PostgreSQL | CRUD operations for reusable plugin definitions | ~15% |
-| **Quota Service** | 3000 | MongoDB | Rate limiting, quota tracking, usage monitoring | ~10% |
-| **NGINX** | 8080/8443 | - | Reverse proxy, SSL termination, JWT validation | ~5% |
-| **CDK Constructs** | - | - | AWS CodePipeline builder (pipeline-core package) | **~10%** |
-
-**Total Platform**: 90% microservices + infrastructure, **10% AWS CDK constructs**
+| Component | Purpose | Type |
+|-----------|---------|------|
+| **PipelineBuilder (CDK Construct)** | Core construct library for building AWS CodePipeline infrastructure | **Primary Solution** |
+| **pipeline-core Package** | AWS CDK constructs, plugin system, source builders, metadata management | **Core Library** |
+| **Pipeline Service** | Optional REST API for storing pipeline configurations | Supporting Service |
+| **Plugin Service** | Optional REST API for managing reusable plugin definitions | Supporting Service |
+| **Frontend** | Optional web UI for configuration management | Supporting Service |
+| **Platform Service** | Optional authentication and organization management | Supporting Service |
+| **Quota Service** | Optional rate limiting and usage tracking | Supporting Service |
 
 ## Key Features
 
-> **Important**: Pipeline Builder is a **complete platform** (90%) with embedded AWS CDK constructs (10%), not just a construct library. You get a full microservices ecosystem for managing pipeline lifecycles.
+> **Core Solution**: Pipeline Builder is an **AWS CDK Construct library** (100%) for building CodePipeline infrastructure. Supporting services are provided for optional configuration management.
 
-### 🌐 Complete Platform (90% of Solution)
+### 🔧 AWS CDK Construct Library (Core Solution)
 
-- **REST APIs** for full CRUD operations on pipelines and plugins
-- **Web-based UI** built with Next.js and React for non-developers
-- **Multi-service architecture** with dedicated microservices
-- **Database persistence** with PostgreSQL and MongoDB
-- **Authentication & authorization** with JWT and role-based access
-- **Quota management** with rate limiting and usage tracking
-- **Real-time updates** via Server-Sent Events (SSE)
-- **Plugin marketplace** for sharing build configurations
-- **Audit logging** with full change history
-- **Docker deployment** for local development and testing
+- **Type-safe construct library** for AWS CodePipeline infrastructure as code
+- **Fluent builder API** with method chaining for clean, readable pipeline definitions
+- **Multiple source types**: GitHub, CodeStar connections, S3 buckets
+- **Plugin-based build steps** supporting both ShellStep and CodeBuildStep
+- **Metadata-driven configuration** with full TypeScript type safety
+- **Automatic resource naming** and tagging based on organization/project
+- **Network configuration** support (VPC, security groups, subnets)
+- **IAM role management** with customizable policies
+- **Multi-stage pipelines** with parallel and sequential execution
+- **CDK best practices** built-in (self-mutation, cross-account deployments, etc.)
 
-### 🔧 CDK Pipeline Builder (10% of Solution)
+### 🔌 Plugin System (Built into Constructs)
 
-- **Fluent API** for building AWS CodePipeline configurations
-- **Multiple source types**: GitHub, CodeStar, S3
-- **Plugin-based steps** with support for ShellStep and CodeBuildStep
-- **Metadata-driven** configuration with type safety
-- **Automatic tagging** and resource naming
+- **Reusable build step definitions** encapsulating common CI/CD tasks
+- **Version management** with semantic versioning support
+- **Metadata inheritance** from global to plugin-specific configuration
+- **Dynamic plugin loading** from configuration or API
+- **Extensible plugin types** supporting custom build environments
+- **Multiple compute types** (SMALL, MEDIUM, LARGE, X_LARGE, X2_LARGE)
+- **Environment variable management** at plugin and step levels
+- **Command customization** (install, pre-build, build, post-build)
 
-### 🔌 Plugin System
+### 🏢 Multi-Tenancy (Supporting Services)
 
-- **Reusable build configurations** for common tasks
-- **Version management** with semantic versioning
-- **Access control** (public, private, organization-scoped)
-- **Flexible metadata** storage with JSONB
-- **Support for multiple compute types** (SMALL, MEDIUM, LARGE, X_LARGE, X2_LARGE)
+- **Organization-level isolation** in supporting services
+- **Project-based pipeline grouping** for logical separation
+- **Access modifiers** for sharing plugin configurations (PUBLIC, PRIVATE, ORGANIZATION)
+- **Role-based access control** in optional API services
 
-### 🏢 Multi-Tenancy
+### 📊 Quota Management (Supporting Services)
 
-- **Organization-level isolation** for teams and departments
-- **Project-based grouping** within organizations
-- **Access modifiers** (PUBLIC, PRIVATE, ORGANIZATION)
-- **Role-based access control** (admin, user)
-
-### 📊 Quota Management
-
-- **Rate limiting** per organization
+- **Rate limiting** in optional API services
 - **Usage tracking** for API calls, pipelines, and plugins
-- **Configurable limits** per quota type
-- **Real-time monitoring** with Server-Sent Events (SSE)
+- **Configurable quota limits** per organization
+- **Real-time monitoring** with Server-Sent Events
 
-### 🔒 Security
+### 🔒 Security (Constructs + Services)
 
-- **JWT-based authentication** with refresh tokens
-- **HTTPS/TLS** encryption in production
-- **CORS protection** with configurable origins
-- **SQL injection prevention** with Drizzle ORM
-- **Helmet.js** security headers
+- **IAM role management** with least-privilege policies in CDK constructs
+- **Cross-account deployment** support with proper role assumption
+- **Artifact encryption** using AWS KMS
+- **Secret management** via AWS Secrets Manager integration
+- **JWT-based authentication** in supporting API services
+- **HTTPS/TLS** encryption for optional web services
 
 ## Getting Started
+
+### Quick Start: Using the CDK Construct Library
+
+#### Installation
+
+```bash
+# Install the core construct library
+npm install @mwashburn160/pipeline-core
+
+# Or with pnpm
+pnpm add @mwashburn160/pipeline-core
+
+# Or with yarn
+yarn add @mwashburn160/pipeline-core
+```
+
+#### Create Your First Pipeline
+
+```typescript
+import { App, Stack } from 'aws-cdk-lib';
+import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+
+const app = new App();
+const stack = new Stack(app, 'MyPipelineStack', {
+  env: { account: '123456789012', region: 'us-east-1' }
+});
+
+new PipelineBuilder(stack, 'MyPipeline', {
+  project: 'my-app',
+  organization: 'my-org',
+  synth: {
+    source: {
+      type: 'github',
+      options: {
+        repo: 'my-org/my-app',
+        branch: 'main',
+        connectionArn: 'arn:aws:codestar-connections:us-east-1:123456789012:connection/...'
+      }
+    },
+    plugin: {
+      name: 'nodejs-synth',
+      version: '1.0.0'
+    }
+  }
+});
+
+app.synth();
+```
+
+#### Deploy to AWS
+
+```bash
+# Synthesize CloudFormation template
+cdk synth
+
+# Deploy the pipeline
+cdk deploy
+```
 
 ### Prerequisites
 
 - **Node.js** >= 24.9.0
-- **PNPM** 10.25.0+
-- **Docker** and Docker Compose (for local development)
-- **AWS Account** (for deployment)
+- **AWS CDK** >= 2.237.0
+- **AWS Account** with appropriate permissions
+- **AWS CLI** configured with credentials
 
-### Local Development Setup
+### Full Development Setup (Including Supporting Services)
 
 1. **Clone the repository**
 
@@ -201,100 +274,9 @@ docker-compose up -d
 
 ## Usage Examples
 
-### Platform APIs (Primary Use Case - 90% of Users)
+### AWS CDK Constructs (Primary Use Case)
 
-Most users interact with Pipeline Builder through the **REST APIs** or **Web UI**, not directly with CDK constructs:
-
-#### Creating a Plugin via API
-
-```bash
-curl -X POST https://localhost:8443/api/plugins \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "name": "nodejs-build",
-    "version": "1.0.0",
-    "description": "Build Node.js application",
-    "pluginType": "CodeBuildStep",
-    "computeType": "SMALL",
-    "installCommands": ["npm ci"],
-    "commands": [
-      "npm run build",
-      "npm run test"
-    ],
-    "env": {
-      "NODE_ENV": "production"
-    },
-    "accessModifier": "ORGANIZATION"
-  }'
-```
-
-#### Listing Pipelines
-
-```bash
-# Get all pipelines for an organization
-curl -X GET "https://localhost:8443/api/pipelines?orgId=my-org&limit=10&offset=0" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-
-# Find a specific pipeline by name
-curl -X GET "https://localhost:8443/api/pipelines/find?name=my-pipeline&orgId=my-org" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-#### Managing Pipeline Configuration
-
-```javascript
-// Create a pipeline configuration
-const pipeline = await fetch('https://localhost:8443/api/pipelines', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
-  },
-  body: JSON.stringify({
-    name: 'frontend-pipeline',
-    orgId: 'acme-corp',
-    project: 'web-app',
-    description: 'Frontend deployment pipeline',
-    config: {
-      organization: 'acme-corp',
-      project: 'web-app',
-      synth: {
-        source: {
-          type: 'github',
-          options: { repo: 'acme-corp/frontend', branch: 'main' }
-        },
-        plugin: { name: 'react-build' }
-      }
-    },
-    isDefault: true
-  })
-});
-```
-
-#### Service Layer Usage (TypeScript)
-
-```typescript
-import { pipelineService, pluginService } from '@mwashburn160/pipeline-core';
-
-// Find all pipelines for a project
-const pipelines = await pipelineService.findByProject('my-org', 'my-project');
-
-// Get default pipeline
-const defaultPipeline = await pipelineService.getDefaultForProject('my-org', 'my-project');
-
-// Find plugin by name and version
-const plugin = await pluginService.findByNameAndVersion('jest-test', '1.0.0', 'my-org');
-
-// Set default plugin for organization
-await pluginService.setDefaultForOrg('my-org', pluginId, userId);
-```
-
----
-
-### CDK Constructs (Advanced Use Case - 10% of Users)
-
-For advanced users who need to **build CDK infrastructure directly**:
+Most users interact with Pipeline Builder by **using the CDK construct library** to define infrastructure as code:
 
 #### Building a Pipeline with CDK
 
@@ -349,33 +331,294 @@ new PipelineBuilder(stack, 'MyPipeline', {
 app.synth();
 ```
 
+#### Using Plugins with Constructs
+
+```typescript
+import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+
+// Define reusable plugin inline
+const testPlugin = {
+  name: 'unit-tests',
+  version: '1.0.0',
+  pluginType: 'CodeBuildStep',
+  commands: ['npm test'],
+  env: { CI: 'true' }
+};
+
+new PipelineBuilder(stack, 'Pipeline', {
+  project: 'api',
+  organization: 'acme',
+  synth: {
+    source: {
+      type: 'github',
+      options: { repo: 'acme/api', branch: 'main' }
+    },
+    plugin: testPlugin
+  }
+});
+```
+
+#### Advanced: Custom Network Configuration
+
+```typescript
+new PipelineBuilder(stack, 'SecurePipeline', {
+  project: 'secure-app',
+  organization: 'enterprise',
+  defaults: {
+    vpc: { vpcId: 'vpc-12345' },
+    securityGroups: [{ securityGroupId: 'sg-12345' }],
+    subnetSelection: { subnetType: 'PRIVATE_WITH_EGRESS' }
+  },
+  synth: {
+    source: { type: 's3', options: { bucket: 'source-bucket', objectKey: 'source.zip' } },
+    plugin: { name: 'secure-build', version: '2.0.0' }
+  }
+});
+```
+
+#### Advanced: Using Metadata Keys with Custom IAM Roles
+
+```typescript
+import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { MetadataKeys } from '@mwashburn160/pipeline-core';
+import { Role, ServicePrincipal, PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
+import { App, Stack } from 'aws-cdk-lib';
+
+const app = new App();
+const stack = new Stack(app, 'PipelineStack');
+
+// Create a custom IAM role for the pipeline
+const pipelineRole = new Role(stack, 'CustomPipelineRole', {
+  assumedBy: new ServicePrincipal('codepipeline.amazonaws.com'),
+  description: 'Custom role for CodePipeline with specific permissions',
+});
+
+// Add custom permissions to the role
+pipelineRole.addToPolicy(new PolicyStatement({
+  effect: Effect.ALLOW,
+  actions: [
+    'codebuild:BatchGetBuilds',
+    'codebuild:StartBuild',
+    's3:GetObject',
+    's3:PutObject'
+  ],
+  resources: ['*']
+}));
+
+// Create a custom role for CodeBuild steps
+const codeBuildRole = new Role(stack, 'CustomCodeBuildRole', {
+  assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),
+  description: 'Custom role for CodeBuild with enhanced permissions',
+});
+
+codeBuildRole.addToPolicy(new PolicyStatement({
+  effect: Effect.ALLOW,
+  actions: [
+    'secretsmanager:GetSecretValue',
+    'ecr:GetAuthorizationToken',
+    'ecr:BatchCheckLayerAvailability'
+  ],
+  resources: ['*']
+}));
+
+// Use metadata keys to pass role references to the pipeline
+new PipelineBuilder(stack, 'Pipeline', {
+  project: 'secure-app',
+  organization: 'enterprise',
+
+  // Global metadata with custom pipeline role
+  global: {
+    [MetadataKeys.PIPELINE_ROLE]: pipelineRole.roleArn,
+    [MetadataKeys.CROSS_ACCOUNT_KEYS]: true,
+    [MetadataKeys.ENABLE_KEY_ROTATION]: true,
+    [MetadataKeys.DOCKER_ENABLED_FOR_SYNTH]: true,
+    [MetadataKeys.SELF_MUTATION]: true,
+    [MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL]: true
+  },
+
+  synth: {
+    source: {
+      type: 'github',
+      options: {
+        repo: 'enterprise/secure-app',
+        branch: 'main',
+        connectionArn: 'arn:aws:codestar-connections:us-east-1:123456789012:connection/...'
+      }
+    },
+    plugin: {
+      name: 'build-synth',
+      version: '1.0.0'
+    },
+    // Step-level metadata with custom CodeBuild role
+    metadata: {
+      [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,
+      [MetadataKeys.BUILD_ENVIRONMENT]: {
+        computeType: 'BUILD_GENERAL1_LARGE',
+        privileged: true
+      },
+      [MetadataKeys.TIMEOUT]: '60', // 60 minutes
+      [MetadataKeys.CACHE]: {
+        type: 'S3',
+        location: 'my-cache-bucket/cache'
+      }
+    }
+  },
+
+  stages: [
+    {
+      stageName: 'Test',
+      steps: [
+        {
+          name: 'integration-tests',
+          plugin: { name: 'test-runner', version: '1.0.0' },
+          metadata: {
+            [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,
+            [MetadataKeys.COMMANDS]: [
+              'npm run test:integration',
+              'npm run test:e2e'
+            ]
+          }
+        }
+      ]
+    }
+  ]
+});
+
+app.synth();
+```
+
+**Key Metadata Constants Available:**
+
+```typescript
+// Pipeline-level metadata
+MetadataKeys.PIPELINE_ROLE           // Custom pipeline IAM role
+MetadataKeys.PIPELINE_NAME           // Override pipeline name
+MetadataKeys.SELF_MUTATION           // Enable self-mutation
+MetadataKeys.CROSS_ACCOUNT_KEYS      // Enable cross-account keys
+MetadataKeys.ENABLE_KEY_ROTATION     // Enable KMS key rotation
+MetadataKeys.DOCKER_ENABLED_FOR_SYNTH // Enable Docker for synth
+MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL // Parallel asset publishing
+
+// CodeBuild step metadata
+MetadataKeys.STEP_ROLE               // Custom CodeBuild role
+MetadataKeys.ACTION_ROLE             // Custom action role
+MetadataKeys.BUILD_ENVIRONMENT       // Build environment config
+MetadataKeys.TIMEOUT                 // Build timeout
+MetadataKeys.CACHE                   // Build cache configuration
+MetadataKeys.COMMANDS                // Build commands
+MetadataKeys.INSTALL_COMMANDS        // Install commands
+MetadataKeys.PROJECT_NAME            // CodeBuild project name
+```
+
+---
+
+### Supporting Services (Optional Configuration Storage)
+
+For teams that want to manage pipeline configurations through REST APIs:
+
+#### Creating a Plugin via API
+
+```bash
+curl -X POST https://localhost:8443/api/plugins \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "nodejs-build",
+    "version": "1.0.0",
+    "description": "Build Node.js application",
+    "pluginType": "CodeBuildStep",
+    "computeType": "SMALL",
+    "installCommands": ["npm ci"],
+    "commands": ["npm run build", "npm run test"],
+    "env": { "NODE_ENV": "production" }
+  }'
+```
+
+#### Retrieving Pipeline Configuration
+
+```typescript
+import { pipelineService } from '@mwashburn160/pipeline-core';
+
+// Fetch configuration from API service
+const config = await pipelineService.getDefaultForProject('my-org', 'my-project');
+
+// Use configuration with CDK construct
+new PipelineBuilder(stack, 'Pipeline', config.config);
+```
+
 ## Package Structure
 
 ```
 pipeline-builder/
 ├── packages/
-│   ├── api-core/          # Core utilities, auth, logging, error handling
-│   ├── api-server/        # Express infrastructure, SSE, middleware
-│   ├── pipeline-data/     # Database schemas, ORM, query builders, services
-│   ├── pipeline-core/     # CDK constructs, pipeline builder
-│   └── pipeline-manager/  # CLI tool for pipeline management
+│   ├── pipeline-core/     # ⭐ AWS CDK constructs (CORE LIBRARY)
+│   ├── pipeline-data/     # Database schemas, ORM, services (supporting)
+│   ├── api-core/          # Core utilities, auth, logging (supporting)
+│   ├── api-server/        # Express infrastructure, SSE (supporting)
+│   └── pipeline-manager/  # CLI tool for pipeline management (supporting)
 ├── api/
-│   ├── pipeline/          # Pipeline CRUD service
-│   ├── plugin/            # Plugin CRUD service
-│   └── quota/             # Quota tracking service
-├── platform/              # Platform/auth service
-├── frontend/              # Next.js React UI
+│   ├── pipeline/          # Pipeline config CRUD service (supporting)
+│   ├── plugin/            # Plugin definition CRUD service (supporting)
+│   └── quota/             # Quota tracking service (supporting)
+├── platform/              # Platform/auth service (supporting)
+├── frontend/              # Next.js React UI (supporting)
 ├── deploy/
-│   └── local/             # Docker Compose setup
+│   └── local/             # Docker Compose setup (supporting)
 └── .github/
     └── workflows/         # CI/CD workflows
 ```
 
-### Core Packages
+### Core Package: AWS CDK Constructs
+
+#### [@mwashburn160/pipeline-core](packages/pipeline-core) ⭐ **Primary Solution**
+
+The core AWS CDK construct library for building CodePipeline infrastructure:
+
+**Constructs:**
+- `PipelineBuilder` - Main construct for creating AWS CodePipeline
+- `SourceBuilder` - Handles GitHub, CodeStar, and S3 source configurations
+- `StageBuilder` - Creates pipeline stages with build/test/deploy steps
+- `PluginLookup` - Resolves and applies reusable plugin configurations
+- `MetadataBuilder` - Manages metadata-driven configuration
+
+**Features:**
+- Type-safe TypeScript API
+- Plugin-based build steps (ShellStep, CodeBuildStep)
+- Multi-source support (GitHub, CodeStar, S3)
+- Automatic IAM role and policy management
+- VPC and network configuration support
+- Cross-account deployment capabilities
+- Metadata inheritance and merging
+- CDK best practices built-in
+
+**Usage:**
+```typescript
+import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+
+new PipelineBuilder(stack, 'Pipeline', {
+  project: 'my-app',
+  organization: 'my-org',
+  synth: {
+    source: { type: 'github', options: { repo: 'owner/repo' } },
+    plugin: { name: 'build-plugin' }
+  }
+});
+```
+
+### Supporting Packages
+
+#### [@mwashburn160/pipeline-data](packages/pipeline-data)
+
+Optional database layer for configuration persistence:
+- Drizzle ORM schemas for pipelines and plugins
+- PostgreSQL connection management with retry logic
+- Service layer (CrudService base class)
+- Query builders with filtering, pagination, sorting
+- Multi-tenant access control
 
 #### [@mwashburn160/api-core](packages/api-core)
 
-Foundation package providing:
+Foundation utilities for supporting services:
 - JWT authentication middleware
 - Request/response utilities
 - Error handling and logging
@@ -384,30 +627,12 @@ Foundation package providing:
 
 #### [@mwashburn160/api-server](packages/api-server)
 
-Express server infrastructure:
+Express server infrastructure for supporting services:
 - Application factory with security middleware
 - Server lifecycle management
 - Server-Sent Events (SSE) for real-time updates
 - Request context creation
 - Graceful shutdown handling
-
-#### [@mwashburn160/pipeline-data](packages/pipeline-data)
-
-Database layer with:
-- Drizzle ORM schemas for pipelines and plugins
-- PostgreSQL connection management with retry logic
-- Service layer (CrudService base class)
-- Query builders with filtering, pagination, sorting
-- Multi-tenant access control
-
-#### [@mwashburn160/pipeline-core](packages/pipeline-core)
-
-CDK infrastructure package:
-- PipelineBuilder construct for creating CodePipelines
-- Plugin system for reusable build steps
-- Configuration management
-- Source builders (GitHub, CodeStar, S3)
-- Metadata-driven pipeline configuration
 
 ## API Reference
 
@@ -440,62 +665,6 @@ CDK infrastructure package:
 | POST | `/quota/check` | Check if action is allowed under quota |
 | POST | `/quota/track` | Record usage of a quota type |
 | GET | `/quota/:orgId` | Get quota status for organization |
-
-### Common Query Parameters
-
-- `orgId` - Organization filter
-- `project` - Project filter
-- `name` - Name filter (exact match)
-- `isDefault` - Filter by default status
-- `accessModifier` - Filter by access level (PUBLIC, PRIVATE, ORGANIZATION)
-- `limit` - Page size (default: 10)
-- `offset` - Pagination offset (default: 0)
-- `sortBy` - Sort field (createdAt, updatedAt, name)
-- `sortOrder` - Sort direction (asc, desc)
-
-## Development
-
-### Build All Packages
-
-```bash
-pnpm build
-```
-
-### Run Tests
-
-```bash
-pnpm test
-```
-
-### Watch Mode
-
-```bash
-pnpm watch
-```
-
-### Type Checking
-
-```bash
-pnpm compile
-```
-
-### Linting
-
-```bash
-pnpm eslint
-```
-
-### Update Dependencies
-
-```bash
-pnpm upgrade
-```
-
-### Generate Projen Configuration
-
-```bash
-pnpm dlx projen
-```
 
 ## Technology Stack
 
@@ -533,4 +702,18 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ---
 
-**Built with ❤️ using AWS CDK, TypeScript, and Modern DevOps Practices**
+## What Makes This a 100% AWS Construct Solution?
+
+Pipeline Builder is fundamentally an **AWS CDK Construct Library**:
+
+✅ **Core Value**: The `PipelineBuilder` construct creates AWS CodePipeline infrastructure
+✅ **Primary Use Case**: Import the library and define pipelines in CDK TypeScript code
+✅ **Deployment**: Uses standard `cdk deploy` workflow to create AWS resources
+✅ **Infrastructure as Code**: Full infrastructure defined in type-safe TypeScript
+✅ **AWS Native**: Builds on AWS CDK best practices and patterns
+
+📦 **Supporting Services**: The REST APIs, databases, and web UI are optional configuration storage layers that complement the core construct library but are not required to use Pipeline Builder.
+
+---
+
+**Built with ❤️ using AWS CDK, TypeScript, and Infrastructure as Code Best Practices**
