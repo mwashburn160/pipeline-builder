@@ -1,3 +1,13 @@
+## 1.10.1 (2026-02-11)
+
+### 🩹 Fixes
+
+- nested props ([7a1df81](https://github.com/mwashburn160/pipeline-builder/commit/7a1df81))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.0 (2026-02-11)
 
 ### 🚀 Features
