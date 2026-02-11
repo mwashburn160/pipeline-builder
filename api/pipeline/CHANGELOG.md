@@ -1,3 +1,13 @@
+## 1.9.4 (2026-02-11)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.16.3 ([d690fea](https://github.com/mwashburn160/pipeline-builder/commit/d690fea))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.3 (2026-02-11)
 
 ### 🩹 Fixes
