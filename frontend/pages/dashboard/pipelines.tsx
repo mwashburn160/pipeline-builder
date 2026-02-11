@@ -108,7 +108,13 @@ export default function PipelinesPage() {
     setCreateError(null);
     setCreateSuccess(null);
     try {
-      const response = await api.createPipeline({ props, accessModifier });
+      const response = await api.createPipeline({
+        project: props.project,
+        organization: props.organization,
+        pipelineName: props.pipelineName,
+        props,
+        accessModifier
+      });
       if (response.success) {
         setCreateSuccess('Pipeline created successfully!');
         await fetchPipelines();
