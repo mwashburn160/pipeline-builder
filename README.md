@@ -79,19 +79,6 @@ metadata: {
 - **Refactoring Confidence**: Rename or restructure with confidence—TypeScript compiler ensures nothing breaks
 - **Self-Documenting**: Metadata keys are strongly typed with clear names—no need to memorize cryptic CloudFormation properties
 
-### 🎯 Who Should Use Pipeline Builder?
-
-**Perfect for:**
-- **Platform Teams** building internal developer platforms and CI/CD standardization
-- **DevOps Engineers** managing 10+ pipelines and tired of configuration drift
-- **Enterprise Organizations** requiring compliance, auditability, and centralized governance
-- **AWS CDK Users** who want pipeline-as-code with the same level of abstraction as their infrastructure
-
-**Not ideal for:**
-- Teams committed to Jenkins, GitLab CI, or GitHub Actions
-- Organizations not using AWS or AWS CDK
-- Single-pipeline projects where template reuse doesn't matter
-
 ## Architecture
 
 ### AWS CDK Construct Library (Core Solution)
