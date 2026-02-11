@@ -22,7 +22,17 @@ Pipeline Builder is a type-safe, plugin-based construct library that simplifies 
 
 ## Overview
 
-Pipeline Builder is an **AWS CDK Construct library** for building CodePipeline infrastructure as code. At its core, this is a 100% AWS Construct solution that enables teams to:
+Pipeline Builder is a **100% AWS CDK Construct library** for building CodePipeline infrastructure as code. This is fundamentally a construct library, not a SaaS platform or managed service.
+
+### Why 100% AWS Construct?
+
+✅ **Pure Infrastructure as Code** - The `PipelineBuilder` construct creates actual AWS CodePipeline infrastructure in your AWS account
+✅ **Standard CDK Workflow** - Install the library, import constructs, define pipelines in TypeScript, deploy with `cdk deploy`
+✅ **Direct AWS Resource Creation** - Generates CloudFormation templates that provision CodePipeline, CodeBuild, S3, and IAM resources
+✅ **Type-Safe Configuration** - Full TypeScript type safety with fluent builder API for readable pipeline definitions
+✅ **AWS Native** - Builds on AWS CDK best practices and integrates seamlessly with existing CDK applications
+
+### Core Capabilities
 
 - **Build AWS CodePipelines programmatically** using TypeScript/JavaScript with a fluent, type-safe API
 - **Define pipeline infrastructure** using AWS CDK constructs and best practices
@@ -31,7 +41,9 @@ Pipeline Builder is an **AWS CDK Construct library** for building CodePipeline i
 - **Support multiple source types** including GitHub, CodeStar connections, and S3
 - **Deploy pipelines to AWS** using standard CDK deployment workflows
 
-The library includes supporting infrastructure (REST APIs, databases, web UI) for managing and storing pipeline configurations, but the core value proposition is the **AWS CDK construct library** that transforms configuration into deployed AWS CodePipeline infrastructure.
+### Optional Supporting Services
+
+The library includes optional supporting infrastructure (REST APIs, databases, web UI) for storing and managing pipeline configurations as reusable templates. These services are **not required** to use Pipeline Builder - the core value is the **AWS CDK construct library** that transforms configuration into deployed AWS CodePipeline infrastructure.
 
 ## Architecture
 
@@ -451,24 +463,97 @@ app.synth();
 **Key Metadata Constants Available:**
 
 ```typescript
-// Pipeline-level metadata
-MetadataKeys.PIPELINE_ROLE           // Custom pipeline IAM role
-MetadataKeys.PIPELINE_NAME           // Override pipeline name
-MetadataKeys.SELF_MUTATION           // Enable self-mutation
-MetadataKeys.CROSS_ACCOUNT_KEYS      // Enable cross-account keys
-MetadataKeys.ENABLE_KEY_ROTATION     // Enable KMS key rotation
-MetadataKeys.DOCKER_ENABLED_FOR_SYNTH // Enable Docker for synth
-MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL // Parallel asset publishing
+// ── CodePipeline Configuration ──
+MetadataKeys.SELF_MUTATION                      // Enable self-mutation
+MetadataKeys.CROSS_ACCOUNT_KEYS                 // Enable cross-account keys
+MetadataKeys.DOCKER_ENABLED_FOR_SELF_MUTATION   // Enable Docker for self-mutation
+MetadataKeys.DOCKER_ENABLED_FOR_SYNTH           // Enable Docker for synth
+MetadataKeys.ENABLE_KEY_ROTATION                // Enable KMS key rotation
+MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL         // Parallel asset publishing
+MetadataKeys.REUSE_CROSS_REGION_SUPPORT_STACKS  // Reuse cross-region support stacks
+MetadataKeys.USE_CHANGE_SETS                    // Use CloudFormation change sets
+MetadataKeys.USE_PIPELINE_ROLE_FOR_ACTIONS      // Use pipeline role for actions
+MetadataKeys.ARTIFACT_BUCKET                    // Custom artifact bucket
+MetadataKeys.ASSET_PUBLISHING_CODE_BUILD_DEFAULTS // Asset publishing CodeBuild defaults
+MetadataKeys.CDK_ASSETS_CLI_VERSION             // CDK assets CLI version
+MetadataKeys.CLI_VERSION                        // CDK CLI version
+MetadataKeys.CODE_BUILD_DEFAULTS                // CodeBuild defaults for all steps
+MetadataKeys.CODE_PIPELINE                      // CodePipeline construct reference
+MetadataKeys.CROSS_REGION_REPLICATION_BUCKETS   // Cross-region replication buckets
+MetadataKeys.DOCKER_CREDENTIALS                 // Docker registry credentials
+MetadataKeys.PIPELINE_NAME                      // Override pipeline name
+MetadataKeys.PIPELINE_TYPE                      // Pipeline type (V1, V2)
+MetadataKeys.PIPELINE_ROLE                      // Custom pipeline IAM role
+MetadataKeys.SELF_MUTATION_CODE_BUILD_DEFAULTS  // Self-mutation CodeBuild defaults
+MetadataKeys.SYNTH                              // Synth step configuration
+MetadataKeys.SYNTH_CODE_BUILD_DEFAULTS          // Synth CodeBuild defaults
 
-// CodeBuild step metadata
-MetadataKeys.STEP_ROLE               // Custom CodeBuild role
-MetadataKeys.ACTION_ROLE             // Custom action role
-MetadataKeys.BUILD_ENVIRONMENT       // Build environment config
-MetadataKeys.TIMEOUT                 // Build timeout
-MetadataKeys.CACHE                   // Build cache configuration
-MetadataKeys.COMMANDS                // Build commands
-MetadataKeys.INSTALL_COMMANDS        // Install commands
-MetadataKeys.PROJECT_NAME            // CodeBuild project name
+// ── CodeBuild Step Configuration ──
+MetadataKeys.ACTION_ROLE                        // Custom action role
+MetadataKeys.ADDITIONAL_INPUTS                  // Additional input artifacts
+MetadataKeys.BUILD_ENVIRONMENT                  // Build environment config
+MetadataKeys.CACHE                              // Build cache configuration
+MetadataKeys.COMMANDS                           // Build commands
+MetadataKeys.CODE_BUILD_ENV                     // Environment variables
+MetadataKeys.ENV_FROM_CFN_OUTPUTS               // Environment from CloudFormation outputs
+MetadataKeys.FILE_SYSTEM_LOCATIONS              // EFS file system locations
+MetadataKeys.INPUT                              // Primary input artifact
+MetadataKeys.INSTALL_COMMANDS                   // Install commands
+MetadataKeys.LOGGING                            // CloudWatch logging configuration
+MetadataKeys.PARTIAL_BUILD_SPEC                 // Partial BuildSpec configuration
+MetadataKeys.PRIMARY_OUTPUT_DIRECTORY           // Primary output directory
+MetadataKeys.PROJECT_NAME                       // CodeBuild project name
+MetadataKeys.STEP_ROLE                          // Custom CodeBuild role
+MetadataKeys.ROLE_POLICY_STATEMENTS             // Additional IAM policy statements
+MetadataKeys.TIMEOUT                            // Build timeout
+
+// ── ShellStep Configuration ──
+MetadataKeys.SHELL_ADDITIONAL_INPUTS            // Additional input artifacts (ShellStep)
+MetadataKeys.SHELL_COMMANDS                     // Shell commands
+MetadataKeys.SHELL_ENV                          // Environment variables (ShellStep)
+MetadataKeys.SHELL_ENV_FROM_CFN_OUTPUTS         // Environment from CFN outputs (ShellStep)
+MetadataKeys.SHELL_INPUT                        // Primary input (ShellStep)
+MetadataKeys.SHELL_INSTALL_COMMANDS             // Install commands (ShellStep)
+MetadataKeys.SHELL_PRIMARY_OUTPUT_DIRECTORY     // Output directory (ShellStep)
+
+// ── Build Environment Configuration ──
+MetadataKeys.PRIVILEGED                         // Privileged mode for Docker
+MetadataKeys.BUILD_IMAGE                        // Custom build image
+MetadataKeys.CERTIFICATE                        // SSL/TLS certificate
+MetadataKeys.COMPUTE_TYPE                       // Compute type (SMALL, MEDIUM, LARGE, etc.)
+MetadataKeys.DOCKER_SERVER                      // Docker registry server
+MetadataKeys.ENVIRONMENT_VARIABLES              // Environment variables map
+MetadataKeys.FLEET                              // CodeBuild fleet configuration
+
+// ── Network Configuration ──
+MetadataKeys.NETWORK_TYPE                       // Network type
+MetadataKeys.NETWORK_VPC_ID                     // VPC ID
+MetadataKeys.NETWORK_SUBNET_IDS                 // Subnet IDs
+MetadataKeys.NETWORK_SUBNET_TYPE                // Subnet type (PUBLIC, PRIVATE, etc.)
+MetadataKeys.NETWORK_AVAILABILITY_ZONES         // Availability zones
+MetadataKeys.NETWORK_SUBNET_GROUP_NAME          // Subnet group name
+MetadataKeys.NETWORK_SECURITY_GROUP_IDS         // Security group IDs
+MetadataKeys.NETWORK_TAGS                       // Network resource tags
+MetadataKeys.NETWORK_VPC_NAME                   // VPC name
+MetadataKeys.NETWORK_REGION                     // Network region
+
+// ── IAM Role Configuration ──
+MetadataKeys.ROLE_TYPE                          // Role type (ARN, NAME, etc.)
+MetadataKeys.ROLE_ARN                           // IAM role ARN
+MetadataKeys.ROLE_NAME                          // IAM role name
+MetadataKeys.ROLE_MUTABLE                       // Role mutability flag
+
+// ── Security Group Configuration ──
+MetadataKeys.SECURITY_GROUP_TYPE                // Security group type
+MetadataKeys.SECURITY_GROUP_IDS                 // Security group IDs
+MetadataKeys.SECURITY_GROUP_MUTABLE             // Security group mutability
+MetadataKeys.SECURITY_GROUP_NAME                // Security group name
+MetadataKeys.SECURITY_GROUP_VPC_ID              // VPC ID for security group
+
+// ── Custom Build Configuration ──
+MetadataKeys.BUILD_PARALLEL                     // Enable parallel builds
+MetadataKeys.BUILD_CACHE                        // Build cache settings
+MetadataKeys.BUILD_TIMEOUT                      // Build timeout override
 ```
 
 ---
@@ -566,35 +651,6 @@ new PipelineBuilder(stack, 'Pipeline', {
 });
 ```
 
-### Supporting Packages
-
-#### [@mwashburn160/pipeline-data](packages/pipeline-data)
-
-Optional database layer for configuration persistence:
-- Drizzle ORM schemas for pipelines and plugins
-- PostgreSQL connection management with retry logic
-- Service layer (CrudService base class)
-- Query builders with filtering, pagination, sorting
-- Multi-tenant access control
-
-#### [@mwashburn160/api-core](packages/api-core)
-
-Foundation utilities for supporting services:
-- JWT authentication middleware
-- Request/response utilities
-- Error handling and logging
-- Parameter parsing
-- HTTP client for internal service communication
-
-#### [@mwashburn160/api-server](packages/api-server)
-
-Express server infrastructure for supporting services:
-- Application factory with security middleware
-- Server lifecycle management
-- Server-Sent Events (SSE) for real-time updates
-- Request context creation
-- Graceful shutdown handling
-
 ## API Reference
 
 ### Pipeline Service API
@@ -630,20 +686,6 @@ Express server infrastructure for supporting services:
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-## What Makes This a 100% AWS Construct Solution?
-
-Pipeline Builder is fundamentally an **AWS CDK Construct Library**:
-
-✅ **Core Value**: The `PipelineBuilder` construct creates AWS CodePipeline infrastructure
-✅ **Primary Use Case**: Import the library and define pipelines in CDK TypeScript code
-✅ **Deployment**: Uses standard `cdk deploy` workflow to create AWS resources
-✅ **Infrastructure as Code**: Full infrastructure defined in type-safe TypeScript
-✅ **AWS Native**: Builds on AWS CDK best practices and patterns
-
-📦 **Supporting Services**: The REST APIs, databases, and web UI are optional configuration storage layers that complement the core construct library but are not required to use Pipeline Builder.
 
 ---
 
