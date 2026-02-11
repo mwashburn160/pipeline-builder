@@ -1,3 +1,13 @@
+## 1.10.0 (2026-02-11)
+
+### 🚀 Features
+
+- updated pipeline edit modal ([9a471b5](https://github.com/mwashburn160/pipeline-builder/commit/9a471b5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.13 (2026-02-11)
 
 ### 🩹 Fixes
