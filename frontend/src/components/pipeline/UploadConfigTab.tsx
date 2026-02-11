@@ -22,24 +22,18 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
         let propsData: BuilderProps;
 
         try {
+          let raw: Record<string, unknown>;
           if (propsFile) {
             const fileContent = await propsFile.text();
-            propsData = JSON.parse(fileContent);
+            raw = JSON.parse(fileContent);
           } else if (propsInput.trim()) {
-            propsData = JSON.parse(propsInput);
+            raw = JSON.parse(propsInput);
           } else {
             setPropsError('Please upload a props file or enter props JSON');
             return null;
           }
 
-          // If the uploaded JSON wraps BuilderProps inside a "props" key
-          // (e.g., a full pipeline creation payload), extract the inner props.
-          if (propsData.props && typeof propsData.props === 'object') {
-            const inner = propsData.props as Record<string, unknown>;
-            if (inner.synth || inner.stages) {
-              propsData = inner as BuilderProps;
-            }
-          }
+          propsData = raw as unknown as BuilderProps;
 
           if (!propsData.project || typeof propsData.project !== 'string') {
             setPropsError('Props must include "project" (string)');

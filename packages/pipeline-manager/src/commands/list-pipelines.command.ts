@@ -5,7 +5,7 @@ import { PipelineListResponse, Pipeline, Config } from '../types';
 import { ApiClient } from '../utils/api.client';
 import { getConfig } from '../utils/config.loader';
 import { ERROR_CODES, handleError } from '../utils/error.handler';
-import { outputData, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output.utils';
+import { outputData, extractListResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output.utils';
 
 const { bold, cyan, magenta } = pico;
 
@@ -268,31 +268,7 @@ export function listPipelines(program: Command): void {
         const requestDuration = Date.now() - requestStart;
 
         // Handle response
-        let pipelines: Pipeline[];
-        let total: number | undefined;
-        let hasMore = false;
-
-        if (response && typeof response === 'object') {
-          if ('pipelines' in response && Array.isArray(response.pipelines)) {
-            pipelines = response.pipelines;
-            total = response.total;
-            hasMore = response.hasMore || false;
-          } else if ('items' in response && Array.isArray(response.items)) {
-            pipelines = response.items;
-            total = response.total;
-            hasMore = response.hasMore || false;
-          } else if (Array.isArray(response)) {
-            pipelines = response;
-          } else {
-            printWarning('Unexpected response format, attempting to handle');
-            pipelines = [];
-          }
-        } else if (Array.isArray(response)) {
-          pipelines = response;
-        } else {
-          printError('Invalid response format from API');
-          throw new Error('Unexpected API response format');
-        }
+        const { items: pipelines, total, hasMore } = extractListResponse<Pipeline>(response, 'pipelines');
 
         console.log('');
         printSection('✓ Query Complete');

@@ -42,7 +42,7 @@ export class StageBuilder {
   addStage(pipeline: CodePipeline, stage: StageOptions): void {
     const waveId = stage.alias ?? `${stage.stageName}-alias`;
 
-    const steps = stage.steps.map(stepConfig => {
+    const resolveStep = (stepConfig: typeof stage.steps[number]) => {
       const plugin = this.pluginLookup.plugin(stepConfig.plugin);
       const stepMetadata = merge(this.globalMetadata, stepConfig.metadata ?? {});
       const stepAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
@@ -61,9 +61,15 @@ export class StageBuilder {
         postCommands: stepConfig.postCommands,
         env: stepConfig.env,
       });
-    });
+    };
 
-    pipeline.addWave(waveId, { pre: steps });
+    const preSteps = stage.steps.filter(s => (s.position ?? 'pre') === 'pre').map(resolveStep);
+    const postSteps = stage.steps.filter(s => s.position === 'post').map(resolveStep);
+
+    pipeline.addWave(waveId, {
+      ...(preSteps.length > 0 && { pre: preSteps }),
+      ...(postSteps.length > 0 && { post: postSteps }),
+    });
   }
 
   /**

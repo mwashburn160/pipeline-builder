@@ -119,10 +119,9 @@ function _authenticateToken(
   try {
     const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
 
-    // Reject refresh tokens — they should not be used for API access.
-    // Allow tokens with type 'access' or no type field (backwards compat).
-    if (decoded.type === 'refresh') {
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Refresh tokens cannot be used for API access', ErrorCode.TOKEN_INVALID);
+    // Only accept access tokens for API requests.
+    if (decoded.type !== 'access') {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
     }
 
     // Attach user to request

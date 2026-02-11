@@ -4,7 +4,6 @@ import * as yaml from 'yaml';
 import { Config } from '../types';
 import { printDebug, printError, printWarning } from './output.utils';
 
-// Re-export Config for backward compatibility
 export type { Config };
 
 /**

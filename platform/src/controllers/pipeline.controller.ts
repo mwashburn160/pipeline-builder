@@ -5,7 +5,7 @@ import {
   pipelineService,
   PipelineServiceError,
   PipelineFilter,
-} from '../utils';
+} from '../services';
 
 const logger = createLogger('PipelineController');
 
@@ -244,33 +244,21 @@ export async function createPipeline(req: Request, res: Response): Promise<void>
 
     const { project, organization, pipelineName, props, accessModifier } = req.body;
 
+    if (!project || typeof project !== 'string') {
+      return sendError(res, 400, 'project is required and must be a string');
+    }
+    if (!organization || typeof organization !== 'string') {
+      return sendError(res, 400, 'organization is required and must be a string');
+    }
     if (!props || typeof props !== 'object') {
       return sendError(res, 400, 'Pipeline props (builderProps) are required');
     }
 
-    // Resolve project & organization: prefer top-level fields from the CLI,
-    // fall back to values inside props for backward compatibility.
-    const resolvedProject: string | undefined = project ?? props.project;
-    const resolvedOrganization: string | undefined = organization ?? props.organization;
+    const resolvedProject = project;
+    const resolvedOrganization = organization;
+    const builderProps = props;
 
-    if (!resolvedProject || typeof resolvedProject !== 'string') {
-      return sendError(res, 400, 'project is required and must be a string');
-    }
-    if (!resolvedOrganization || typeof resolvedOrganization !== 'string') {
-      return sendError(res, 400, 'organization is required and must be a string');
-    }
-
-    // Extract the actual BuilderProps to store.
-    // If props contains a nested "props" key with a "synth" object, the caller
-    // sent the full pipeline payload as the props file — unwrap one level.
-    const builderProps =
-      props.props && typeof props.props === 'object' && (props.props as Record<string, unknown>).synth
-        ? props.props
-        : props;
-
-    // Resolve pipelineName: prefer top-level, fall back to builderProps, then default.
     const resolvedPipelineName: string = pipelineName
-      ?? builderProps.pipelineName
       ?? `${replaceNonAlphanumeric(resolvedOrganization).toLowerCase()}-${replaceNonAlphanumeric(resolvedProject).toLowerCase()}-pipeline`;
 
     // Validate access modifier

@@ -20,10 +20,18 @@ export interface PipelineFilter {
 }
 
 /**
- * Builder props structure for pipeline configuration
+ * Builder props structure for pipeline configuration.
+ * Mirrors the canonical BuilderProps from @mwashburn160/pipeline-core.
  */
 export interface BuilderProps {
-  [key: string]: unknown;
+  project: string;
+  organization: string;
+  pipelineName?: string;
+  global?: Record<string, string | number | boolean>;
+  defaults?: Record<string, unknown>;
+  role?: Record<string, unknown>;
+  synth: Record<string, unknown>;
+  stages?: Record<string, unknown>[];
 }
 
 /**

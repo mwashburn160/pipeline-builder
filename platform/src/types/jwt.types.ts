@@ -8,6 +8,8 @@
  * Contains user identity and permissions for API authorization.
  */
 export interface AccessTokenPayload {
+  /** Token type discriminator */
+  type: 'access';
   /** User ID (MongoDB ObjectId as string) */
   sub: string;
   /** Username */
@@ -39,6 +41,8 @@ export interface AccessTokenPayload {
  * Minimal payload for token refresh operations.
  */
 export interface RefreshTokenPayload {
+  /** Token type discriminator */
+  type: 'refresh';
   /** User ID (MongoDB ObjectId as string) */
   sub: string;
   /** Token version for session invalidation */

@@ -28,7 +28,7 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/pipelines', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPipelineRoutes(sseManager, quotaService));
+app.use('/pipelines', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePipelineRoutes(sseManager));

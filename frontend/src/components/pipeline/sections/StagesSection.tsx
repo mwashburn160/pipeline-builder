@@ -27,6 +27,7 @@ function StepEditor({
   errorPrefix: string;
   errors?: Record<string, string>;
 }) {
+  const updatePosition = (position: 'pre' | 'post') => onChange({ ...step, position });
   const updatePlugin = (plugin: FormPluginOptions) => onChange({ ...step, plugin });
   const updateMetadata = (metadata: MetadataEntry[]) => onChange({ ...step, metadata });
   const updateNetworkType = (networkType: FormStep['networkType']) => onChange({ ...step, networkType });
@@ -37,6 +38,19 @@ function StepEditor({
 
   return (
     <div className="space-y-3">
+      <div>
+        <label className="label">Step Position</label>
+        <select
+          value={step.position}
+          onChange={(e) => updatePosition(e.target.value as 'pre' | 'post')}
+          disabled={disabled}
+          className="input"
+        >
+          <option value="pre">Pre (before deployment)</option>
+          <option value="post">Post (after deployment)</option>
+        </select>
+      </div>
+
       <PluginOptionsEditor
         value={step.plugin}
         onChange={updatePlugin}

@@ -173,6 +173,14 @@ export interface StageStepOptions extends StepCustomization {
 
   /** Optional network configuration for this step's CodeBuild action */
   readonly network?: NetworkConfig;
+
+  /**
+   * Position of this step within the pipeline wave.
+   * - 'pre': Runs before the stage deployment (default)
+   * - 'post': Runs after the stage deployment
+   * @default 'pre'
+   */
+  readonly position?: 'pre' | 'post';
 }
 
 /**

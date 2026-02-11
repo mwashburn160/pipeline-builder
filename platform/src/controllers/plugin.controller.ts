@@ -5,7 +5,7 @@ import {
   pluginService,
   PluginServiceError,
   PluginFilter,
-} from '../utils';
+} from '../services';
 
 const logger = createLogger('PluginController');
 

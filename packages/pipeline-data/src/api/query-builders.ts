@@ -6,14 +6,6 @@ import {
 import { PipelineFilter, PluginFilter } from '../core/query-filters';
 import { schema } from '../database/drizzle-schema';
 
-// Re-export utilities for backward compatibility
-export {
-  getAccessBehavior,
-  parseBooleanFilter,
-  normalizeStringFilter,
-  type AccessBehavior,
-} from './access-control-builder';
-
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
 const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);

@@ -4,13 +4,14 @@
  */
 
 import { z } from 'zod';
+import { emailSchema } from '../utils/validation';
 
 // ============================================================================
 // Invitation Schemas
 // ============================================================================
 
 export const sendInvitationSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: emailSchema,
   role: z.enum(['member', 'admin']).default('member'),
   invitationType: z.enum(['email', 'oauth', 'any']).default('any'),
   allowedOAuthProviders: z.array(z.enum(['google'])).optional(),
@@ -31,7 +32,7 @@ export const oauthCallbackSchema = z.object({
 
 export const addMemberSchema = z.object({
   userId: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  email: emailSchema.optional(),
   role: z.enum(['member', 'admin']).default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email must be provided',
@@ -71,7 +72,7 @@ export const updateQuotasSchema = z.object({
 
 export const updateProfileSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').optional(),
-  email: z.string().email('Invalid email address').optional(),
+  email: emailSchema.optional(),
 });
 
 export const changePasswordSchema = z.object({

@@ -10,6 +10,7 @@ import { AccessTokenPayload, RefreshTokenPayload } from '../types';
  */
 export function createAccessTokenPayload(user: IUser): AccessTokenPayload {
   return {
+    type: 'access',
     sub: user._id.toString(),
     organizationId: user.organizationId?.toString(),
     username: user.username,
@@ -26,6 +27,7 @@ export function createAccessTokenPayload(user: IUser): AccessTokenPayload {
  */
 export function createRefreshTokenPayload(user: IUser): RefreshTokenPayload {
   return {
+    type: 'refresh',
     sub: user._id.toString(),
     tokenVersion: user.tokenVersion,
   };

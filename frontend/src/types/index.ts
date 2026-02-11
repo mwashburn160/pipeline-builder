@@ -136,14 +136,19 @@ export interface Plugin {
 }
 
 /**
- * Builder props for pipeline configuration
- * Contains core identification fields used by the pipeline builder
+ * Builder props for pipeline configuration.
+ * Mirrors the canonical BuilderProps from @mwashburn160/pipeline-core
+ * but without CDK-specific type imports.
  */
 export interface BuilderProps {
   project: string;
   organization: string;
   pipelineName?: string;
-  [key: string]: unknown;
+  global?: Record<string, string | number | boolean>;
+  defaults?: Record<string, unknown>;
+  role?: Record<string, unknown>;
+  synth: Record<string, unknown>;
+  stages?: Record<string, unknown>[];
 }
 
 /**

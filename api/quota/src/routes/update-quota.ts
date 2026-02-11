@@ -45,10 +45,6 @@ interface QuotaUpdateBody {
   name?: string;
   slug?: string;
   quotas?: Partial<Record<QuotaType, number>>;
-  // Legacy flat format — quota values at top level
-  plugins?: number;
-  pipelines?: number;
-  apiCalls?: number;
 }
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -61,13 +57,7 @@ router.put(
     const targetOrgId = getParam(req.params, 'orgId')!;
     const body = req.body as QuotaUpdateBody;
 
-    // Normalise: support both { quotas: { plugins: 100 } } and flat { plugins: 100 }
     const quotaUpdates: Partial<Record<QuotaType, number>> = { ...body.quotas };
-    for (const k of VALID_QUOTA_TYPES) {
-      if (body[k] !== undefined && quotaUpdates[k] === undefined) {
-        quotaUpdates[k] = body[k];
-      }
-    }
     const hasQuotas = VALID_QUOTA_TYPES.some((k) => quotaUpdates[k] !== undefined);
 
     // --- Validation --------------------------------------------------------

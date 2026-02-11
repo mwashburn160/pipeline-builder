@@ -8,7 +8,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, parsePaginationParams } from '@mwashburn160/api-core';
-import { SSEManager, QuotaService } from '@mwashburn160/api-server';
+import { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
   validateFilter,
@@ -24,12 +24,9 @@ import { pipelineService } from '../services/pipeline-service';
  * Context is automatically attached via attachRequestContext middleware
  */
 export function createReadPipelineRoutes(
-  sseManager: SSEManager,
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
-  // sseManager kept in signature for backward compatibility but not used (context middleware handles it)
-  void sseManager;
 
   // -------------------------------------------------------------------------
   // GET /pipelines — paginated list

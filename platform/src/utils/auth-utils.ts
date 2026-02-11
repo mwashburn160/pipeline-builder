@@ -9,6 +9,7 @@ import { Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { z, ZodSchema } from 'zod';
 import { config } from '../config';
+import { emailSchema } from './validation';
 import type { IUser } from '../models/user.model';
 
 const logger = createLogger('AuthUtils');
@@ -22,7 +23,7 @@ const logger = createLogger('AuthUtils');
  */
 export const registerSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
-  email: z.string().email('Invalid email address'),
+  email: emailSchema,
   password: z.string().min(8, 'Password must be at least 8 characters'),
   organizationName: z.string().optional(),
 });
@@ -81,6 +82,7 @@ export function validateBody<T>(
 // ============================================================================
 
 export interface TokenPayload {
+  type: 'access';
   sub: string;
   email: string;
   role: string;
@@ -103,6 +105,7 @@ export interface IssuedTokens {
  */
 export async function issueTokens(user: IUser): Promise<IssuedTokens> {
   const payload: TokenPayload = {
+    type: 'access',
     sub: user._id.toString(),
     email: user.email,
     role: user.role,

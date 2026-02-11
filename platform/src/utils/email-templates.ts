@@ -39,65 +39,60 @@ const invitationStyles = `
 // ============================================================================
 
 function buildOAuthText(data: InvitationEmailData): string {
-  if (data.invitationType === 'email') {
-    return '\nYou will need to create an account with email and password to accept this invitation.\n';
+  switch (data.invitationType) {
+    case 'email':
+      return '\nYou will need to create an account with email and password to accept this invitation.\n';
+    case 'oauth': {
+      const providers = data.allowedOAuthProviders?.length
+        ? data.allowedOAuthProviders.join(', ')
+        : 'Google';
+      return `\nYou can accept this invitation using your ${providers} account.\n`;
+    }
+    case 'any':
+    default:
+      return data.allowedOAuthProviders?.length
+        ? `\nYou can accept using email/password or sign in with ${data.allowedOAuthProviders.join(', ')}.\n`
+        : '\nYou can accept using email/password or sign in with Google.\n';
   }
-
-  if (data.invitationType === 'oauth') {
-    const providers = data.allowedOAuthProviders?.length
-      ? data.allowedOAuthProviders.join(', ')
-      : 'Google';
-    return `\nYou can accept this invitation using your ${providers} account.\n`;
-  }
-
-  // 'any' type
-  if (data.allowedOAuthProviders?.length) {
-    return `\nYou can accept using email/password or sign in with ${data.allowedOAuthProviders.join(', ')}.\n`;
-  }
-
-  return '\nYou can accept using email/password or sign in with Google.\n';
 }
 
 function buildOAuthHtml(data: InvitationEmailData): string {
-  if (data.invitationType === 'email') {
-    return `
-      <div class="oauth-section">
-        <p style="margin: 0; font-size: 14px; color: #6b7280;">
-          <strong>Note:</strong> You will need to create an account with email and password to accept this invitation.
-        </p>
-      </div>
-    `;
-  }
-
   const providerIcons: Record<string, string> = {
     google: '🔵 Google',
   };
 
-  let providers: string[];
-  if (data.allowedOAuthProviders?.length) {
-    providers = data.allowedOAuthProviders;
-  } else if (data.invitationType === 'oauth' || data.invitationType === 'any') {
-    providers = ['google'];
-  } else {
-    return '';
+  switch (data.invitationType) {
+    case 'email':
+      return `
+        <div class="oauth-section">
+          <p style="margin: 0; font-size: 14px; color: #6b7280;">
+            <strong>Note:</strong> You will need to create an account with email and password to accept this invitation.
+          </p>
+        </div>
+      `;
+    case 'oauth':
+    case 'any': {
+      const providers = data.allowedOAuthProviders?.length
+        ? data.allowedOAuthProviders
+        : ['google'];
+      const providerBadges = providers
+        .map(p => `<span class="oauth-badge">${providerIcons[p] || p}</span>`)
+        .join('');
+      const introText = data.invitationType === 'oauth'
+        ? 'Accept this invitation using:'
+        : 'Or sign in with:';
+      return `
+        <div class="oauth-section">
+          <p style="margin: 0 0 8px 0; font-size: 14px; color: #6b7280;">
+            <strong>${introText}</strong>
+          </p>
+          <div>${providerBadges}</div>
+        </div>
+      `;
+    }
+    default:
+      return '';
   }
-
-  const providerBadges = providers
-    .map(p => `<span class="oauth-badge">${providerIcons[p] || p}</span>`)
-    .join('');
-
-  const introText = data.invitationType === 'oauth'
-    ? 'Accept this invitation using:'
-    : 'Or sign in with:';
-
-  return `
-    <div class="oauth-section">
-      <p style="margin: 0 0 8px 0; font-size: 14px; color: #6b7280;">
-        <strong>${introText}</strong>
-      </p>
-      <div>${providerBadges}</div>
-    </div>
-  `;
 }
 
 // ============================================================================

@@ -8,7 +8,7 @@ curl -X POST ${PLATFORM_BASE_URL}/api/auth/register \
      -H "Content-Type: application/json" \
      -d '{
            "username": "admin",
-           "email": "admin@internal.com",
+           "email": "admin@internal",
            "password": "SecurePassword123!",
            "organizationName": "system"
          }' 
@@ -18,7 +18,7 @@ if [ $? -eq 0 ]; then
     -k \
     -H "Content-Type: application/json" \
     -d '{
-         "identifier": "admin@internal.com",
+         "identifier": "admin@internal",
          "password": "SecurePassword123!"
         }' | jq -r '.data.accessToken')
 

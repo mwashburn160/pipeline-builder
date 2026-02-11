@@ -5,15 +5,16 @@ import { forCreation, withUpdateTimestamp, forSoftDelete } from './helpers';
 
 /**
  * Pipeline builder configuration properties stored in database.
- * This is a simplified version for database storage - JSON representation.
+ * Mirrors the canonical BuilderProps from pipeline-core (JSON-serializable form).
  */
 export interface PipelineBuilderConfig {
   readonly project: string;
   readonly organization: string;
   readonly pipelineName?: string;
   readonly global?: MetaDataType;
-  readonly synth?: Record<string, any>;
-  readonly defaults?: Record<string, any>;
+  readonly synth: Record<string, unknown>;
+  readonly defaults?: Record<string, unknown>;
+  readonly role?: Record<string, unknown>;
   readonly stages?: PipelineStageConfig[];
 }
 
@@ -23,7 +24,7 @@ export interface PipelineBuilderConfig {
 export interface PipelineStageConfig {
   readonly stageName: string;
   readonly alias?: string;
-  readonly steps: Record<string, any>[];
+  readonly steps: Record<string, unknown>[];
 }
 
 /**

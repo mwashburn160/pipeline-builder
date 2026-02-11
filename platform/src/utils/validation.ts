@@ -6,6 +6,12 @@
 import { z } from 'zod';
 import { config } from '../config';
 
+/**
+ * Relaxed email regex: requires local@domain but does NOT require a TLD.
+ * Accepts both "user@internal" and "user@internal.com".
+ */
+export const emailSchema = z.string().regex(/^[^\s@]+@[^\s@]+$/, 'Invalid email address');
+
 const passwordSchema = z.string().min(config.auth.passwordMinLength).max(128)
   .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
   .regex(/[a-z]/, 'Must contain at least one lowercase letter')
@@ -17,7 +23,7 @@ const passwordSchema = z.string().min(config.auth.passwordMinLength).max(128)
 
 export const registerSchema = z.object({
   username: z.string().min(2).max(30).regex(/^[a-z0-9_-]+$/i, 'Username must contain only letters, numbers, hyphens, and underscores'),
-  email: z.string().email(),
+  email: emailSchema,
   password: passwordSchema,
   organizationName: z.string().min(2).max(100).optional(),
 });
@@ -46,7 +52,7 @@ export const oauthCallbackSchema = z.object({
 
 export const updateProfileSchema = z.object({
   username: z.string().min(2).max(30).regex(/^[a-z0-9_-]+$/i).optional(),
-  email: z.string().email().optional(),
+  email: emailSchema.optional(),
 }).refine(data => data.username || data.email, {
   message: 'At least one field (username or email) is required',
 });
@@ -61,7 +67,7 @@ export const changePasswordSchema = z.object({
 // ============================================================================
 
 export const sendInvitationSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   role: z.enum(['user', 'admin']).optional().default('user'),
   invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
   allowedOAuthProviders: z.array(z.enum(['google'])).optional(),
@@ -78,7 +84,7 @@ export const updateOrganizationSchema = z.object({
 
 export const addMemberSchema = z.object({
   userId: z.string().optional(),
-  email: z.string().email().optional(),
+  email: emailSchema.optional(),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });

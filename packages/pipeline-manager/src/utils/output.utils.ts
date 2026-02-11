@@ -39,19 +39,13 @@ export interface TableColumn {
 function logOutput(level: LogLevel, message: string, data?: unknown): void {
   const colors = { info: cyan, success: green, warn: yellow, error: red, debug: magenta };
   const prefixes = { info: 'ℹ', success: '✓', warn: '⚠', error: '✗', debug: '●' };
+  const writers = { error: console.error, warn: console.warn, info: console.log, success: console.log, debug: console.log };
 
   const styledMessage = `${colors[level](prefixes[level])} ${message}`;
+  const write = writers[level];
 
-  if (level === 'error') {
-    console.error(styledMessage);
-    if (data !== undefined) console.error(dim(formatDataForLog(data)));
-  } else if (level === 'warn') {
-    console.warn(styledMessage);
-    if (data !== undefined) console.warn(dim(formatDataForLog(data)));
-  } else {
-    console.log(styledMessage);
-    if (data !== undefined) console.log(dim(formatDataForLog(data)));
-  }
+  write(styledMessage);
+  if (data !== undefined) write(dim(formatDataForLog(data)));
 }
 
 function formatDataForLog(data: unknown): string {
@@ -281,4 +275,42 @@ export function printKeyValue(
 export function printDivider(char: string = '─', width?: number): void {
   const effectiveWidth = width || process.stdout.columns || 80;
   console.log(dim(char.repeat(effectiveWidth)));
+}
+
+// --- Response parsing ---
+
+export interface ListResponseResult<T> {
+  items: T[];
+  total?: number;
+  hasMore: boolean;
+}
+
+/**
+ * Extract items from an API list response, handling multiple response formats.
+ * Supports: `{ <key>: T[] }`, `{ items: T[] }`, `T[]`, or invalid formats.
+ */
+export function extractListResponse<T>(response: unknown, itemsKey: string): ListResponseResult<T> {
+  if (Array.isArray(response)) {
+    return { items: response, total: undefined, hasMore: false };
+  }
+
+  if (response && typeof response === 'object') {
+    const obj = response as Record<string, unknown>;
+
+    // Try primary key (e.g. 'pipelines', 'plugins')
+    if (itemsKey in obj && Array.isArray(obj[itemsKey])) {
+      return { items: obj[itemsKey] as T[], total: obj.total as number | undefined, hasMore: (obj.hasMore as boolean) || false };
+    }
+
+    // Try generic 'items' key
+    if ('items' in obj && Array.isArray(obj.items)) {
+      return { items: obj.items as T[], total: obj.total as number | undefined, hasMore: (obj.hasMore as boolean) || false };
+    }
+
+    printWarning('Unexpected response format, attempting to handle');
+    return { items: [], total: undefined, hasMore: false };
+  }
+
+  printError('Invalid response format from API');
+  throw new Error('Unexpected API response format');
 }
