@@ -1,3 +1,13 @@
+## 1.10.13 (2026-02-11)
+
+### 🩹 Fixes
+
+- version ([f618620](https://github.com/mwashburn160/pipeline-builder/commit/f618620))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.12 (2026-02-11)
 
 ### 🩹 Fixes
