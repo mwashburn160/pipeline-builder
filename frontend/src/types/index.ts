@@ -148,8 +148,11 @@ export interface BuilderProps {
  * Only props (based on BuilderProps) and accessModifier are required
  */
 export interface CreatePipelineData {
+  project: string;
+  organization: string;
+  pipelineName?: string;
   props: BuilderProps;
-  accessModifier: 'public' | 'private';
+  accessModifier?: 'public' | 'private';
 }
 
 /**
