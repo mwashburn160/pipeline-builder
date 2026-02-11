@@ -15,6 +15,7 @@ Pipeline Builder is a type-safe, plugin-based construct library that simplifies 
 - [Architecture](#architecture)
 - [Key Features](#key-features)
 - [Getting Started](#getting-started)
+- [Local Development](#local-development)
 - [Usage Examples](#usage-examples)
 - [Package Structure](#package-structure)
 - [API Reference](#api-reference)
@@ -155,29 +156,6 @@ metadata: {
 - **Environment variable management** at plugin and step levels
 - **Command customization** (install, pre-build, build, post-build)
 
-### 🏢 Multi-Tenancy (Supporting Services)
-
-- **Organization-level isolation** in supporting services
-- **Project-based pipeline grouping** for logical separation
-- **Access modifiers** for sharing plugin configurations (PUBLIC, PRIVATE, ORGANIZATION)
-- **Role-based access control** in optional API services
-
-### 📊 Quota Management (Supporting Services)
-
-- **Rate limiting** in optional API services
-- **Usage tracking** for API calls, pipelines, and plugins
-- **Configurable quota limits** per organization
-- **Real-time monitoring** with Server-Sent Events
-
-### 🔒 Security (Constructs + Services)
-
-- **IAM role management** with least-privilege policies in CDK constructs
-- **Cross-account deployment** support with proper role assumption
-- **Artifact encryption** using AWS KMS
-- **Secret management** via AWS Secrets Manager integration
-- **JWT-based authentication** in supporting API services
-- **HTTPS/TLS** encryption for optional web services
-
 ## Getting Started
 
 ### Quick Start: Using the CDK Construct Library
@@ -244,6 +222,26 @@ cdk deploy
 - **AWS CDK** >= 2.237.0
 - **AWS Account** with appropriate permissions
 - **AWS CLI** configured with credentials
+
+## Local Development
+
+Want to run the entire Pipeline Builder platform locally with all supporting services?
+
+📚 **[Complete Local Development Guide →](deploy/local/README.md)**
+
+The local development environment includes:
+- **Full Docker Compose setup** with all services (Platform, Plugin, Pipeline, Quota APIs)
+- **Database services** (PostgreSQL, MongoDB) with admin interfaces
+- **NGINX reverse proxy** with SSL/TLS
+- **Frontend application** (Next.js React)
+- **Quick start scripts** for easy setup
+- **Comprehensive troubleshooting guide**
+
+Perfect for:
+- Testing the entire platform locally
+- Developing supporting services (APIs, frontend)
+- Integration testing across multiple services
+- Learning how all components work together
 
 ## Usage Examples
 
