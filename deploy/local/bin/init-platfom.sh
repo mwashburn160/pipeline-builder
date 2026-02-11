@@ -11,3 +11,11 @@ curl -X POST ${PLATFORM_BASE_URL}/api/auth/register \
            "password": "SecurePassword123!",
            "organizationName": "system"
          }'
+
+JWT_TOKEN=$(curl -X POST ${PLATFORM_BASE_URL}/api/auth/login \
+  -k \
+  -H "Content-Type: application/json" \
+  -d '{
+        "identifier": "admin@internal   ",
+        "password": "SecurePassword123!"
+      }' | jq -r '.data.accessToken')
