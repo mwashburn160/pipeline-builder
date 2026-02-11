@@ -12,10 +12,12 @@ curl -X POST ${PLATFORM_BASE_URL}/api/auth/register \
            "organizationName": "system"
          }'
 
-JWT_TOKEN=$(curl -X POST ${PLATFORM_BASE_URL}/api/auth/login \
-  -k \
-  -H "Content-Type: application/json" \
-  -d '{
-        "identifier": "admin@internal   ",
-        "password": "SecurePassword123!"
-      }' | jq -r '.data.accessToken')
+if [ $? -ne 0 ]; then
+    JWT_TOKEN=$(curl -X POST ${PLATFORM_BASE_URL}/api/auth/login \
+    -k \
+    -H "Content-Type: application/json" \
+    -d '{
+            "identifier": "admin@internal   ",
+            "password": "SecurePassword123!"
+        }' | jq -r '.data.accessToken')
+fi
