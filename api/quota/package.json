@@ -36,7 +36,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.14.12",
+    "@mwashburn160/api-core": "1.15.0",
     "@mwashburn160/api-server": "1.12.12",
     "@mwashburn160/pipeline-core": "1.15.12",
     "cors": "2.8.6",
@@ -54,7 +54,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.9.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -48,8 +48,8 @@ importers:
   api/pipeline:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/api-server':
         specifier: 1.12.12
         version: 1.12.12(@types/pg@8.16.0)
@@ -139,8 +139,8 @@ importers:
   api/plugin:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/api-server':
         specifier: 1.12.12
         version: 1.12.12(@types/pg@8.16.0)
@@ -242,8 +242,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/api-server':
         specifier: 1.12.12
         version: 1.12.12(@types/pg@8.16.0)
@@ -324,8 +324,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/api-server':
         specifier: 1.12.12
         version: 1.12.12(@types/pg@8.16.0)
@@ -440,8 +440,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/pipeline-core':
         specifier: 1.15.12
         version: 1.15.12(@types/pg@8.16.0)
@@ -516,8 +516,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       '@mwashburn160/pipeline-data':
         specifier: 1.15.12
         version: 1.15.12(@types/pg@8.16.0)
@@ -586,8 +586,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
@@ -720,8 +720,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: 1.14.12
-        version: 1.14.12
+        specifier: 1.15.0
+        version: 1.15.0
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -1930,12 +1930,12 @@ packages:
     resolution: {integrity: sha512-4c0xcDo/mI1Mg+2p5uMG41d5fyD8qo53RB+VEL1XUBRKxBmRlE1UCI/Y1tvLqtwG/AZryQUvxyF5AxnL4/HzFA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.14.11/68920955054c2218764f25bc132c6536c1a5d113}
     engines: {node: '>= 24.9.0'}
 
-  '@mwashburn160/api-core@1.14.12':
-    resolution: {integrity: sha512-b2kdh6RqRYVyeceioQUMNm+666vFhg4tBvF7Cr2JMii2tmPtDsHMpWyRdH0syVB71vef3tntVp3N0FTP077g4Q==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.14.12/8ef9dc6362cff256be10cd20fc3577c640040ed0}
-    engines: {node: '>= 24.9.0'}
-
   '@mwashburn160/api-core@1.14.9':
     resolution: {integrity: sha512-E2WMNqTHYCRtsUwx2iqHwbwr9y/6K8EKCgLYTQ21Bs11jWqBuY1CRYPv4V80Ej3XOCK/HgyYjupMDDZIQ8bcRQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.14.9/128b81ae200ca766539ddd0a955227b7904505d8}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/api-core@1.15.0':
+    resolution: {integrity: sha512-ZeXc8l+mQMtHILkVdzIHKz5QKELbjuplDtb23JRL+Icv0vgEJWxBxVPKiNK0t64jc/Y7k+j2ArDJkpc2RsW5rw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.15.0/191e771d53a087c0714d6f6d53b21c0f79ef4fc3}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/api-server@1.12.12':
@@ -7473,7 +7473,7 @@ snapshots:
       - debug
       - supports-color
 
-  '@mwashburn160/api-core@1.14.12':
+  '@mwashburn160/api-core@1.14.9':
     dependencies:
       axios: 1.13.3
       express: 5.2.1
@@ -7484,7 +7484,7 @@ snapshots:
       - debug
       - supports-color
 
-  '@mwashburn160/api-core@1.14.9':
+  '@mwashburn160/api-core@1.15.0':
     dependencies:
       axios: 1.13.3
       express: 5.2.1

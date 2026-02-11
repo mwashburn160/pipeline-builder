@@ -54,7 +54,7 @@
     "node": ">= 24.9.0"
   },
   "license": "Apache-2.0",
-  "version": "1.12.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
