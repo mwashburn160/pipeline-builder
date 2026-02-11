@@ -10,9 +10,9 @@
 
 import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
 import { createRequestContext, createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
-import { BuilderProps, AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
+import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
-import { pipelineService } from '../services/pipeline-service';
+import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
 
 const logger = createLogger('create-pipeline');
 
@@ -58,8 +58,6 @@ export function createCreatePipelineRoutes(
         // Default pipelineName if not provided
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
-        const builderProps = body.props as unknown as BuilderProps;
-
         const orgId = ctx.identity.orgId!.toLowerCase();
         ctx.log('INFO', 'Pipeline creation request received', { project, organization, orgId });
 
@@ -69,7 +67,7 @@ export function createCreatePipelineRoutes(
             project,
             organization,
             pipelineName,
-            props: builderProps,
+            props: body.props as unknown as PipelineInsert['props'],
             accessModifier: accessModifier as AccessModifier,
             createdBy: ctx.identity.userId || 'system',
           },

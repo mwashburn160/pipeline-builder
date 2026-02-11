@@ -30,7 +30,7 @@
   "dependencies": {
     "@mwashburn160/api-core": "1.15.2",
     "@mwashburn160/api-server": "1.13.2",
-    "@mwashburn160/pipeline-core": "1.16.2",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "clsx": "^2.1.1",
     "framer-motion": "12.34.0",
     "lucide-react": "0.563.0",

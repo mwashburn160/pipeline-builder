@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@mwashburn160/api-core": "1.15.2",
-    "@mwashburn160/pipeline-core": "1.16.2",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",

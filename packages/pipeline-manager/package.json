@@ -38,7 +38,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/pipeline-core": "1.16.2",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "aws-cdk-lib": "2.237.0",
     "axios": "1.13.3",
     "commander": "14.0.2",

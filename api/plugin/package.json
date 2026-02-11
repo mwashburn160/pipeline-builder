@@ -41,7 +41,7 @@
   "dependencies": {
     "@mwashburn160/api-core": "1.15.2",
     "@mwashburn160/api-server": "1.13.2",
-    "@mwashburn160/pipeline-core": "1.16.2",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "adm-zip": "0.5.16",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
