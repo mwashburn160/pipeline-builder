@@ -184,6 +184,7 @@ export function useFormBuilderState(initialState?: FormBuilderState) {
     state,
     dispatch,
     validationErrors,
+    setValidationErrors,
     assembleBuilderProps,
     reset,
   };
