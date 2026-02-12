@@ -1,3 +1,13 @@
+## 1.13.15 (2026-02-12)
+
+### 🩹 Fixes
+
+- jwt token ([33a2206](https://github.com/mwashburn160/pipeline-builder/commit/33a2206))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.14 (2026-02-12)
 
 ### 🩹 Fixes
