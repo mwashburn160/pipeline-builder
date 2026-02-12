@@ -4,17 +4,17 @@ set +x
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
 
 curl -X POST ${PLATFORM_BASE_URL}/api/auth/register \
-     -k \
+     -k -s -o /dev/null \
      -H "Content-Type: application/json" \
      -d '{
            "username": "admin",
            "email": "admin@internal",
            "password": "SecurePassword123!",
            "organizationName": "system"
-         }' 
+         }'
 
 if [ $? -eq 0 ]; then
-    JWT_TOKEN=$(curl -X POST ${PLATFORM_BASE_URL}/api/auth/login \
+    JWT_TOKEN=$(curl -s -X POST ${PLATFORM_BASE_URL}/api/auth/login \
     -k \
     -H "Content-Type: application/json" \
     -d '{
@@ -23,6 +23,7 @@ if [ $? -eq 0 ]; then
         }' | jq -r '.data.accessToken')
 
     find . -type f -iname "*.zip" -exec curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+     -s -o /dev/null \
      -H "Authorization: Bearer ${JWT_TOKEN}" \
      -H "x-org-id: system" \
      -F "plugin=@{}" \

@@ -48,7 +48,7 @@ export default function UsersPage() {
         if (searchQuery) params.search = searchQuery;
         if (roleFilter !== 'all') params.role = roleFilter;
         const response = await api.listUsers(params);
-        const userList = (response as any).users || response.data || [];
+        const userList = (response.users || response.data || []) as UserListItem[];
         setUsers(userList);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load users');
@@ -75,7 +75,7 @@ export default function UsersPage() {
     setEditSuccess(null);
 
     try {
-      const updates: Record<string, unknown> = {};
+      const updates: { role?: string; password?: string } = {};
       if (editRole !== editingUser.role) updates.role = editRole;
       if (newPassword && newPassword.length >= 8) {
         updates.password = newPassword;
@@ -91,7 +91,7 @@ export default function UsersPage() {
         return;
       }
 
-      await api.updateUserById(editingUser.id, updates as any);
+      await api.updateUserById(editingUser.id, updates);
       setUsers(users.map(u => u.id === editingUser.id ? { ...u, role: editRole } : u));
       setEditSuccess('User updated successfully');
       setNewPassword('');

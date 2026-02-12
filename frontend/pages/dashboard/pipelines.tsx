@@ -103,7 +103,7 @@ export default function PipelinesPage() {
     ? pipelines
     : pipelines.filter(p => p.accessModifier !== 'public');
 
-  const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private') => {
+  const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateLoading(true);
     setCreateError(null);
     setCreateSuccess(null);
@@ -112,6 +112,8 @@ export default function PipelinesPage() {
         project: props.project,
         organization: props.organization,
         pipelineName: props.pipelineName,
+        description,
+        keywords,
         props,
         accessModifier
       });

@@ -3,6 +3,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
+import CollapsibleSection from './editors/CollapsibleSection';
 
 interface EditPipelineModalProps {
   pipeline: Pipeline;
@@ -13,9 +14,6 @@ interface EditPipelineModalProps {
 
 export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
   const [activeTab, setActiveTab] = useState<'form' | 'json'>('form');
-  const [pipelineName, setPipelineName] = useState(pipeline.pipelineName || '');
-  const [description, setDescription] = useState(pipeline.description || '');
-  const [keywords, setKeywords] = useState(pipeline.keywords?.join(', ') || '');
   const [jsonProps, setJsonProps] = useState(JSON.stringify(pipeline.props || {}, null, 2));
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
@@ -60,11 +58,15 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
       return;
     }
 
+    // Get description/keywords from form state
+    const desc = formRef.current?.getDescription() ?? pipeline.description ?? '';
+    const kw = formRef.current?.getKeywords() ?? pipeline.keywords?.join(', ') ?? '';
+
     try {
       const response = await api.updatePipeline(pipeline.id, {
-        pipelineName,
-        description,
-        keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
+        pipelineName: parsedProps.pipelineName,
+        description: desc,
+        keywords: kw.split(',').map(k => k.trim()).filter(k => k),
         props: parsedProps,
         isActive,
         isDefault,
@@ -109,67 +111,48 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
             </div>
           )}
 
-          {/* Read-only Fields */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.id}</p>
+          {/* System Information (collapsible, read-only) */}
+          <div className="mb-4">
+            <CollapsibleSection title="System Information" hasContent={true}>
+              <div className="mt-3 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.id}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.orgId}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.project}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.organization}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.createdBy}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.createdAt).toLocaleString()}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.updatedBy}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.updatedAt).toLocaleString()}</p>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.orgId}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.project}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.organization}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.createdBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.createdAt).toLocaleString()}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.updatedBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.updatedAt).toLocaleString()}</p>
-              </div>
-            </div>
+            </CollapsibleSection>
           </div>
 
-          {/* Core Information */}
+          {/* Tabs: Form Builder | Raw JSON */}
           <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
-            <div className="mb-3">
-              <label className="label">Pipeline Name</label>
-              <input type="text" value={pipelineName} onChange={(e) => setPipelineName(e.target.value)} className="input" disabled={loading} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Description</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input" disabled={loading} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Keywords (comma-separated)</label>
-              <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="input" disabled={loading} />
-            </div>
-          </div>
-
-          {/* Pipeline Configuration - Tabbed */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Pipeline Configuration</h3>
-
-            {/* Tabs */}
             <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
               <nav className="-mb-px flex space-x-8">
                 <button
@@ -196,7 +179,13 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
             </div>
 
             {activeTab === 'form' ? (
-              <FormBuilderTab ref={formRef} disabled={loading} initialProps={pipeline.props} />
+              <FormBuilderTab
+                ref={formRef}
+                disabled={loading}
+                initialProps={pipeline.props}
+                initialDescription={pipeline.description || ''}
+                initialKeywords={pipeline.keywords?.join(', ') || ''}
+              />
             ) : (
               <div>
                 <textarea

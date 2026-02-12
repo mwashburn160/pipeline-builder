@@ -159,6 +159,8 @@ export interface CreatePipelineData {
   project: string;
   organization: string;
   pipelineName?: string;
+  description?: string;
+  keywords?: string[];
   props: BuilderProps;
   accessModifier?: 'public' | 'private';
 }
@@ -246,6 +248,7 @@ export interface PaginatedResponse<T = unknown> {
   // Backend uses specific field names for different resources
   pipelines?: T[];
   plugins?: T[];
+  users?: T[];
   pagination?: {
     total: number;
     limit: number;

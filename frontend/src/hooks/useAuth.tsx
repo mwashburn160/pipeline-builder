@@ -14,6 +14,21 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
+/** Raw user shape from the backend (may use _id/sub instead of id) */
+interface RawUserData {
+  id?: string;
+  sub?: string;
+  _id?: { toString(): string };
+  username: string;
+  email: string;
+  role: string;
+  organizationId?: string;
+  organizationName?: string;
+  isEmailVerified?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -31,17 +46,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (api.isAuthenticated()) {
         const response = await api.getProfile();
 
-        const rawUser = response.data?.user as Record<string, any> | undefined;
-        
+        const rawUser = response.data?.user as RawUserData | undefined;
+
         if (response.success && rawUser) {
           // Normalize user data - backend uses _id/sub, frontend uses id
           const userData: User = {
-            id: rawUser.id || rawUser.sub || rawUser._id?.toString(),
+            id: rawUser.id || rawUser.sub || rawUser._id?.toString() || '',
             username: rawUser.username,
             email: rawUser.email,
-            role: rawUser.role,
-            organizationId: rawUser.organizationId || undefined,
-            organizationName: rawUser.organizationName || undefined,
+            role: rawUser.role as User['role'],
+            organizationId: rawUser.organizationId,
+            organizationName: rawUser.organizationName,
             isEmailVerified: rawUser.isEmailVerified ?? false,
             createdAt: rawUser.createdAt,
             updatedAt: rawUser.updatedAt,

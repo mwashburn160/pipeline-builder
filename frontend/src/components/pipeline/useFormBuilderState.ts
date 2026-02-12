@@ -17,6 +17,8 @@ import { assembleBuilderProps as assembleProps } from '@/types/props-converter';
 
 type Action =
   | { type: 'SET_CORE'; field: 'project' | 'organization' | 'pipelineName'; value: string }
+  | { type: 'SET_DESCRIPTION'; value: string }
+  | { type: 'SET_KEYWORDS'; value: string }
   | { type: 'SET_GLOBAL_METADATA'; value: MetadataEntry[] }
   // Defaults
   | { type: 'SET_DEFAULTS_ENABLED'; value: boolean }
@@ -53,8 +55,22 @@ type Action =
 
 function formReducer(state: FormBuilderState, action: Action): FormBuilderState {
   switch (action.type) {
-    case 'SET_CORE':
-      return { ...state, [action.field]: action.value };
+    case 'SET_CORE': {
+      const updated = { ...state, [action.field]: action.value };
+      // Auto-generate pipelineName when project or organization changes (not when pipelineName is edited directly)
+      if (action.field === 'project' || action.field === 'organization') {
+        const org = action.field === 'organization' ? action.value : state.organization;
+        const proj = action.field === 'project' ? action.value : state.project;
+        updated.pipelineName = org && proj ? `${org}-${proj}-pipeline` : '';
+      }
+      return updated;
+    }
+
+    case 'SET_DESCRIPTION':
+      return { ...state, description: action.value };
+
+    case 'SET_KEYWORDS':
+      return { ...state, keywords: action.value };
 
     case 'SET_GLOBAL_METADATA':
       return { ...state, global: action.value };

@@ -89,6 +89,8 @@ export interface FormBuilderState {
   project: string;
   organization: string;
   pipelineName: string;
+  description: string;
+  keywords: string;
 
   // Global metadata
   global: MetadataEntry[];
@@ -173,6 +175,8 @@ export function createInitialFormState(): FormBuilderState {
     project: '',
     organization: '',
     pipelineName: '',
+    description: '',
+    keywords: '',
     global: [],
     defaults: {
       enabled: false,
