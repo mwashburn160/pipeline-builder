@@ -1,3 +1,13 @@
+## 1.13.0 (2026-02-12)
+
+### 🚀 Features
+
+- updated ux to wizard ([115bac2](https://github.com/mwashburn160/pipeline-builder/commit/115bac2))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.0 (2026-02-12)
 
 ### 🚀 Features
