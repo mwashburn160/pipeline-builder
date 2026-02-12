@@ -1,4 +1,4 @@
-import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
+import { CodeBuildStep, FileSet, ShellStep } from 'aws-cdk-lib/pipelines';
 
 export interface ArtifactKey {
   readonly stageName: string;
@@ -9,7 +9,7 @@ export interface ArtifactKey {
 
 /**
  * Manages build step artifacts with hierarchical key-based lookup.
- * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias:primary
+ * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias
  */
 export class ArtifactManager {
   private readonly artifacts: Map<string, CodeBuildStep | ShellStep> = new Map();
@@ -17,30 +17,60 @@ export class ArtifactManager {
   /**
    * Generate a key string from artifact parameters
    */
-  private generateKey(params: ArtifactKey, suffix: string): string {
-    const { stageName, stageAlias, pluginName, pluginAlias } = params;
-    return `${stageName}:${stageAlias}:${pluginName}:${pluginAlias}:${suffix}`;
+  private generateKey(key: ArtifactKey): string {
+    return `${key.stageName}:${key.stageAlias}:${key.pluginName}:${key.pluginAlias}`;
   }
 
   /**
-   * Add a build step artifact
+   * Register a build step artifact
    * @param key - The hierarchical key identifying this artifact
    * @param step - The CodeBuildStep or ShellStep to store
    */
-  add(key: ArtifactKey, step: CodeBuildStep | ShellStep, suffix: string): void {
-    const artifactKey = this.generateKey(key, suffix);
-    this.artifacts.set(artifactKey, step);
+  add(key: ArtifactKey, step: CodeBuildStep | ShellStep): void {
+    this.artifacts.set(this.generateKey(key), step);
   }
 
   /**
-   * Get a build step artifact by key
+   * Get a build step by its artifact key
    * @param key - The hierarchical key identifying the artifact
-   * @param suffix - The suffix to append to the key
    * @returns The stored step, or undefined if not found
    */
-  get(key: ArtifactKey, suffix: string): CodeBuildStep | ShellStep | undefined {
-    const artifactKey = this.generateKey(key, suffix);
-    return this.artifacts.get(artifactKey);
+  get(key: ArtifactKey): CodeBuildStep | ShellStep | undefined {
+    return this.artifacts.get(this.generateKey(key));
+  }
+
+  /**
+   * Get the primary output FileSet from a registered step.
+   * @param key - The artifact key identifying the step
+   * @returns The primary output FileSet
+   * @throws Error if the step is not found or has no primary output
+   */
+  getOutput(key: ArtifactKey): FileSet {
+    const step = this.get(key);
+    if (!step) {
+      throw new Error(`No artifact registered for ${key.stageName}/${key.pluginName}`);
+    }
+    const output = step.primaryOutput;
+    if (!output) {
+      throw new Error(`Step '${key.pluginName}' has no primary output`);
+    }
+    return output;
+  }
+
+  /**
+   * Register an additional output directory on a stored step and return its FileSet.
+   * Calls CDK's addOutputDirectory() to create a named output beyond the primary.
+   * @param key - The artifact key identifying the step
+   * @param directory - The output directory path to register
+   * @returns The FileSet for the additional output directory
+   * @throws Error if the step is not found
+   */
+  addOutput(key: ArtifactKey, directory: string): FileSet {
+    const step = this.get(key);
+    if (!step) {
+      throw new Error(`No artifact registered for ${key.stageName}/${key.pluginName}`);
+    }
+    return step.addOutputDirectory(directory);
   }
 
   /**

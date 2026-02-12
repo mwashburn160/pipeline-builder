@@ -3,11 +3,11 @@ import type { Plugin } from '@mwashburn160/pipeline-data';
 import { SecretValue } from 'aws-cdk-lib';
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
+import { ArtifactKey } from './artifact-manager';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
 import { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
-import { ArtifactKey } from './artifact-manager';
 
 const log = createLogger('Helper');
 
@@ -130,7 +130,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       pluginName: plugin.name,
       pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
     };
-    artifactManager.add(artifactKey, step, plugin.primaryOutputDirectory);
+    artifactManager.add(artifactKey, step);
   }
 
   return step;
