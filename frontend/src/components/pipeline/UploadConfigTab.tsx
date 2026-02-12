@@ -33,6 +33,16 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
             return null;
           }
 
+          // Support both formats:
+          // 1. Full pipeline JSON: { project, organization, props: { synth, ... } }
+          // 2. BuilderProps only: { project, organization, synth, ... }
+          if (raw.props && typeof raw.props === 'object' && !Array.isArray(raw.props)) {
+            const inner = raw.props as Record<string, unknown>;
+            if (inner.synth && typeof inner.synth === 'object') {
+              raw = inner;
+            }
+          }
+
           propsData = raw as unknown as BuilderProps;
 
           if (!propsData.project || typeof propsData.project !== 'string') {
@@ -41,6 +51,10 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
           }
           if (!propsData.organization || typeof propsData.organization !== 'string') {
             setPropsError('Props must include "organization" (string)');
+            return null;
+          }
+          if (!propsData.synth || typeof propsData.synth !== 'object') {
+            setPropsError('Props must include "synth" object with a "plugin" field');
             return null;
           }
 
