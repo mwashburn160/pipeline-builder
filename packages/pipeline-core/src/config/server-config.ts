@@ -1,5 +1,6 @@
 import { createLogger } from '@mwashburn160/api-core';
 import { Algorithm } from 'jsonwebtoken';
+import { CoreConstants } from './app-config';
 import { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
 const log = createLogger('ServerConfig');
@@ -119,8 +120,7 @@ export function validateAuthConfig(config: AuthConfig): void {
   }
 
   // Check algorithm
-  const allowedAlgorithms: Algorithm[] = ['HS256', 'RS256', 'ES256'];
-  if (!allowedAlgorithms.includes(config.jwt.algorithm)) {
+  if (!CoreConstants.ALLOWED_JWT_ALGORITHMS.includes(config.jwt.algorithm)) {
     errors.push(`JWT algorithm ${config.jwt.algorithm} is not in the allowed list`);
   }
 

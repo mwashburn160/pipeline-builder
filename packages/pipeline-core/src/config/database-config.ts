@@ -13,7 +13,7 @@ export function loadDatabaseConfig(): DatabaseConfig {
       port: parseInt(process.env.DB_PORT || '5432'),
       database: process.env.DATABASE || 'pipeline_builder',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'passsword',
+      password: process.env.DB_PASSWORD || 'password',
     },
     mongodb: {
       uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',

@@ -1,8 +1,9 @@
 import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
-import { IFileSetProducer } from 'aws-cdk-lib/pipelines';
-import { Construct } from 'constructs';
-import { UniqueId } from '../core/id-generator';
+import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
+import type { Construct } from 'constructs';
+import type { ArtifactManager } from '../core/artifact-manager';
+import type { UniqueId } from '../core/id-generator';
 import type { NetworkConfig } from '../core/network-types';
 import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types';
 
@@ -103,7 +104,10 @@ export interface PluginManifest {
    */
   readonly computeType?: ComputeType;
 
-
+  /**
+   * Directory containing the primary build output artifacts
+   * @example 'dist'
+   */
   readonly primaryOutputDirectory?: string;
   /**
    * Additional metadata that can be accessed during plugin execution
@@ -255,7 +259,7 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * Optional artifact manager for tracking build outputs
    * When provided and primaryOutputDirectory is set, the step will be registered
    */
-  readonly artifactManager?: import('../core/artifact-manager').ArtifactManager;
+  readonly artifactManager?: ArtifactManager;
 
   /**
    * Stage name for artifact key generation

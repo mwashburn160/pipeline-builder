@@ -7,6 +7,7 @@ import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
 import { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
+import { ArtifactKey } from './artifact-manager';
 
 const log = createLogger('Helper');
 
@@ -22,6 +23,7 @@ export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
  * Custom env vars override plugin defaults. WORKDIR from metadata is also applied.
  */
 const WORKDIR_KEY = 'WORKDIR';
+const BOOTSTRAP_CMD = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
 
 function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
   const env = { ...(plugin.env ?? {}), ...(customEnv ?? {}) };
@@ -37,16 +39,15 @@ function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<str
  * When custom commands are provided, they are injected before/after the plugin's commands.
  */
 function buildCommands(plugin: Plugin, custom?: StepCustomization): { installCommands: string[]; commands: string[] } {
-  const bootstrap = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
   return {
     installCommands: [
-      bootstrap,
+      BOOTSTRAP_CMD,
       ...(custom?.preInstallCommands ?? []),
       ...(plugin.installCommands ?? []),
       ...(custom?.postInstallCommands ?? []),
     ],
     commands: [
-      bootstrap,
+      BOOTSTRAP_CMD,
       ...(custom?.preCommands ?? []),
       ...(plugin.commands ?? ['']),
       ...(custom?.postCommands ?? []),
@@ -123,16 +124,13 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   // Register with artifact manager if primaryOutputDirectory is set
   if (plugin.primaryOutputDirectory && artifactManager && stageName) {
-    artifactManager.add(
-      {
-        stageName,
-        stageAlias: stageAlias ?? `${stageName}-alias`,
-        pluginName: plugin.name,
-        pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
-      },
-      step,
-      'primary',
-    );
+    const artifactKey: ArtifactKey = {
+      stageName,
+      stageAlias: stageAlias ?? `${stageName}-alias`,
+      pluginName: plugin.name,
+      pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
+    };
+    artifactManager.add(artifactKey, step, plugin.primaryOutputDirectory);
   }
 
   return step;

@@ -1,10 +1,10 @@
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
 
 export interface ArtifactKey {
-  stageName: string;
-  stageAlias: string;
-  pluginName: string;
-  pluginAlias: string;
+  readonly stageName: string;
+  readonly stageAlias: string;
+  readonly pluginName: string;
+  readonly pluginAlias: string;
 }
 
 /**
@@ -12,7 +12,7 @@ export interface ArtifactKey {
  * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias:primary
  */
 export class ArtifactManager {
-  private artifacts: Map<string, CodeBuildStep | ShellStep> = new Map();
+  private readonly artifacts: Map<string, CodeBuildStep | ShellStep> = new Map();
 
   /**
    * Generate a key string from artifact parameters
