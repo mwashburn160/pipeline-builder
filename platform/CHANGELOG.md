@@ -1,3 +1,13 @@
+## 1.12.10 (2026-02-12)
+
+### 🩹 Fixes
+
+- jwt token ([e1c8aa9](https://github.com/mwashburn160/pipeline-builder/commit/e1c8aa9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.9 (2026-02-12)
 
 ### 🩹 Fixes
