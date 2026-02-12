@@ -1,3 +1,4 @@
+export * from './artifact-manager';
 export * from './pipeline-types';
 export * from './network-types';
 export * from './pipeline-helpers';

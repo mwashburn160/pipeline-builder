@@ -10,6 +10,18 @@ import { TriggerType } from '../core/pipeline-types';
  * Validated and processed pipeline configuration (business logic layer).
  * This class handles all non-CDK logic: validation, sanitization, and metadata merging.
  * It can be tested independently without CDK dependencies.
+ *
+ * ## Metadata merge chain (last wins)
+ *
+ * 1. `BuilderProps.global` — base metadata inherited by all steps
+ * 2. `BuilderProps.defaults.metadata` — pipeline-level CodeBuild defaults metadata
+ * 3. `BuilderProps.synth.metadata` or `StageStepOptions.metadata` — per-step metadata
+ * 4. `plugin.metadata` — plugin's own metadata (merged in `createCodeBuildStep`)
+ * 5. `MetadataBuilder.forXxx()` — extracted CDK props spread last into construct calls
+ *
+ * Steps 1–3 are merged here into `this.metadata.merged`.
+ * Step 4 happens in `createCodeBuildStep` via `merge(metadata, plugin.metadata)`.
+ * Step 5 is spread last in the CDK constructor call, giving metadata full override authority.
  */
 export class PipelineConfiguration {
   public readonly project: string;
@@ -82,13 +94,41 @@ export class PipelineConfiguration {
 
     if (!props.synth?.plugin) {
       errors.push('BuilderProps.synth.plugin is required');
+    } else if (!props.synth.plugin.name?.trim()) {
+      errors.push('BuilderProps.synth.plugin.name must be a non-empty string');
     }
 
-    // Validate GitHub repo format upfront
-    if (props.synth?.source?.type === 'github') {
+    // Validate repo format for GitHub and CodeStar sources (both use "owner/repo")
+    const sourceType = props.synth?.source?.type;
+    if (sourceType === 'github' || sourceType === 'codestar') {
       const repo = props.synth.source.options.repo;
       if (repo && !repo.includes('/')) {
-        errors.push(`Invalid GitHub repository format: "${repo}". Expected format: "owner/repo"`);
+        errors.push(`Invalid ${sourceType} repository format: "${repo}". Expected format: "owner/repo"`);
+      }
+    }
+
+    // Validate pipeline name length (AWS max 100 characters)
+    const MAX_PIPELINE_NAME_LENGTH = 100;
+    const pipelineName = props.pipelineName
+      ?? `${replaceNonAlphanumeric(props.organization ?? '', '_').toLowerCase()}-${replaceNonAlphanumeric(props.project ?? '', '_').toLowerCase()}-pipeline`;
+    if (pipelineName.length > MAX_PIPELINE_NAME_LENGTH) {
+      errors.push(`Pipeline name "${pipelineName}" exceeds AWS maximum of ${MAX_PIPELINE_NAME_LENGTH} characters (${pipelineName.length})`);
+    }
+
+    // Validate stages
+    if (props.stages) {
+      const stageNames = new Set<string>();
+      for (const stage of props.stages) {
+        if (!stage.stageName?.trim()) {
+          errors.push('Each stage must have a non-empty stageName');
+        } else if (stageNames.has(stage.stageName)) {
+          errors.push(`Duplicate stage name: "${stage.stageName}"`);
+        } else {
+          stageNames.add(stage.stageName);
+        }
+        if (!stage.steps?.length) {
+          errors.push(`Stage "${stage.stageName ?? '(unnamed)'}" must have at least one step`);
+        }
       }
     }
 

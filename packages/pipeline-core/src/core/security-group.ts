@@ -40,5 +40,9 @@ export function resolveSecurityGroup(
         ),
       ];
     }
+    default: {
+      const _exhaustive: never = config;
+      throw new Error(`Unknown security group config type: ${(_exhaustive as SecurityGroupConfig).type}`);
+    }
   }
 }

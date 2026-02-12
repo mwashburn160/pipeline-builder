@@ -1,3 +1,5 @@
+import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
+import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
 import type { MetaDataType } from './pipeline-types';
 
 /**
@@ -123,23 +125,23 @@ export class MetadataBuilder {
   constructor(private readonly metadata: MetaDataType) {}
 
   /** Builds configuration for CodePipeline construct */
-  forCodePipeline(): Record<string, unknown> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_PIPELINE);
+  forCodePipeline(): Partial<CodePipelineProps> {
+    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_PIPELINE) as Partial<CodePipelineProps>;
   }
 
   /** Builds configuration for CodeBuildStep construct */
-  forCodeBuildStep(): Record<string, unknown> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_BUILD_STEP);
+  forCodeBuildStep(): Partial<CodeBuildStepProps> {
+    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_BUILD_STEP) as Partial<CodeBuildStepProps>;
   }
 
   /** Builds configuration for ShellStep construct */
-  forShellStep(): Record<string, unknown> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.SHELL_STEP);
+  forShellStep(): Partial<ShellStepProps> {
+    return buildConfigFromMetadata(this.metadata, NAMESPACE.SHELL_STEP) as Partial<ShellStepProps>;
   }
 
   /** Builds configuration for BuildEnvironment (used in CodeBuildStep) */
-  forBuildEnvironment(): Record<string, unknown> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.BUILD_ENVIRONMENT);
+  forBuildEnvironment(): Partial<BuildEnvironment> {
+    return buildConfigFromMetadata(this.metadata, NAMESPACE.BUILD_ENVIRONMENT) as Partial<BuildEnvironment>;
   }
 
   /** Static factory method to create a builder from metadata */

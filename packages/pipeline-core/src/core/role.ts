@@ -28,6 +28,10 @@ export function resolveRole(
       });
     case 'codeBuildDefault':
       return createCodeBuildDefaultRole(scope, id, config.options);
+    default: {
+      const _exhaustive: never = config;
+      throw new Error(`Unknown role config type: ${(_exhaustive as RoleConfig).type}`);
+    }
   }
 }
 

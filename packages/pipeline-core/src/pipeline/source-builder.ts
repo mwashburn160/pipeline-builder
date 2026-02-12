@@ -9,6 +9,13 @@ import { unwrapSecret } from '../core/pipeline-helpers';
 import { TriggerType } from '../core/pipeline-types';
 
 /**
+ * Check if trigger type represents automatic triggering (AUTO or deprecated POLL).
+ */
+function isAutoTrigger(trigger: TriggerType): boolean {
+  return trigger === TriggerType.AUTO || trigger === TriggerType.POLL;
+}
+
+/**
  * Creates the appropriate CodePipelineSource based on the pipeline configuration.
  *
  * Supports S3, GitHub, and CodeStar connection sources.
@@ -55,7 +62,7 @@ export class SourceBuilder {
     );
 
     return CodePipelineSource.s3(bucket, options.objectKey, {
-      trigger: options.trigger === TriggerType.POLL ? S3Trigger.POLL : S3Trigger.NONE,
+      trigger: isAutoTrigger(options.trigger) ? S3Trigger.POLL : S3Trigger.NONE,
     });
   }
 
@@ -70,7 +77,7 @@ export class SourceBuilder {
       : undefined;
 
     return CodePipelineSource.gitHub(options.repo, options.branch, {
-      trigger: options.trigger === TriggerType.POLL ? GitHubTrigger.POLL : GitHubTrigger.NONE,
+      trigger: isAutoTrigger(options.trigger) ? GitHubTrigger.POLL : GitHubTrigger.NONE,
       authentication,
     });
   }
@@ -83,7 +90,7 @@ export class SourceBuilder {
 
     return CodePipelineSource.connection(options.repo, options.branch, {
       connectionArn: unwrapSecret(options.connectionArn),
-      triggerOnPush: options.trigger === TriggerType.POLL,
+      triggerOnPush: isAutoTrigger(options.trigger),
       codeBuildCloneOutput: options.codeBuildCloneOutput,
     });
   }

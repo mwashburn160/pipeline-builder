@@ -11,7 +11,7 @@ import type { TriggerType } from '../core/pipeline-types';
  *   options: {
  *     bucketName: 'my-source-bucket',
  *     objectKey: 'source.zip',
- *     trigger: TriggerType.POLL
+ *     trigger: TriggerType.AUTO
  *   }
  * };
  * ```
@@ -31,7 +31,7 @@ export interface S3SourceConfig {
  *   options: {
  *     repo: 'owner/repository',
  *     branch: 'main',
- *     trigger: TriggerType.POLL
+ *     trigger: TriggerType.AUTO
  *   }
  * };
  * ```
@@ -52,7 +52,7 @@ export interface GitHubSourceConfig {
  *     repo: 'owner/repository',
  *     branch: 'main',
  *     connectionArn: 'arn:aws:codestar-connections:...',
- *     trigger: TriggerType.POLL
+ *     trigger: TriggerType.AUTO
  *   }
  * };
  * ```

@@ -86,6 +86,7 @@ export class PluginLookup extends Construct {
     const encoded = custom.getAttString('ResultValue');
 
     if (Token.isUnresolved(encoded)) {
+      log.warn(`Plugin "${props.name}" value is unresolved (token) during synthesis — using fallback. This is expected during synth; the actual plugin will be resolved at deployment time.`);
       return this.default();
     }
 

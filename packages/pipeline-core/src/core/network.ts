@@ -83,6 +83,10 @@ export function resolveNetwork(
         network.options.securityGroupIds,
       );
     }
+    default: {
+      const _exhaustive: never = network;
+      throw new Error(`Unknown network config type: ${(_exhaustive as NetworkConfig).type}`);
+    }
   }
 }
 

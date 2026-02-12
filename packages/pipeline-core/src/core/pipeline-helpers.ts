@@ -1,6 +1,6 @@
 import { createLogger } from '@mwashburn160/api-core';
 import type { Plugin } from '@mwashburn160/pipeline-data';
-import { SecretValue } from 'aws-cdk-lib';
+import { Duration, SecretValue } from 'aws-cdk-lib';
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { ArtifactKey } from './artifact-manager';
@@ -77,7 +77,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   const {
     id, plugin, input, metadata, network, scope,
     preInstallCommands, postInstallCommands, preCommands, postCommands,
-    env: customEnv, additionalInputs,
+    env: customEnv, additionalInputs, timeout,
     artifactManager, stageName, stageAlias, pluginAlias,
   } = options;
 
@@ -114,6 +114,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ...programmatic,
     ...networkProps,
     ...(additionalInputs && { additionalInputs }),
+    ...(timeout && { timeout: Duration.minutes(timeout) }),
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
@@ -156,7 +157,12 @@ export function getComputeType(input: string | CDKComputeType = 'SMALL'): CDKCom
     [ComputeType.X2_LARGE]: CDKComputeType.X2_LARGE,
   };
 
-  return mapping[normalized] ?? CDKComputeType.SMALL;
+  const result = mapping[normalized];
+  if (!result) {
+    log.warn(`Unknown compute type "${input}", falling back to SMALL`);
+    return CDKComputeType.SMALL;
+  }
+  return result;
 }
 
 /**

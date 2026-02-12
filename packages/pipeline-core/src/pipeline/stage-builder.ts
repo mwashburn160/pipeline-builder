@@ -127,6 +127,7 @@ export class StageBuilder {
       preCommands: stepConfig.preCommands,
       postCommands: stepConfig.postCommands,
       env: stepConfig.env,
+      timeout: stepConfig.timeout,
     });
   }
 

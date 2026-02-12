@@ -181,6 +181,12 @@ export interface StageStepOptions extends StepCustomization {
   readonly network?: NetworkConfig;
 
   /**
+   * CodeBuild timeout in minutes.
+   * @default 60 (AWS CodeBuild default)
+   */
+  readonly timeout?: number;
+
+  /**
    * Position of this step within the pipeline wave.
    * - 'pre': Runs before the stage deployment (default)
    * - 'post': Runs after the stage deployment
@@ -262,6 +268,12 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * @default ComputeType.SMALL
    */
   readonly defaultComputeType?: CdkComputeType;
+
+  /**
+   * CodeBuild timeout in minutes.
+   * @default 60 (AWS CodeBuild default)
+   */
+  readonly timeout?: number;
 
   /** Additional inputs mapped by directory path (resolved FileSets) */
   readonly additionalInputs?: Record<string, IFileSetProducer>;
