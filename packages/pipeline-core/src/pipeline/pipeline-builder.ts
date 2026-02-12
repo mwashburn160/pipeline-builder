@@ -43,6 +43,7 @@ export interface BuilderProps {
   /**
    * Optional IAM role for the CodePipeline.
    * When provided, resolves to a CDK IRole and is passed to the CodePipeline construct.
+   * When omitted, CDK auto-creates a role with the correct codepipeline.amazonaws.com principal.
    */
   readonly role?: RoleConfig;
 
@@ -113,6 +114,7 @@ export class PipelineBuilder extends Construct {
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
     const synth = createCodeBuildStep({
+      ...this.config.synthCustomization,
       id: uniqueId.generate('cdk:synth'),
       uniqueId,
       plugin,
@@ -130,16 +132,16 @@ export class PipelineBuilder extends Construct {
     // Resolve pipeline-level defaults into codeBuildDefaults
     const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId);
 
-    // Resolve IAM role (defaults to codeBuildDefault if not specified)
-    const role = resolveRole(
-      this, uniqueId,
-      props.role ?? { type: 'codeBuildDefault', options: {} },
-    );
+    // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
+    // the pipeline role with the correct codepipeline.amazonaws.com principal.
+    const role = props.role
+      ? resolveRole(this, uniqueId, props.role)
+      : undefined;
 
     // Create CodePipeline construct
     this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       ...(codeBuildDefaults && { codeBuildDefaults }),
-      role,
+      ...(role && { role }),
       pipelineName: this.config.pipelineName,
       synth,
       ...MetadataBuilder.from(this.config.metadata.merged).forCodePipeline(),

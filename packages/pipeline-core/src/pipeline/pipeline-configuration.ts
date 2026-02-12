@@ -1,6 +1,6 @@
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
-import type { PluginOptions, StageOptions } from './step-types';
+import type { PluginOptions, StageOptions, StepCustomization } from './step-types';
 import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types';
 import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
 import type { MetaDataType, SourceType } from '../core/pipeline-types';
@@ -24,6 +24,7 @@ export class PipelineConfiguration {
   public readonly plugin: PluginOptions;
   public readonly network: NetworkConfig | undefined;
   public readonly defaults: CodeBuildDefaults | undefined;
+  public readonly synthCustomization: StepCustomization;
   public readonly stages: StageOptions[] | undefined;
 
   constructor(props: BuilderProps) {
@@ -50,6 +51,13 @@ export class PipelineConfiguration {
     this.plugin = props.synth.plugin;
     this.network = props.synth.network;
     this.defaults = props.defaults;
+    this.synthCustomization = {
+      preInstallCommands: props.synth.preInstallCommands,
+      postInstallCommands: props.synth.postInstallCommands,
+      preCommands: props.synth.preCommands,
+      postCommands: props.synth.postCommands,
+      env: props.synth.env,
+    };
     this.stages = props.stages;
   }
 

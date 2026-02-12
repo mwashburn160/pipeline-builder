@@ -37,9 +37,11 @@ export interface PluginOptions {
 }
 
 /**
- * Synthesis step configuration combining source and plugin
+ * Synthesis step configuration combining source and plugin.
+ * Extends StepCustomization to support injecting custom commands and env vars
+ * into the synth CodeBuild step (same hooks available as stage steps).
  */
-export interface SynthOptions {
+export interface SynthOptions extends StepCustomization {
   /**
    * Source configuration (S3, GitHub, or CodeStar)
    */
