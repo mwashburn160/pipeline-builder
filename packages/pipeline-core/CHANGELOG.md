@@ -1,3 +1,14 @@
+## 1.17.2 (2026-02-12)
+
+### 🩹 Fixes
+
+- updated modal's ([668322a](https://github.com/mwashburn160/pipeline-builder/commit/668322a))
+- upgraded pipeline-core=1.17.1 ([0cacc97](https://github.com/mwashburn160/pipeline-builder/commit/0cacc97))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.17.1 (2026-02-12)
 
 ### 🩹 Fixes
