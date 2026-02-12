@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.16.6';
+let apiCoreVersion = '1.16.8';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.17.6';
+let pipelineDataVersion = '1.17.8';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.17.9';
+let pipelineCoreVersion = '1.17.10';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.14.6';
+let apiServerVersion = '1.14.8';
 
 // =============================================================================
 // Root Project Configuration
