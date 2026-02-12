@@ -1,3 +1,13 @@
+## 1.17.1 (2026-02-12)
+
+### 🩹 Fixes
+
+- pipeline-core cleanup ([62c5103](https://github.com/mwashburn160/pipeline-builder/commit/62c5103))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.17.0 (2026-02-12)
 
 ### 🚀 Features
