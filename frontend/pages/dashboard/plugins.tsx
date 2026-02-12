@@ -221,6 +221,7 @@ export default function PluginsPage() {
               <tr>
                 <th>Name</th>
                 <th>Version</th>
+                <th>Keywords</th>
                 <th>Type</th>
                 <th>Compute</th>
                 <th>Access</th>
@@ -244,6 +245,7 @@ export default function PluginsPage() {
                     )}
                   </td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.version}</td>
+                  <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.keywords?.length ? plugin.keywords.join(', ') : ''}</td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.pluginType}</td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.computeType}</td>
                   <td>
