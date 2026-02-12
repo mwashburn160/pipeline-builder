@@ -22,11 +22,14 @@ if [ $? -eq 0 ]; then
          "password": "SecurePassword123!"
         }' | jq -r '.data.accessToken')
 
-    find . -type f -iname "*.zip" -exec curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-     -s -o /dev/null \
-     -H "Authorization: Bearer ${JWT_TOKEN}" \
-     -H "x-org-id: system" \
-     -F "plugin=@{}" \
-     -F "accessModifier=public" \
-     --insecure \;
+    echo "Logged in successfully. JWT Token: ${JWT_TOKEN}"
+    find . -type f -iname "*.zip" -exec sh -c '
+        echo "Loading plugin: $1" && curl -X POST "'"${PLATFORM_BASE_URL}"'/api/plugin/upload" \
+         -s -o /dev/null \
+         -H "Authorization: Bearer '"${JWT_TOKEN}"'" \
+         -H "x-org-id: system" \
+         -F "plugin=@$1" \
+         -F "accessModifier=public" \
+         --insecure
+    ' _ {} \;
 fi
