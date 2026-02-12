@@ -1,3 +1,13 @@
+## 1.13.1 (2026-02-12)
+
+### 🩹 Fixes
+
+- ux cleanup ([0dc44b3](https://github.com/mwashburn160/pipeline-builder/commit/0dc44b3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.0 (2026-02-12)
 
 ### 🚀 Features
