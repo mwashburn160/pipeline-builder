@@ -3,6 +3,12 @@ import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, Builder
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
+function base64UrlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  return atob(base64);
+}
+
 /**
  * Custom error class for API errors
  */
@@ -85,7 +91,7 @@ class ApiClient {
   private getTokenExpiryMs(): number | null {
     if (!this.accessToken) return null;
     try {
-      const payload = JSON.parse(atob(this.accessToken.split('.')[1]));
+      const payload = JSON.parse(base64UrlDecode(this.accessToken.split('.')[1]));
       return payload.exp ? payload.exp * 1000 : null;
     } catch {
       return null;
@@ -141,7 +147,7 @@ class ApiClient {
       
       // Extract organizationId from JWT token if present
       try {
-        const payload = JSON.parse(atob(tokens.accessToken.split('.')[1]));
+        const payload = JSON.parse(base64UrlDecode(tokens.accessToken.split('.')[1]));
         if (payload.organizationId) {
           this.organizationId = payload.organizationId;
           localStorage.setItem('organizationId', payload.organizationId);

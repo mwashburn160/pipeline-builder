@@ -22,12 +22,18 @@ interface JwtParts {
   signature: string;
 }
 
+function base64UrlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  return atob(base64);
+}
+
 function decodeJwt(token: string): JwtParts | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    const header = JSON.parse(atob(parts[0]));
-    const payload = JSON.parse(atob(parts[1]));
+    const header = JSON.parse(base64UrlDecode(parts[0]));
+    const payload = JSON.parse(base64UrlDecode(parts[1]));
     return { header, payload, signature: parts[2] };
   } catch {
     return null;
