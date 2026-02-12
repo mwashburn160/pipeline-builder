@@ -1,3 +1,13 @@
+## 1.13.3 (2026-02-12)
+
+### 🩹 Fixes
+
+- synth validation ([49385dc](https://github.com/mwashburn160/pipeline-builder/commit/49385dc))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.2 (2026-02-12)
 
 ### 🩹 Fixes
