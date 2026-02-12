@@ -35,7 +35,7 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -
     && rm -rf /tmp/aws /tmp/awscli.zip
 
 # Install AWS CDK globally
-RUN npm install -g aws-cdk@2.237.0 typescript ts-node
+RUN npm install -g aws-cdk@2 typescript ts-node
 
 # Working directory for pipeline source
 WORKDIR /app
