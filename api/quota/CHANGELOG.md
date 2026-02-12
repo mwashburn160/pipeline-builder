@@ -1,3 +1,13 @@
+## 1.10.6 (2026-02-12)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.14.5 ([cc3f5dc](https://github.com/mwashburn160/pipeline-builder/commit/cc3f5dc))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.5 (2026-02-12)
 
 ### 🩹 Fixes
