@@ -127,6 +127,7 @@ export function createUploadPluginRoutes(
               primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
+              keywords: plugin.manifest.keywords || [],
               installCommands: plugin.manifest.installCommands || [],
               commands: plugin.manifest.commands,
               imageTag: plugin.imageTag,
