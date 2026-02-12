@@ -1,3 +1,13 @@
+## 1.13.13 (2026-02-12)
+
+### 🩹 Fixes
+
+- frontend cleanup ([e4054eb](https://github.com/mwashburn160/pipeline-builder/commit/e4054eb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.12 (2026-02-12)
 
 ### 🩹 Fixes
