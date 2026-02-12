@@ -1,5 +1,5 @@
 import { createLogger } from '@mwashburn160/api-core';
-import { DatabaseConfig } from './config-types';
+import type { DatabaseConfig } from './config-types';
 
 const log = createLogger('DatabaseConfig');
 

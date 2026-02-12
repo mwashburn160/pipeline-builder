@@ -1,4 +1,4 @@
-import { SecretValue } from 'aws-cdk-lib';
+import type { SecretValue } from 'aws-cdk-lib';
 import type { TriggerType } from '../core/pipeline-types';
 
 /**

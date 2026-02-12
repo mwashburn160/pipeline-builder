@@ -58,8 +58,6 @@ export {
 // Pipeline (CDK constructs)
 export * from './pipeline/source-types';
 export * from './pipeline/step-types';
-export * from './pipeline/source-builder';
 export * from './pipeline/stage-builder';
 export * from './pipeline/pipeline-builder';
-export * from './pipeline/pipeline-configuration';
 export * from './pipeline/plugin-lookup';

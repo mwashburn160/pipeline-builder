@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from './wizard-validation';
@@ -107,154 +108,144 @@ export default function CreatePipelineModal({
     </div>
   );
 
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-panel max-w-4xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Create Pipeline</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+  const tabs = (
+    <div className="border-b border-gray-200 dark:border-gray-700 px-6">
+      <nav className="-mb-px flex space-x-8">
+        <button
+          onClick={() => setActiveTab('upload')}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'upload'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          Upload Configuration
+        </button>
+        <button
+          onClick={() => setActiveTab('form')}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'form'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          Wizard
+        </button>
+      </nav>
+    </div>
+  );
+
+  const jsonPreview = showPreview && previewJson ? (
+    <div className="border-t border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
+        <button
+          onClick={() => setShowPreview(false)}
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+        >
+          Close
+        </button>
+      </div>
+      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        {previewJson}
+      </pre>
+    </div>
+  ) : undefined;
+
+  const footer = (
+    <div className="flex items-center justify-between">
+      <button
+        onClick={handlePreview}
+        disabled={createLoading}
+        className="btn btn-secondary"
+      >
+        Preview JSON
+      </button>
+
+      <div className="flex items-center space-x-3">
+        <button
+          onClick={onClose}
+          disabled={createLoading}
+          className="btn btn-secondary"
+        >
+          Cancel
+        </button>
+
+        {isWizardTab && currentStep > 0 && (
+          <button onClick={handlePrevious} disabled={createLoading} className="btn btn-secondary">
+            <ChevronLeft className="w-4 h-4 mr-1" />
+            Previous
           </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 px-6">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setActiveTab('upload')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'upload'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-              }`}
-            >
-              Upload Configuration
-            </button>
-            <button
-              onClick={() => setActiveTab('form')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'form'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-              }`}
-            >
-              Wizard
-            </button>
-          </nav>
-        </div>
-
-        {/* Scrollable Content */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
-          {createError && (
-            <div className="alert-error mb-4">
-              <p>{createError}</p>
-            </div>
-          )}
-          {createSuccess && (
-            <div className="alert-success mb-4">
-              <p>{createSuccess}</p>
-            </div>
-          )}
-
-          {activeTab === 'upload' ? (
-            <UploadConfigTab ref={uploadRef} disabled={createLoading} />
-          ) : (
-            <FormBuilderTab
-              ref={formRef}
-              disabled={createLoading}
-              wizardMode={true}
-              currentStep={currentStep}
-              onStepChange={setCurrentStep}
-              accessStatusSlot={accessSlot}
-            />
-          )}
-
-          {previewError && (
-            <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
-              <p className="text-sm text-yellow-800 dark:text-yellow-300">{previewError}</p>
-            </div>
-          )}
-        </div>
-
-        {/* JSON Preview Panel (fixed between content and footer) */}
-        {showPreview && previewJson && (
-          <div className="border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
-              >
-                Close
-              </button>
-            </div>
-            <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-              {previewJson}
-            </pre>
-          </div>
         )}
 
-        {/* Footer */}
-        <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handlePreview}
-              disabled={createLoading}
-              className="btn btn-secondary"
-            >
-              Preview JSON
-            </button>
-
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={onClose}
-                disabled={createLoading}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
-
-              {isWizardTab && currentStep > 0 && (
-                <button onClick={handlePrevious} disabled={createLoading} className="btn btn-secondary">
-                  <ChevronLeft className="w-4 h-4 mr-1" />
-                  Previous
-                </button>
-              )}
-
-              {isWizardTab && !isLastStep ? (
-                <button onClick={handleNext} disabled={createLoading} className="btn btn-primary">
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSubmit}
-                  disabled={isSubmitDisabled}
-                  className="btn btn-primary"
-                >
-                  {createLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" className="mr-2" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        {isWizardTab && !isLastStep ? (
+          <button onClick={handleNext} disabled={createLoading} className="btn btn-primary">
+            Next
+            <ChevronRight className="w-4 h-4 ml-1" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitDisabled}
+            className="btn btn-primary"
+          >
+            {createLoading ? (
+              <>
+                <LoadingSpinner size="sm" className="mr-2" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4 mr-2" />
+                Create
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
+  );
+
+  return (
+    <Modal
+      title="Create Pipeline"
+      onClose={onClose}
+      maxWidth="max-w-4xl"
+      tall
+      scrollRef={scrollRef}
+      subHeader={tabs}
+      preFooter={jsonPreview}
+      footer={footer}
+    >
+      {createError && (
+        <div className="alert-error mb-4">
+          <p>{createError}</p>
+        </div>
+      )}
+      {createSuccess && (
+        <div className="alert-success mb-4">
+          <p>{createSuccess}</p>
+        </div>
+      )}
+
+      {activeTab === 'upload' ? (
+        <UploadConfigTab ref={uploadRef} disabled={createLoading} />
+      ) : (
+        <FormBuilderTab
+          ref={formRef}
+          disabled={createLoading}
+          wizardMode={true}
+          currentStep={currentStep}
+          onStepChange={setCurrentStep}
+          accessStatusSlot={accessSlot}
+        />
+      )}
+
+      {previewError && (
+        <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
+          <p className="text-sm text-yellow-800 dark:text-yellow-300">{previewError}</p>
+        </div>
+      )}
+    </Modal>
   );
 }

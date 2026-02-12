@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { FormField } from '@/components/ui/FormField';
 
 interface PipelineConfigSectionProps {
   project: string;
@@ -28,8 +29,7 @@ export default function PipelineConfigSection({
       </h3>
 
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Project *</label>
+        <FormField label="Project *" error={errors['project']}>
           <input
             type="text"
             value={project}
@@ -38,10 +38,8 @@ export default function PipelineConfigSection({
             disabled={disabled}
             className="input"
           />
-          {errors['project'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['project']}</p>}
-        </div>
-        <div>
-          <label className="label">Organization *</label>
+        </FormField>
+        <FormField label="Organization *" error={errors['organization']}>
           <input
             type="text"
             value={organization}
@@ -50,12 +48,10 @@ export default function PipelineConfigSection({
             disabled={disabled}
             className="input"
           />
-          {errors['organization'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['organization']}</p>}
-        </div>
+        </FormField>
       </div>
 
-      <div>
-        <label className="label">Description</label>
+      <FormField label="Description">
         <textarea
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
@@ -64,10 +60,9 @@ export default function PipelineConfigSection({
           disabled={disabled}
           className="input"
         />
-      </div>
+      </FormField>
 
-      <div>
-        <label className="label">Keywords (comma-separated)</label>
+      <FormField label="Keywords (comma-separated)">
         <input
           type="text"
           value={keywords}
@@ -76,10 +71,9 @@ export default function PipelineConfigSection({
           disabled={disabled}
           className="input"
         />
-      </div>
+      </FormField>
 
-      <div>
-        <label className="label">Pipeline Name</label>
+      <FormField label="Pipeline Name" hint="Auto-generated when project or organization changes. Can be overridden.">
         <input
           type="text"
           value={pipelineName}
@@ -88,8 +82,7 @@ export default function PipelineConfigSection({
           disabled={disabled}
           className="input"
         />
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Auto-generated when project or organization changes. Can be overridden.</p>
-      </div>
+      </FormField>
 
       {children && (
         <div className="space-y-3">

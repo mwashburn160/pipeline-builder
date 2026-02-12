@@ -65,6 +65,11 @@ export interface FormSecurityGroupConfig {
   vpcId: string;
 }
 
+export interface AdditionalInputArtifact {
+  path: string;
+  key: string;
+}
+
 export interface FormStep {
   plugin: FormPluginOptions;
   metadata: MetadataEntry[];
@@ -76,6 +81,8 @@ export interface FormStep {
   postCommands: string[];
   env: EnvEntry[];
   position: 'pre' | 'post';
+  inputArtifact: string;
+  additionalInputArtifacts: AdditionalInputArtifact[];
 }
 
 export interface FormStage {
@@ -163,6 +170,8 @@ export function createEmptyStep(): FormStep {
     postCommands: [],
     env: [],
     position: 'pre',
+    inputArtifact: '',
+    additionalInputArtifacts: [],
   };
 }
 

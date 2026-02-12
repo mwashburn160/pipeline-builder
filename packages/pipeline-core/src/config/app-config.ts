@@ -1,6 +1,6 @@
 import { Duration } from 'aws-cdk-lib';
-import { Algorithm } from 'jsonwebtoken';
-import { AppConfig } from './config-types';
+import type { Algorithm } from 'jsonwebtoken';
+import type { AppConfig } from './config-types';
 import {
   loadDatabaseConfig,
   validateDatabaseConfig,

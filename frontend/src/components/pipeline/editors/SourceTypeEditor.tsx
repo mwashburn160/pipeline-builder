@@ -1,4 +1,5 @@
 import { FormBuilderState } from '@/types/form-types';
+import { FormField } from '@/components/ui/FormField';
 
 interface SourceTypeEditorProps {
   sourceType: FormBuilderState['synth']['sourceType'];
@@ -20,8 +21,7 @@ export default function SourceTypeEditor({
 }: SourceTypeEditorProps) {
   return (
     <div className="space-y-3">
-      <div>
-        <label className="label">Source Type</label>
+      <FormField label="Source Type">
         <select
           value={sourceType}
           onChange={(e) => onSourceTypeChange(e.target.value as FormBuilderState['synth']['sourceType'])}
@@ -32,12 +32,11 @@ export default function SourceTypeEditor({
           <option value="s3">S3</option>
           <option value="codestar">CodeStar</option>
         </select>
-      </div>
+      </FormField>
 
       {sourceType === 's3' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <div>
-            <label className="label">Bucket Name *</label>
+          <FormField label="Bucket Name *" error={errors['synth.s3.bucketName']}>
             <input
               type="text"
               value={s3.bucketName}
@@ -46,10 +45,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-            {errors['synth.s3.bucketName'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.s3.bucketName']}</p>}
-          </div>
-          <div>
-            <label className="label">Object Key</label>
+          </FormField>
+          <FormField label="Object Key">
             <input
               type="text"
               value={s3.objectKey}
@@ -58,9 +55,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-          </div>
-          <div>
-            <label className="label">Trigger</label>
+          </FormField>
+          <FormField label="Trigger">
             <select
               value={s3.trigger}
               onChange={(e) => onS3Change('trigger', e.target.value)}
@@ -70,14 +66,13 @@ export default function SourceTypeEditor({
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
             </select>
-          </div>
+          </FormField>
         </div>
       )}
 
       {sourceType === 'github' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <div>
-            <label className="label">Repository *</label>
+          <FormField label="Repository *" error={errors['synth.github.repo']}>
             <input
               type="text"
               value={github.repo}
@@ -86,10 +81,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-            {errors['synth.github.repo'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.github.repo']}</p>}
-          </div>
-          <div>
-            <label className="label">Branch</label>
+          </FormField>
+          <FormField label="Branch">
             <input
               type="text"
               value={github.branch}
@@ -98,9 +91,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-          </div>
-          <div>
-            <label className="label">Token (PAT)</label>
+          </FormField>
+          <FormField label="Token (PAT)">
             <input
               type="text"
               autoComplete="off"
@@ -111,9 +103,8 @@ export default function SourceTypeEditor({
               className="input"
               style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
             />
-          </div>
-          <div>
-            <label className="label">Trigger</label>
+          </FormField>
+          <FormField label="Trigger">
             <select
               value={github.trigger}
               onChange={(e) => onGithubChange('trigger', e.target.value)}
@@ -123,14 +114,13 @@ export default function SourceTypeEditor({
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
             </select>
-          </div>
+          </FormField>
         </div>
       )}
 
       {sourceType === 'codestar' && (
         <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-          <div>
-            <label className="label">Repository *</label>
+          <FormField label="Repository *" error={errors['synth.codestar.repo']}>
             <input
               type="text"
               value={codestar.repo}
@@ -139,10 +129,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-            {errors['synth.codestar.repo'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.codestar.repo']}</p>}
-          </div>
-          <div>
-            <label className="label">Branch</label>
+          </FormField>
+          <FormField label="Branch">
             <input
               type="text"
               value={codestar.branch}
@@ -151,9 +139,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-          </div>
-          <div>
-            <label className="label">Connection ARN *</label>
+          </FormField>
+          <FormField label="Connection ARN *" error={errors['synth.codestar.connectionArn']}>
             <input
               type="text"
               value={codestar.connectionArn}
@@ -162,10 +149,8 @@ export default function SourceTypeEditor({
               disabled={disabled}
               className="input"
             />
-            {errors['synth.codestar.connectionArn'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['synth.codestar.connectionArn']}</p>}
-          </div>
-          <div>
-            <label className="label">Trigger</label>
+          </FormField>
+          <FormField label="Trigger">
             <select
               value={codestar.trigger}
               onChange={(e) => onCodestarChange('trigger', e.target.value)}
@@ -175,7 +160,7 @@ export default function SourceTypeEditor({
               <option value="NONE">None (Manual)</option>
               <option value="POLL">Poll (Auto)</option>
             </select>
-          </div>
+          </FormField>
           <div className="flex items-center">
             <input
               id="codeBuildCloneOutput"

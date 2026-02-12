@@ -3,7 +3,7 @@ import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { PipelineConfiguration } from './pipeline-configuration';
+import type { PipelineConfiguration } from './pipeline-configuration';
 import { UniqueId } from '../core/id-generator';
 import { unwrapSecret } from '../core/pipeline-helpers';
 import { TriggerType } from '../core/pipeline-types';

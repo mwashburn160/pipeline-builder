@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
@@ -130,141 +131,131 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
     </div>
   );
 
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-panel max-w-4xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Edit Pipeline</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+  const jsonPreview = showPreview && previewJson ? (
+    <div className="border-t border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
+        <button
+          onClick={() => setShowPreview(false)}
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
+        >
+          Close
+        </button>
+      </div>
+      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        {previewJson}
+      </pre>
+    </div>
+  ) : undefined;
+
+  const footer = (
+    <div className="flex items-center justify-between">
+      <button
+        onClick={handlePreview}
+        disabled={loading}
+        className="btn btn-secondary"
+      >
+        Preview JSON
+      </button>
+
+      <div className="flex items-center space-x-3">
+        <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+          Cancel
+        </button>
+
+        {currentStep > 0 && (
+          <button onClick={handlePrevious} disabled={loading} className="btn btn-secondary">
+            <ChevronLeft className="w-4 h-4 mr-1" />
+            Previous
           </button>
-        </div>
-
-        {/* Scrollable Content */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
-          {error && (
-            <div className="alert-error mb-4">
-              <p>{error}</p>
-            </div>
-          )}
-          {success && (
-            <div className="alert-success mb-4">
-              <p>{success}</p>
-            </div>
-          )}
-
-          {/* System Information (collapsible, read-only) */}
-          <div className="mb-4">
-            <CollapsibleSection title="System Information" hasContent={true}>
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.id}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.orgId}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.project}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.organization}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.createdBy}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.createdAt).toLocaleString()}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.updatedBy}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.updatedAt).toLocaleString()}</p>
-                </div>
-              </div>
-            </CollapsibleSection>
-          </div>
-
-          <FormBuilderTab
-            ref={formRef}
-            disabled={loading}
-            initialProps={pipeline.props}
-            initialDescription={pipeline.description || ''}
-            initialKeywords={pipeline.keywords?.join(', ') || ''}
-            wizardMode={true}
-            currentStep={currentStep}
-            onStepChange={setCurrentStep}
-            accessStatusSlot={accessStatusSlot}
-          />
-
-        </div>
-
-        {/* JSON Preview Panel (fixed between content and footer) */}
-        {showPreview && previewJson && (
-          <div className="border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between px-6 py-2 bg-gray-100 dark:bg-gray-800">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">JSON Preview</span>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm transition-colors"
-              >
-                Close
-              </button>
-            </div>
-            <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-              {previewJson}
-            </pre>
-          </div>
         )}
 
-        {/* Footer */}
-        <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handlePreview}
-              disabled={loading}
-              className="btn btn-secondary"
-            >
-              Preview JSON
-            </button>
-
-            <div className="flex items-center space-x-3">
-              <button onClick={onClose} disabled={loading} className="btn btn-secondary">
-                Cancel
-              </button>
-
-              {currentStep > 0 && (
-                <button onClick={handlePrevious} disabled={loading} className="btn btn-secondary">
-                  <ChevronLeft className="w-4 h-4 mr-1" />
-                  Previous
-                </button>
-              )}
-
-              {!isLastStep ? (
-                <button onClick={handleNext} disabled={loading} className="btn btn-primary">
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </button>
-              ) : (
-                <button onClick={handleSave} disabled={loading} className="btn btn-primary">
-                  {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        {!isLastStep ? (
+          <button onClick={handleNext} disabled={loading} className="btn btn-primary">
+            Next
+            <ChevronRight className="w-4 h-4 ml-1" />
+          </button>
+        ) : (
+          <button onClick={handleSave} disabled={loading} className="btn btn-primary">
+            {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
+          </button>
+        )}
       </div>
     </div>
+  );
+
+  return (
+    <Modal
+      title="Edit Pipeline"
+      onClose={onClose}
+      maxWidth="max-w-4xl"
+      tall
+      scrollRef={scrollRef}
+      preFooter={jsonPreview}
+      footer={footer}
+    >
+      {error && (
+        <div className="alert-error mb-4">
+          <p>{error}</p>
+        </div>
+      )}
+      {success && (
+        <div className="alert-success mb-4">
+          <p>{success}</p>
+        </div>
+      )}
+
+      {/* System Information (collapsible, read-only) */}
+      <div className="mb-4">
+        <CollapsibleSection title="System Information" hasContent={true}>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.id}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.orgId}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.project}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.organization}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.createdBy}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.createdAt).toLocaleString()}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.updatedBy}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.updatedAt).toLocaleString()}</p>
+            </div>
+          </div>
+        </CollapsibleSection>
+      </div>
+
+      <FormBuilderTab
+        ref={formRef}
+        disabled={loading}
+        initialProps={pipeline.props}
+        initialDescription={pipeline.description || ''}
+        initialKeywords={pipeline.keywords?.join(', ') || ''}
+        wizardMode={true}
+        currentStep={currentStep}
+        onStepChange={setCurrentStep}
+        accessStatusSlot={accessStatusSlot}
+      />
+    </Modal>
   );
 }

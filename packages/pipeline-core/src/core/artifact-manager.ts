@@ -5,11 +5,18 @@ export interface ArtifactKey {
   readonly stageAlias: string;
   readonly pluginName: string;
   readonly pluginAlias: string;
+  readonly outputDirectory: string;
 }
 
 /**
  * Manages build step artifacts with hierarchical key-based lookup.
- * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias
+ * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias:outputDirectory
+ *
+ * @example
+ * ```typescript
+ * // Synth step: "no-stage:no-stage-alias:cdk-synth:cdk-synth-alias:cdk.out"
+ * // Build step: "build:build-alias:nodejs-build:nodejs-build-alias:dist"
+ * ```
  */
 export class ArtifactManager {
   private readonly artifacts: Map<string, CodeBuildStep | ShellStep> = new Map();
@@ -18,12 +25,12 @@ export class ArtifactManager {
    * Generate a key string from artifact parameters
    */
   private generateKey(key: ArtifactKey): string {
-    return `${key.stageName}:${key.stageAlias}:${key.pluginName}:${key.pluginAlias}`;
+    return `${key.stageName}:${key.stageAlias}:${key.pluginName}:${key.pluginAlias}:${key.outputDirectory}`;
   }
 
   /**
    * Register a build step artifact
-   * @param key - The hierarchical key identifying this artifact
+   * @param key - The hierarchical key identifying this artifact (includes output directory)
    * @param step - The CodeBuildStep or ShellStep to store
    */
   add(key: ArtifactKey, step: CodeBuildStep | ShellStep): void {
@@ -48,7 +55,7 @@ export class ArtifactManager {
   getOutput(key: ArtifactKey): FileSet {
     const step = this.get(key);
     if (!step) {
-      throw new Error(`No artifact registered for ${key.stageName}/${key.pluginName}`);
+      throw new Error(`No artifact registered for ${this.generateKey(key)}`);
     }
     const output = step.primaryOutput;
     if (!output) {
@@ -61,14 +68,14 @@ export class ArtifactManager {
    * Register an additional output directory on a stored step and return its FileSet.
    * Calls CDK's addOutputDirectory() to create a named output beyond the primary.
    * @param key - The artifact key identifying the step
-   * @param directory - The output directory path to register
+   * @param directory - The additional output directory path to register
    * @returns The FileSet for the additional output directory
    * @throws Error if the step is not found
    */
   addOutput(key: ArtifactKey, directory: string): FileSet {
     const step = this.get(key);
     if (!step) {
-      throw new Error(`No artifact registered for ${key.stageName}/${key.pluginName}`);
+      throw new Error(`No artifact registered for ${this.generateKey(key)}`);
     }
     return step.addOutputDirectory(directory);
   }

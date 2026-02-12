@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
+import { FormField } from '@/components/ui/FormField';
 import { Upload } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -61,78 +63,65 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
     }
   };
 
-  return (
-    <div className="modal-backdrop">
-      <div className="modal-panel max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Upload Plugin</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {error && (
-          <div className="alert-error">
-            <p>{error}</p>
-          </div>
+  const footer = (
+    <div className="flex justify-end space-x-3">
+      <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+        Cancel
+      </button>
+      <button onClick={handleUpload} disabled={loading || !file} className="btn btn-primary">
+        {loading ? (
+          <><LoadingSpinner size="sm" className="mr-2" />Uploading...</>
+        ) : (
+          <><Upload className="w-4 h-4 mr-2" />Upload</>
         )}
-        {success && (
-          <div className="alert-success">
-            <p>{success}</p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          <div>
-            <label className="label">Plugin File (.zip or .tar.gz)</label>
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
-              <div className="space-y-1 text-center">
-                <Upload className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-                <div className="flex text-sm text-gray-600 dark:text-gray-400">
-                  <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    <span>Select a file</span>
-                    <input id="file-upload" name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={loading} />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">ZIP or TAR.GZ up to 100MB</p>
-              </div>
-            </div>
-            {file && (
-              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
-                <span className="text-gray-400 dark:text-gray-500 ml-2">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="label">Access Level</label>
-            <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={loading || !canUploadPublic}>
-              <option value="private">Private (Organization only)</option>
-              {canUploadPublic && <option value="public">Public (Available to all)</option>}
-            </select>
-            {!canUploadPublic && (
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Only admins can upload public plugins</p>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end space-x-3">
-          <button onClick={onClose} disabled={loading} className="btn btn-secondary">
-            Cancel
-          </button>
-          <button onClick={handleUpload} disabled={loading || !file} className="btn btn-primary">
-            {loading ? (
-              <><LoadingSpinner size="sm" className="mr-2" />Uploading...</>
-            ) : (
-              <><Upload className="w-4 h-4 mr-2" />Upload</>
-            )}
-          </button>
-        </div>
-      </div>
+      </button>
     </div>
+  );
+
+  return (
+    <Modal title="Upload Plugin" onClose={onClose} maxWidth="max-w-md" footer={footer}>
+      {error && (
+        <div className="alert-error">
+          <p>{error}</p>
+        </div>
+      )}
+      {success && (
+        <div className="alert-success">
+          <p>{success}</p>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="label">Plugin File (.zip or .tar.gz)</label>
+          <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
+            <div className="space-y-1 text-center">
+              <Upload className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+              <div className="flex text-sm text-gray-600 dark:text-gray-400">
+                <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                  <span>Select a file</span>
+                  <input id="file-upload" name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={loading} />
+                </label>
+                <p className="pl-1">or drag and drop</p>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">ZIP or TAR.GZ up to 100MB</p>
+            </div>
+          </div>
+          {file && (
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
+              <span className="text-gray-400 dark:text-gray-500 ml-2">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+            </p>
+          )}
+        </div>
+
+        <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
+          <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={loading || !canUploadPublic}>
+            <option value="private">Private (Organization only)</option>
+            {canUploadPublic && <option value="public">Public (Available to all)</option>}
+          </select>
+        </FormField>
+      </div>
+    </Modal>
   );
 }

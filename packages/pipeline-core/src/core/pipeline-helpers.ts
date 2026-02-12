@@ -3,11 +3,11 @@ import type { Plugin } from '@mwashburn160/pipeline-data';
 import { SecretValue } from 'aws-cdk-lib';
 import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
-import { ArtifactKey } from './artifact-manager';
+import type { ArtifactKey } from './artifact-manager';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
-import { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
+import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 
 const log = createLogger('Helper');
 
@@ -77,7 +77,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   const {
     id, plugin, input, metadata, network, scope,
     preInstallCommands, postInstallCommands, preCommands, postCommands,
-    env: customEnv,
+    env: customEnv, additionalInputs,
     artifactManager, stageName, stageAlias, pluginAlias,
   } = options;
 
@@ -113,6 +113,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   const step = new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,
+    ...(additionalInputs && { additionalInputs }),
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
@@ -129,6 +130,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       stageAlias: stageAlias ?? `${stageName}-alias`,
       pluginName: plugin.name,
       pluginAlias: pluginAlias ?? `${plugin.name}-alias`,
+      outputDirectory: plugin.primaryOutputDirectory,
     };
     artifactManager.add(artifactKey, step);
   }

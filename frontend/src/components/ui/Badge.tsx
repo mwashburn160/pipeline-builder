@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react';
+
 interface BadgeProps {
-  children: React.ReactNode;
+  children: ReactNode;
   color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow';
 }
 

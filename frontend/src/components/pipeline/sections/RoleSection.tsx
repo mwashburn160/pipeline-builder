@@ -1,4 +1,5 @@
 import { FormBuilderState } from '@/types/form-types';
+import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
 
 interface RoleSectionProps {
@@ -16,8 +17,7 @@ export default function RoleSection({
   return (
     <CollapsibleSection title="IAM Role" hasContent={role.type !== 'none'}>
       <div className="mt-3 space-y-3">
-        <div>
-          <label className="label">Role Type</label>
+        <FormField label="Role Type">
           <select
             value={role.type}
             onChange={(e) => onTypeChange(e.target.value as FormBuilderState['role']['type'])}
@@ -29,12 +29,11 @@ export default function RoleSection({
             <option value="roleName">Role Name</option>
             <option value="codeBuildDefault">CodeBuild Default</option>
           </select>
-        </div>
+        </FormField>
 
         {role.type === 'roleArn' && (
           <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <div>
-              <label className="label">Role ARN *</label>
+            <FormField label="Role ARN *" error={errors['role.roleArn']}>
               <input
                 type="text"
                 value={role.roleArn}
@@ -43,8 +42,7 @@ export default function RoleSection({
                 disabled={disabled}
                 className="input"
               />
-              {errors['role.roleArn'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['role.roleArn']}</p>}
-            </div>
+            </FormField>
             <div className="flex items-center">
               <input
                 id="roleArnMutable"
@@ -61,8 +59,7 @@ export default function RoleSection({
 
         {role.type === 'roleName' && (
           <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <div>
-              <label className="label">Role Name *</label>
+            <FormField label="Role Name *" error={errors['role.roleName']}>
               <input
                 type="text"
                 value={role.roleName}
@@ -71,8 +68,7 @@ export default function RoleSection({
                 disabled={disabled}
                 className="input"
               />
-              {errors['role.roleName'] && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors['role.roleName']}</p>}
-            </div>
+            </FormField>
             <div className="flex items-center">
               <input
                 id="roleNameMutable"
@@ -89,8 +85,7 @@ export default function RoleSection({
 
         {role.type === 'codeBuildDefault' && (
           <div className="pl-4 border-l-2 border-gray-200 dark:border-gray-700">
-            <div>
-              <label className="label">Role Name (optional)</label>
+            <FormField label="Role Name (optional)">
               <input
                 type="text"
                 value={role.roleName}
@@ -99,7 +94,7 @@ export default function RoleSection({
                 disabled={disabled}
                 className="input"
               />
-            </div>
+            </FormField>
           </div>
         )}
       </div>

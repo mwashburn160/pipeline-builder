@@ -7,6 +7,7 @@ import { SourceBuilder } from './source-builder';
 import { StageBuilder } from './stage-builder';
 import type { StageOptions, SynthOptions } from './step-types';
 import { Config } from '../config/app-config';
+import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
 import { MetadataBuilder } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
@@ -109,6 +110,8 @@ export class PipelineBuilder extends Construct {
     const source = sourceBuilder.create(uniqueId);
     const plugin = pluginLookup.plugin(this.config.plugin);
     const defaultComputeType = appConfig.aws.codeBuild.computeType;
+    const artifactManager = new ArtifactManager();
+    const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
     const synth = createCodeBuildStep({
       id: uniqueId.generate('cdk:synth'),
       uniqueId,
@@ -118,6 +121,10 @@ export class PipelineBuilder extends Construct {
       network: this.config.network,
       scope: this,
       defaultComputeType,
+      artifactManager,
+      stageName: 'no-stage',
+      stageAlias: 'no-stage-alias',
+      pluginAlias: `${synthAlias}-alias`,
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
@@ -146,6 +153,7 @@ export class PipelineBuilder extends Construct {
         uniqueId,
         globalMetadata: this.config.metadata.merged,
         defaultComputeType,
+        artifactManager,
       });
       stageBuilder.addStages(this.pipeline, props.stages);
     }

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
+import { FormField } from '@/components/ui/FormField';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
@@ -83,179 +85,154 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
     }
   };
 
+  const footer = (
+    <div className="flex justify-end space-x-3">
+      <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+        Cancel
+      </button>
+      <button onClick={handleSave} disabled={loading} className="btn btn-primary">
+        {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
+      </button>
+    </div>
+  );
+
   return (
-    <div className="modal-backdrop">
-      <div className="modal-panel max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4 sticky top-0 bg-white dark:bg-gray-900 pb-2 z-10">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Edit Plugin</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <Modal title="Edit Plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer}>
+      {error && (
+        <div className="alert-error">
+          <p>{error}</p>
         </div>
+      )}
+      {success && (
+        <div className="alert-success">
+          <p>{success}</p>
+        </div>
+      )}
 
-        {error && (
-          <div className="alert-error">
-            <p>{error}</p>
-          </div>
-        )}
-        {success && (
-          <div className="alert-success">
-            <p>{success}</p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {/* Read-only Fields */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.id}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.orgId}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.createdBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.createdAt).toLocaleString()}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.updatedBy}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.updatedAt).toLocaleString()}</p>
-              </div>
+      <div className="space-y-4">
+        {/* Read-only Fields */}
+        <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">System Information (Read-only)</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.id}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.orgId}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.createdBy}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.createdAt).toLocaleString()}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{plugin.updatedBy}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(plugin.updatedAt).toLocaleString()}</p>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image Tag</label>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{plugin.imageTag}</p>
+            </div>
+            {plugin.dockerfile && (
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image Tag</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{plugin.imageTag}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dockerfile</label>
+                <pre className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{plugin.dockerfile}</pre>
               </div>
-              {plugin.dockerfile && (
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dockerfile</label>
-                  <pre className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg overflow-x-auto max-h-24">{plugin.dockerfile}</pre>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Core Information */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
-            <div className="mb-3">
-              <label className="label">Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input" disabled={loading} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Description</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input" disabled={loading} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Keywords (comma-separated)</label>
-              <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="input" disabled={loading} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Version</label>
-              <input type="text" value={version} onChange={(e) => setVersion(e.target.value)} className="input" disabled={loading} />
-            </div>
-          </div>
-
-          {/* Plugin Configuration */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Plugin Configuration</h3>
-            <div className="grid grid-cols-2 gap-4 mb-3">
-              <div>
-                <label className="label">Plugin Type</label>
-                <select value={pluginType} onChange={(e) => setPluginType(e.target.value)} className="input" disabled={loading}>
-                  <option value="CodeBuildStep">CodeBuildStep</option>
-                  <option value="ShellStep">ShellStep</option>
-                  <option value="ManualApprovalStep">ManualApprovalStep</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Compute Type</label>
-                <select value={computeType} onChange={(e) => setComputeType(e.target.value)} className="input" disabled={loading}>
-                  <option value="SMALL">SMALL</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="LARGE">LARGE</option>
-                  <option value="X2_LARGE">X2_LARGE</option>
-                </select>
-              </div>
-            </div>
-            <div className="mb-3">
-              <label className="label">Primary Output Directory</label>
-              <input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} className="input" disabled={loading} placeholder="e.g. cdk.out, dist, build" />
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Directory where build artifacts are output (used for pipeline artifact tracking)</p>
-            </div>
-            <div className="mb-3">
-              <label className="label">Metadata (JSON)</label>
-              <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
-            </div>
-          </div>
-
-          {/* Build Configuration */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
-            <div className="mb-3">
-              <label className="label">Environment Variables (JSON)</label>
-              <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
-            </div>
-            <div className="mb-3">
-              <label className="label">Install Commands (one per line)</label>
-              <textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
-            </div>
-            <div className="mb-3">
-              <label className="label">Commands (one per line)</label>
-              <textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
-            </div>
-          </div>
-
-          {/* Access & Status */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
-            <div className="grid grid-cols-2 gap-4 mb-3">
-              <div>
-                <label className="label">Access Modifier</label>
-                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSysAdmin}>
-                  <option value="private">Private</option>
-                  <option value="public">Public</option>
-                </select>
-                {!isSysAdmin && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Only system admins can change access level</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center space-x-6">
-              <div className="flex items-center">
-                <input id="editIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
-                <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
-              </div>
-              <div className="flex items-center">
-                <input id="editIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
-                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end space-x-3 sticky bottom-0 bg-white dark:bg-gray-900 pt-4 z-10">
-          <button onClick={onClose} disabled={loading} className="btn btn-secondary">
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={loading} className="btn btn-primary">
-            {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
-          </button>
+        {/* Core Information */}
+        <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Core Information</h3>
+          <FormField label="Name" className="mb-3">
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input" disabled={loading} />
+          </FormField>
+          <FormField label="Description" className="mb-3">
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input" disabled={loading} />
+          </FormField>
+          <FormField label="Keywords (comma-separated)" className="mb-3">
+            <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" className="input" disabled={loading} />
+          </FormField>
+          <FormField label="Version" className="mb-3">
+            <input type="text" value={version} onChange={(e) => setVersion(e.target.value)} className="input" disabled={loading} />
+          </FormField>
+        </div>
+
+        {/* Plugin Configuration */}
+        <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Plugin Configuration</h3>
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <FormField label="Plugin Type">
+              <select value={pluginType} onChange={(e) => setPluginType(e.target.value)} className="input" disabled={loading}>
+                <option value="CodeBuildStep">CodeBuildStep</option>
+                <option value="ShellStep">ShellStep</option>
+                <option value="ManualApprovalStep">ManualApprovalStep</option>
+              </select>
+            </FormField>
+            <FormField label="Compute Type">
+              <select value={computeType} onChange={(e) => setComputeType(e.target.value)} className="input" disabled={loading}>
+                <option value="SMALL">SMALL</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="LARGE">LARGE</option>
+                <option value="X2_LARGE">X2_LARGE</option>
+              </select>
+            </FormField>
+          </div>
+          <FormField label="Primary Output Directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
+            <input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} className="input" disabled={loading} placeholder="e.g. cdk.out, dist, build" />
+          </FormField>
+          <FormField label="Metadata (JSON)" className="mb-3">
+            <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
+          </FormField>
+        </div>
+
+        {/* Build Configuration */}
+        <div className="border-b border-gray-200 dark:border-gray-700 pb-4">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Build Configuration</h3>
+          <FormField label="Environment Variables (JSON)" className="mb-3">
+            <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
+          </FormField>
+          <FormField label="Install Commands (one per line)" className="mb-3">
+            <textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
+          </FormField>
+          <FormField label="Commands (one per line)" className="mb-3">
+            <textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
+          </FormField>
+        </div>
+
+        {/* Access & Status */}
+        <div>
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <FormField label="Access Modifier" hint={!isSysAdmin ? 'Only system admins can change access level' : undefined}>
+              <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSysAdmin}>
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </select>
+            </FormField>
+          </div>
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center">
+              <input id="editIsActive" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+              <label htmlFor="editIsActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Active</label>
+            </div>
+            <div className="flex items-center">
+              <input id="editIsDefault" type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded" disabled={loading} />
+              <label htmlFor="editIsDefault" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Default</label>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

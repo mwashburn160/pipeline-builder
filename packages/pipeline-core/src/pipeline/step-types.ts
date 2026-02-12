@@ -2,7 +2,7 @@ import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
-import type { ArtifactManager } from '../core/artifact-manager';
+import type { ArtifactKey, ArtifactManager } from '../core/artifact-manager';
 import type { UniqueId } from '../core/id-generator';
 import type { NetworkConfig } from '../core/network-types';
 import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types';
@@ -185,6 +185,12 @@ export interface StageStepOptions extends StepCustomization {
    * @default 'pre'
    */
   readonly position?: 'pre' | 'post';
+
+  /** Artifact key for this step's primary input (resolved via ArtifactManager) */
+  readonly inputArtifact?: ArtifactKey;
+
+  /** Map of mount paths to artifact keys for additional inputs */
+  readonly additionalInputArtifacts?: Record<string, ArtifactKey>;
 }
 
 /**
@@ -254,6 +260,9 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * @default ComputeType.SMALL
    */
   readonly defaultComputeType?: CdkComputeType;
+
+  /** Additional inputs mapped by directory path (resolved FileSets) */
+  readonly additionalInputs?: Record<string, IFileSetProducer>;
 
   /**
    * Optional artifact manager for tracking build outputs

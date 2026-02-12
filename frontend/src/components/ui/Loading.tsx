@@ -38,4 +38,3 @@ export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
   );
 }
 
-export default LoadingSpinner;

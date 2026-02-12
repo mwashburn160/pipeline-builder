@@ -1,91 +1,91 @@
-import { Duration, RemovalPolicy } from 'aws-cdk-lib';
+import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
-import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
-import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { Algorithm } from 'jsonwebtoken';
+import type { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
+import type { RetentionDays } from 'aws-cdk-lib/aws-logs';
+import type { Algorithm } from 'jsonwebtoken';
 
 /**
  * Type-safe configuration interface
  */
 export interface AppConfig {
-  server: ServerConfig;
-  auth: AuthConfig;
-  database: DatabaseConfig;
-  registry: RegistryConfig;
-  aws: AWSConfig;
-  rateLimit: RateLimitConfig;
+  readonly server: ServerConfig;
+  readonly auth: AuthConfig;
+  readonly database: DatabaseConfig;
+  readonly registry: RegistryConfig;
+  readonly aws: AWSConfig;
+  readonly rateLimit: RateLimitConfig;
 }
 
 export interface ServerConfig {
-  port: number;
-  cors: {
-    credentials: boolean;
-    origin: string | string[];
+  readonly port: number;
+  readonly cors: {
+    readonly credentials: boolean;
+    readonly origin: string | string[];
   };
-  trustProxy: number;
-  platformUrl: string;
+  readonly trustProxy: number;
+  readonly platformUrl: string;
 }
 
 export interface AuthConfig {
-  jwt: {
-    secret: string;
-    expiresIn: number;
-    algorithm: Algorithm;
-    saltRounds: number;
+  readonly jwt: {
+    readonly secret: string;
+    readonly expiresIn: number;
+    readonly algorithm: Algorithm;
+    readonly saltRounds: number;
   };
-  refreshToken: {
-    secret: string;
-    expiresIn: number;
+  readonly refreshToken: {
+    readonly secret: string;
+    readonly expiresIn: number;
   };
 }
 
 export interface DatabaseConfig {
-  postgres: {
-    host: string;
-    port: number;
-    database: string;
-    user: string;
-    password: string;
+  readonly postgres: {
+    readonly host: string;
+    readonly port: number;
+    readonly database: string;
+    readonly user: string;
+    readonly password: string;
   };
-  mongodb: {
-    uri: string;
+  readonly mongodb: {
+    readonly uri: string;
   };
-  drizzle: {
-    maxPoolSize: number;
-    idleTimeoutMillis: number;
-    connectionTimeoutMillis: number;
+  readonly drizzle: {
+    readonly maxPoolSize: number;
+    readonly idleTimeoutMillis: number;
+    readonly connectionTimeoutMillis: number;
   };
 }
 
 export interface RegistryConfig {
-  host: string;
-  port: number;
-  user: string;
-  token: string;
+  readonly host: string;
+  readonly port: number;
+  readonly user: string;
+  readonly token: string;
   /** Docker network for build/push (empty string = default). */
-  network: string;
+  readonly network: string;
 }
 
 export interface AWSConfig {
-  lambda: {
-    runtime: Runtime;
-    timeout: Duration;
-    memorySize: number;
-    architecture: Architecture;
+  readonly lambda: {
+    readonly runtime: Runtime;
+    readonly timeout: Duration;
+    readonly memorySize: number;
+    readonly architecture: Architecture;
   };
-  logging: {
-    groupName: string;
-    retention: RetentionDays;
-    removalPolicy: RemovalPolicy;
+  readonly logging: {
+    readonly groupName: string;
+    readonly retention: RetentionDays;
+    readonly removalPolicy: RemovalPolicy;
   };
-  codeBuild: {
-    computeType: ComputeType;
+  readonly codeBuild: {
+    readonly computeType: ComputeType;
   };
 }
 
 export interface RateLimitConfig {
-  max: number;
-  windowMs: number;
-  legacyHeaders: boolean;
-  standardHeaders: boolean;
+  readonly max: number;
+  readonly windowMs: number;
+  readonly legacyHeaders: boolean;
+  readonly standardHeaders: boolean;
 }

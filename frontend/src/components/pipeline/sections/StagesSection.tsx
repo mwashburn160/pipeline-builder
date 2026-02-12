@@ -1,10 +1,7 @@
-import { FormStage, FormStep, FormNetworkConfig, FormPluginOptions, MetadataEntry, EnvEntry } from '@/types/form-types';
+import { FormStage, FormStep } from '@/types/form-types';
+import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
-import PluginOptionsEditor from '../editors/PluginOptionsEditor';
-import NetworkConfigEditor from '../editors/NetworkConfigEditor';
-import MetadataEditor from '../editors/MetadataEditor';
-import StringArrayEditor from '../editors/StringArrayEditor';
-import EnvEditor from '../editors/EnvEditor';
+import StepEditor from './StepEditor';
 
 interface StagesSectionProps {
   stages: FormStage[];
@@ -16,122 +13,6 @@ interface StagesSectionProps {
   onStepChange: (stageIndex: number, stepIndex: number, step: FormStep) => void;
   disabled?: boolean;
   errors?: Record<string, string>;
-}
-
-function StepEditor({
-  step, onChange, disabled, errorPrefix, errors = {},
-}: {
-  step: FormStep;
-  onChange: (step: FormStep) => void;
-  disabled?: boolean;
-  errorPrefix: string;
-  errors?: Record<string, string>;
-}) {
-  const updatePosition = (position: 'pre' | 'post') => onChange({ ...step, position });
-  const updatePlugin = (plugin: FormPluginOptions) => onChange({ ...step, plugin });
-  const updateMetadata = (metadata: MetadataEntry[]) => onChange({ ...step, metadata });
-  const updateNetworkType = (networkType: FormStep['networkType']) => onChange({ ...step, networkType });
-  const updateNetwork = (network: FormNetworkConfig) => onChange({ ...step, network });
-  const updateCommands = (field: 'preInstallCommands' | 'postInstallCommands' | 'preCommands' | 'postCommands', value: string[]) =>
-    onChange({ ...step, [field]: value });
-  const updateEnv = (env: EnvEntry[]) => onChange({ ...step, env });
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="label">Step Position</label>
-        <select
-          value={step.position}
-          onChange={(e) => updatePosition(e.target.value as 'pre' | 'post')}
-          disabled={disabled}
-          className="input"
-        >
-          <option value="pre">Pre (before deployment)</option>
-          <option value="post">Post (after deployment)</option>
-        </select>
-      </div>
-
-      <PluginOptionsEditor
-        value={step.plugin}
-        onChange={updatePlugin}
-        disabled={disabled}
-        error={errors[`${errorPrefix}.plugin.name`]}
-        label="Step Plugin"
-      />
-
-      <CollapsibleSection title="Step Metadata" hasContent={step.metadata.length > 0}>
-        <div className="mt-3">
-          <MetadataEditor value={step.metadata} onChange={updateMetadata} disabled={disabled} />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Step Network" hasContent={step.networkType !== 'none'}>
-        <div className="mt-3">
-          <NetworkConfigEditor
-            networkType={step.networkType}
-            network={step.network}
-            onTypeChange={updateNetworkType}
-            onNetworkChange={updateNetwork}
-            disabled={disabled}
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Pre-Install Commands" hasContent={step.preInstallCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.preInstallCommands}
-            onChange={(val) => updateCommands('preInstallCommands', val)}
-            placeholder="npm ci"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Post-Install Commands" hasContent={step.postInstallCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.postInstallCommands}
-            onChange={(val) => updateCommands('postInstallCommands', val)}
-            placeholder="npm run build"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Pre-Commands" hasContent={step.preCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.preCommands}
-            onChange={(val) => updateCommands('preCommands', val)}
-            placeholder="echo 'starting...'"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Post-Commands" hasContent={step.postCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.postCommands}
-            onChange={(val) => updateCommands('postCommands', val)}
-            placeholder="echo 'done!'"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Environment Variables" hasContent={step.env.length > 0}>
-        <div className="mt-3">
-          <EnvEditor value={step.env} onChange={updateEnv} disabled={disabled} />
-        </div>
-      </CollapsibleSection>
-    </div>
-  );
 }
 
 export default function StagesSection({
@@ -157,8 +38,7 @@ export default function StagesSection({
 
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Stage Name *</label>
+                <FormField label="Stage Name *" error={errors[`stages.${stageIdx}.stageName`]}>
                   <input
                     type="text"
                     value={stage.stageName}
@@ -167,12 +47,8 @@ export default function StagesSection({
                     disabled={disabled}
                     className="input"
                   />
-                  {errors[`stages.${stageIdx}.stageName`] && (
-                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors[`stages.${stageIdx}.stageName`]}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="label">Alias</label>
+                </FormField>
+                <FormField label="Alias">
                   <input
                     type="text"
                     value={stage.alias}
@@ -181,7 +57,7 @@ export default function StagesSection({
                     disabled={disabled}
                     className="input"
                   />
-                </div>
+                </FormField>
               </div>
 
               {errors[`stages.${stageIdx}.steps`] && (

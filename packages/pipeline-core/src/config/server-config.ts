@@ -1,7 +1,7 @@
 import { createLogger } from '@mwashburn160/api-core';
-import { Algorithm } from 'jsonwebtoken';
+import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
-import { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
+import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
 const log = createLogger('ServerConfig');
 
