@@ -255,10 +255,12 @@ export function assembleBuilderProps(
           plugin: assemblePluginOptions(step.plugin),
           ...(stepMeta && { metadata: stepMeta }),
           ...(stepNetwork && { network: stepNetwork }),
-          ...(step.preInstallCommands.filter(Boolean).length > 0 && { preInstallCommands: step.preInstallCommands.filter(Boolean) }),
-          ...(step.postInstallCommands.filter(Boolean).length > 0 && { postInstallCommands: step.postInstallCommands.filter(Boolean) }),
-          ...(step.preCommands.filter(Boolean).length > 0 && { preCommands: step.preCommands.filter(Boolean) }),
-          ...(step.postCommands.filter(Boolean).length > 0 && { postCommands: step.postCommands.filter(Boolean) }),
+          ...(step.installCommands.commands.filter(Boolean).length > 0 && {
+            [step.installCommands.position === 'pre' ? 'preInstallCommands' : 'postInstallCommands']: step.installCommands.commands.filter(Boolean),
+          }),
+          ...(step.buildCommands.commands.filter(Boolean).length > 0 && {
+            [step.buildCommands.position === 'pre' ? 'preCommands' : 'postCommands']: step.buildCommands.commands.filter(Boolean),
+          }),
           ...(stepEnv && { env: stepEnv }),
           ...(step.position === 'post' && { position: 'post' }),
           ...(step.inputArtifact && { inputArtifact: parseArtifactKeyString(step.inputArtifact) }),

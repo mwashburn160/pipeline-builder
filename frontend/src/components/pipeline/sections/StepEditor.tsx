@@ -1,4 +1,4 @@
-import { FormStep, FormNetworkConfig, FormPluginOptions, MetadataEntry, EnvEntry } from '@/types/form-types';
+import { FormStep, FormNetworkConfig, FormPluginOptions, CommandGroup, MetadataEntry, EnvEntry } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
 import PluginOptionsEditor from '../editors/PluginOptionsEditor';
@@ -23,8 +23,8 @@ export default function StepEditor({
   const updateMetadata = (metadata: MetadataEntry[]) => onChange({ ...step, metadata });
   const updateNetworkType = (networkType: FormStep['networkType']) => onChange({ ...step, networkType });
   const updateNetwork = (network: FormNetworkConfig) => onChange({ ...step, network });
-  const updateCommands = (field: 'preInstallCommands' | 'postInstallCommands' | 'preCommands' | 'postCommands', value: string[]) =>
-    onChange({ ...step, [field]: value });
+  const updateCommandGroup = (field: 'installCommands' | 'buildCommands', group: CommandGroup) =>
+    onChange({ ...step, [field]: group });
   const updateEnv = (env: EnvEntry[]) => onChange({ ...step, env });
   const updateInputArtifact = (inputArtifact: string) => onChange({ ...step, inputArtifact });
   const updateAdditionalInput = (index: number, field: 'path' | 'key', value: string) => {
@@ -74,11 +74,22 @@ export default function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Pre-Install Commands" hasContent={step.preInstallCommands.length > 0}>
-        <div className="mt-3">
+      <CollapsibleSection title="Install Commands" hasContent={step.installCommands.commands.length > 0}>
+        <div className="mt-3 space-y-2">
+          <FormField label="Position">
+            <select
+              value={step.installCommands.position}
+              onChange={(e) => updateCommandGroup('installCommands', { ...step.installCommands, position: e.target.value as 'pre' | 'post' })}
+              disabled={disabled}
+              className="input"
+            >
+              <option value="pre">Before plugin install commands</option>
+              <option value="post">After plugin install commands</option>
+            </select>
+          </FormField>
           <StringArrayEditor
-            value={step.preInstallCommands}
-            onChange={(val) => updateCommands('preInstallCommands', val)}
+            value={step.installCommands.commands}
+            onChange={(commands) => updateCommandGroup('installCommands', { ...step.installCommands, commands })}
             placeholder="npm ci"
             disabled={disabled}
             addLabel="+ Add Command"
@@ -86,36 +97,23 @@ export default function StepEditor({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Post-Install Commands" hasContent={step.postInstallCommands.length > 0}>
-        <div className="mt-3">
+      <CollapsibleSection title="Build Commands" hasContent={step.buildCommands.commands.length > 0}>
+        <div className="mt-3 space-y-2">
+          <FormField label="Position">
+            <select
+              value={step.buildCommands.position}
+              onChange={(e) => updateCommandGroup('buildCommands', { ...step.buildCommands, position: e.target.value as 'pre' | 'post' })}
+              disabled={disabled}
+              className="input"
+            >
+              <option value="pre">Before plugin build commands</option>
+              <option value="post">After plugin build commands</option>
+            </select>
+          </FormField>
           <StringArrayEditor
-            value={step.postInstallCommands}
-            onChange={(val) => updateCommands('postInstallCommands', val)}
-            placeholder="npm run build"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Pre-Commands" hasContent={step.preCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.preCommands}
-            onChange={(val) => updateCommands('preCommands', val)}
+            value={step.buildCommands.commands}
+            onChange={(commands) => updateCommandGroup('buildCommands', { ...step.buildCommands, commands })}
             placeholder="echo 'starting...'"
-            disabled={disabled}
-            addLabel="+ Add Command"
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Post-Commands" hasContent={step.postCommands.length > 0}>
-        <div className="mt-3">
-          <StringArrayEditor
-            value={step.postCommands}
-            onChange={(val) => updateCommands('postCommands', val)}
-            placeholder="echo 'done!'"
             disabled={disabled}
             addLabel="+ Add Command"
           />

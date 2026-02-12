@@ -129,10 +129,18 @@ function parseSteps(steps: unknown[]): FormStep[] {
       metadata: parseMetadataEntries(step.metadata),
       networkType,
       network,
-      preInstallCommands: Array.isArray(step.preInstallCommands) ? step.preInstallCommands.map(String) : [],
-      postInstallCommands: Array.isArray(step.postInstallCommands) ? step.postInstallCommands.map(String) : [],
-      preCommands: Array.isArray(step.preCommands) ? step.preCommands.map(String) : [],
-      postCommands: Array.isArray(step.postCommands) ? step.postCommands.map(String) : [],
+      installCommands: {
+        position: Array.isArray(step.postInstallCommands) && step.postInstallCommands.length > 0 ? 'post' : 'pre',
+        commands: Array.isArray(step.postInstallCommands) && step.postInstallCommands.length > 0
+          ? step.postInstallCommands.map(String)
+          : Array.isArray(step.preInstallCommands) ? step.preInstallCommands.map(String) : [],
+      },
+      buildCommands: {
+        position: Array.isArray(step.postCommands) && step.postCommands.length > 0 ? 'post' : 'pre',
+        commands: Array.isArray(step.postCommands) && step.postCommands.length > 0
+          ? step.postCommands.map(String)
+          : Array.isArray(step.preCommands) ? step.preCommands.map(String) : [],
+      },
       env: parseEnvEntries(step.env),
       position: step.position === 'post' ? 'post' : 'pre',
       inputArtifact: step.inputArtifact ? artifactKeyToString(step.inputArtifact) : '',

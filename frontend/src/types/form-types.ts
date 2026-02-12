@@ -70,15 +70,19 @@ export interface AdditionalInputArtifact {
   key: string;
 }
 
+/** A command group with a position (pre/post) and a list of commands */
+export interface CommandGroup {
+  position: 'pre' | 'post';
+  commands: string[];
+}
+
 export interface FormStep {
   plugin: FormPluginOptions;
   metadata: MetadataEntry[];
   networkType: 'none' | 'subnetIds' | 'vpcId' | 'vpcLookup';
   network: FormNetworkConfig;
-  preInstallCommands: string[];
-  postInstallCommands: string[];
-  preCommands: string[];
-  postCommands: string[];
+  installCommands: CommandGroup;
+  buildCommands: CommandGroup;
   env: EnvEntry[];
   position: 'pre' | 'post';
   inputArtifact: string;
@@ -164,10 +168,8 @@ export function createEmptyStep(): FormStep {
     metadata: [],
     networkType: 'none',
     network: createEmptyNetworkConfig(),
-    preInstallCommands: [],
-    postInstallCommands: [],
-    preCommands: [],
-    postCommands: [],
+    installCommands: { position: 'pre', commands: [] },
+    buildCommands: { position: 'pre', commands: [] },
     env: [],
     position: 'pre',
     inputArtifact: '',
