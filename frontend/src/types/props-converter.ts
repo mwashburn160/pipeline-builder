@@ -428,9 +428,12 @@ function assembleEnv(entries: EnvEntry[]): Record<string, string> | undefined {
  */
 export function assembleBuilderProps(
   state: FormBuilderState,
+  { skipValidation = false }: { skipValidation?: boolean } = {},
 ): { props: BuilderProps | null; errors: Record<string, string> } {
-  const errors = validateFormState(state);
-  if (Object.keys(errors).length > 0) return { props: null, errors };
+  if (!skipValidation) {
+    const errors = validateFormState(state);
+    if (Object.keys(errors).length > 0) return { props: null, errors };
+  }
 
   // Build source
   let source: Record<string, unknown> | undefined;

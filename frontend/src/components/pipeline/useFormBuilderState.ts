@@ -175,6 +175,11 @@ export function useFormBuilderState(initialState?: FormBuilderState) {
     return props;
   }, [state]);
 
+  const assembleBuilderPropsForPreview = useCallback((): BuilderProps | null => {
+    const { props } = assembleProps(state, { skipValidation: true });
+    return props;
+  }, [state]);
+
   const reset = useCallback(() => {
     dispatch({ type: 'RESET' });
     setValidationErrors({});
@@ -186,6 +191,7 @@ export function useFormBuilderState(initialState?: FormBuilderState) {
     validationErrors,
     setValidationErrors,
     assembleBuilderProps,
+    assembleBuilderPropsForPreview,
     reset,
   };
 }

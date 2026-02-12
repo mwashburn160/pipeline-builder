@@ -1,2 +1,2 @@
-export { ErrorBoundary, withErrorBoundary } from './ErrorBoundary';
-export { LoadingSpinner, LoadingOverlay, LoadingPage } from './ui/Loading';
+export { ErrorBoundary } from './ErrorBoundary';
+export { LoadingSpinner, LoadingPage } from './ui/Loading';

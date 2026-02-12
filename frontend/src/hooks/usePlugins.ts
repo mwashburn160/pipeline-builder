@@ -7,6 +7,11 @@ let cachedPlugins: Plugin[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+export function clearPluginCache() {
+  cachedPlugins = null;
+  cacheTimestamp = 0;
+}
+
 export interface PluginGroup {
   category: string;
   plugins: Plugin[];

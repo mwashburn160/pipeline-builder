@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
-import { Plus } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
+import { WIZARD_STEPS } from './wizard-validation';
 
 interface CreatePipelineModalProps {
   isOpen: boolean;
@@ -19,14 +20,21 @@ export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
   createLoading, createError, createSuccess, canCreatePublic,
 }: CreatePipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'form'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'form'>('form');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top when step changes
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0);
+  }, [currentStep]);
 
   if (!isOpen) return null;
 
@@ -39,7 +47,9 @@ export default function CreatePipelineModal({
 
   const handlePreview = async () => {
     setPreviewError(null);
-    const props = await resolveProps();
+    const props = activeTab === 'form'
+      ? formRef.current?.getPropsPreview() ?? null
+      : await uploadRef.current?.getProps() ?? null;
     if (props) {
       setPreviewJson(JSON.stringify(props, null, 2));
       setShowPreview(true);
@@ -57,7 +67,45 @@ export default function CreatePipelineModal({
     await onSubmit(props, createAccess, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
   };
 
+  const handleNext = () => {
+    if (formRef.current?.canProceed()) {
+      const next = currentStep + 1;
+      setCurrentStep(next);
+      formRef.current?.goToStep(next);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep > 0) {
+      const prev = currentStep - 1;
+      setCurrentStep(prev);
+      formRef.current?.goToStep(prev);
+    }
+  };
+
   const isSubmitDisabled = createLoading;
+  const isWizardTab = activeTab === 'form';
+  const isLastStep = currentStep === WIZARD_STEPS.length - 1;
+
+  const accessSlot = (
+    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access</h3>
+      <div className="flex items-center space-x-3">
+        <select
+          value={createAccess}
+          onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
+          className="input !w-auto"
+          disabled={createLoading || !canCreatePublic}
+        >
+          <option value="private">Private</option>
+          {canCreatePublic && <option value="public">Public</option>}
+        </select>
+        {!canCreatePublic && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">Only admins can create public pipelines</span>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="modal-backdrop">
@@ -96,13 +144,13 @@ export default function CreatePipelineModal({
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
-              Form Builder
+              Wizard
             </button>
           </nav>
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
           {createError && (
             <div className="alert-error mb-4">
               <p>{createError}</p>
@@ -117,7 +165,14 @@ export default function CreatePipelineModal({
           {activeTab === 'upload' ? (
             <UploadConfigTab ref={uploadRef} disabled={createLoading} />
           ) : (
-            <FormBuilderTab ref={formRef} disabled={createLoading} />
+            <FormBuilderTab
+              ref={formRef}
+              disabled={createLoading}
+              wizardMode={true}
+              currentStep={currentStep}
+              onStepChange={setCurrentStep}
+              accessStatusSlot={accessSlot}
+            />
           )}
 
           {previewError && (
@@ -148,33 +203,15 @@ export default function CreatePipelineModal({
         {/* Footer */}
         <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <label htmlFor="pipelineAccess" className="label !mb-0">
-                Access:
-              </label>
-              <select
-                id="pipelineAccess"
-                value={createAccess}
-                onChange={(e) => setCreateAccess(e.target.value as 'public' | 'private')}
-                className="input !w-auto"
-                disabled={createLoading || !canCreatePublic}
-              >
-                <option value="private">Private</option>
-                {canCreatePublic && <option value="public">Public</option>}
-              </select>
-              {!canCreatePublic && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">Only admins can create public pipelines</span>
-              )}
-            </div>
+            <button
+              onClick={handlePreview}
+              disabled={createLoading}
+              className="btn btn-secondary"
+            >
+              Preview JSON
+            </button>
 
             <div className="flex items-center space-x-3">
-              <button
-                onClick={handlePreview}
-                disabled={createLoading}
-                className="btn btn-secondary"
-              >
-                Preview JSON
-              </button>
               <button
                 onClick={onClose}
                 disabled={createLoading}
@@ -182,23 +219,38 @@ export default function CreatePipelineModal({
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitDisabled}
-                className="btn btn-primary"
-              >
-                {createLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-2" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create
-                  </>
-                )}
-              </button>
+
+              {isWizardTab && currentStep > 0 && (
+                <button onClick={handlePrevious} disabled={createLoading} className="btn btn-secondary">
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  Previous
+                </button>
+              )}
+
+              {isWizardTab && !isLastStep ? (
+                <button onClick={handleNext} disabled={createLoading} className="btn btn-primary">
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={isSubmitDisabled}
+                  className="btn btn-primary"
+                >
+                  {createLoading ? (
+                    <>
+                      <LoadingSpinner size="sm" className="mr-2" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

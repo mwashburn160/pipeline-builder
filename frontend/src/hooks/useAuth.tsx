@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, ReactNode 
 import { useRouter } from 'next/router';
 import { User } from '@/types';
 import api from '@/lib/api';
+import { clearPluginCache } from './usePlugins';
 
 interface AuthContextType {
   user: User | null;
@@ -157,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.logout();
     } finally {
+      clearPluginCache();
       setUser(null);
       setIsLoading(false);
       // Use Next.js router for client-side navigation
@@ -193,35 +195,3 @@ export function useAuth() {
   return context;
 }
 
-/**
- * HOC to require authentication for a page
- */
-export function withAuth<P extends object>(
-  WrappedComponent: React.ComponentType<P>,
-  options: { redirectTo?: string } = {}
-) {
-  const { redirectTo = '/auth/login' } = options;
-
-  return function AuthenticatedComponent(props: P) {
-    const { isAuthenticated, isInitialized, isLoading } = useAuth();
-    const router = useRouter();
-
-    useEffect(() => {
-      if (isInitialized && !isLoading && !isAuthenticated) {
-        router.push(redirectTo);
-      }
-    }, [isAuthenticated, isInitialized, isLoading, router]);
-
-    // Show nothing while checking auth
-    if (!isInitialized || isLoading) {
-      return null;
-    }
-
-    // Show nothing while redirecting
-    if (!isAuthenticated) {
-      return null;
-    }
-
-    return <WrappedComponent {...props} />;
-  };
-}

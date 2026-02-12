@@ -15,8 +15,6 @@ interface EditPipelineModalProps {
 }
 
 export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'form' | 'json'>('form');
-  const [jsonProps, setJsonProps] = useState(JSON.stringify(pipeline.props || {}, null, 2));
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
@@ -36,20 +34,12 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   }, [currentStep]);
 
   const resolveProps = (): BuilderProps | null => {
-    if (activeTab === 'form') {
-      return formRef.current?.getProps() ?? null;
-    }
-    try {
-      return jsonProps.trim() ? JSON.parse(jsonProps) : null;
-    } catch {
-      setError('Invalid JSON in props field');
-      return null;
-    }
+    return formRef.current?.getProps() ?? null;
   };
 
   const handlePreview = () => {
     setError(null);
-    const props = resolveProps();
+    const props = formRef.current?.getPropsPreview() ?? null;
     if (props) {
       setPreviewJson(JSON.stringify(props, null, 2));
       setShowPreview(true);
@@ -206,61 +196,17 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
             </CollapsibleSection>
           </div>
 
-          {/* Tabs: Wizard | Raw JSON */}
-          <div className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-4">
-            <div className="border-b border-gray-200 dark:border-gray-700 mb-4">
-              <nav className="-mb-px flex space-x-8">
-                <button
-                  onClick={() => setActiveTab('form')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === 'form'
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
-                >
-                  Wizard
-                </button>
-                <button
-                  onClick={() => setActiveTab('json')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === 'json'
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
-                >
-                  Raw JSON
-                </button>
-              </nav>
-            </div>
-
-            {activeTab === 'form' ? (
-              <FormBuilderTab
-                ref={formRef}
-                disabled={loading}
-                initialProps={pipeline.props}
-                initialDescription={pipeline.description || ''}
-                initialKeywords={pipeline.keywords?.join(', ') || ''}
-                wizardMode={true}
-                currentStep={currentStep}
-                onStepChange={setCurrentStep}
-                accessStatusSlot={accessStatusSlot}
-              />
-            ) : (
-              <div>
-                <textarea
-                  value={jsonProps}
-                  onChange={(e) => setJsonProps(e.target.value)}
-                  rows={12}
-                  className="input font-mono text-xs"
-                  disabled={loading}
-                  placeholder='{"project": "my-project", "organization": "my-org"}'
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Builder configuration including project, organization, and pipeline settings
-                </p>
-              </div>
-            )}
-          </div>
+          <FormBuilderTab
+            ref={formRef}
+            disabled={loading}
+            initialProps={pipeline.props}
+            initialDescription={pipeline.description || ''}
+            initialKeywords={pipeline.keywords?.join(', ') || ''}
+            wizardMode={true}
+            currentStep={currentStep}
+            onStepChange={setCurrentStep}
+            accessStatusSlot={accessStatusSlot}
+          />
 
           {/* JSON Preview Panel */}
           {showPreview && previewJson && (
@@ -297,14 +243,14 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
                 Cancel
               </button>
 
-              {activeTab === 'form' && currentStep > 0 && (
+              {currentStep > 0 && (
                 <button onClick={handlePrevious} disabled={loading} className="btn btn-secondary">
                   <ChevronLeft className="w-4 h-4 mr-1" />
                   Previous
                 </button>
               )}
 
-              {activeTab === 'form' && !isLastStep ? (
+              {!isLastStep ? (
                 <button onClick={handleNext} disabled={loading} className="btn btn-primary">
                   Next
                   <ChevronRight className="w-4 h-4 ml-1" />

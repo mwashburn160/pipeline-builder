@@ -102,12 +102,14 @@ export default function SourceTypeEditor({
           <div>
             <label className="label">Token (PAT)</label>
             <input
-              type="password"
+              type="text"
+              autoComplete="off"
               value={github.token}
               onChange={(e) => onGithubChange('token', e.target.value)}
               placeholder="ghp_..."
               disabled={disabled}
               className="input"
+              style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
             />
           </div>
           <div>

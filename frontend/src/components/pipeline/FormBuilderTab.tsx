@@ -15,6 +15,7 @@ import { WIZARD_STEPS, validateStep, getStepStatuses } from './wizard-validation
 
 export interface FormBuilderTabRef {
   getProps: () => BuilderProps | null;
+  getPropsPreview: () => BuilderProps | null;
   getDescription: () => string;
   getKeywords: () => string;
   canProceed: () => boolean;
@@ -45,12 +46,15 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     );
     const initialState = initialStateRef.current;
 
-    const { state, dispatch, validationErrors, setValidationErrors, assembleBuilderProps } = useFormBuilderState(initialState);
+    const { state, dispatch, validationErrors, setValidationErrors, assembleBuilderProps, assembleBuilderPropsForPreview } = useFormBuilderState(initialState);
     const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
 
     useImperativeHandle(ref, () => ({
       getProps: (): BuilderProps | null => {
         return assembleBuilderProps();
+      },
+      getPropsPreview: (): BuilderProps | null => {
+        return assembleBuilderPropsForPreview();
       },
       getDescription: () => state.description,
       getKeywords: () => state.keywords,

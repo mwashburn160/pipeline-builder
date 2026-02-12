@@ -1,4 +1,4 @@
-import { FormStage, FormStep, FormNetworkConfig, FormPluginOptions, MetadataEntry, EnvEntry, createEmptyNetworkConfig, createEmptyPlugin } from '@/types/form-types';
+import { FormStage, FormStep, FormNetworkConfig, FormPluginOptions, MetadataEntry, EnvEntry } from '@/types/form-types';
 import CollapsibleSection from '../editors/CollapsibleSection';
 import PluginOptionsEditor from '../editors/PluginOptionsEditor';
 import NetworkConfigEditor from '../editors/NetworkConfigEditor';
