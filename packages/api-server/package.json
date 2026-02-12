@@ -36,7 +36,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.16.2",
+    "@mwashburn160/api-core": "1.16.3",
     "@mwashburn160/pipeline-core": "workspace:*",
     "cors": "2.8.6",
     "express": "5.2.1",
@@ -50,7 +50,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.14.3",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
