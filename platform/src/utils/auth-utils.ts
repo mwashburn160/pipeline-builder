@@ -130,8 +130,15 @@ export async function issueTokens(user: IUser): Promise<IssuedTokens> {
     expiresIn: `${config.auth.jwt.expiresIn}s`,
   });
 
-  // Generate refresh token (random, long-lived)
-  const refreshToken = crypto.randomBytes(40).toString('hex');
+  // Generate refresh token as JWT (must be verifiable by isValidRefreshToken middleware)
+  const refreshPayload = {
+    type: 'refresh' as const,
+    sub: user._id.toString(),
+    tokenVersion: user.tokenVersion || 0,
+  };
+  const refreshToken = jwt.sign(refreshPayload, config.auth.refreshToken.secret, {
+    expiresIn: `${config.auth.refreshToken.expiresIn}s`,
+  });
   const refreshTokenHash = hashRefreshToken(refreshToken);
 
   // Store hashed refresh token in database
