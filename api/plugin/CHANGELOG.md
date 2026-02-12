@@ -1,3 +1,13 @@
+## 1.10.10 (2026-02-12)
+
+### 🩹 Fixes
+
+- updated keywords ([d0c5885](https://github.com/mwashburn160/pipeline-builder/commit/d0c5885))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.9 (2026-02-12)
 
 ### 🩹 Fixes
