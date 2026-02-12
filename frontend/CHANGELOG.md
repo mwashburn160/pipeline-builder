@@ -1,3 +1,13 @@
+## 1.13.14 (2026-02-12)
+
+### 🩹 Fixes
+
+- refresh token ([ee4e933](https://github.com/mwashburn160/pipeline-builder/commit/ee4e933))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.13 (2026-02-12)
 
 ### 🩹 Fixes
