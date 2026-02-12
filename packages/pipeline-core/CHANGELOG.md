@@ -1,3 +1,13 @@
+## 1.17.9 (2026-02-12)
+
+### 🩹 Fixes
+
+- role cleanup ([6125f05](https://github.com/mwashburn160/pipeline-builder/commit/6125f05))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.17.8 (2026-02-12)
 
 ### 🩹 Fixes
