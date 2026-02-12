@@ -13,10 +13,10 @@ pluginType: CodeBuildStep
 computeType: MEDIUM
 primaryOutputDirectory: cdk.out
 metadata:
-  custom:aws:codepipeline:selfMutation: true
-  custom:aws:codepipeline:dockerEnabledForSelfMutation: true
-  custom:aws:codepipeline:publishAssetsInParallel: true
-  custom:aws:buildenvironment:privileged: true
+  aws:cdk:pipelines:codepipeline:selfmutation: true
+  aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation: true
+  aws:cdk:pipelines:codepipeline:publishassetsinparallel: true
+  aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
 - npm ci
@@ -24,5 +24,5 @@ installCommands:
 commands:
 - npx cdk synth --quiet --no-notices
 env:
-  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
   CDK_DEFAULT_REGION: ${AWS_REGION}
+  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
