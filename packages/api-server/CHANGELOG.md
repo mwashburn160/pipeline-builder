@@ -1,3 +1,13 @@
+## 1.17.0 (2026-02-13)
+
+### 🚀 Features
+
+- added org id to logging ([f31c8a9](https://github.com/mwashburn160/pipeline-builder/commit/f31c8a9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.16.4 (2026-02-13)
 
 ### 🩹 Fixes
