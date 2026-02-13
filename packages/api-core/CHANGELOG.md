@@ -1,3 +1,14 @@
+## 1.18.0 (2026-02-13)
+
+### 🚀 Features
+
+- added type safety in service layer ([1429c91](https://github.com/mwashburn160/pipeline-builder/commit/1429c91))
+- added type safety in service layer ([d02126f](https://github.com/mwashburn160/pipeline-builder/commit/d02126f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.17.0 (2026-02-13)
 
 ### 🚀 Features

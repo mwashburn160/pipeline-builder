@@ -1,3 +1,18 @@
+## 1.19.0 (2026-02-13)
+
+### 🚀 Features
+
+- added type safety in service layer ([204f247](https://github.com/mwashburn160/pipeline-builder/commit/204f247))
+- added type safety in service layer ([d02126f](https://github.com/mwashburn160/pipeline-builder/commit/d02126f))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.18.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.18.0 (2026-02-13)
 
 ### 🚀 Features
