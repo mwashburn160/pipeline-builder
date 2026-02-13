@@ -302,7 +302,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.13.19'
+    image: 'ghcr.io/mwashburn160/frontend:1.14.0'
     container_name: frontend
     restart: always
     networks:

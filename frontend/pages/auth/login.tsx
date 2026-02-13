@@ -1,5 +1,4 @@
-import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/router';
+import { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { LogIn } from 'lucide-react';
@@ -7,13 +6,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 
 export default function LoginPage() {
-  const router = useRouter();
   const { login, isLoading } = useAuth();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
 

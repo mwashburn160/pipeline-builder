@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -446,19 +446,19 @@ class ApiClient {
   // ============================================
 
   async getMyOrganization() {
-    return this.request<ApiResponse<unknown>>('/api/organization');
+    return this.request<ApiResponse<Organization>>('/api/organization');
   }
 
   async listOrganizations() {
-    return this.request<ApiResponse<{ organizations: unknown[] }>>('/api/organizations');
+    return this.request<ApiResponse<{ organizations: Organization[] }> & { organizations?: Organization[] }>('/api/organizations');
   }
 
   async getOrganization(id: string) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${id}`);
+    return this.request<ApiResponse<Organization>>(`/api/organization/${id}`);
   }
 
   async updateOrganization(id: string, data: { name?: string; description?: string }) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${id}`, {
+    return this.request<ApiResponse<Organization>>(`/api/organization/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -471,11 +471,11 @@ class ApiClient {
   }
 
   async getOrganizationMembers(orgId: string) {
-    return this.request<ApiResponse<{ members: unknown[] }>>(`/api/organization/${orgId}/members`);
+    return this.request<ApiResponse<{ members: OrganizationMember[] }>>(`/api/organization/${orgId}/members`);
   }
 
   async addMemberToOrganization(orgId: string, data: { userId?: string; email?: string }) {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members`, {
+    return this.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -488,7 +488,7 @@ class ApiClient {
   }
 
   async updateMemberRole(orgId: string, userId: string, role: 'user' | 'admin') {
-    return this.request<ApiResponse<unknown>>(`/api/organization/${orgId}/members/${userId}`, {
+    return this.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members/${userId}`, {
       method: 'PATCH',
       body: JSON.stringify({ role }),
     });
@@ -584,10 +584,12 @@ class ApiClient {
     return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/search${query}`);
   }
 
-  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private') {
+  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', description?: string, keywords?: string) {
     const formData = new FormData();
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
+    if (description) formData.append('description', description);
+    if (keywords) formData.append('keywords', keywords);
 
     const headers: Record<string, string> = {};
     

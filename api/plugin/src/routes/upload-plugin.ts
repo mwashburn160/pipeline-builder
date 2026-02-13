@@ -66,7 +66,8 @@ export function createUploadPluginRoutes(
         }
 
         const orgId = ctx.identity.orgId!.toLowerCase();
-        let accessModifier = (req.body as { accessModifier?: string }).accessModifier === 'public'
+        const body = req.body as { accessModifier?: string; description?: string; keywords?: string };
+        let accessModifier = body.accessModifier === 'public'
           ? 'public'
           : 'private';
 
@@ -119,7 +120,7 @@ export function createUploadPluginRoutes(
             .values({
               orgId,
               name: plugin.manifest.name,
-              description: plugin.manifest.description || null,
+              description: body.description || plugin.manifest.description || null,
               version: plugin.manifest.version,
               metadata: plugin.manifest.metadata || {},
               pluginType: (plugin.manifest.pluginType || 'CodeBuildStep') as PluginType,
@@ -127,7 +128,9 @@ export function createUploadPluginRoutes(
               primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
-              keywords: plugin.manifest.keywords || [],
+              keywords: body.keywords
+                ? body.keywords.split(',').map((k: string) => k.trim()).filter((k: string) => k)
+                : plugin.manifest.keywords || [],
               installCommands: plugin.manifest.installCommands || [],
               commands: plugin.manifest.commands,
               imageTag: plugin.imageTag,

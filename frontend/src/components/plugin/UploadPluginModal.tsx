@@ -14,6 +14,8 @@ interface UploadPluginModalProps {
 export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded }: UploadPluginModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [access, setAccess] = useState<'public' | 'private'>('private');
+  const [description, setDescription] = useState('');
+  const [keywords, setKeywords] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -47,7 +49,12 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
     setSuccess(null);
 
     try {
-      const response = await api.uploadPlugin(file, access);
+      const response = await api.uploadPlugin(
+        file,
+        access,
+        description || undefined,
+        keywords || undefined,
+      );
 
       if (response.success) {
         setSuccess('Plugin uploaded successfully!');
@@ -114,6 +121,14 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
             </p>
           )}
         </div>
+
+        <FormField label="Description" className="mb-3">
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Brief description of this plugin (overrides manifest)" className="input" disabled={loading} />
+        </FormField>
+
+        <FormField label="Keywords (comma-separated)" className="mb-3">
+          <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3 (overrides manifest)" className="input" disabled={loading} />
+        </FormField>
 
         <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
           <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={loading || !canUploadPublic}>

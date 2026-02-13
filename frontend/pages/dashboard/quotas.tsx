@@ -153,7 +153,7 @@ function OrgListItem({
 // ---------------------------------------------------------------------------
 
 export default function QuotasPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
+  const { user, isReady, isSysAdmin } = useAuthGuard();
   const { isDark, toggle } = useDarkMode();
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
@@ -175,8 +175,8 @@ export default function QuotasPage() {
     if (!isSysAdmin) return;
     try {
       const res = await api.listOrganizations();
-      const raw = (res.data as any)?.organizations || (res as any).organizations || [];
-      const orgs = raw.map((o: any) => ({ id: o.id || o._id, name: o.name, slug: o.slug }));
+      const raw = res.organizations || res.data?.organizations || [];
+      const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
       if (orgs.length > 0 && !selectedOrgId) setSelectedOrgId(orgs[0].id);
     } catch {

@@ -136,12 +136,57 @@ export default function DashboardPage() {
           })}
         </div>
 
+        {/* Pipeline Manager CLI */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.3 }}
+          className="mt-8 card"
+        >
+          <div className="flex items-start space-x-4 mb-4">
+            <div className="bg-cyan-500 rounded-xl p-3 text-white">
+              <Terminal className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Pipeline Manager CLI</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Manage pipelines and plugins from the command line</p>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Prerequisites</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">Node.js &gt;= 24.9.0</span>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">AWS CLI configured</span>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">AWS CDK &gt;= 2.237.0</span>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">PLATFORM_TOKEN env var</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Install</p>
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/60 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-800 dark:text-gray-200">
+                <code>npm install -g @mwashburn160/pipeline-manager</code>
+                <CopyButton text="npm install -g @mwashburn160/pipeline-manager" />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Verify</p>
+              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/60 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-800 dark:text-gray-200">
+                <code>pipeline-manager version</code>
+                <CopyButton text="pipeline-manager version" />
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
         {/* Quota Usage + User Info */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.3 }}
+            transition={{ duration: 0.3, delay: 0.35 }}
             className="lg:col-span-2 card"
           >
             <div className="flex items-center justify-between mb-4">
@@ -192,7 +237,7 @@ export default function DashboardPage() {
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.35 }}
+            transition={{ duration: 0.3, delay: 0.4 }}
             className="card space-y-4"
           >
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Account</h3>
@@ -214,51 +259,6 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         </div>
-
-        {/* Pipeline Manager CLI */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.4 }}
-          className="mt-8 card"
-        >
-          <div className="flex items-start space-x-4 mb-4">
-            <div className="bg-cyan-500 rounded-xl p-3 text-white">
-              <Terminal className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Pipeline Manager CLI</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Manage pipelines and plugins from the command line</p>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Prerequisites</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">Node.js &gt;= 24.9.0</span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">AWS CLI configured</span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">AWS CDK &gt;= 2.237.0</span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">PLATFORM_TOKEN env var</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Install</p>
-              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/60 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-800 dark:text-gray-200">
-                <code>npm install -g @mwashburn160/pipeline-manager</code>
-                <CopyButton text="npm install -g @mwashburn160/pipeline-manager" />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Verify</p>
-              <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/60 rounded-lg px-4 py-2.5 font-mono text-sm text-gray-800 dark:text-gray-200">
-                <code>pipeline-manager version</code>
-                <CopyButton text="pipeline-manager version" />
-              </div>
-            </div>
-          </div>
-        </motion.div>
       </main>
     </div>
   );

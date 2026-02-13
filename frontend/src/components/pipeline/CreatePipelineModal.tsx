@@ -62,8 +62,12 @@ export default function CreatePipelineModal({
   const handleSubmit = async () => {
     const props = await resolveProps();
     if (!props) return;
-    const desc = formRef.current?.getDescription() ?? '';
-    const kw = formRef.current?.getKeywords() ?? '';
+    const desc = activeTab === 'upload'
+      ? uploadRef.current?.getDescription() ?? ''
+      : formRef.current?.getDescription() ?? '';
+    const kw = activeTab === 'upload'
+      ? uploadRef.current?.getKeywords() ?? ''
+      : formRef.current?.getKeywords() ?? '';
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
     await onSubmit(props, createAccess, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
   };

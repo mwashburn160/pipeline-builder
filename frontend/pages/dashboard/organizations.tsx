@@ -24,7 +24,7 @@ export default function OrganizationsPage() {
       try {
         setIsLoading(true);
         const response = await api.listOrganizations();
-        const orgList = (response as any).organizations || response.data || [];
+        const orgList = response.organizations || response.data?.organizations || [];
         setOrganizations(orgList);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load organizations');

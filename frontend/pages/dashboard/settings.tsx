@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -31,7 +31,7 @@ export default function SettingsPage() {
     }
   }, [user]);
 
-  const handleProfileSubmit = async (e: FormEvent) => {
+  const handleProfileSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setProfileError(null);
     setProfileSuccess(null);
@@ -57,7 +57,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePasswordSubmit = async (e: FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setPasswordError(null);
     setPasswordSuccess(null);
