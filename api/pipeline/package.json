@@ -37,9 +37,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.16.11",
+    "@mwashburn160/api-core": "1.16.12",
     "@mwashburn160/api-server": "1.14.8",
-    "@mwashburn160/pipeline-core": "1.17.10",
+    "@mwashburn160/pipeline-core": "1.17.13",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
@@ -57,7 +57,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.10.12",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
