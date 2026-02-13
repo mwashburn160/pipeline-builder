@@ -1,3 +1,13 @@
+## 1.16.11 (2026-02-13)
+
+### 🩹 Fixes
+
+- upgraded api-core=1.16.10 ([b3a0b0e](https://github.com/mwashburn160/pipeline-builder/commit/b3a0b0e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.16.10 (2026-02-13)
 
 ### 🩹 Fixes
