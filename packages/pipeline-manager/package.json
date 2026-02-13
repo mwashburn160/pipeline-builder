@@ -38,7 +38,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/pipeline-core": "1.19.2",
+    "@mwashburn160/pipeline-core": "1.19.3",
     "aws-cdk-lib": "2.237.0",
     "axios": "1.13.3",
     "commander": "14.0.2",
@@ -54,7 +54,7 @@
     "node": ">= 24.9.0"
   },
   "license": "Apache-2.0",
-  "version": "1.15.3",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
