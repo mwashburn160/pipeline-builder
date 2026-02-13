@@ -48,8 +48,8 @@ importers:
   api/pipeline:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/api-server':
         specifier: 1.14.8
         version: 1.14.8(@types/pg@8.16.0)
@@ -139,8 +139,8 @@ importers:
   api/plugin:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/api-server':
         specifier: 1.14.8
         version: 1.14.8(@types/pg@8.16.0)
@@ -242,8 +242,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/api-server':
         specifier: 1.14.8
         version: 1.14.8(@types/pg@8.16.0)
@@ -324,8 +324,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/api-server':
         specifier: 1.14.8
         version: 1.14.8(@types/pg@8.16.0)
@@ -440,8 +440,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/pipeline-core':
         specifier: 1.17.10
         version: 1.17.10(@types/pg@8.16.0)
@@ -516,8 +516,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       '@mwashburn160/pipeline-data':
         specifier: 1.17.8
         version: 1.17.8(@types/pg@8.16.0)
@@ -586,8 +586,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
@@ -720,8 +720,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: 1.16.8
-        version: 1.16.8
+        specifier: 1.16.10
+        version: 1.16.10
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -1922,16 +1922,16 @@ packages:
   '@mongodb-js/saslprep@1.4.5':
     resolution: {integrity: sha512-k64Lbyb7ycCSXHSLzxVdb2xsKGPMvYZfCICXvDsI8Z65CeWQzTEKS4YmGbnqw+U9RBvLPTsB6UCmwkgsDTGWIw==}
 
+  '@mwashburn160/api-core@1.16.10':
+    resolution: {integrity: sha512-tUpZCb5Q4EjCQPn2DgBQooHupag93wGM8l6ZtoohQmshH16F09s2tFoQwu/xjaPaeWN+kI0SZRrHwPZOrORU+g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.16.10/ba58cf735b5b7c20381353f79887de5775c85aff}
+    engines: {node: '>= 24.9.0'}
+
   '@mwashburn160/api-core@1.16.5':
     resolution: {integrity: sha512-cXU58AaET8eNCFBFtxdHOMT1yAxydmKB45va2U0xbrQ9ET9cFPBC3ejoAMcg7dmUTuRWFbXJi+mdrnmG3xLxUg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.16.5/13cb178bff54f0a2ae4795cf3cefd421eb30d92f}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/api-core@1.16.6':
     resolution: {integrity: sha512-gRbTdyXHhS639UzvIQZ/IoVYgmHYHSzcxDCZRIkn7sgRMcQ+7FuYb2RzvgAZscmNavpAZ0srzxm2FTppw8Vwyg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.16.6/2f61e8d3106073fd90491d8e0e97177f06e7bb29}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/api-core@1.16.8':
-    resolution: {integrity: sha512-37FnpRagNli+3v8oOih2SEw6X9iy4PnLnC4FmgF9KVnop1uRLfxXvp+azRGJPjlQgcwKjLZq8dyajrmtUdNVhA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.16.8/b16f551e7838ca503018ee130f4df7646dd7c492}
     engines: {node: '>= 24.9.0'}
 
   '@mwashburn160/api-server@1.14.8':
@@ -7443,6 +7443,17 @@ snapshots:
     dependencies:
       sparse-bitfield: 3.0.3
 
+  '@mwashburn160/api-core@1.16.10':
+    dependencies:
+      axios: 1.13.3
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.17.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
   '@mwashburn160/api-core@1.16.5':
     dependencies:
       axios: 1.13.3
@@ -7455,17 +7466,6 @@ snapshots:
       - supports-color
 
   '@mwashburn160/api-core@1.16.6':
-    dependencies:
-      axios: 1.13.3
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.17.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - debug
-      - supports-color
-
-  '@mwashburn160/api-core@1.16.8':
     dependencies:
       axios: 1.13.3
       express: 5.2.1
