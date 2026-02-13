@@ -1,3 +1,13 @@
+## 1.18.3 (2026-02-13)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.19.2 ([fea5625](https://github.com/mwashburn160/pipeline-builder/commit/fea5625))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.18.2 (2026-02-13)
 
 ### 🩹 Fixes
