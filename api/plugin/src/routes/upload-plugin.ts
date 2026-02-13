@@ -92,7 +92,6 @@ export function createUploadPluginRoutes(
         ctx.log('INFO', 'Upload received', {
           originalName: req.file.originalname,
           sizeBytes: req.file.size,
-          orgId,
           accessModifier,
         });
 
@@ -185,7 +184,7 @@ export function createUploadPluginRoutes(
 
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);
-        logger.error('Deployment failed', { error: message, ...dbDetails });
+        logger.error('Deployment failed', { error: message, orgId: ctx.identity.orgId, ...dbDetails });
 
         return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
       } finally {

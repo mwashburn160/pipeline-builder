@@ -63,7 +63,7 @@ export function createRequestContext(
 
   // Create logger that outputs to Winston and SSE
   const log: RequestLogger = (type, message, data) => {
-    logger.info(message, { requestId, type, data });
+    logger.info(message, { requestId, orgId: identity.orgId, type, data });
     sseManager.send(requestId, type, message, data);
   };
 

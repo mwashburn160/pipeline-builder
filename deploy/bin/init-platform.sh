@@ -6,6 +6,23 @@ set -eu
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
 ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(openssl rand -base64 24)}
 
+# Wait for platform service to be healthy
+MAX_RETRIES=30
+RETRY_INTERVAL=2
+echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/health ..."
+for i in $(seq 1 $MAX_RETRIES); do
+    STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/health" 2>/dev/null || true)
+    if [ "$STATUS" = "200" ]; then
+        echo "Platform is healthy."
+        break
+    fi
+    if [ "$i" = "$MAX_RETRIES" ]; then
+        echo "Platform failed to become healthy after $((MAX_RETRIES * RETRY_INTERVAL))s — aborting." >&2
+        exit 1
+    fi
+    sleep $RETRY_INTERVAL
+done
+
 curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
      -k -s -o /dev/null \
      -H "Content-Type: application/json" \

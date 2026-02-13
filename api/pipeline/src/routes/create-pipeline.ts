@@ -59,7 +59,7 @@ export function createCreatePipelineRoutes(
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
         const orgId = ctx.identity.orgId!.toLowerCase();
-        ctx.log('INFO', 'Pipeline creation request received', { project, organization, orgId });
+        ctx.log('INFO', 'Pipeline creation request received', { project, organization });
 
         const result = await pipelineService.createAsDefault(
           {
@@ -102,7 +102,7 @@ export function createCreatePipelineRoutes(
       } catch (error) {
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);
-        logger.error('Pipeline save failed', { error: message, ...dbDetails });
+        logger.error('Pipeline save failed', { error: message, orgId: ctx.identity.orgId, ...dbDetails });
 
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
