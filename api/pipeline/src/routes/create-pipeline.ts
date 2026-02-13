@@ -67,6 +67,8 @@ export function createCreatePipelineRoutes(
             project,
             organization,
             pipelineName,
+            description: body.description ?? '',
+            keywords: body.keywords ?? [],
             props: body.props as unknown as PipelineInsert['props'],
             accessModifier: accessModifier as AccessModifier,
             createdBy: ctx.identity.userId || 'system',

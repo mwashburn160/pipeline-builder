@@ -70,6 +70,8 @@ export const PipelineCreateSchema = z.object({
   project: z.string().min(1, 'Project is required'),
   organization: z.string().min(1, 'Organization is required'),
   pipelineName: z.string().min(1).optional(),
+  description: z.string().optional(),
+  keywords: z.array(z.string()).optional(),
   accessModifier: AccessModifierSchema.optional(),
   props: BuilderPropsSchema,
 });
