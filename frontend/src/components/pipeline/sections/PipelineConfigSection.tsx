@@ -5,13 +5,13 @@ interface PipelineConfigSectionProps {
   project: string;
   organization: string;
   pipelineName: string;
-  description: string;
-  keywords: string;
+  description?: string;
+  keywords?: string;
   onProjectChange: (val: string) => void;
   onOrganizationChange: (val: string) => void;
   onPipelineNameChange: (val: string) => void;
-  onDescriptionChange: (val: string) => void;
-  onKeywordsChange: (val: string) => void;
+  onDescriptionChange?: (val: string) => void;
+  onKeywordsChange?: (val: string) => void;
   disabled?: boolean;
   errors?: Record<string, string>;
   children?: ReactNode;
@@ -51,27 +51,31 @@ export default function PipelineConfigSection({
         </FormField>
       </div>
 
-      <FormField label="Description">
-        <textarea
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          rows={2}
-          placeholder="Brief description of this pipeline"
-          disabled={disabled}
-          className="input"
-        />
-      </FormField>
+      {onDescriptionChange && (
+        <FormField label="Description">
+          <textarea
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            rows={2}
+            placeholder="Brief description of this pipeline"
+            disabled={disabled}
+            className="input"
+          />
+        </FormField>
+      )}
 
-      <FormField label="Keywords (comma-separated)">
-        <input
-          type="text"
-          value={keywords}
-          onChange={(e) => onKeywordsChange(e.target.value)}
-          placeholder="keyword1, keyword2, keyword3"
-          disabled={disabled}
-          className="input"
-        />
-      </FormField>
+      {onKeywordsChange && (
+        <FormField label="Keywords (comma-separated)">
+          <input
+            type="text"
+            value={keywords}
+            onChange={(e) => onKeywordsChange(e.target.value)}
+            placeholder="keyword1, keyword2, keyword3"
+            disabled={disabled}
+            className="input"
+          />
+        </FormField>
+      )}
 
       <FormField label="Pipeline Name" hint="Auto-generated when project or organization changes. Can be overridden.">
         <input

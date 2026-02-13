@@ -51,6 +51,7 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
   const dockerfile = path.normalize(rawDockerfile);
 
   if (
+    dockerfile.includes('\0') ||
     dockerfile.includes('..') ||
     path.isAbsolute(dockerfile) ||
     dockerfile.includes(path.sep + path.sep) ||

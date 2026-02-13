@@ -28,7 +28,7 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/plugins', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPluginRoutes(sseManager, quotaService));
+app.use('/plugins', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePluginRoutes(sseManager));

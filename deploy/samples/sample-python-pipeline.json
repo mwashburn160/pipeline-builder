@@ -1,6 +1,7 @@
 {
   "project": "Sample",
   "organization": "AcmeCorp",
+  "description": "A sample pipeline for demonstration purposes.",
   "keywords": [
     "aws",
     "cdk",

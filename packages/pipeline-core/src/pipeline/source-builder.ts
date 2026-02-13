@@ -8,11 +8,8 @@ import { UniqueId } from '../core/id-generator';
 import { unwrapSecret } from '../core/pipeline-helpers';
 import { TriggerType } from '../core/pipeline-types';
 
-/**
- * Check if trigger type represents automatic triggering (AUTO or deprecated POLL).
- */
 function isAutoTrigger(trigger: TriggerType): boolean {
-  return trigger === TriggerType.AUTO || trigger === TriggerType.POLL;
+  return trigger === TriggerType.AUTO;
 }
 
 /**

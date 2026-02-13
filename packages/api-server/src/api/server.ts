@@ -115,8 +115,12 @@ export async function startServer(
     onStart?.(port);
   });
 
-  // Shutdown handler
+  // Shutdown handler (guarded against concurrent signals)
+  let shuttingDown = false;
   const shutdown = async (signal?: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
     if (signal) {
       logger.info(`${signal} received, shutting down gracefully...`);
     }

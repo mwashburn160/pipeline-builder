@@ -14,8 +14,6 @@ interface UploadPluginModalProps {
 export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded }: UploadPluginModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [access, setAccess] = useState<'public' | 'private'>('private');
-  const [description, setDescription] = useState('');
-  const [keywords, setKeywords] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -48,12 +46,14 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
     setError(null);
     setSuccess(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min timeout
+
     try {
       const response = await api.uploadPlugin(
         file,
         access,
-        description || undefined,
-        keywords || undefined,
+        { signal: controller.signal },
       );
 
       if (response.success) {
@@ -64,8 +64,13 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
         setTimeout(() => onClose(), 2000);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload plugin');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Upload timed out. Please try again with a smaller file or check your connection.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to upload plugin');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -121,14 +126,6 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
             </p>
           )}
         </div>
-
-        <FormField label="Description" className="mb-3">
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Brief description of this plugin (overrides manifest)" className="input" disabled={loading} />
-        </FormField>
-
-        <FormField label="Keywords (comma-separated)" className="mb-3">
-          <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3 (overrides manifest)" className="input" disabled={loading} />
-        </FormField>
 
         <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
           <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={loading || !canUploadPublic}>

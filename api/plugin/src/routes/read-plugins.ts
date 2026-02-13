@@ -8,7 +8,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, parsePaginationParams } from '@mwashburn160/api-core';
-import { createRequestContext, SSEManager, QuotaService } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
   validateFilter,
@@ -20,10 +20,10 @@ import { pluginService } from '../services/plugin-service';
 /**
  * Register all read routes on a router.
  *
+ * Context is automatically attached via attachRequestContext middleware.
  * Expects middleware: authenticateToken, requireOrgId, checkQuota('apiCalls')
  */
 export function createReadPluginRoutes(
-  sseManager: SSEManager,
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
@@ -32,7 +32,7 @@ export function createReadPluginRoutes(
   // GET /plugins — paginated list
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
 
     try {
       const filter = validateFilter(req);
@@ -77,7 +77,7 @@ export function createReadPluginRoutes(
   // GET /plugins/find — single plugin by filter
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
 
     try {
       const filter = validateFilter(req);
@@ -106,7 +106,7 @@ export function createReadPluginRoutes(
   // GET /plugins/:id — single plugin by UUID
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

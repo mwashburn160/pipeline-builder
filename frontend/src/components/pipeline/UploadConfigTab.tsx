@@ -1,4 +1,4 @@
-import { useState, useImperativeHandle, forwardRef } from 'react';
+import { useState, useImperativeHandle, useRef, forwardRef } from 'react';
 import { Upload } from 'lucide-react';
 import { BuilderProps } from '@/types';
 
@@ -17,8 +17,8 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
     const [propsInput, setPropsInput] = useState('');
     const [propsFile, setPropsFile] = useState<File | null>(null);
     const [propsError, setPropsError] = useState<string | null>(null);
-    const [description, setDescription] = useState('');
-    const [keywords, setKeywords] = useState('');
+    const descriptionRef = useRef('');
+    const keywordsRef = useRef('');
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
@@ -44,11 +44,11 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
             const inner = raw.props as Record<string, unknown>;
             if (inner.synth && typeof inner.synth === 'object') {
               // Extract description/keywords from the wrapper before unwrapping
-              if (typeof raw.description === 'string' && raw.description && !description) {
-                setDescription(raw.description);
+              if (typeof raw.description === 'string' && raw.description) {
+                descriptionRef.current = raw.description;
               }
-              if (Array.isArray(raw.keywords) && raw.keywords.length > 0 && !keywords) {
-                setKeywords(raw.keywords.map(String).join(', '));
+              if (Array.isArray(raw.keywords) && raw.keywords.length > 0) {
+                keywordsRef.current = raw.keywords.map(String).join(', ');
               }
               raw = inner;
             }
@@ -75,8 +75,8 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
           return null;
         }
       },
-      getDescription: () => description,
-      getKeywords: () => keywords,
+      getDescription: () => descriptionRef.current,
+      getKeywords: () => keywordsRef.current,
     }));
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,31 +157,6 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           Required: project, organization. Full BuilderProps schema supported.
         </p>
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="label">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Brief description of this pipeline"
-              disabled={disabled}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label">Keywords (comma-separated)</label>
-            <input
-              type="text"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="keyword1, keyword2, keyword3"
-              disabled={disabled}
-              className="input"
-            />
-          </div>
-        </div>
       </div>
     );
   }

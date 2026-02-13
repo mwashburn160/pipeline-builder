@@ -46,11 +46,14 @@ export interface RequestIdentity {
  * ```
  */
 export function getIdentity(req: HttpRequest): RequestIdentity {
+  // Prefer JWT-verified claims (req.user) over raw headers to prevent spoofing.
+  // Headers are only used as fallback or for fields not in the JWT (e.g. requestId).
+  const user = req.user;
   return {
-    orgId: getHeaderString(req.headers['x-org-id']),
-    userId: getHeaderString(req.headers['x-user-id']),
+    orgId: user?.organizationId || getHeaderString(req.headers['x-org-id']),
+    userId: user?.userId || getHeaderString(req.headers['x-user-id']),
     requestId: getHeaderString(req.headers['x-request-id']),
-    role: getHeaderString(req.headers['x-user-role']),
+    role: user?.role || getHeaderString(req.headers['x-user-role']),
   };
 }
 

@@ -71,9 +71,12 @@ class ApiClient {
   private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshAttempts = 0;
 
   /** Refresh the token 5 minutes before it expires */
   private static REFRESH_BUFFER_MS = 5 * 60 * 1000;
+  /** Maximum consecutive refresh failures before forcing logout */
+  private static MAX_REFRESH_ATTEMPTS = 3;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -319,6 +322,13 @@ class ApiClient {
   }
 
   private async doRefresh(): Promise<boolean> {
+    if (this.refreshAttempts >= ApiClient.MAX_REFRESH_ATTEMPTS) {
+      this.clearTokens();
+      return false;
+    }
+
+    this.refreshAttempts++;
+
     try {
       const response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
@@ -328,18 +338,19 @@ class ApiClient {
 
       const data = await response.json().catch(() => ({ statusCode: response.status }));
       const statusCode = data.statusCode || response.status;
-      
+
       // Check for tokens in data.data (standardized response) or data directly
       const tokens = data.data || data;
-      
+
       if (statusCode < 400 && tokens.accessToken) {
+        this.refreshAttempts = 0; // Reset on success
         this.setTokens(tokens);
         return true;
       }
     } catch {
       // Refresh failed
     }
-    
+
     this.clearTokens();
     return false;
   }
@@ -584,15 +595,13 @@ class ApiClient {
     return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/search${query}`);
   }
 
-  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', description?: string, keywords?: string) {
+  async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
     const formData = new FormData();
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
-    if (description) formData.append('description', description);
-    if (keywords) formData.append('keywords', keywords);
 
     const headers: Record<string, string> = {};
-    
+
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
@@ -605,6 +614,7 @@ class ApiClient {
       method: 'POST',
       headers,
       body: formData,
+      signal: options?.signal,
     });
 
     const data = await response.json().catch(() => ({ 

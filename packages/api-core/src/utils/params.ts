@@ -118,14 +118,15 @@ export function getOrgId(req: Request): string | undefined {
   }
 
   // Check x-org-id header
-  const headerOrgId = getHeaderString(req.headers['x-org-id']);
+  const headerOrgId = getHeaderString(req.headers['x-org-id'])?.trim();
   if (headerOrgId) {
     return headerOrgId;
   }
 
   // Check authenticated user
-  if (req.user?.organizationId) {
-    return req.user.organizationId;
+  const userOrgId = req.user?.organizationId?.trim();
+  if (userOrgId) {
+    return userOrgId;
   }
 
   return undefined;

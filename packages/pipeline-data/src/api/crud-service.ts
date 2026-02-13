@@ -8,6 +8,7 @@
 
 import { createLogger } from '@mwashburn160/api-core';
 import { SQL, eq, and, asc, desc, sql } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { db } from '../database/postgres-connection';
 
@@ -162,7 +163,7 @@ export abstract class CrudService<
    * @param sortBy - Sort field name
    * @returns Schema column or null if not sortable
    */
-  protected abstract getSortColumn(sortBy: string): any | null;
+  protected abstract getSortColumn(sortBy: string): AnyColumn | null;
 
   /**
    * Enable caching for this service
@@ -219,10 +220,12 @@ export abstract class CrudService<
   }
 
   /**
-   * Generate cache key from filter and orgId
+   * Generate a stable cache key from filter and orgId.
+   * Uses sorted keys to ensure consistent serialization regardless of property order.
    */
   private getCacheKey(prefix: string, filter: Partial<TFilter>, orgId: string, options?: QueryOptions): string {
-    return `${prefix}:${orgId}:${JSON.stringify(filter)}:${JSON.stringify(options || {})}`;
+    const stableStringify = (obj: object) => JSON.stringify(obj, Object.keys(obj).sort());
+    return `${prefix}:${orgId}:${stableStringify(filter as object)}:${stableStringify(options || {})}`;
   }
 
   /**

@@ -14,7 +14,8 @@ import {
   validateAccessModifier,
   validateQuery,
   PluginFilterSchema,
-  ValidationResult,
+  type ValidatedPluginFilter,
+  type ValidationResult,
 } from '@mwashburn160/api-core';
 import { schema } from '@mwashburn160/pipeline-core';
 import { asc, desc } from 'drizzle-orm';
@@ -71,12 +72,12 @@ export function buildUpdateData(
   if (body.keywords !== undefined) data.keywords = Array.isArray(body.keywords) ? body.keywords : [];
   if (body.version !== undefined) data.version = body.version;
 
-  if (body.metadata !== undefined) data.metadata = typeof body.metadata === 'object' ? body.metadata : {};
+  if (body.metadata !== undefined) data.metadata = (typeof body.metadata === 'object' && body.metadata !== null && !Array.isArray(body.metadata)) ? body.metadata : {};
   if (body.pluginType !== undefined) data.pluginType = body.pluginType;
   if (body.computeType !== undefined) data.computeType = body.computeType;
   if (body.primaryOutputDirectory !== undefined) data.primaryOutputDirectory = body.primaryOutputDirectory;
 
-  if (body.env !== undefined) data.env = typeof body.env === 'object' ? body.env : {};
+  if (body.env !== undefined) data.env = (typeof body.env === 'object' && body.env !== null && !Array.isArray(body.env)) ? body.env : {};
   if (body.installCommands !== undefined) data.installCommands = Array.isArray(body.installCommands) ? body.installCommands : [];
   if (body.commands !== undefined) data.commands = Array.isArray(body.commands) ? body.commands : [];
 
@@ -127,7 +128,7 @@ export const resolveOrderBy = createOrderByResolver(
  * @param req - Express request with query parameters
  * @returns Validation result with parsed filter or error message
  */
-export function validateFilter(req: Request): ValidationResult<any> {
+export function validateFilter(req: Request): ValidationResult<ValidatedPluginFilter> {
   return validateQuery(req, PluginFilterSchema);
 }
 

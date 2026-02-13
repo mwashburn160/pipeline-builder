@@ -219,8 +219,13 @@ export class Connection {
    */
   public async transaction<T>(
     callback: Parameters<typeof this.db.transaction>[0],
+    timeoutMs: number = 30000,
   ): Promise<T> {
-    return await this.db.transaction(callback) as T;
+    const txPromise = this.db.transaction(callback) as Promise<T>;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Transaction timeout after ${timeoutMs}ms`)), timeoutMs),
+    );
+    return Promise.race([txPromise, timeoutPromise]);
   }
 
   /**

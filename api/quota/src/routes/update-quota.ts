@@ -170,20 +170,36 @@ router.post(
     if (!isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
 
     try {
-      const org = await Organization.findById(targetOrgId);
-      if (!org) return sendOrgNotFound(res);
-
       const typedType = quotaType as QuotaType;
+      const usagePath = `usage.${typedType}`;
 
-      // Auto-reset if period has expired
-      if (org.usage[typedType].resetAt <= new Date()) {
-        org.usage[typedType] = { used: 0, resetAt: getNextResetDate(config.quota.resetDays) };
-      }
+      // Auto-reset expired periods atomically before incrementing
+      await Organization.updateOne(
+        { _id: targetOrgId, [`${usagePath}.resetAt`]: { $lte: new Date() } },
+        { $set: { [`${usagePath}.used`]: 0, [`${usagePath}.resetAt`]: getNextResetDate(config.quota.resetDays) } },
+      );
 
-      const limit = org.quotas[typedType];
-      const currentUsed = org.usage[typedType].used;
+      // Atomic increment with limit check in a single query.
+      // The filter ensures we only increment when quota is unlimited (-1) or has remaining capacity.
+      const org = await Organization.findOneAndUpdate(
+        {
+          _id: targetOrgId,
+          $or: [
+            { [`quotas.${typedType}`]: -1 },
+            { $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${typedType}`] } },
+          ],
+        },
+        { $inc: { [`${usagePath}.used`]: amount } },
+        { new: true },
+      );
 
-      if (limit !== -1 && currentUsed + amount > limit) {
+      if (!org) {
+        // Either org doesn't exist or quota would be exceeded — distinguish the two
+        const existingOrg = await Organization.findById(targetOrgId);
+        if (!existingOrg) return sendOrgNotFound(res);
+
+        const limit = existingOrg.quotas[typedType];
+        const currentUsed = existingOrg.usage[typedType].used;
         return sendQuotaExceeded(
           res,
           quotaType,
@@ -193,13 +209,11 @@ router.post(
             used: currentUsed,
             remaining: Math.max(0, limit - currentUsed),
           },
-          org.usage[typedType].resetAt.toISOString(),
+          existingOrg.usage[typedType].resetAt.toISOString(),
         );
       }
 
-      org.usage[typedType].used += amount;
-      await org.save();
-
+      const limit = org.quotas[typedType];
       return sendSuccess(res, 200, {
         quota: {
           type: quotaType,

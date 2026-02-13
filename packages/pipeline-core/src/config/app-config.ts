@@ -37,9 +37,7 @@ export class CoreConstants {
 }
 
 /**
- * Configuration facade - composes domain-specific configs
- *
- * Maintains backward compatibility with existing `Config.get()` usage.
+ * Configuration facade - composes domain-specific configs.
  * Delegates loading and validation to domain-specific config modules.
  */
 export class Config {

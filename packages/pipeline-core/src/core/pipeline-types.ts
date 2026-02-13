@@ -13,14 +13,11 @@ type ValueOf<T> = T[keyof T];
  *
  * @property NONE - Manual trigger only, pipeline does not start automatically
  * @property AUTO - Automatic trigger on source changes (S3/GitHub: polling, CodeStar: push-based webhook)
- * @property POLL - @deprecated Use AUTO instead. Alias kept for backward compatibility.
  */
 export const TriggerType = {
   NONE: 'NONE',
   /** Automatic trigger on source changes. Uses polling for S3/GitHub, push-based webhook for CodeStar. */
   AUTO: 'AUTO',
-  /** @deprecated Use TriggerType.AUTO instead. Misleading for CodeStar which uses push, not polling. */
-  POLL: 'POLL',
 } as const;
 export type TriggerType = ValueOf<typeof TriggerType>;
 

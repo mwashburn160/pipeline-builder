@@ -27,6 +27,7 @@ interface FormBuilderTabProps {
   initialProps?: BuilderProps;
   initialDescription?: string;
   initialKeywords?: string;
+  showDescriptionKeywords?: boolean;
   wizardMode?: boolean;
   currentStep?: number;
   onStepChange?: (step: number) => void;
@@ -34,7 +35,7 @@ interface FormBuilderTabProps {
 }
 
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
-  ({ disabled, initialProps, initialDescription, initialKeywords, wizardMode = false, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
+  ({ disabled, initialProps, initialDescription, initialKeywords, showDescriptionKeywords = true, wizardMode = false, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
     const initialStateRef = useRef<FormBuilderState | undefined>(
       initialProps
         ? {
@@ -85,13 +86,15 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         project={state.project}
         organization={state.organization}
         pipelineName={state.pipelineName}
-        description={state.description}
-        keywords={state.keywords}
         onProjectChange={(v) => dispatch({ type: 'SET_CORE', field: 'project', value: v })}
         onOrganizationChange={(v) => dispatch({ type: 'SET_CORE', field: 'organization', value: v })}
         onPipelineNameChange={(v) => dispatch({ type: 'SET_CORE', field: 'pipelineName', value: v })}
-        onDescriptionChange={(v) => dispatch({ type: 'SET_DESCRIPTION', value: v })}
-        onKeywordsChange={(v) => dispatch({ type: 'SET_KEYWORDS', value: v })}
+        {...(showDescriptionKeywords ? {
+          description: state.description,
+          keywords: state.keywords,
+          onDescriptionChange: (v: string) => dispatch({ type: 'SET_DESCRIPTION', value: v }),
+          onKeywordsChange: (v: string) => dispatch({ type: 'SET_KEYWORDS', value: v }),
+        } : {})}
         disabled={disabled}
         errors={validationErrors}
       >

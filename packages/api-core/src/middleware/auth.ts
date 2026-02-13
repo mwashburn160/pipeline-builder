@@ -194,7 +194,7 @@ export function optionalAuth(
   try {
     const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
 
-    if (decoded.type !== 'refresh') {
+    if (decoded.type === 'access') {
       req.user = decoded;
     }
   } catch {

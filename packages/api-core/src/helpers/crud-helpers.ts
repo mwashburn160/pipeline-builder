@@ -14,16 +14,19 @@ export function normalizeArrayFields<T extends Record<string, unknown>>(
   const normalized = { ...record };
   for (const field of arrayFields) {
     if (field in normalized && !Array.isArray(normalized[field])) {
-      (normalized[field] as any) = [];
+      (normalized as Record<string, unknown>)[field as string] = [];
     }
   }
   return normalized;
 }
 
 /**
- * Type for sort functions (e.g., from Drizzle: asc/desc)
+ * Type for sort functions (e.g., from Drizzle: asc/desc).
+ * Uses `unknown` because this bridges framework-agnostic code with ORM-specific
+ * column types (e.g., Drizzle's SQLWrapper | AnyColumn) that api-core
+ * does not depend on.
  */
-export type SortFunction = (column: any) => any;
+export type SortFunction = (column: unknown) => unknown;
 
 /**
  * Generic order-by resolver for database queries
@@ -34,9 +37,9 @@ export type SortFunction = (column: any) => any;
  * @param descFn - Descending sort function (e.g., drizzle desc)
  * @returns Function that returns sort expression
  */
-export function createOrderByResolver<TColumns extends Record<string, any>>(
+export function createOrderByResolver<TColumns extends Record<string, unknown>>(
   columns: TColumns,
-  defaultColumn: any,
+  defaultColumn: unknown,
   ascFn: SortFunction,
   descFn: SortFunction,
 ) {

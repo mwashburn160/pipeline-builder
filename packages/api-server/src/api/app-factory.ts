@@ -1,3 +1,4 @@
+import { authenticateToken, requireAdmin } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
 import express, { Express, Request, Response } from 'express';
@@ -104,19 +105,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
   app.set('trust proxy', config.server.trustProxy);
 
-  // Rate limiting
-  if (enableRateLimit) {
-    const limiter = rateLimit({
-      max: config.rateLimit.max,
-      windowMs: config.rateLimit.windowMs,
-      message: 'Too many requests from this IP, please try again later.',
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-    app.use(limiter);
-  }
-
-  // Default PostgreSQL health/metrics endpoints (skipped when service provides its own)
+  // Health check registered before rate limiter so load balancers are never throttled
   if (!skipDefaultHealthCheck) {
     app.get('/health', async (_req: Request, res: Response) => {
       try {
@@ -136,8 +125,23 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
         });
       }
     });
+  }
 
-    app.get('/metrics', (_req: Request, res: Response) => {
+  // Rate limiting
+  if (enableRateLimit) {
+    const limiter = rateLimit({
+      max: config.rateLimit.max,
+      windowMs: config.rateLimit.windowMs,
+      message: 'Too many requests from this IP, please try again later.',
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    app.use(limiter);
+  }
+
+  // Metrics endpoint requires admin authentication
+  if (!skipDefaultHealthCheck) {
+    app.get('/metrics', authenticateToken, requireAdmin, (_req: Request, res: Response) => {
       const connection = getConnection();
       const stats = connection.getStats();
 

@@ -12,7 +12,7 @@
 
 import * as fs from 'fs';
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendError } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { authenticateToken, createRequestContext, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
@@ -27,6 +27,14 @@ const logger = createLogger('upload-plugin');
 const upload = multer({
   limits: { files: 1, fileSize: 100 * 1024 * 1024 },
   dest: 'uploads/',
+  fileFilter: (_req, file, cb) => {
+    const allowedMimes = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.endsWith('.zip')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only ZIP files are allowed'));
+    }
+  },
 });
 
 /**
@@ -66,8 +74,11 @@ export function createUploadPluginRoutes(
         }
 
         const orgId = ctx.identity.orgId!.toLowerCase();
-        const body = req.body as { accessModifier?: string; description?: string; keywords?: string };
-        let accessModifier = body.accessModifier === 'public'
+        const validation = validateBody(req, PluginUploadBodySchema);
+        if (!validation.ok) {
+          return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+        }
+        let accessModifier = validation.value.accessModifier === 'public'
           ? 'public'
           : 'private';
 
@@ -120,7 +131,7 @@ export function createUploadPluginRoutes(
             .values({
               orgId,
               name: plugin.manifest.name,
-              description: body.description || plugin.manifest.description || null,
+              description: plugin.manifest.description || null,
               version: plugin.manifest.version,
               metadata: plugin.manifest.metadata || {},
               pluginType: (plugin.manifest.pluginType || 'CodeBuildStep') as PluginType,
@@ -128,9 +139,7 @@ export function createUploadPluginRoutes(
               primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
-              keywords: body.keywords
-                ? body.keywords.split(',').map((k: string) => k.trim()).filter((k: string) => k)
-                : plugin.manifest.keywords || [],
+              keywords: plugin.manifest.keywords || [],
               installCommands: plugin.manifest.installCommands || [],
               commands: plugin.manifest.commands,
               imageTag: plugin.imageTag,
@@ -181,10 +190,10 @@ export function createUploadPluginRoutes(
         return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
       } finally {
         if (zipPath && fs.existsSync(zipPath)) {
-          try { fs.unlinkSync(zipPath); } catch { /* ignore */ }
+          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
         }
         if (extractDir && fs.existsSync(extractDir)) {
-          try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch { /* ignore */ }
+          try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (err) { logger.debug('Temp dir cleanup failed', { path: extractDir, error: String(err) }); }
         }
       }
     },

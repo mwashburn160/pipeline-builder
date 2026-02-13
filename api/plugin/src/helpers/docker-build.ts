@@ -46,6 +46,26 @@ export interface BuildResult {
 
 const BUILDER_NAME = 'plugin-builder';
 
+// Validation patterns for Docker build inputs
+const VALID_NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const VALID_IMAGE_TAG_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const VALID_HOSTNAME_RE = /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/;
+
+function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
+  if (!VALID_HOSTNAME_RE.test(registry.host)) {
+    throw new Error(`Invalid registry host: ${registry.host}`);
+  }
+  if (registry.port < 1 || registry.port > 65535 || !Number.isInteger(registry.port)) {
+    throw new Error(`Invalid registry port: ${registry.port}`);
+  }
+  if (!VALID_IMAGE_TAG_RE.test(imageTag)) {
+    throw new Error(`Invalid image tag format: ${imageTag}`);
+  }
+  if (registry.network && !VALID_NETWORK_RE.test(registry.network)) {
+    throw new Error(`Invalid network name: ${registry.network}`);
+  }
+}
+
 /**
  * Build a Docker image and push it to the configured registry.
  *
@@ -53,6 +73,9 @@ const BUILDER_NAME = 'plugin-builder';
  */
 export function buildAndPush(req: BuildRequest): BuildResult {
   const { contextDir, dockerfile, imageTag, registry } = req;
+
+  validateBuildInputs(registry, imageTag);
+
   const registryAddr = `${registry.host}:${registry.port}`;
   const fullImage = `${registryAddr}/plugin:${imageTag}`;
 
@@ -122,10 +145,12 @@ function setupBuilder(
   network: string,
 ): void {
   // BuildKit config: trust the (possibly self-signed) registry
+  // Set DOCKER_REGISTRY_INSECURE=false in production with proper TLS certificates
+  const insecure = process.env.DOCKER_REGISTRY_INSECURE !== 'false';
   const buildkitdConfig = path.join(contextDir, 'buildkitd.toml');
   fs.writeFileSync(buildkitdConfig, [
     `[registry."${registryAddr}"]`,
-    '  insecure = true',
+    `  insecure = ${insecure}`,
     '',
   ].join('\n'));
 
@@ -133,7 +158,7 @@ function setupBuilder(
   try {
     dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME], 'ignore');
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch { /* builder doesn't exist — nothing to clean up */ }
+  } catch (err) { logger.debug('No stale builder to clean up', { error: String(err) }); }
 
   logger.info('Creating buildx builder', { name: BUILDER_NAME, network });
 
@@ -150,5 +175,5 @@ function teardownBuilder(configDir: string, network: string): void {
   if (!network) return;
   try {
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch { /* ignore */ }
+  } catch (err) { logger.debug('Builder teardown skipped', { error: String(err) }); }
 }

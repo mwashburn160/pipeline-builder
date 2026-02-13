@@ -14,7 +14,8 @@ import {
   validateAccessModifier,
   validateQuery,
   PipelineFilterSchema,
-  ValidationResult,
+  type ValidatedPipelineFilter,
+  type ValidationResult,
 } from '@mwashburn160/api-core';
 import { schema, BuilderProps } from '@mwashburn160/pipeline-core';
 import { asc, desc } from 'drizzle-orm';
@@ -111,7 +112,7 @@ export const resolveOrderBy = createOrderByResolver(
  * @param req - Express request with query parameters
  * @returns Validation result with parsed filter or error message
  */
-export function validateFilter(req: Request): ValidationResult<any> {
+export function validateFilter(req: Request): ValidationResult<ValidatedPipelineFilter> {
   return validateQuery(req, PipelineFilterSchema);
 }
 

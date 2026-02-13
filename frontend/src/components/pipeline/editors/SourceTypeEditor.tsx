@@ -64,7 +64,7 @@ export default function SourceTypeEditor({
               className="input"
             >
               <option value="NONE">None (Manual)</option>
-              <option value="POLL">Poll (Auto)</option>
+              <option value="AUTO">Auto</option>
             </select>
           </FormField>
         </div>
@@ -112,7 +112,7 @@ export default function SourceTypeEditor({
               className="input"
             >
               <option value="NONE">None (Manual)</option>
-              <option value="POLL">Poll (Auto)</option>
+              <option value="AUTO">Auto</option>
             </select>
           </FormField>
         </div>
@@ -158,7 +158,7 @@ export default function SourceTypeEditor({
               className="input"
             >
               <option value="NONE">None (Manual)</option>
-              <option value="POLL">Poll (Auto)</option>
+              <option value="AUTO">Auto</option>
             </select>
           </FormField>
           <div className="flex items-center">
