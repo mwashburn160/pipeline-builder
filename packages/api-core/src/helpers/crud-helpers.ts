@@ -26,7 +26,7 @@ export function normalizeArrayFields<T extends Record<string, unknown>>(
  * column types (e.g., Drizzle's SQLWrapper | AnyColumn) that api-core
  * does not depend on.
  */
-export type SortFunction = (column: unknown) => unknown;
+export type SortFunction = (column: any) => unknown;
 
 /**
  * Generic order-by resolver for database queries
