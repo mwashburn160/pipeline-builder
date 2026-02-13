@@ -1,6 +1,6 @@
 name: python-3.12
-description: Synthesizes Python AWS CDK applications into CloudFormation templates
-  using CodeBuildStep with Docker
+description: Python 3.12 plugin for building and deploying Python applications using
+  AWS CDK with CodeBuildStep
 keywords:
 - aws
 - cdk
@@ -12,11 +12,6 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 primaryOutputDirectory: dist
-metadata:
-  aws:cdk:pipelines:codepipeline:selfmutation: true
-  aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation: true
-  aws:cdk:pipelines:codepipeline:publishassetsinparallel: true
-  aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
 - pip install -r requirements.txt
