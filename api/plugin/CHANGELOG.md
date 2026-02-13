@@ -1,3 +1,13 @@
+## 1.11.1 (2026-02-13)
+
+### 🩹 Fixes
+
+- updated deprecated api's ([b14251d](https://github.com/mwashburn160/pipeline-builder/commit/b14251d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.11.0 (2026-02-13)
 
 ### 🚀 Features
