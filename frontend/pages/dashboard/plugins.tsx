@@ -245,7 +245,7 @@ export default function PluginsPage() {
                     )}
                   </td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.version}</td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.keywords?.length ? plugin.keywords.join(', ') : ''}</td>
+                  <td className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]" title={plugin.keywords?.join(', ') || ''}>{plugin.keywords?.length ? plugin.keywords.join(', ') : ''}</td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.pluginType}</td>
                   <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.computeType}</td>
                   <td>
