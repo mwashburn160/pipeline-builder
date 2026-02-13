@@ -1,3 +1,14 @@
+## 1.16.10 (2026-02-13)
+
+### 🩹 Fixes
+
+- api-core ([20ce74f](https://github.com/mwashburn160/pipeline-builder/commit/20ce74f))
+- pipeline ddescription ([5d2c01d](https://github.com/mwashburn160/pipeline-builder/commit/5d2c01d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.16.9 (2026-02-12)
 
 ### 🩹 Fixes

@@ -1,3 +1,13 @@
+## 1.10.10 (2026-02-13)
+
+### 🩹 Fixes
+
+- pipeline ddescription ([5d2c01d](https://github.com/mwashburn160/pipeline-builder/commit/5d2c01d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.9 (2026-02-12)
 
 ### 🩹 Fixes
