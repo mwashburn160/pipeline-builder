@@ -302,7 +302,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.14.0'
+    image: 'ghcr.io/mwashburn160/frontend:1.14.1'
     container_name: frontend
     restart: always
     networks:
@@ -411,7 +411,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.10.14'
+    image: 'ghcr.io/mwashburn160/plugin:1.11.1'
     container_name: plugin
     depends_on:
       postgres:
