@@ -224,6 +224,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PGADMIN_LISTEN_PORT: '${PGADMIN_LISTEN_PORT}'
       PGADMIN_DEFAULT_EMAIL: '${PGADMIN_DEFAULT_EMAIL}'
       PGADMIN_DEFAULT_PASSWORD: '${PGADMIN_DEFAULT_PASSWORD}'
     volumes:
