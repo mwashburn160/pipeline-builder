@@ -1,3 +1,13 @@
+## 1.14.12 (2026-02-13)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.17.13 ([ed7fa74](https://github.com/mwashburn160/pipeline-builder/commit/ed7fa74))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.11 (2026-02-13)
 
 ### 🩹 Fixes
