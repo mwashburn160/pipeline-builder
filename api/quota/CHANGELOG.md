@@ -1,3 +1,13 @@
+## 1.10.13 (2026-02-13)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.14.12 ([1e8820b](https://github.com/mwashburn160/pipeline-builder/commit/1e8820b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.10.12 (2026-02-13)
 
 ### 🩹 Fixes
