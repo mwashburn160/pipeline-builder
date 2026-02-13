@@ -1,3 +1,13 @@
+## 1.15.0 (2026-02-13)
+
+### 🚀 Features
+
+- added pipeline-manager card ([82255dc](https://github.com/mwashburn160/pipeline-builder/commit/82255dc))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.13 (2026-02-13)
 
 ### 🩹 Fixes
