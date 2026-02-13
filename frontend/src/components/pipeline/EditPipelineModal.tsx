@@ -16,6 +16,8 @@ interface EditPipelineModalProps {
 }
 
 export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
+  const [fullPipeline, setFullPipeline] = useState<Pipeline | null>(null);
+  const [fetching, setFetching] = useState(true);
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
@@ -29,10 +31,39 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   const formRef = useRef<FormBuilderTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Fetch full pipeline data by ID to ensure description/keywords are populated
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.getPipelineById(pipeline.id);
+        if (!cancelled) {
+          const fetched = (response as unknown as Record<string, unknown>).pipeline as Pipeline | undefined;
+          if (fetched) {
+            setFullPipeline(fetched);
+            setIsActive(fetched.isActive);
+            setIsDefault(fetched.isDefault);
+            setAccessModifier(fetched.accessModifier);
+          } else {
+            setFullPipeline(pipeline);
+          }
+        }
+      } catch {
+        if (!cancelled) setFullPipeline(pipeline);
+      } finally {
+        if (!cancelled) setFetching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pipeline]);
+
   // Scroll to top when step changes
   useEffect(() => {
     scrollRef.current?.scrollTo(0, 0);
   }, [currentStep]);
+
+  // Resolved pipeline data (fetched by ID, or fallback to list data)
+  const p = fullPipeline ?? pipeline;
 
   const resolveProps = (): BuilderProps | null => {
     return formRef.current?.getProps() ?? null;
@@ -75,8 +106,8 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
     }
 
     // Get description/keywords from form state
-    const desc = formRef.current?.getDescription() ?? pipeline.description ?? '';
-    const kw = formRef.current?.getKeywords() ?? pipeline.keywords?.join(', ') ?? '';
+    const desc = formRef.current?.getDescription() ?? p.description ?? '';
+    const kw = formRef.current?.getKeywords() ?? p.keywords?.join(', ') ?? '';
 
     try {
       const response = await api.updatePipeline(pipeline.id, {
@@ -152,7 +183,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
     <div className="flex items-center justify-between">
       <button
         onClick={handlePreview}
-        disabled={loading}
+        disabled={loading || fetching}
         className="btn btn-secondary"
       >
         Preview JSON
@@ -164,19 +195,19 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
         </button>
 
         {currentStep > 0 && (
-          <button onClick={handlePrevious} disabled={loading} className="btn btn-secondary">
+          <button onClick={handlePrevious} disabled={loading || fetching} className="btn btn-secondary">
             <ChevronLeft className="w-4 h-4 mr-1" />
             Previous
           </button>
         )}
 
         {!isLastStep ? (
-          <button onClick={handleNext} disabled={loading} className="btn btn-primary">
+          <button onClick={handleNext} disabled={loading || fetching} className="btn btn-primary">
             Next
             <ChevronRight className="w-4 h-4 ml-1" />
           </button>
         ) : (
-          <button onClick={handleSave} disabled={loading} className="btn btn-primary">
+          <button onClick={handleSave} disabled={loading || fetching} className="btn btn-primary">
             {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
           </button>
         )}
@@ -205,57 +236,63 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
         </div>
       )}
 
-      {/* System Information (collapsible, read-only) */}
-      <div className="mb-4">
-        <CollapsibleSection title="System Information" hasContent={true}>
-          <div className="mt-3 grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.id}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.orgId}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.project}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.organization}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.createdBy}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.createdAt).toLocaleString()}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{pipeline.updatedBy}</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
-              <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(pipeline.updatedAt).toLocaleString()}</p>
-            </div>
+      {fetching ? (
+        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
+      ) : (
+        <>
+          {/* System Information (collapsible, read-only) */}
+          <div className="mb-4">
+            <CollapsibleSection title="System Information" hasContent={true}>
+              <div className="mt-3 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">ID</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.id}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Org ID</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.orgId}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Project</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.project}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Organization</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.organization}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created By</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.createdBy}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Created At</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(p.createdAt).toLocaleString()}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated By</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{p.updatedBy}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Updated At</label>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(p.updatedAt).toLocaleString()}</p>
+                </div>
+              </div>
+            </CollapsibleSection>
           </div>
-        </CollapsibleSection>
-      </div>
 
-      <FormBuilderTab
-        ref={formRef}
-        disabled={loading}
-        initialProps={pipeline.props}
-        initialDescription={pipeline.description || ''}
-        initialKeywords={pipeline.keywords?.join(', ') || ''}
-        wizardMode={true}
-        currentStep={currentStep}
-        onStepChange={setCurrentStep}
-        accessStatusSlot={accessStatusSlot}
-      />
+          <FormBuilderTab
+            ref={formRef}
+            disabled={loading}
+            initialProps={p.props}
+            initialDescription={p.description || ''}
+            initialKeywords={p.keywords?.join(', ') || ''}
+            wizardMode={true}
+            currentStep={currentStep}
+            onStepChange={setCurrentStep}
+            accessStatusSlot={accessStatusSlot}
+          />
+        </>
+      )}
     </Modal>
   );
 }
