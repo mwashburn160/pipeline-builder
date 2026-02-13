@@ -1,3 +1,13 @@
+## 1.12.12 (2026-02-13)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.17.10 ([cb52ae7](https://github.com/mwashburn160/pipeline-builder/commit/cb52ae7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.11 (2026-02-13)
 
 ### 🩹 Fixes
