@@ -1,3 +1,13 @@
+## 1.14.3 (2026-02-13)
+
+### 🩹 Fixes
+
+- updated ddescription ([93ae4bf](https://github.com/mwashburn160/pipeline-builder/commit/93ae4bf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.2 (2026-02-13)
 
 ### 🩹 Fixes
