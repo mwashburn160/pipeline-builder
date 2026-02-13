@@ -1,3 +1,13 @@
+## 1.14.2 (2026-02-13)
+
+### 🩹 Fixes
+
+- updated style ([3e084d4](https://github.com/mwashburn160/pipeline-builder/commit/3e084d4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.1 (2026-02-13)
 
 ### 🩹 Fixes
