@@ -48,8 +48,8 @@ importers:
   api/pipeline:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -139,8 +139,8 @@ importers:
   api/plugin:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -242,8 +242,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -327,8 +327,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
@@ -443,8 +443,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/pipeline-core':
         specifier: workspace:*
         version: link:../pipeline-core
@@ -519,8 +519,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.19.0
+        version: 1.19.0
       '@mwashburn160/pipeline-data':
         specifier: workspace:*
         version: link:../pipeline-data
@@ -589,8 +589,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.19.0
+        version: 1.19.0
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@types/pg@8.16.0)(pg@8.16.3)
@@ -723,8 +723,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.19.0
+        version: 1.19.0
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -1924,6 +1924,10 @@ packages:
 
   '@mongodb-js/saslprep@1.4.5':
     resolution: {integrity: sha512-k64Lbyb7ycCSXHSLzxVdb2xsKGPMvYZfCICXvDsI8Z65CeWQzTEKS4YmGbnqw+U9RBvLPTsB6UCmwkgsDTGWIw==}
+
+  '@mwashburn160/api-core@1.19.0':
+    resolution: {integrity: sha512-X+Lf3ewqMWWv6gso2w2J4ssfM4JbLNxQ7f9+T7NxDcZHNK53D9P/KgVi0hworO/HiSHE5JXJ5wBV8P2x6v3iAw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.19.0/4c4e43f9e907fa91215f23bbe1637102398780a4}
+    engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -7416,6 +7420,17 @@ snapshots:
   '@mongodb-js/saslprep@1.4.5':
     dependencies:
       sparse-bitfield: 3.0.3
+
+  '@mwashburn160/api-core@1.19.0':
+    dependencies:
+      axios: 1.13.3
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.17.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
