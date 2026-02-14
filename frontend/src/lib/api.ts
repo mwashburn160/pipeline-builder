@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, LogQueryResult } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, LogQueryResult, Plugin, Pipeline, User } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -522,7 +522,7 @@ class ApiClient {
         .filter(([, v]) => v !== undefined)
         .map(([k, v]) => [k, String(v)])
     ).toString() : '';
-    return this.request<PaginatedResponse<unknown>>(`/api/users${query}`);
+    return this.request<PaginatedResponse<User>>(`/api/users${query}`);
   }
 
   async getUserById(id: string) {
@@ -583,11 +583,11 @@ class ApiClient {
 
   async listPlugins(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<PaginatedResponse<unknown>>(`/api/plugins${query}`);
+    return this.request<PaginatedResponse<Plugin>>(`/api/plugins${query}`);
   }
 
   async getPluginById(id: string) {
-    return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/${id}`);
+    return this.request<ApiResponse & { plugin?: Plugin }>(`/api/plugin/${id}`);
   }
 
   async searchPlugins(params: Record<string, string>) {
@@ -666,11 +666,11 @@ class ApiClient {
 
   async listPipelines(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<PaginatedResponse<unknown>>(`/api/pipelines${query}`);
+    return this.request<PaginatedResponse<Pipeline>>(`/api/pipelines${query}`);
   }
 
   async getPipelineById(id: string) {
-    return this.request<ApiResponse<{ pipeline: unknown }>>(`/api/pipeline/${id}`);
+    return this.request<ApiResponse & { pipeline?: Pipeline }>(`/api/pipeline/${id}`);
   }
 
   async searchPipelines(params: Record<string, string>) {

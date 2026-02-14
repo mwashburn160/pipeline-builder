@@ -3,7 +3,6 @@
  * @description Converts BuilderProps (API) into FormBuilderState (UI) for edit mode.
  */
 
-import type { BuilderProps } from '@/types';
 import {
   FormBuilderState,
   FormNetworkConfig,

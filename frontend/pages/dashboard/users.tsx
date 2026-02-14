@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState, useMemo } from 'react';
 import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -7,7 +6,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 
 interface UserListItem {
@@ -48,7 +47,7 @@ export default function UsersPage() {
         if (searchQuery) params.search = searchQuery;
         if (roleFilter !== 'all') params.role = roleFilter;
         const response = await api.listUsers(params);
-        const userList = (response.users || response.data || []) as UserListItem[];
+        const userList = (response.users || []) as UserListItem[];
         setUsers(userList);
       } catch (error) {
         setError(error instanceof Error ? error.message : 'Failed to load users');
@@ -118,6 +117,56 @@ export default function UsersPage() {
     }
   };
 
+  const userColumns: Column<UserListItem>[] = useMemo(() => [
+    {
+      id: 'user',
+      header: 'User',
+      sortValue: (u) => u.username,
+      render: (u) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{u.username}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{u.email}</div>
+        </div>
+      ),
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      sortValue: (u) => u.role,
+      render: (u) => <Badge color={u.role === 'admin' ? 'purple' : 'gray'}>{u.role}</Badge>,
+    },
+    {
+      id: 'organization',
+      header: 'Organization',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (u) => u.organizationName || '',
+      render: (u) => <>{u.organizationName || 'None'}</>,
+      hidden: !isSysAdmin,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (u) => u.isEmailVerified,
+      render: (u) => (
+        <Badge color={u.isEmailVerified ? 'green' : 'yellow'}>{u.isEmailVerified ? 'Verified' : 'Unverified'}</Badge>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right text-sm font-medium',
+      render: (userItem) => (
+        <>
+          <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors" disabled={userItem.id === user!.id}>Edit</button>
+          {userItem.id !== user!.id && (
+            <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
+          )}
+        </>
+      ),
+    },
+  ], [isSysAdmin, user]);
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -146,59 +195,18 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
-      ) : users.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title="No users found"
-          description={searchQuery ? 'Try adjusting your search criteria.' : 'No users to display.'}
-        />
-      ) : (
-        <div className="data-table">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Role</th>
-                {isSysAdmin && <th>Organization</th>}
-                <th>Status</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((userItem, i) => (
-                <motion.tr
-                  key={userItem.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: i * 0.03 }}
-                >
-                  <td>
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{userItem.username}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{userItem.email}</div>
-                  </td>
-                  <td>
-                    <Badge color={userItem.role === 'admin' ? 'purple' : 'gray'}>{userItem.role}</Badge>
-                  </td>
-                  {isSysAdmin && (
-                    <td className="text-sm text-gray-500 dark:text-gray-400">{userItem.organizationName || 'None'}</td>
-                  )}
-                  <td>
-                    <Badge color={userItem.isEmailVerified ? 'green' : 'yellow'}>{userItem.isEmailVerified ? 'Verified' : 'Unverified'}</Badge>
-                  </td>
-                  <td className="text-right text-sm font-medium">
-                    <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors" disabled={userItem.id === user.id}>Edit</button>
-                    {userItem.id !== user.id && (
-                      <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
-                    )}
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        data={users}
+        columns={userColumns}
+        isLoading={isLoading}
+        emptyState={{
+          icon: Users,
+          title: 'No users found',
+          description: searchQuery ? 'Try adjusting your search criteria.' : 'No users to display.',
+        }}
+        getRowKey={(u) => u.id}
+        defaultSortColumn="user"
+      />
 
       {deleteTarget && (
         <DeleteConfirmModal

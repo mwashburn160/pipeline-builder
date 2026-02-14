@@ -16,8 +16,6 @@ import {
 import { validateFormState } from './props-validation';
 import { parseArtifactKeyString } from './props-parsing';
 
-type AnyRecord = Record<string, unknown>;
-
 function assembleMetadata(entries: MetadataEntry[]): Record<string, string | boolean | number> | undefined {
   const filtered = entries.filter((e) => e.key.trim());
   if (filtered.length === 0) return undefined;

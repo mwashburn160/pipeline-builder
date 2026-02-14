@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState, useMemo } from 'react';
 import { Building2, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 import { Organization } from '@/types';
 
@@ -24,7 +23,7 @@ export default function OrganizationsPage() {
       try {
         setIsLoading(true);
         const response = await api.listOrganizations();
-        const orgList = response.organizations || response.data?.organizations || [];
+        const orgList = response.organizations || [];
         setOrganizations(orgList);
       } catch (error) {
         setError(error instanceof Error ? error.message : 'Failed to load organizations');
@@ -53,6 +52,52 @@ export default function OrganizationsPage() {
     }
   };
 
+  const orgColumns: Column<Organization>[] = useMemo(() => [
+    {
+      id: 'name',
+      header: 'Organization',
+      sortValue: (org) => org.name,
+      render: (org) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {org.name}
+            {org.id === 'system' && <> <Badge color="purple">System</Badge></>}
+          </div>
+          {org.description && (
+            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{org.description}</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'members',
+      header: 'Members',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (org) => org.memberCount,
+      render: (org) => <>{org.memberCount} member{org.memberCount !== 1 ? 's' : ''}</>,
+    },
+    {
+      id: 'created',
+      header: 'Created',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (org) => org.createdAt ? new Date(org.createdAt) : null,
+      render: (org) => <>{org.createdAt ? new Date(org.createdAt).toLocaleDateString() : '\u2014'}</>,
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right text-sm font-medium',
+      render: (org) => (
+        org.id !== 'system' ? (
+          <button onClick={() => setDeleteTarget(org)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
+        ) : (
+          <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
+        )
+      ),
+    },
+  ], []);
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -67,67 +112,14 @@ export default function OrganizationsPage() {
         </div>
       )}
 
-      {isLoading ? (
-        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
-      ) : organizations.length === 0 ? (
-        <EmptyState
-          icon={Building2}
-          title="No organizations"
-          description="No organizations found."
-        />
-      ) : (
-        <div className="data-table">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th>Organization</th>
-                <th>Members</th>
-                <th>Created</th>
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {organizations.map((org, i) => (
-                <motion.tr
-                  key={org.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: i * 0.03 }}
-                >
-                  <td>
-                    <div className="flex items-center">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {org.name}
-                          {org.id === 'system' && (
-                            <Badge color="purple">System</Badge>
-                          )}
-                        </div>
-                        {org.description && (
-                          <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{org.description}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">
-                    {org.memberCount} member{org.memberCount !== 1 ? 's' : ''}
-                  </td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">
-                    {org.createdAt ? new Date(org.createdAt).toLocaleDateString() : '\u2014'}
-                  </td>
-                  <td className="text-right text-sm font-medium">
-                    {org.id !== 'system' ? (
-                      <button onClick={() => setDeleteTarget(org)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
-                    ) : (
-                      <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
-                    )}
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        data={organizations}
+        columns={orgColumns}
+        isLoading={isLoading}
+        emptyState={{ icon: Building2, title: 'No organizations', description: 'No organizations found.' }}
+        getRowKey={(org) => org.id}
+        defaultSortColumn="name"
+      />
 
       {/* Warning */}
       <div className="mt-6 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-4 border border-yellow-200/60 dark:border-yellow-800/60">

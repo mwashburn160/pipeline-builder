@@ -1,14 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Upload, Search, Puzzle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import UploadPluginModal from '@/components/plugin/UploadPluginModal';
 import api from '@/lib/api';
@@ -80,7 +80,7 @@ export default function PluginsPage() {
       if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
       if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
       const response = await api.listPlugins(params);
-      setPlugins((response.plugins || []) as Plugin[]);
+      setPlugins(response.plugins || []);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load plugins');
     } finally {
@@ -125,6 +125,84 @@ export default function PluginsPage() {
   };
 
   const canDelete = (plugin: Plugin) => isSysAdmin || plugin.accessModifier === 'private';
+
+  const pluginColumns: Column<Plugin>[] = useMemo(() => [
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (p) => p.name,
+      render: (p) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.name}</div>
+          {p.description && (
+            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'version',
+      header: 'Version',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.version,
+      render: (p) => <>{p.version}</>,
+    },
+    {
+      id: 'keywords',
+      header: 'Keywords',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]',
+      render: (p) => <span title={p.keywords?.join(', ') || ''}>{p.keywords?.length ? p.keywords.join(', ') : ''}</span>,
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.pluginType,
+      render: (p) => <>{p.pluginType}</>,
+    },
+    {
+      id: 'compute',
+      header: 'Compute',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.computeType,
+      render: (p) => <>{p.computeType}</>,
+    },
+    {
+      id: 'access',
+      header: 'Access',
+      sortValue: (p) => p.accessModifier,
+      render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (p) => p.isActive,
+      render: (p) => <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>,
+    },
+    {
+      id: 'default',
+      header: 'Default',
+      sortValue: (p) => p.isDefault,
+      render: (p) => p.isDefault ? <Badge color="blue">Default</Badge> : null,
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cellClassName: 'text-sm',
+      render: (plugin) => (
+        <div className="flex items-center space-x-3">
+          {isSysAdmin || plugin.accessModifier === 'private' ? (
+            <button onClick={() => setEditPlugin(plugin)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
+          )}
+          {canDelete(plugin) && (
+            <button onClick={() => setDeleteTarget(plugin)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
+          )}
+        </div>
+      ),
+    },
+  ], [isSysAdmin]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -198,82 +276,27 @@ export default function PluginsPage() {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
-      ) : filteredPlugins.length === 0 && hasActiveFilters && plugins.length > 0 ? (
+      {!isLoading && filteredPlugins.length === 0 && hasActiveFilters && plugins.length > 0 ? (
         <EmptyState
           icon={Search}
           title="No plugins match your filters"
           description="Try adjusting your search or filter criteria."
           action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
         />
-      ) : filteredPlugins.length === 0 ? (
-        <EmptyState
-          icon={Puzzle}
-          title="No plugins yet"
-          description={isAdmin ? 'Get started by uploading your first plugin.' : 'No private plugins available for your organization.'}
-          action={isAdmin ? <button onClick={() => setShowUploadModal(true)} className="btn btn-primary">Upload Plugin</button> : undefined}
-        />
       ) : (
-        <div className="data-table">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Version</th>
-                <th>Keywords</th>
-                <th>Type</th>
-                <th>Compute</th>
-                <th>Access</th>
-                <th>Status</th>
-                <th>Default</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPlugins.map((plugin, i) => (
-                <motion.tr
-                  key={plugin.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: i * 0.03 }}
-                >
-                  <td>
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{plugin.name}</div>
-                    {plugin.description && (
-                      <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{plugin.description}</div>
-                    )}
-                  </td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.version}</td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]" title={plugin.keywords?.join(', ') || ''}>{plugin.keywords?.length ? plugin.keywords.join(', ') : ''}</td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.pluginType}</td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{plugin.computeType}</td>
-                  <td>
-                    <Badge color={plugin.accessModifier === 'public' ? 'green' : 'gray'}>{plugin.accessModifier}</Badge>
-                  </td>
-                  <td>
-                    <Badge color={plugin.isActive ? 'green' : 'red'}>{plugin.isActive ? 'Active' : 'Inactive'}</Badge>
-                  </td>
-                  <td>
-                    {plugin.isDefault && <Badge color="blue">Default</Badge>}
-                  </td>
-                  <td className="text-sm">
-                    <div className="flex items-center space-x-3">
-                      {isSysAdmin || plugin.accessModifier === 'private' ? (
-                        <button onClick={() => setEditPlugin(plugin)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
-                      ) : (
-                        <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
-                      )}
-                      {canDelete(plugin) && (
-                        <button onClick={() => setDeleteTarget(plugin)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
-                      )}
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          data={filteredPlugins}
+          columns={pluginColumns}
+          isLoading={isLoading}
+          emptyState={{
+            icon: Puzzle,
+            title: 'No plugins yet',
+            description: isAdmin ? 'Get started by uploading your first plugin.' : 'No private plugins available for your organization.',
+            action: isAdmin ? <button onClick={() => setShowUploadModal(true)} className="btn btn-primary">Upload Plugin</button> : undefined,
+          }}
+          getRowKey={(p) => p.id}
+          defaultSortColumn="name"
+        />
       )}
 
       {showUploadModal && (

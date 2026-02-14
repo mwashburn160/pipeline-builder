@@ -56,6 +56,9 @@ export function createUploadPluginRoutes(
     requireOrgId(sseManager) as RequestHandler,
     checkQuota(quotaService, sseManager, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
+      // Docker builds can take several minutes — override the default 30s timeout
+      res.setTimeout(10 * 60 * 1000); // 10 minutes
+
       const ctx = createRequestContext(req, res, sseManager);
       const config = Config.get();
 
@@ -179,6 +182,11 @@ export function createUploadPluginRoutes(
             : `Private plugin deployed successfully (accessible to ${orgId} only)`,
         });
       } catch (error) {
+        if (res.headersSent) {
+          logger.error('Deployment failed (response already sent)', { error: errorMessage(error), orgId: ctx.identity.orgId });
+          return;
+        }
+
         if (error instanceof ValidationError) {
           return sendBadRequest(res, error.message);
         }

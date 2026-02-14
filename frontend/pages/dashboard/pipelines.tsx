@@ -1,14 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Plus, Search, GitBranch } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
@@ -80,7 +80,7 @@ export default function PipelinesPage() {
       if (debouncedOrganization.trim()) params.organization = debouncedOrganization.trim();
       if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
       const response = await api.listPipelines(params);
-      setPipelines((response.pipelines || []) as Pipeline[]);
+      setPipelines(response.pipelines || []);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load pipelines');
     } finally {
@@ -155,6 +155,71 @@ export default function PipelinesPage() {
 
   const canDelete = (pipeline: Pipeline) => isSysAdmin || pipeline.accessModifier === 'private';
 
+  const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (p) => p.pipelineName || '',
+      render: (p) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.pipelineName}</div>
+          {p.description && (
+            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'project',
+      header: 'Project',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.project,
+      render: (p) => <>{p.project}</>,
+    },
+    {
+      id: 'organization',
+      header: 'Organization',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.organization,
+      render: (p) => <>{p.organization}</>,
+    },
+    {
+      id: 'access',
+      header: 'Access',
+      sortValue: (p) => p.accessModifier,
+      render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (p) => p.isActive,
+      render: (p) => <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>,
+    },
+    {
+      id: 'default',
+      header: 'Default',
+      sortValue: (p) => p.isDefault,
+      render: (p) => p.isDefault ? <Badge color="blue">Default</Badge> : null,
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cellClassName: 'text-sm',
+      render: (pipeline) => (
+        <div className="flex items-center space-x-3">
+          {isSysAdmin || pipeline.accessModifier === 'private' ? (
+            <button onClick={() => setEditPipeline(pipeline)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
+          )}
+          {canDelete(pipeline) && (
+            <button onClick={() => setDeleteTarget(pipeline)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
+          )}
+        </div>
+      ),
+    },
+  ], [isSysAdmin]);
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -215,78 +280,27 @@ export default function PipelinesPage() {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
-      ) : filteredPipelines.length === 0 && hasActiveFilters && pipelines.length > 0 ? (
+      {!isLoading && filteredPipelines.length === 0 && hasActiveFilters && pipelines.length > 0 ? (
         <EmptyState
           icon={Search}
           title="No pipelines match your filters"
           description="Try adjusting your search or filter criteria."
           action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
         />
-      ) : filteredPipelines.length === 0 ? (
-        <EmptyState
-          icon={GitBranch}
-          title="No pipelines yet"
-          description={canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.'}
-          action={<button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>}
-        />
       ) : (
-        <div className="data-table">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Project</th>
-                <th>Organization</th>
-                <th>Access</th>
-                <th>Status</th>
-                <th>Default</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPipelines.map((pipeline, i) => (
-                <motion.tr
-                  key={pipeline.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: i * 0.03 }}
-                >
-                  <td>
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{pipeline.pipelineName}</div>
-                    {pipeline.description && (
-                      <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{pipeline.description}</div>
-                    )}
-                  </td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{pipeline.project}</td>
-                  <td className="text-sm text-gray-500 dark:text-gray-400">{pipeline.organization}</td>
-                  <td>
-                    <Badge color={pipeline.accessModifier === 'public' ? 'green' : 'gray'}>{pipeline.accessModifier}</Badge>
-                  </td>
-                  <td>
-                    <Badge color={pipeline.isActive ? 'green' : 'red'}>{pipeline.isActive ? 'Active' : 'Inactive'}</Badge>
-                  </td>
-                  <td>
-                    {pipeline.isDefault && <Badge color="blue">Default</Badge>}
-                  </td>
-                  <td className="text-sm">
-                    <div className="flex items-center space-x-3">
-                      {isSysAdmin || pipeline.accessModifier === 'private' ? (
-                        <button onClick={() => setEditPipeline(pipeline)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
-                      ) : (
-                        <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
-                      )}
-                      {canDelete(pipeline) && (
-                        <button onClick={() => setDeleteTarget(pipeline)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
-                      )}
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          data={filteredPipelines}
+          columns={pipelineColumns}
+          isLoading={isLoading}
+          emptyState={{
+            icon: GitBranch,
+            title: 'No pipelines yet',
+            description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
+            action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
+          }}
+          getRowKey={(p) => p.id}
+          defaultSortColumn="name"
+        />
       )}
 
       <CreatePipelineModal

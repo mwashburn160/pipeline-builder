@@ -1,13 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Search, ScrollText, RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 import type { LogEntry } from '@/types';
 
@@ -90,6 +89,43 @@ export default function LogsPage() {
     fetchLogs();
   }, [fetchLogs]);
 
+  const logColumns: Column<LogEntry>[] = useMemo(() => [
+    {
+      id: 'timestamp',
+      header: 'Timestamp',
+      headerClassName: 'w-44',
+      cellClassName: 'text-xs font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap',
+      sortValue: (entry) => new Date(entry.timestamp),
+      render: (entry) => <>{formatTimestamp(entry.timestamp)}</>,
+    },
+    {
+      id: 'service',
+      header: 'Service',
+      headerClassName: 'w-28',
+      sortValue: (entry) => (entry.parsed?.service as string) || entry.labels?.service_name || entry.labels?.service || '',
+      render: (entry) => {
+        const service = (entry.parsed?.service as string) || entry.labels?.service_name || entry.labels?.service || '';
+        return service ? <Badge color="blue">{service}</Badge> : null;
+      },
+    },
+    {
+      id: 'level',
+      header: 'Level',
+      headerClassName: 'w-20',
+      sortValue: (entry) => (entry.parsed?.level as string) || entry.labels?.level || '',
+      render: (entry) => {
+        const level = (entry.parsed?.level as string) || entry.labels?.level || '';
+        return level ? <Badge color={LEVEL_COLORS[level] || 'gray'}>{level}</Badge> : null;
+      },
+    },
+    {
+      id: 'message',
+      header: 'Message',
+      cellClassName: 'text-sm text-gray-900 dark:text-gray-100 font-mono break-all',
+      render: (entry) => <>{getLogMessage(entry)}</>,
+    },
+  ], []);
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -139,55 +175,21 @@ export default function LogsPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
-      ) : entries.length === 0 ? (
-        <EmptyState
-          icon={ScrollText}
-          title="No logs found"
-          description={debouncedSearch || serviceFilter || levelFilter ? 'Try adjusting your filters.' : 'No log entries in the selected time range.'}
-        />
-      ) : (
-        <div className="data-table">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th className="w-44">Timestamp</th>
-                <th className="w-28">Service</th>
-                <th className="w-20">Level</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry, i) => {
-                const level = (entry.parsed?.level as string) || entry.labels?.level || '';
-                const service = (entry.parsed?.service as string) || entry.labels?.service_name || entry.labels?.service || '';
-                return (
-                  <motion.tr
-                    key={`${entry.timestamp}-${i}`}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.5) }}
-                  >
-                    <td className="text-xs font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {formatTimestamp(entry.timestamp)}
-                    </td>
-                    <td>
-                      {service && <Badge color="blue">{service}</Badge>}
-                    </td>
-                    <td>
-                      {level && <Badge color={LEVEL_COLORS[level] || 'gray'}>{level}</Badge>}
-                    </td>
-                    <td className="text-sm text-gray-900 dark:text-gray-100 font-mono break-all">
-                      {getLogMessage(entry)}
-                    </td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        data={entries}
+        columns={logColumns}
+        isLoading={isLoading}
+        emptyState={{
+          icon: ScrollText,
+          title: 'No logs found',
+          description: debouncedSearch || serviceFilter || levelFilter ? 'Try adjusting your filters.' : 'No log entries in the selected time range.',
+        }}
+        getRowKey={(entry, i) => `${entry.timestamp}-${i}`}
+        animationDelay={0.02}
+        maxAnimationDelay={0.5}
+        defaultSortColumn="timestamp"
+        defaultSortDirection="desc"
+      />
 
       <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
         Showing {entries.length} log {entries.length === 1 ? 'entry' : 'entries'}

@@ -48,13 +48,13 @@ if [ $? -eq 0 ]; then
     fi
 
     echo "Logged in successfully."
-    find plugins -type f -iname "plugin.zip" -exec sh -c "
-        echo 'Loading plugin: $1' && curl -X POST '$2/api/plugin/upload' \
+    find plugins -type f -iname "plugin.zip" -exec sh -c '
+        echo "Loading plugin: $1" && curl -X POST "$2/api/plugin/upload" \
          -s -o /dev/null --max-time 900 \
-         -H 'Authorization: Bearer $3' \
-         -H 'x-org-id: system' \
-         -F 'plugin=@$1' \
-         -F 'accessModifier=public' \
+         -H "Authorization: Bearer $3" \
+         -H "x-org-id: system" \
+         -F "plugin=@$1" \
+         -F "accessModifier=public" \
          --insecure
-    " _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" \;
+    ' _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" \;
 fi
