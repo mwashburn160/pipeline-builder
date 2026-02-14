@@ -1,3 +1,13 @@
+## 1.13.2 (2026-02-14)
+
+### 🩹 Fixes
+
+- version ([7c214bd](https://github.com/mwashburn160/pipeline-builder/commit/7c214bd))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.1 (2026-02-14)
 
 ### 🩹 Fixes
