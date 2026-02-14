@@ -111,6 +111,11 @@
       "type": "runtime"
     },
     {
+      "name": "prom-client",
+      "version": "15.1.3",
+      "type": "runtime"
+    },
+    {
       "name": "uuid",
       "version": "13.0.0",
       "type": "runtime"

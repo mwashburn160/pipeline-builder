@@ -1,0 +1,21 @@
+# Prometheus scrape configuration for Pipeline Builder services
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'platform'
+    static_configs:
+      - targets: ['platform:3000']
+
+  - job_name: 'plugin'
+    static_configs:
+      - targets: ['plugin:3000']
+
+  - job_name: 'pipeline'
+    static_configs:
+      - targets: ['pipeline:3000']
+
+  - job_name: 'quota'
+    static_configs:
+      - targets: ['quota:3000']

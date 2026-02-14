@@ -379,7 +379,8 @@ let api_server = new PackageProject({
     'helmet@8.1.0',                                       // Security headers
     'cors@2.8.6',                                         // CORS middleware
     'jsonwebtoken@9.0.3',                                 // JWT authentication
-    'uuid@13.0.0'                                         // UUID generation
+    'uuid@13.0.0',                                        // UUID generation
+    'prom-client@15.1.3',                                  // Prometheus metrics
   ],
   devDeps: [
     '@types/express@5.0.6',                // Express type definitions
@@ -529,7 +530,8 @@ let platform = new WebTokenProject({
     'uuid@13.0.0',                // UUID generation
     'yaml@2.8.2',                 // YAML parsing
     'adm-zip@0.5.16',             // ZIP handling
-    'multer@2.0.2'                // File uploads
+    'multer@2.0.2',               // File uploads
+    'prom-client@15.1.3',         // Prometheus metrics
   ],
   devDeps: [
     '@types/express@5.0.6',

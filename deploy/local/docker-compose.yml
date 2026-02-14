@@ -306,8 +306,37 @@ services:
           memory: 192M
 
   # ---------------------------------------------------------------------------
-  # Observability (Loki + Grafana + Promtail)
+  # Observability (Prometheus + Loki + Grafana + Promtail)
   # ---------------------------------------------------------------------------
+  prometheus:
+    image: 'prom/prometheus:v3.2.1'
+    container_name: prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+    volumes:
+      - './config/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
+      - './db-data/prometheus/:/prometheus:rw'
+    networks:
+      - backend-network
+    depends_on:
+      platform:
+        condition: service_healthy
+      plugin:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
   loki:
     image: 'grafana/loki:3.4.2'
     container_name: loki
@@ -366,6 +395,8 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+      prometheus:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -401,7 +432,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.16.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.16.6'
     container_name: frontend
     restart: always
     networks:
@@ -435,7 +466,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.15.5'
+    image: 'ghcr.io/mwashburn160/platform:1.15.6'
     container_name: platform
     depends_on:
       mongodb:
@@ -506,7 +537,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.14.5'
+    image: 'ghcr.io/mwashburn160/plugin:1.14.6'
     container_name: plugin
     depends_on:
       postgres:
@@ -532,7 +563,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.14.5'
+    image: 'ghcr.io/mwashburn160/pipeline:1.14.6'
     container_name: pipeline
     depends_on:
       postgres:
@@ -549,7 +580,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.13.5'
+    image: 'ghcr.io/mwashburn160/quota:1.13.6'
     container_name: quota
     depends_on:
       mongodb:

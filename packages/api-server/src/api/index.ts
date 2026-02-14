@@ -8,6 +8,9 @@ export * from './require-org-id';
 // App factory
 export * from './app-factory';
 
+// Metrics
+export * from './metrics';
+
 // Server utilities
 export * from './server';
 

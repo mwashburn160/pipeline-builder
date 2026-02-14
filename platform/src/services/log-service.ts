@@ -232,7 +232,7 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
  * Get available service names from Loki.
  */
 export async function getServiceNames(): Promise<string[]> {
-  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values');
+  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service/values');
   return response.data || [];
 }
 

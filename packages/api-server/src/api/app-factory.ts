@@ -1,4 +1,3 @@
-import { authenticateToken, requireAdmin } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
@@ -6,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { v4 as uuidv4 } from 'uuid';
 import { SSEManager } from '../http/sse-connection-manager';
+import { metricsMiddleware, metricsHandler } from './metrics';
 
 declare global {
   namespace Express {
@@ -121,7 +121,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     next();
   });
 
-  // Health check registered before rate limiter so load balancers are never throttled
+  // Health check and metrics registered before rate limiter so they are never throttled
   if (!skipDefaultHealthCheck) {
     app.get('/health', async (_req: Request, res: Response) => {
       try {
@@ -141,6 +141,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
         });
       }
     });
+
+    app.get('/metrics', metricsHandler());
   }
 
   // Rate limiting
@@ -170,24 +172,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     next();
   });
 
-  // Metrics endpoint requires admin authentication
-  if (!skipDefaultHealthCheck) {
-    app.get('/metrics', authenticateToken, requireAdmin, (_req: Request, res: Response) => {
-      const connection = getConnection();
-      const stats = connection.getStats();
-
-      res.json({
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        cpu: process.cpuUsage(),
-        database: {
-          totalConnections: stats.totalCount,
-          idleConnections: stats.idleCount,
-          waitingConnections: stats.waitingCount,
-        },
-      });
-    });
-  }
+  // Prometheus metrics middleware — records request duration and count
+  app.use(metricsMiddleware());
 
   // SSE logs endpoint
   app.get('/logs/:requestId', sseManager.middleware());

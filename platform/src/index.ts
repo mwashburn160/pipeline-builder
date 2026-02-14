@@ -19,15 +19,36 @@ import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
+import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config';
-import { isAuthenticated, notFoundHandler, errorHandler } from './middleware';
+import { notFoundHandler, errorHandler } from './middleware';
 import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes, logRoutes } from './routes';
 
 const logger = createLogger('platform-api');
 
 /** Express application instance */
 const app = express();
+
+/** Prometheus metrics setup */
+const metricsRegistry = new Registry();
+metricsRegistry.setDefaultLabels({ service: 'platform' });
+collectDefaultMetrics({ register: metricsRegistry });
+
+const httpRequestDuration = new Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  registers: [metricsRegistry],
+});
+
+const httpRequestsTotal = new Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  registers: [metricsRegistry],
+});
 
 /** Extract client IP from request, handling proxies */
 function extractClientIp(req: express.Request): string {
@@ -75,6 +96,25 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.set('trust proxy', config.server.trustProxy);
 app.use(requestIdMiddleware);
+
+/** Prometheus metrics middleware — records request duration and count */
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/metrics' || req.path === '/health') {
+    next();
+    return;
+  }
+  const end = httpRequestDuration.startTimer();
+  res.on('finish', () => {
+    const route = req.route?.path ? req.baseUrl + req.route.path : req.path
+      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id')
+      .replace(/\/\d+(?=\/|$)/g, '/:id');
+    const labels = { method: req.method, route, status_code: String(res.statusCode) };
+    end(labels);
+    httpRequestsTotal.inc(labels);
+  });
+  next();
+});
+
 app.use(limiter);
 
 /**
@@ -105,29 +145,14 @@ app.get('/health', async (_req: Request, res: Response) => {
 });
 
 /**
- * Metrics endpoint for monitoring and observability.
- * Requires authentication to prevent information disclosure.
+ * Prometheus metrics endpoint for monitoring and observability.
  *
  * @route GET /metrics
- * @returns {Object} 200 - Service metrics
+ * @returns Prometheus text exposition format
  */
-app.get('/metrics', isAuthenticated, (_req: Request, res: Response) => {
-  const readyStates: Record<number, string> = {
-    0: 'disconnected',
-    1: 'connected',
-    2: 'connecting',
-    3: 'disconnecting',
-  };
-
-  res.json({
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    cpu: process.cpuUsage(),
-    database: {
-      state: mongoose.connection.readyState,
-      status: readyStates[mongoose.connection.readyState] || 'unknown',
-    },
-  });
+app.get('/metrics', async (_req: Request, res: Response) => {
+  res.set('Content-Type', metricsRegistry.contentType);
+  res.end(await metricsRegistry.metrics());
 });
 
 /*
