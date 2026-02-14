@@ -1,3 +1,13 @@
+## 1.15.5 (2026-02-14)
+
+### 🩹 Fixes
+
+- updated loki ([6b16c2c](https://github.com/mwashburn160/pipeline-builder/commit/6b16c2c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.15.4 (2026-02-14)
 
 ### 🩹 Fixes
