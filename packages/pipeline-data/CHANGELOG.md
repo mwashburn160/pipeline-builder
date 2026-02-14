@@ -1,3 +1,17 @@
+## 1.20.0 (2026-02-14)
+
+### 🚀 Features
+
+- add loki ([1c258e3](https://github.com/mwashburn160/pipeline-builder/commit/1c258e3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.19.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.19.6 (2026-02-14)
 
 ### 🩹 Fixes
