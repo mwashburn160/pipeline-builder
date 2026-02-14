@@ -1,3 +1,13 @@
+## 1.13.1 (2026-02-14)
+
+### 🩹 Fixes
+
+- updated init-platform ([a7cd36d](https://github.com/mwashburn160/pipeline-builder/commit/a7cd36d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.13.0 (2026-02-13)
 
 ### 🚀 Features
