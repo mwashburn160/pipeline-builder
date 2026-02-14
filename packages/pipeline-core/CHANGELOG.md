@@ -1,3 +1,13 @@
+## 1.20.6 (2026-02-14)
+
+### 🩹 Fixes
+
+- updated grafana ([1df0a20](https://github.com/mwashburn160/pipeline-builder/commit/1df0a20))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.5 (2026-02-14)
 
 ### 🩹 Fixes
