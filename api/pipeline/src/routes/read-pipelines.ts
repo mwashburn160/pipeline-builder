@@ -33,6 +33,8 @@ export function createReadPipelineRoutes(
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
       const filter = validateFilter(req);
@@ -50,12 +52,12 @@ export function createReadPipelineRoutes(
       // Use service with built-in pagination and sorting
       const result = await pipelineService.findPaginated(
         effectiveFilter,
-        ctx.identity.orgId!,
+        orgId,
         { limit, offset, sortBy, sortOrder },
       );
 
       ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, total: result.total });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({
         success: true,
@@ -78,6 +80,8 @@ export function createReadPipelineRoutes(
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
       const filter = validateFilter(req);
@@ -88,13 +92,13 @@ export function createReadPipelineRoutes(
         ? { ...filter.value, accessModifier: 'private' as const }
         : filter.value;
 
-      const pipelines = await pipelineService.find(effectiveFilter, ctx.identity.orgId!);
+      const pipelines = await pipelineService.find(effectiveFilter, orgId);
       const result = pipelines[0];
 
       if (!result) return sendPipelineNotFound(res);
 
       ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
     } catch (error) {
@@ -107,12 +111,14 @@ export function createReadPipelineRoutes(
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
     try {
-      const result = await pipelineService.findById(id, ctx.identity.orgId!);
+      const result = await pipelineService.findById(id, orgId);
 
       if (!result) return sendPipelineNotFound(res);
 
@@ -122,7 +128,7 @@ export function createReadPipelineRoutes(
       }
 
       ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
     } catch (error) {

@@ -36,8 +36,8 @@ export const config: AppConfig = {
   quota: {
     defaults: {
       plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || '100', 10),
-      pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || '50', 10),
-      apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || '10000', 10),
+      pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || '10', 10),
+      apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || '-1', 10),
     },
     resetDays: parseInt(process.env.QUOTA_RESET_DAYS || '3', 10),
   },

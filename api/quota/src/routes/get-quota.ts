@@ -70,7 +70,7 @@ router.get(
 
     try {
       const orgs = await Organization.find()
-        .select('name slug quotas usage')
+        .select('name slug tier quotas usage')
         .sort({ name: 1 })
         .lean();
 
@@ -112,7 +112,7 @@ router.get(
     if (!quotaType || !isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
 
     try {
-      const org = await Organization.findById(targetOrgId).select('quotas usage').lean();
+      const org = await Organization.findById(targetOrgId).select('tier quotas usage').lean();
 
       const typedType = quotaType as QuotaType;
       const limit = org?.quotas?.[typedType] ?? config.quota.defaults[typedType];
@@ -132,7 +132,7 @@ router.get(
 
 async function fetchOrgQuotas(res: Response, orgId: string): Promise<void> {
   try {
-    const org = await Organization.findById(orgId).select('quotas usage name slug').lean();
+    const org = await Organization.findById(orgId).select('tier quotas usage name slug').lean();
 
     if (!org) {
       sendSuccess(res, 200, { quota: buildDefaultOrgQuotaResponse(orgId) });

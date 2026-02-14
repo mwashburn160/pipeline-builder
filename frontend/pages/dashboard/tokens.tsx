@@ -216,8 +216,8 @@ export default function TokensPage() {
       await api.generateNewToken();
       syncTokens();
       setGenSuccess('New token pair generated successfully. Your session tokens have been updated.');
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : 'Failed to generate token');
+    } catch (error) {
+      setGenError(error instanceof Error ? error.message : 'Failed to generate token');
     } finally {
       setGenerating(false);
     }

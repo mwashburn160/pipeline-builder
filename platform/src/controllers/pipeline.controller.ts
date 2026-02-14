@@ -78,11 +78,11 @@ export async function listPipelines(req: Request, res: Response): Promise<void> 
       statusCode: 200,
       ...result,
     });
-  } catch (err) {
-    logger.error('[LIST PIPELINES] Failed:', err);
+  } catch (error) {
+    logger.error('[LIST PIPELINES] Failed:', error);
 
-    if (err instanceof PipelineServiceError) {
-      return sendError(res, err.statusCode, err.message, err.code);
+    if (error instanceof PipelineServiceError) {
+      return sendError(res, error.statusCode, error.message, error.code);
     }
 
     return sendError(res, 500, 'Failed to list pipelines');
@@ -134,11 +134,11 @@ export async function getPipelineById(req: Request, res: Response): Promise<void
     });
 
     sendSuccess(res, 200, pipeline);
-  } catch (err) {
-    logger.error('[GET PIPELINE] Failed:', err);
+  } catch (error) {
+    logger.error('[GET PIPELINE] Failed:', error);
 
-    if (err instanceof PipelineServiceError) {
-      return sendError(res, err.statusCode, err.message, err.code);
+    if (error instanceof PipelineServiceError) {
+      return sendError(res, error.statusCode, error.message, error.code);
     }
 
     return sendError(res, 500, 'Failed to get pipeline');
@@ -210,11 +210,11 @@ export async function getPipeline(req: Request, res: Response): Promise<void> {
     });
 
     sendSuccess(res, 200, pipeline);
-  } catch (err) {
-    logger.error('[GET PIPELINE] Search failed:', err);
+  } catch (error) {
+    logger.error('[GET PIPELINE] Search failed:', error);
 
-    if (err instanceof PipelineServiceError) {
-      return sendError(res, err.statusCode, err.message, err.code);
+    if (error instanceof PipelineServiceError) {
+      return sendError(res, error.statusCode, error.message, error.code);
     }
 
     return sendError(res, 500, 'Failed to get pipeline');
@@ -312,11 +312,11 @@ export async function createPipeline(req: Request, res: Response): Promise<void>
         createdBy: result.createdBy,
       },
     });
-  } catch (err) {
-    logger.error('[CREATE PIPELINE] Failed:', err);
+  } catch (error) {
+    logger.error('[CREATE PIPELINE] Failed:', error);
 
-    if (err instanceof PipelineServiceError) {
-      return sendError(res, err.statusCode, err.message, err.code);
+    if (error instanceof PipelineServiceError) {
+      return sendError(res, error.statusCode, error.message, error.code);
     }
 
     return sendError(res, 500, 'Failed to create pipeline');

@@ -19,20 +19,21 @@ import {
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
+import { ZodError } from 'zod';
 import { config } from '../config';
 import {
   AUTH_OPTS,
   VALID_QUOTA_TYPES,
-  validateQuotaValues,
-  isValidQuotaType,
+  QUOTA_TIERS,
   getNextResetDate,
   buildOrgQuotaResponse,
   applyQuotaLimits,
   sendOrgNotFound,
-  sendInvalidQuotaType,
 } from '../helpers/quota-helpers';
+import type { QuotaTier } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
 import { Organization } from '../models/organization';
+import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
 
 const logger = createLogger('quota-write');
 const router: Router = Router();
@@ -41,62 +42,34 @@ const router: Router = Router();
 // PUT /quotas/:orgId — update org name, slug, and/or quota limits (system admin only)
 // ---------------------------------------------------------------------------
 
-interface QuotaUpdateBody {
-  name?: string;
-  slug?: string;
-  quotas?: Partial<Record<QuotaType, number>>;
-}
-
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
 router.put(
   '/:orgId',
   authenticateToken(AUTH_OPTS) as RequestHandler,
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
-    const body = req.body as QuotaUpdateBody;
 
-    const quotaUpdates: Partial<Record<QuotaType, number>> = { ...body.quotas };
-    const hasQuotas = VALID_QUOTA_TYPES.some((k) => quotaUpdates[k] !== undefined);
-
-    // --- Validation --------------------------------------------------------
-    if (body.name === undefined && body.slug === undefined && !hasQuotas) {
-      return sendError(
-        res, 400,
-        'At least one field (name, slug, or a quota value) is required.',
-        ErrorCode.VALIDATION_ERROR,
-      );
+    let body: ReturnType<typeof UpdateQuotaSchema.parse>;
+    try {
+      body = UpdateQuotaSchema.parse(req.body);
+    } catch (error) {
+      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
+      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
     }
 
-    if (body.name !== undefined && (typeof body.name !== 'string' || body.name.trim().length === 0)) {
-      return sendError(res, 400, 'name must be a non-empty string.', ErrorCode.VALIDATION_ERROR);
-    }
-
-    if (body.slug !== undefined) {
-      if (typeof body.slug !== 'string' || body.slug.trim().length === 0) {
-        return sendError(res, 400, 'slug must be a non-empty string.', ErrorCode.VALIDATION_ERROR);
-      }
-      if (!SLUG_RE.test(body.slug)) {
-        return sendError(res, 400, 'slug must be lowercase alphanumeric with hyphens (e.g. "my-org").', ErrorCode.VALIDATION_ERROR);
-      }
-    }
-
-    if (hasQuotas) {
-      const quotaErrors = validateQuotaValues(quotaUpdates);
-      if (quotaErrors.length > 0) {
-        return sendError(res, 400, quotaErrors.join('; '), ErrorCode.VALIDATION_ERROR);
-      }
-    }
-
-    // --- Persist -----------------------------------------------------------
     try {
       const org = await Organization.findById(targetOrgId);
       if (!org) return sendOrgNotFound(res);
 
-      if (body.name !== undefined) org.name = body.name.trim();
-      if (body.slug !== undefined) org.slug = body.slug.trim();
-      if (hasQuotas) applyQuotaLimits(org, quotaUpdates);
+      if (body.name !== undefined) org.name = body.name;
+      if (body.slug !== undefined) org.slug = body.slug;
+
+      if (body.tier !== undefined) {
+        const tier = body.tier as QuotaTier;
+        org.tier = tier;
+        applyQuotaLimits(org, QUOTA_TIERS[tier].limits);
+      }
+      if (body.quotas) applyQuotaLimits(org, body.quotas);
 
       await org.save();
 
@@ -119,9 +92,16 @@ router.post(
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
-    const { quotaType } = req.body as { quotaType?: string };
 
-    if (quotaType && !isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
+    let body: ReturnType<typeof ResetQuotaSchema.parse>;
+    try {
+      body = ResetQuotaSchema.parse(req.body);
+    } catch (error) {
+      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
+      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const { quotaType } = body;
 
     try {
       const org = await Organization.findById(targetOrgId);
@@ -161,13 +141,16 @@ router.post(
   authorizeOrg() as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
-    const { quotaType, amount = 1 } = req.body as { quotaType?: string; amount?: number };
 
-    if (!quotaType) {
-      return sendError(res, 400, 'quotaType is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+    let body: ReturnType<typeof IncrementQuotaSchema.parse>;
+    try {
+      body = IncrementQuotaSchema.parse(req.body);
+    } catch (error) {
+      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
+      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
     }
 
-    if (!isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
+    const { quotaType, amount } = body;
 
     try {
       const typedType = quotaType as QuotaType;

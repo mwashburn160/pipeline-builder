@@ -71,8 +71,8 @@ export function validateRequestFilter<TFilter>(
   try {
     validator(filter as TFilter);
     return { ok: true, value: filter };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Invalid filter' };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Invalid filter' };
   }
 }
 

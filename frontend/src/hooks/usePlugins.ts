@@ -37,8 +37,8 @@ export function usePlugins(enabled = true) {
       cachedPlugins = fetched;
       cacheTimestamp = Date.now();
       setPlugins(fetched);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load plugins');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load plugins');
     } finally {
       setIsLoading(false);
     }

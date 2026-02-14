@@ -120,8 +120,8 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
         onSaved();
         setTimeout(() => onClose(), 1500);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update plugin');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to update plugin');
     } finally {
       setLoading(false);
     }

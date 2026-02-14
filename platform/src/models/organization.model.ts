@@ -1,3 +1,4 @@
+import type { QuotaTier } from '@mwashburn160/api-core';
 import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';
 import { config } from '../config';
@@ -28,6 +29,8 @@ export interface IQuotaUsageTracking {
   apiCalls: IQuotaUsage;
 }
 
+export type { QuotaTier };
+
 /**
  * Organization document interface
  */
@@ -35,6 +38,7 @@ export interface IOrganization extends Document {
   name: string;
   slug: string;
   description?: string;
+  tier: QuotaTier;
   owner: Types.ObjectId;
   members: Types.ObjectId[];
   quotas: IQuotaLimits;
@@ -84,10 +88,15 @@ function getNextResetDate(resetPeriod: string): Date {
   }
 }
 
+/** Get the reset period for a quota type from a tier config. */
+function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'apiCalls'): string {
+  return config.quota.tier[tier].resetPeriod[type];
+}
+
 const quotaUsageSchema = new Schema<IQuotaUsage>(
   {
     used: { type: Number, default: 0, min: 0 },
-    resetAt: { type: Date, default: () => getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+    resetAt: { type: Date, default: () => getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) },
   },
   { _id: false },
 );
@@ -118,6 +127,11 @@ const organizationSchema = new Schema<IOrganization>(
       maxlength: 500,
       default: '',
     },
+    tier: {
+      type: String,
+      enum: ['developer', 'pro', 'unlimited'],
+      default: 'developer',
+    },
     owner: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -133,32 +147,32 @@ const organizationSchema = new Schema<IOrganization>(
     quotas: {
       plugins: {
         type: Number,
-        default: () => config.quota.organization.plugins,
+        default: () => config.quota.tier.developer.plugins,
         min: -1, // -1 means unlimited
       },
       pipelines: {
         type: Number,
-        default: () => config.quota.organization.pipelines,
+        default: () => config.quota.tier.developer.pipelines,
         min: -1, // -1 means unlimited
       },
       apiCalls: {
         type: Number,
-        default: () => config.quota.organization.apiCalls,
+        default: () => config.quota.tier.developer.apiCalls,
         min: -1, // -1 means unlimited
       },
     },
     usage: {
       plugins: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'plugins')) }),
       },
       pipelines: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'pipelines')) }),
       },
       apiCalls: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) }),
       },
     },
   },
@@ -176,28 +190,27 @@ organizationSchema.methods.resetUsageIfExpired = async function (
   type: 'plugins' | 'pipelines' | 'apiCalls',
 ): Promise<boolean> {
   const now = new Date();
+  const tierKey = (this.tier || 'developer') as QuotaTier;
 
   if (!this.usage) {
     this.usage = {
-      plugins: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') },
-      pipelines: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') },
-      apiCalls: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+      plugins: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'plugins')) },
+      pipelines: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'pipelines')) },
+      apiCalls: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'apiCalls')) },
     };
     await this.save();
     return true;
   }
 
   if (!this.usage[type]) {
-    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
-    this.usage[type] = { used: 0, resetAt: getNextResetDate(resetPeriod) };
+    this.usage[type] = { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, type)) };
     await this.save();
     return true;
   }
 
   if (this.usage[type].resetAt <= now) {
-    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
     this.usage[type].used = 0;
-    this.usage[type].resetAt = getNextResetDate(resetPeriod);
+    this.usage[type].resetAt = getNextResetDate(getTierResetPeriod(tierKey, type));
     await this.save();
     return true;
   }
@@ -212,7 +225,9 @@ organizationSchema.methods.resetUsageIfExpired = async function (
 organizationSchema.methods.checkQuota = function (
   type: 'plugins' | 'pipelines' | 'apiCalls',
 ): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date } {
-  const limit = this.quotas?.[type] ?? config.quota.organization[type];
+  const tierKey = (this.tier || 'developer') as QuotaTier;
+  const tierLimits = config.quota.tier[tierKey];
+  const limit = this.quotas?.[type] ?? tierLimits[type];
   const usage = this.usage?.[type] || { used: 0, resetAt: new Date() };
   const now = new Date();
 
@@ -256,17 +271,17 @@ organizationSchema.methods.incrementUsage = async function (
   await this.resetUsageIfExpired(type);
 
   // Initialize usage if not present
+  const tierKey = (this.tier || 'developer') as QuotaTier;
   if (!this.usage) {
     this.usage = {
-      plugins: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.plugins || '3days') },
-      pipelines: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.pipelines || '3days') },
-      apiCalls: { used: 0, resetAt: getNextResetDate(config.quota.resetPeriod?.apiCalls || '3days') },
+      plugins: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'plugins')) },
+      pipelines: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'pipelines')) },
+      apiCalls: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'apiCalls')) },
     };
   }
 
   if (!this.usage[type]) {
-    const resetPeriod = config.quota.resetPeriod?.[type] || '3days';
-    this.usage[type] = { used: 0, resetAt: getNextResetDate(resetPeriod) };
+    this.usage[type] = { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, type)) };
   }
 
   this.usage[type].used += amount;

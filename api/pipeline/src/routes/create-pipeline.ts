@@ -58,7 +58,8 @@ export function createCreatePipelineRoutes(
         // Default pipelineName if not provided
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
-        const orgId = ctx.identity.orgId!.toLowerCase();
+        if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+        const orgId = ctx.identity.orgId.toLowerCase();
         ctx.log('INFO', 'Pipeline creation request received', { project, organization });
 
         const result = await pipelineService.createAsDefault(

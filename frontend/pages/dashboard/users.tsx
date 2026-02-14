@@ -50,8 +50,8 @@ export default function UsersPage() {
         const response = await api.listUsers(params);
         const userList = (response.users || response.data || []) as UserListItem[];
         setUsers(userList);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load users');
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Failed to load users');
       } finally {
         setIsLoading(false);
       }
@@ -96,8 +96,8 @@ export default function UsersPage() {
       setEditSuccess('User updated successfully');
       setNewPassword('');
       setTimeout(() => setEditingUser(null), 1500);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update user');
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Failed to update user');
     } finally {
       setEditLoading(false);
     }
@@ -110,8 +110,8 @@ export default function UsersPage() {
       await api.deleteUserById(deleteTarget.id);
       setUsers(users.filter(u => u.id !== deleteTarget.id));
       setDeleteTarget(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete user');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);

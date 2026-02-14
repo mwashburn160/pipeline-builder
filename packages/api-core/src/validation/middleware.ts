@@ -138,8 +138,7 @@ export function validateQueryMiddleware<T>(
       return;
     }
 
-    // Attach validated data to request
-    (req as any).validatedQuery = result.value;
+    req.validatedQuery = result.value;
     next();
   };
 }
@@ -160,8 +159,7 @@ export function validateBodyMiddleware<T>(
       return;
     }
 
-    // Attach validated data to request
-    (req as any).validatedBody = result.value;
+    req.validatedBody = result.value;
     next();
   };
 }
@@ -182,8 +180,7 @@ export function validateParamsMiddleware<T>(
       return;
     }
 
-    // Attach validated data to request
-    (req as any).validatedParams = result.value;
+    req.validatedParams = result.value;
     next();
   };
 }

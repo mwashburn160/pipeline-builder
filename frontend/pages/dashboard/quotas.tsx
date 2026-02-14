@@ -6,7 +6,7 @@ import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Toast } from '@/components/ui/Toast';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
-import type { OrgQuotaResponse, QuotaType } from '@/types';
+import type { OrgQuotaResponse, QuotaType, QuotaTier } from '@/types';
 import api from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,14 @@ const QUOTA_META: Record<QuotaType, { label: string; description: string }> = {
   plugins: { label: 'Plugins', description: 'Container images deployed' },
   pipelines: { label: 'Pipelines', description: 'Pipeline configurations' },
   apiCalls: { label: 'API Calls', description: 'Requests this period' },
+};
+
+const TIER_KEYS: QuotaTier[] = ['developer', 'pro', 'unlimited'];
+
+const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<QuotaType, number> }> = {
+  developer: { label: 'Developer', description: 'Starter tier', color: 'bg-green-500', limits: { pipelines: 10, plugins: 100, apiCalls: -1 } },
+  pro:       { label: 'Pro',       description: 'Production use', color: 'bg-blue-500', limits: { pipelines: 100, plugins: 1000, apiCalls: -1 } },
+  unlimited: { label: 'Unlimited', description: 'No restrictions', color: 'bg-purple-500', limits: { pipelines: -1, plugins: -1, apiCalls: -1 } },
 };
 
 // ---------------------------------------------------------------------------
@@ -169,6 +177,7 @@ export default function QuotasPage() {
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0 });
   const [editName, setEditName] = useState('');
   const [editSlug, setEditSlug] = useState('');
+  const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
 
   const fetchAllOrgs = useCallback(async () => {
@@ -219,6 +228,7 @@ export default function QuotasPage() {
     });
     setEditName(resolved.name);
     setEditSlug(resolved.slug);
+    setEditTier(resolved.tier || 'developer');
     setDirty(false);
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));
   }
@@ -234,6 +244,12 @@ export default function QuotasPage() {
 
   function handleEditChange(key: QuotaType, value: number) {
     setEditValues((prev) => ({ ...prev, [key]: value }));
+    setDirty(true);
+  }
+
+  function handleTierChange(tier: QuotaTier) {
+    setEditTier(tier);
+    setEditValues({ ...TIER_PRESETS[tier].limits });
     setDirty(true);
   }
 
@@ -253,6 +269,7 @@ export default function QuotasPage() {
     const body: Record<string, unknown> = {};
     if (editName !== orgData.name) body.name = editName;
     if (editSlug !== orgData.slug) body.slug = editSlug;
+    if (editTier !== (orgData.tier || 'developer')) body.tier = editTier;
 
     const qc: Record<string, number> = {};
     for (const k of QUOTA_KEYS) {
@@ -276,8 +293,8 @@ export default function QuotasPage() {
         );
       }
       setToast({ message: 'Saved', type: 'success' });
-    } catch (err) {
-      setToast({ message: err instanceof Error ? err.message : 'Failed to save', type: 'error' });
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : 'Failed to save', type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -347,9 +364,21 @@ export default function QuotasPage() {
                 </span>
               )}
               {!loading && orgData && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
-                  {orgData.orgId}
-                </span>
+                <>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
+                    {orgData.orgId}
+                  </span>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    editTier === 'unlimited'
+                      ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
+                      : editTier === 'pro'
+                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
+                        : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
+                    {TIER_PRESETS[editTier].label}
+                  </span>
+                </>
               )}
               <button
                 onClick={toggle}
@@ -398,6 +427,50 @@ export default function QuotasPage() {
                     <label className="label">Org ID</label>
                     <p className="text-sm text-gray-900 dark:text-gray-100 font-mono pt-2">{orgData.orgId}</p>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tier selector */}
+            {!loading && orgData && (
+              <div className="mb-8">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
+                  Plan Tier
+                </h2>
+                <div className="grid grid-cols-3 gap-3">
+                  {TIER_KEYS.map((tier) => {
+                    const preset = TIER_PRESETS[tier];
+                    const isSelected = editTier === tier;
+                    return (
+                      <button
+                        key={tier}
+                        type="button"
+                        disabled={!isSysAdmin}
+                        onClick={() => isSysAdmin && handleTierChange(tier)}
+                        className={`relative card text-left transition-all ${
+                          isSelected
+                            ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-blue-300 dark:border-blue-600'
+                            : isSysAdmin
+                              ? 'hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer'
+                              : 'opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`w-2.5 h-2.5 rounded-full ${preset.color}`} />
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{preset.label}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{preset.description}</p>
+                        <div className="mt-2 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                          {preset.limits.pipelines === -1 ? 'Unlimited' : preset.limits.pipelines} pipelines
+                          {' / '}
+                          {preset.limits.plugins === -1 ? 'Unlimited' : preset.limits.plugins} plugins
+                        </div>
+                        {isSelected && (
+                          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

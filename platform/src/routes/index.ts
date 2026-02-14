@@ -12,3 +12,4 @@ export { default as organizationsRoutes } from './organizations.routes';
 export { default as invitationRoutes } from './invitation.routes';
 export { default as pluginRoutes } from './plugin.routes';
 export { default as pipelineRoutes } from './pipeline.routes';
+export { default as logRoutes } from './log.routes';

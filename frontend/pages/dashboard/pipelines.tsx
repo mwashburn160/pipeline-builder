@@ -81,8 +81,8 @@ export default function PipelinesPage() {
       if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
       const response = await api.listPipelines(params);
       setPipelines((response.pipelines || []) as Pipeline[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load pipelines');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load pipelines');
     } finally {
       setIsLoading(false);
     }
@@ -122,11 +122,11 @@ export default function PipelinesPage() {
         await fetchPipelines();
         setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
       }
-    } catch (err) {
+    } catch (error) {
       let errorMessage = 'Failed to create pipeline';
-      if (err instanceof Error) errorMessage = err.message;
-      if (err && typeof err === 'object' && 'code' in err) {
-        const apiErr = err as { message?: string; code?: string };
+      if (error instanceof Error) errorMessage = error.message;
+      if (error && typeof error === 'object' && 'code' in error) {
+        const apiErr = error as { message?: string; code?: string };
         errorMessage = apiErr.message || errorMessage;
         if (apiErr.code) errorMessage += ` (${apiErr.code})`;
       }
@@ -145,8 +145,8 @@ export default function PipelinesPage() {
         setDeleteTarget(null);
         await fetchPipelines();
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete pipeline');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete pipeline');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);

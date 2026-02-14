@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Sun, Moon, GitBranch, Puzzle, Users, Building2, BarChart3, Settings, KeyRound, ChevronRight, Terminal } from 'lucide-react';
+import { Sun, Moon, GitBranch, Puzzle, Users, Building2, BarChart3, Settings, KeyRound, ChevronRight, Terminal, ScrollText, Activity } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -16,6 +16,8 @@ const navItems = [
   { title: 'Plugins', description: 'Browse and manage available plugins', href: '/dashboard/plugins', icon: Puzzle, color: 'bg-purple-500' },
   { title: 'Users', description: 'Manage organization members and roles', href: '/dashboard/users', icon: Users, color: 'bg-green-500', adminOnly: true },
   { title: 'Organizations', description: 'Manage organizations and settings', href: '/dashboard/organizations', icon: Building2, color: 'bg-yellow-500', systemAdminOnly: true },
+  { title: 'Logs', description: 'View service logs and search across microservices', href: '/dashboard/logs', icon: ScrollText, color: 'bg-cyan-500' },
+  { title: 'Grafana', description: 'View service metrics, logs, and dashboards', href: '/dashboard/grafana', icon: Activity, color: 'bg-orange-500', systemAdminOnly: true },
   { title: 'Quotas', description: 'View and manage resource quotas', href: '/dashboard/quotas', icon: BarChart3, color: 'bg-indigo-500' },
   { title: 'Settings', description: 'Configure your account and preferences', href: '/dashboard/settings', icon: Settings, color: 'bg-gray-500' },
   { title: 'API Tokens', description: 'View JWT tokens and generate new token pairs', href: '/dashboard/tokens', icon: KeyRound, color: 'bg-teal-500' },

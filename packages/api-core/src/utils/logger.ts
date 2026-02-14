@@ -5,10 +5,10 @@
 
 import winston from 'winston';
 
-const { combine, timestamp, printf, colorize, errors } = winston.format;
+const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 
 /**
- * Custom log format for console output.
+ * Custom log format for human-readable console output.
  */
 const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) => {
   const serviceName = service ? `[${service}]` : '';
@@ -18,6 +18,12 @@ const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) =
 
 /**
  * Create a logger instance for a service.
+ *
+ * When LOG_FORMAT=json (default), outputs structured JSON for Loki ingestion:
+ *   {"level":"info","message":"Server started","service":"pipeline","timestamp":"..."}
+ *
+ * When LOG_FORMAT=text, outputs colorized human-readable format:
+ *   2026-02-13T10:30:00.000Z info [pipeline] Server started
  *
  * @param serviceName - Name of the service for log identification
  * @returns Configured Winston logger instance
@@ -33,14 +39,26 @@ const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) =
  */
 export function createLogger(serviceName: string): winston.Logger {
   const logLevel = process.env.LOG_LEVEL || 'info';
+  const useJson = (process.env.LOG_FORMAT || 'json') !== 'text';
+
+  const baseFormats = [
+    errors({ stack: true }),
+    timestamp({ format: 'YYYY-MM-DDTHH:mm:ss.SSSZ' }),
+  ];
+
+  if (useJson) {
+    return winston.createLogger({
+      level: logLevel,
+      defaultMeta: { service: serviceName },
+      format: combine(...baseFormats, json()),
+      transports: [new winston.transports.Console()],
+    });
+  }
 
   return winston.createLogger({
     level: logLevel,
     defaultMeta: { service: serviceName },
-    format: combine(
-      errors({ stack: true }),
-      timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    ),
+    format: combine(...baseFormats),
     transports: [
       new winston.transports.Console({
         format: combine(colorize(), consoleFormat),

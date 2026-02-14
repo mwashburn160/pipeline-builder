@@ -81,8 +81,8 @@ export default function PluginsPage() {
       if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
       const response = await api.listPlugins(params);
       setPlugins((response.plugins || []) as Plugin[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load plugins');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load plugins');
     } finally {
       setIsLoading(false);
     }
@@ -116,8 +116,8 @@ export default function PluginsPage() {
         setDeleteTarget(null);
         await fetchPlugins();
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete plugin');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete plugin');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);

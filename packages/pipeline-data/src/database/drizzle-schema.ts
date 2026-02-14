@@ -136,6 +136,9 @@ export const plugin = pgTable('plugins', {
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),
 
+  // Composite index for filtered queries (orgId + accessModifier)
+  orgAccessIdx: index('plugin_org_access_idx').on(table.orgId, table.accessModifier),
+
   // Unique constraint on name + version + orgId
   nameVersionOrgUnique: uniqueIndex('plugin_name_version_org_unique')
     .on(table.name, table.version, table.orgId),
@@ -224,6 +227,9 @@ export const pipeline = pgTable('pipelines', {
 
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('pipeline_org_active_idx').on(table.orgId, table.isActive),
+
+  // Composite index for filtered queries (orgId + accessModifier)
+  orgAccessIdx: index('pipeline_org_access_idx').on(table.orgId, table.accessModifier),
 
   // Unique constraint on project + organization + orgId
   projectOrgUnique: uniqueIndex('pipeline_project_org_unique')

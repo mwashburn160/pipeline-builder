@@ -81,8 +81,8 @@ export async function getUser(req: Request, res: Response): Promise<void> {
       statusCode: 200,
       data: { user: formatUserResponse(user, organizationName) },
     });
-  } catch (err) {
-    logger.error('[GET USER] Error:', err);
+  } catch (error) {
+    logger.error('[GET USER] Error:', error);
     return sendError(res, 500, 'Failed to fetch user');
   }
 }
@@ -134,8 +134,8 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
       statusCode: 200,
       data: { user: formatUserResponse(updatedUser, organizationName) },
     });
-  } catch (err) {
-    logger.error('[UPDATE USER] Error:', err);
+  } catch (error) {
+    logger.error('[UPDATE USER] Error:', error);
     return sendError(res, 500, 'Update failed');
   }
 }
@@ -158,8 +158,8 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
     logger.info(`[DELETE USER] Account deleted: ${userId}`);
 
     res.json({ success: true, statusCode: 200, message: 'Account successfully deleted' });
-  } catch (err) {
-    logger.error('[DELETE USER] Error:', err);
+  } catch (error) {
+    logger.error('[DELETE USER] Error:', error);
     return sendError(res, 500, 'Delete failed');
   }
 }
@@ -195,8 +195,8 @@ export async function changePassword(req: Request, res: Response): Promise<void>
     logger.info(`[PASSWORD CHANGE] Success for user: ${userId}`);
 
     res.json({ success: true, statusCode: 200, message: 'Password changed successfully' });
-  } catch (err) {
-    logger.error('[CHANGE PASSWORD] Error:', err);
+  } catch (error) {
+    logger.error('[CHANGE PASSWORD] Error:', error);
     return sendError(res, 500, 'Password change failed');
   }
 }
@@ -218,8 +218,8 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
     const { accessToken, refreshToken } = await issueTokens(user);
 
     res.json({ success: true, statusCode: 200, accessToken, refreshToken });
-  } catch (err) {
-    logger.error('[GET TOKEN] Error:', err);
+  } catch (error) {
+    logger.error('[GET TOKEN] Error:', error);
     return sendError(res, 500, 'Generate token failed');
   }
 }
@@ -293,8 +293,8 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
       limit: limitNum,
       totalPages: Math.ceil(total / limitNum),
     });
-  } catch (err) {
-    logger.error('[LIST USERS] Error:', err);
+  } catch (error) {
+    logger.error('[LIST USERS] Error:', error);
     return sendError(res, 500, 'Failed to list users');
   }
 }
@@ -338,8 +338,8 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
       statusCode: 200,
       user: formatUserResponse(user, organizationName, organization ?? undefined),
     });
-  } catch (err) {
-    logger.error('[GET USER BY ID] Error:', err);
+  } catch (error) {
+    logger.error('[GET USER BY ID] Error:', error);
     return sendError(res, 500, 'Failed to fetch user');
   }
 }
@@ -450,8 +450,8 @@ export async function updateUserById(req: Request, res: Response): Promise<void>
       user: formatUserResponse(user, organizationName),
       changes,
     });
-  } catch (err) {
-    logger.error('[UPDATE USER BY ID] Error:', err);
+  } catch (error) {
+    logger.error('[UPDATE USER BY ID] Error:', error);
     return sendError(res, 500, 'Failed to update user');
   }
 }
@@ -494,8 +494,8 @@ export async function deleteUserById(req: Request, res: Response): Promise<void>
     logger.info(`[DELETE USER BY ID] User ${id} deleted by ${admin.adminType} ${req.user!.sub}`);
 
     res.json({ success: true, statusCode: 200, message: 'User deleted successfully' });
-  } catch (err) {
-    logger.error('[DELETE USER BY ID] Error:', err);
+  } catch (error) {
+    logger.error('[DELETE USER BY ID] Error:', error);
     return sendError(res, 500, 'Failed to delete user');
   }
 }

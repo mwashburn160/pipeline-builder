@@ -230,7 +230,7 @@ function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
 function sanitizeErrorData(data: unknown): string {
   if (typeof data === 'string') return data;
   if (typeof data === 'object' && data !== null) {
-    const sanitized = { ...data } as any;
+    const sanitized = { ...data } as Record<string, unknown>;
     ['token', 'password', 'secret', 'apiKey', 'authorization'].forEach(field => {
       if (field in sanitized) sanitized[field] = '[REDACTED]';
     });

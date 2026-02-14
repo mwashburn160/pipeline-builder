@@ -141,17 +141,17 @@ function _authenticateToken(
     });
 
     next();
-  } catch (err) {
-    if (err instanceof jwt.TokenExpiredError) {
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Token has expired', ErrorCode.TOKEN_EXPIRED);
     }
 
-    if (err instanceof jwt.JsonWebTokenError) {
+    if (error instanceof jwt.JsonWebTokenError) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid token', ErrorCode.TOKEN_INVALID);
     }
 
     logger.error('Token verification failed', {
-      error: err instanceof Error ? err.message : String(err),
+      error: error instanceof Error ? error.message : String(error),
     });
 
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);

@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.18.5';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.19.5';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.19.5';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.17.1';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -680,7 +680,8 @@ let quota = new FunctionProject({
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
     'mongoose@8.15.1',                                    // MongoDB ODM
-    'winston@3.17.0'                                      // Logging
+    'winston@3.17.0',                                     // Logging
+    'zod@3.24.4'                                          // Input validation
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types

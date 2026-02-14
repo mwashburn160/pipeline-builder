@@ -183,8 +183,8 @@ export class SSEManager {
       try {
         client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
         sentCount++;
-      } catch (err) {
-        log.error(`Failed to send to client ${client.id}:`, err);
+      } catch (error) {
+        log.error(`Failed to send to client ${client.id}:`, error);
         this.removeClient(requestId, client.id);
       }
     }

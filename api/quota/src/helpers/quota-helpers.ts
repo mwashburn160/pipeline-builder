@@ -6,8 +6,10 @@
  * validation, error helpers, and response building.
  */
 
-import { sendError, ErrorCode } from '@mwashburn160/api-core';
-import type { QuotaType } from '@mwashburn160/api-core';
+import { sendError, ErrorCode, DEFAULT_TIER } from '@mwashburn160/api-core';
+import type { QuotaType, QuotaTier } from '@mwashburn160/api-core';
+export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/api-core';
+export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits } from '@mwashburn160/api-core';
 import { Response } from 'express';
 import { config } from '../config';
 import { IOrganization, QuotaLimits, QuotaUsageTracking } from '../models/organization';
@@ -146,6 +148,7 @@ export interface OrgQuotaResponse {
   orgId: string;
   name: string;
   slug: string;
+  tier: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   isDefault?: boolean;
 }
@@ -180,6 +183,7 @@ export function buildOrgQuotaResponse(org: IOrganization): OrgQuotaResponse {
     orgId: String(org._id),
     name: org.name,
     slug: org.slug,
+    tier: org.tier || DEFAULT_TIER,
     quotas: buildSummaries(org.quotas, org.usage),
   };
 }
@@ -190,6 +194,7 @@ export function buildDefaultOrgQuotaResponse(orgId: string): OrgQuotaResponse {
     orgId,
     name: '',
     slug: '',
+    tier: DEFAULT_TIER,
     quotas: buildSummaries(undefined, undefined),
     isDefault: true,
   };

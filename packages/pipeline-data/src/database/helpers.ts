@@ -87,27 +87,3 @@ export function forSoftDelete<T extends EntityWithSoftDelete>(
     isActive: false,
   } as Partial<T>;
 }
-
-/**
- * Generic helper to create a restore (un-delete) update object.
- * Restores a soft-deleted entity.
- *
- * @template T - The entity update type
- * @param updatedBy - Username/ID of the user performing the restore
- * @returns Update object to restore the entity
- *
- * @example
- * const restoreUpdate = forRestore('user-123');
- * // Returns: { deletedAt: null, deletedBy: null, isActive: true, updatedBy: 'user-123', updatedAt: Date }
- */
-export function forRestore<T extends EntityWithSoftDelete & EntityWithTimestamps>(
-  updatedBy: string,
-): Partial<T> {
-  return {
-    deletedAt: null,
-    deletedBy: null,
-    isActive: true,
-    updatedBy,
-    updatedAt: new Date(),
-  } as Partial<T>;
-}

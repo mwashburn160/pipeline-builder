@@ -11,3 +11,4 @@ export * from './organization-members.controller';
 export * from './invitation.controller';
 export * from './plugin.controller';
 export * from './pipeline.controller';
+export * from './log.controller';

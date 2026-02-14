@@ -26,8 +26,8 @@ export default function OrganizationsPage() {
         const response = await api.listOrganizations();
         const orgList = response.organizations || response.data?.organizations || [];
         setOrganizations(orgList);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load organizations');
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'Failed to load organizations');
       } finally {
         setIsLoading(false);
       }
@@ -45,8 +45,8 @@ export default function OrganizationsPage() {
       await api.deleteOrganization(deleteTarget.id);
       setOrganizations(organizations.filter(o => o.id !== deleteTarget.id));
       setDeleteTarget(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete organization');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete organization');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);

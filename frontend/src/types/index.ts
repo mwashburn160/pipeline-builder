@@ -61,12 +61,19 @@ export interface QuotaSummary {
 export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls';
 
 /**
+ * Quota tier identifiers.
+ * Source of truth: packages/api-core/src/types/quota-tiers.ts
+ */
+export type QuotaTier = 'developer' | 'pro' | 'unlimited';
+
+/**
  * Unified org quota response (matches backend OrgQuotaResponse)
  */
 export interface OrgQuotaResponse {
   orgId: string;
   name: string;
   slug: string;
+  tier?: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   isDefault?: boolean;
 }
@@ -215,6 +222,24 @@ export interface Invitation {
   organizationName: string;
   expiresAt: string;
   createdAt: string;
+}
+
+/**
+ * Log entry from Loki
+ */
+export interface LogEntry {
+  timestamp: string;
+  line: string;
+  labels: Record<string, string>;
+  parsed: Record<string, unknown>;
+}
+
+/**
+ * Log query result from platform API
+ */
+export interface LogQueryResult {
+  entries: LogEntry[];
+  stats: { entriesReturned: number; query: string };
 }
 
 /**

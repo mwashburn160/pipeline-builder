@@ -49,36 +49,6 @@ export function createProtectedRoute(
 }
 
 /**
- * Creates a middleware chain for authenticated routes requiring only JWT validation.
- *
- * Applies middleware in order:
- * 1. authenticateToken - Validates JWT and extracts user identity
- *
- * Use this for routes that don't require quota checks or org ID validation.
- *
- * @param sseManager - SSE manager for request context logging
- * @returns Array of middleware handlers ready to spread into route definition
- *
- * @example
- * ```typescript
- * router.get('/profile',
- *   ...createAuthenticatedRoute(sseManager),
- *   async (req, res) => {
- *     // Handler implementation
- *   }
- * );
- * ```
- */
-export function createAuthenticatedRoute(sseManager: SSEManager): RequestHandler[] {
-  // Note: sseManager is kept in signature for consistency, though not currently used
-  // May be used for SSE-based logging in future
-  void sseManager;
-  return [
-    authenticateToken as RequestHandler,
-  ];
-}
-
-/**
  * Creates a middleware chain for authenticated routes with org ID requirement but no quota check.
  *
  * Applies middleware in order:
@@ -105,26 +75,4 @@ export function createAuthenticatedWithOrgRoute(sseManager: SSEManager): Request
     authenticateToken as RequestHandler,
     requireOrgId(sseManager) as RequestHandler,
   ];
-}
-
-/**
- * Creates an empty middleware chain for public routes.
- *
- * Returns an empty array for consistency with other factory functions.
- * Use this for routes that don't require authentication.
- *
- * @returns Empty array of middleware handlers
- *
- * @example
- * ```typescript
- * router.get('/health',
- *   ...createPublicRoute(),
- *   async (req, res) => {
- *     res.json({ status: 'healthy' });
- *   }
- * );
- * ```
- */
-export function createPublicRoute(): RequestHandler[] {
-  return [];
 }

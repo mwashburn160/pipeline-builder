@@ -65,6 +65,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
       if (isSystemOrg) {
         orgData._id = 'system';
+        orgData.tier = 'unlimited';
         orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
       }
 
@@ -85,8 +86,8 @@ export async function register(req: Request, res: Response): Promise<void> {
     });
 
     res.status(201).json({ success: true, statusCode: 201, data: { user: result } });
-  } catch (err) {
-    handleControllerError(res, err, 'Registration failed', registerErrorMap);
+  } catch (error) {
+    handleControllerError(res, error, 'Registration failed', registerErrorMap);
   } finally {
     await session.endSession();
   }
@@ -114,8 +115,8 @@ export async function login(req: Request, res: Response): Promise<void> {
     const tokens = await issueTokens(user);
 
     res.json({ success: true, statusCode: 200, data: tokens });
-  } catch (err) {
-    logger.error('Login Error', err);
+  } catch (error) {
+    logger.error('Login Error', error);
     return sendError(res, 500, 'Login failed');
   }
 }
@@ -162,8 +163,8 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     const tokens = await issueTokens(user);
 
     res.json({ success: true, statusCode: 200, data: tokens });
-  } catch (err) {
-    logger.error('Refresh Error', err);
+  } catch (error) {
+    logger.error('Refresh Error', error);
     return sendError(res, 500, 'Renewal failed');
   }
 }
@@ -185,7 +186,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
     );
 
     res.json({ success: true, statusCode: 200, message: 'Logged out' });
-  } catch (err) {
+  } catch (error) {
     return sendError(res, 500, 'Logout failed');
   }
 }

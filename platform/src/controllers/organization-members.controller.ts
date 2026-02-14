@@ -81,8 +81,8 @@ export async function getOrganizationMembers(req: Request, res: Response): Promi
       members,
       total: members.length,
     });
-  } catch (err) {
-    logger.error('[GET ORG MEMBERS] Error:', err);
+  } catch (error) {
+    logger.error('[GET ORG MEMBERS] Error:', error);
     return sendError(res, 500, 'Error fetching organization members');
   }
 }
@@ -138,8 +138,8 @@ export async function addMemberToOrganization(req: Request, res: Response): Prom
 
     logger.info(`[ADD MEMBER TO ORG] User added to Org ${id} by ${admin.adminType} ${req.user!.sub}`);
     res.json({ success: true, statusCode: 200, message: 'Member added successfully' });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       ORG_NOT_FOUND: { status: 404, message: 'Organization not found' },
       USER_NOT_FOUND: { status: 404, message: 'User not found' },
       ALREADY_MEMBER: { status: 400, message: 'User is already a member of this organization' },
@@ -195,8 +195,8 @@ export async function removeMemberFromOrganization(req: Request, res: Response):
 
     logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
     res.json({ success: true, statusCode: 200, message: 'Member removed successfully' });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       ORG_NOT_FOUND: { status: 404, message: 'Organization not found' },
       USER_NOT_FOUND: { status: 404, message: 'User not found' },
       NOT_A_MEMBER: { status: 400, message: 'User is not a member of this organization' },
@@ -259,8 +259,8 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
       message: 'Member role updated successfully',
       user: { id: user._id.toString(), username: user.username, email: user.email, role: user.role },
     });
-  } catch (err) {
-    logger.error('[UPDATE MEMBER ROLE] Error:', err);
+  } catch (error) {
+    logger.error('[UPDATE MEMBER ROLE] Error:', error);
     return sendError(res, 500, 'Failed to update member role');
   }
 }
@@ -314,8 +314,8 @@ export async function transferOrganizationOwnership(req: Request, res: Response)
     const adminType = isSysAdmin ? 'system admin' : 'org owner';
     logger.info(`[TRANSFER ORG OWNERSHIP] Org ${id} ownership transferred to ${newOwnerId} by ${adminType} ${req.user!.sub}`);
     res.json({ success: true, statusCode: 200, message: 'Ownership transferred successfully' });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       ORG_NOT_FOUND: { status: 404, message: 'Organization not found' },
       USER_NOT_FOUND: { status: 404, message: 'User not found' },
       NEW_OWNER_MUST_BE_MEMBER: { status: 400, message: 'New owner must be a member of the organization' },

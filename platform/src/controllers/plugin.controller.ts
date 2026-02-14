@@ -74,9 +74,9 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
     });
 
     res.json({ success: true, statusCode: 200, ...result });
-  } catch (err) {
-    logger.error('[LIST PLUGINS] Failed:', err);
-    handleError(res, err, 'list plugins');
+  } catch (error) {
+    logger.error('[LIST PLUGINS] Failed:', error);
+    handleError(res, error, 'list plugins');
   }
 }
 
@@ -109,9 +109,9 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
     });
 
     sendSuccess(res, 200, plugin);
-  } catch (err) {
-    logger.error('[GET PLUGIN] Failed:', err);
-    handleError(res, err, 'get plugin');
+  } catch (error) {
+    logger.error('[GET PLUGIN] Failed:', error);
+    handleError(res, error, 'get plugin');
   }
 }
 
@@ -145,9 +145,9 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
     });
 
     sendSuccess(res, 200, plugin);
-  } catch (err) {
-    logger.error('[GET PLUGIN] Search failed:', err);
-    handleError(res, err, 'get plugin');
+  } catch (error) {
+    logger.error('[GET PLUGIN] Search failed:', error);
+    handleError(res, error, 'get plugin');
   }
 }
 
@@ -209,8 +209,8 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
         createdBy: result.createdBy,
       },
     });
-  } catch (err) {
-    logger.error('[CREATE PLUGIN] Upload failed:', err);
-    handleError(res, err, 'upload plugin');
+  } catch (error) {
+    logger.error('[CREATE PLUGIN] Upload failed:', error);
+    handleError(res, error, 'upload plugin');
   }
 }

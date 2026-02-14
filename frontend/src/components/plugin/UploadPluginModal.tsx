@@ -63,11 +63,11 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
         onUploaded();
         setTimeout(() => onClose(), 2000);
       }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
         setError('Upload timed out. Please try again with a smaller file or check your connection.');
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to upload plugin');
+        setError(error instanceof Error ? error.message : 'Failed to upload plugin');
       }
     } finally {
       clearTimeout(timeoutId);

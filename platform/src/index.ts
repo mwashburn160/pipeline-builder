@@ -22,7 +22,7 @@ import mongoose from 'mongoose';
 
 import { config } from './config';
 import { isAuthenticated, notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes } from './routes';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes, logRoutes } from './routes';
 
 const logger = createLogger('platform-api');
 
@@ -143,6 +143,7 @@ app.use('/organizations', organizationsRoutes);
 app.use('/invitation', invitationRoutes);
 app.use('/plugin', pluginRoutes);
 app.use('/pipeline', pipelineRoutes);
+app.use('/logs', logRoutes);
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);

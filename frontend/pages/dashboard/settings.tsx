@@ -50,8 +50,8 @@ export default function SettingsPage() {
       await api.updateProfile(updates);
       await refreshUser();
       setProfileSuccess('Profile updated successfully');
-    } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Failed to update profile');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Failed to update profile');
     } finally {
       setProfileLoading(false);
     }
@@ -80,8 +80,8 @@ export default function SettingsPage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Failed to change password');
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'Failed to change password');
     } finally {
       setPasswordLoading(false);
     }
@@ -92,8 +92,8 @@ export default function SettingsPage() {
     try {
       await api.deleteAccount();
       window.location.href = '/auth/login';
-    } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Failed to delete account');
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'Failed to delete account');
       setShowDeleteConfirm(false);
     } finally {
       setDeleteLoading(false);

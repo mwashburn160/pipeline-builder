@@ -66,7 +66,7 @@ export function createHealthCheck(options: HealthCheckOptions) {
           res.status(503).json(response);
           return;
         }
-      } catch (err) {
+      } catch (error) {
         response.status = 'unhealthy';
         response.dependencies = { check: 'disconnected' };
         res.status(503).json(response);

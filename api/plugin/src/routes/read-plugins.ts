@@ -33,6 +33,8 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
       const filter = validateFilter(req);
@@ -50,12 +52,12 @@ export function createReadPluginRoutes(
       // Use service with built-in pagination and sorting
       const result = await pluginService.findPaginated(
         effectiveFilter,
-        ctx.identity.orgId!,
+        orgId,
         { limit, offset, sortBy, sortOrder },
       );
 
       ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, total: result.total });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({
         success: true,
@@ -78,6 +80,8 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
       const filter = validateFilter(req);
@@ -88,13 +92,13 @@ export function createReadPluginRoutes(
         ? { ...filter.value, accessModifier: 'private' as const }
         : filter.value;
 
-      const plugins = await pluginService.find(effectiveFilter, ctx.identity.orgId!);
+      const plugins = await pluginService.find(effectiveFilter, orgId);
       const result = plugins[0];
 
       if (!result) return sendPluginNotFound(res);
 
       ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
     } catch (error) {
@@ -107,12 +111,14 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
     const ctx = req.context!;
+    const orgId = ctx.identity.orgId;
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
     try {
-      const result = await pluginService.findById(id, ctx.identity.orgId!);
+      const result = await pluginService.findById(id, orgId);
 
       if (!result) return sendPluginNotFound(res);
 
@@ -122,7 +128,7 @@ export function createReadPluginRoutes(
       }
 
       ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-      void quotaService.increment(ctx.identity.orgId!, 'apiCalls', req.headers.authorization || '');
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
     } catch (error) {

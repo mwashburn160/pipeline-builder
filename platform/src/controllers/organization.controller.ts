@@ -14,6 +14,7 @@ import {
   QuotaType,
 } from '../middleware/quota.middleware';
 import { Organization, User } from '../models';
+import type { QuotaTier } from '../models/organization.model';
 import { validateBody } from '../utils/auth-utils';
 import { updateOrganizationSchema, updateQuotasSchema } from '../validation/schemas';
 
@@ -46,10 +47,29 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
   if (!requireSystemAdmin(req, res)) return;
 
   try {
-    const organizations = await Organization.find()
-      .populate('owner', 'username email')
-      .sort({ createdAt: -1 })
-      .lean();
+    const { search, page = '1', limit = '20' } = req.query;
+
+    const filter: Record<string, unknown> = {};
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { slug: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [organizations, total] = await Promise.all([
+      Organization.find(filter)
+        .populate('owner', 'username email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Organization.countDocuments(filter),
+    ]);
 
     const orgsWithCount = organizations.map(org => ({
       id: org._id.toString(),
@@ -62,9 +82,17 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       updatedAt: org.updatedAt,
     }));
 
-    res.json({ success: true, statusCode: 200, organizations: orgsWithCount });
-  } catch (err) {
-    logger.error('[LIST ORGS] Fetch Error:', err);
+    res.json({
+      success: true,
+      statusCode: 200,
+      organizations: orgsWithCount,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+    });
+  } catch (error) {
+    logger.error('[LIST ORGS] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organizations');
   }
 }
@@ -107,8 +135,8 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
         updatedAt: org.updatedAt,
       },
     });
-  } catch (err) {
-    logger.error('[GET ORG BY ID] Fetch Error:', err);
+  } catch (error) {
+    logger.error('[GET ORG BY ID] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organization');
   }
 }
@@ -148,8 +176,8 @@ export async function updateOrganization(req: Request, res: Response): Promise<v
         description: org.description || '',
       },
     });
-  } catch (err) {
-    logger.error('[UPDATE ORG] Update Error:', err);
+  } catch (error) {
+    logger.error('[UPDATE ORG] Update Error:', error);
     return sendError(res, 500, 'Error updating organization');
   }
 }
@@ -182,11 +210,11 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
 
     logger.info(`[DELETE ORG] Organization ${id} deleted by system admin ${req.user!.sub}`);
     res.json({ success: true, statusCode: 200, message: 'Organization deleted successfully' });
-  } catch (err) {
-    if (err instanceof Error && err.message === 'ORG_NOT_FOUND') {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'ORG_NOT_FOUND') {
       return sendError(res, 404, 'Organization not found');
     }
-    logger.error('[DELETE ORG] Failed:', err);
+    logger.error('[DELETE ORG] Failed:', error);
     return sendError(res, 500, 'Failed to delete organization');
   } finally {
     await session.endSession();
@@ -214,6 +242,8 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
     }
 
     const authHeader = req.headers.authorization || '';
+    const tierKey = (org.tier || 'developer') as QuotaTier;
+    const tierConfig = config.quota.tier[tierKey];
     const quotaTypes = ['plugins', 'pipelines', 'apiCalls'] as const;
     const quotas: Record<string, { used: number; limit: number | string; remaining: number | string; resetAt: Date; resetPeriod: string; unlimited: boolean }> = {};
 
@@ -227,7 +257,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
           limit: formatQuotaValue(quotaStatus.limit),
           remaining: formatQuotaValue(quotaStatus.remaining),
           resetAt: quotaStatus.resetAt,
-          resetPeriod: config.quota.resetPeriod?.[type] || '3days',
+          resetPeriod: tierConfig.resetPeriod[type],
           unlimited: quotaStatus.unlimited,
         };
       } else {
@@ -239,15 +269,15 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
           limit: formatQuotaValue(limit),
           remaining: formatQuotaValue(limit === -1 ? -1 : Math.max(0, limit - used)),
           resetAt: org.usage?.[type]?.resetAt || new Date(),
-          resetPeriod: config.quota.resetPeriod?.[type] || '3days',
+          resetPeriod: tierConfig.resetPeriod[type],
           unlimited: limit === -1,
         };
       }
     }
 
     res.json({ success: true, statusCode: 200, quotas });
-  } catch (err) {
-    logger.error('[GET ORG QUOTAS] Fetch Error:', err);
+  } catch (error) {
+    logger.error('[GET ORG QUOTAS] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organization quotas');
   }
 }
@@ -289,10 +319,11 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
     if (!serviceUpdated) {
       // Fallback: Update organization directly in MongoDB
       if (!org.quotas) {
+        const tierLimits = config.quota.tier[org.tier || 'developer'];
         org.quotas = {
-          plugins: config.quota.organization.plugins,
-          pipelines: config.quota.organization.pipelines,
-          apiCalls: config.quota.organization.apiCalls,
+          plugins: tierLimits.plugins,
+          pipelines: tierLimits.pipelines,
+          apiCalls: tierLimits.apiCalls,
         };
       }
 
@@ -324,8 +355,8 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
         apiCalls: { limit: formatQuotaValue(finalQuotas.apiCalls), unlimited: finalQuotas.apiCalls === -1 },
       },
     });
-  } catch (err) {
-    logger.error('[UPDATE ORG QUOTAS] Update Error:', err);
+  } catch (error) {
+    logger.error('[UPDATE ORG QUOTAS] Update Error:', error);
     return sendError(res, 500, 'Error updating organization quotas');
   }
 }
@@ -356,8 +387,8 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
     }
 
     res.json({ success: true, statusCode: 200, organization: org });
-  } catch (err) {
-    logger.error('[GET ORG] Fetch Error:', err);
+  } catch (error) {
+    logger.error('[GET ORG] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organization');
   }
 }

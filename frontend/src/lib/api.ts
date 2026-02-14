@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, LogQueryResult } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -742,6 +742,25 @@ class ApiClient {
     return this.request<ApiResponse<{ invitation: unknown }>>(`/api/invitation/${invitationId}/resend`, {
       method: 'POST',
     });
+  }
+
+  // ============================================
+  // Log endpoints
+  // ============================================
+
+  async getLogs(params?: { service?: string; level?: string; search?: string; start?: string; end?: string; limit?: number; direction?: string }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<ApiResponse<LogQueryResult>>(`/api/logs${query}`);
+  }
+
+  async getLogServices() {
+    return this.request<ApiResponse<{ services: string[] }>>('/api/logs/services');
+  }
+
+  async getLogLevels() {
+    return this.request<ApiResponse<{ levels: string[] }>>('/api/logs/levels');
   }
 }
 

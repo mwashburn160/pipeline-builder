@@ -8,6 +8,7 @@
  * console.log(config.app.port); // 3000
  */
 
+import { QUOTA_TIERS } from '@mwashburn160/api-core';
 import { Algorithm } from 'jsonwebtoken';
 
 /**
@@ -122,17 +123,20 @@ export const config = {
     bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
     // Default window in milliseconds (60 seconds)
     defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
-    // Organization quota defaults
-    organization: {
-      plugins: parseInt(process.env.QUOTA_ORG_PLUGINS_DEFAULT || '100'),
-      pipelines: parseInt(process.env.QUOTA_ORG_PIPELINES_DEFAULT || '50'),
-      apiCalls: parseInt(process.env.QUOTA_ORG_API_CALLS_DEFAULT || '10000'),
-    },
-    // Reset periods for organization quotas (hourly, daily, weekly, monthly, or Ndays e.g. '3days')
-    resetPeriod: {
-      plugins: process.env.QUOTA_RESET_PERIOD_PLUGINS || '3days',
-      pipelines: process.env.QUOTA_RESET_PERIOD_PIPELINES || '3days',
-      apiCalls: process.env.QUOTA_RESET_PERIOD_API_CALLS || '3days',
+    // Quota tier presets (each tier defines its own limits and reset periods)
+    tier: {
+      developer: {
+        ...QUOTA_TIERS.developer.limits,
+        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days' },
+      },
+      pro: {
+        ...QUOTA_TIERS.pro.limits,
+        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days' },
+      },
+      unlimited: {
+        ...QUOTA_TIERS.unlimited.limits,
+        resetPeriod: { plugins: '30days', pipelines: '30days', apiCalls: '30days' },
+      },
     },
     // Pipeline quotas
     pipeline: {
@@ -156,6 +160,10 @@ export const config = {
         windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
       },
     },
+  },
+  loki: {
+    url: process.env.LOKI_URL || 'http://loki:3100',
+    timeout: parseInt(process.env.LOKI_TIMEOUT || '10000'),
   },
 } as const;
 

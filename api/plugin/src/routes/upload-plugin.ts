@@ -73,7 +73,8 @@ export function createUploadPluginRoutes(
           return sendError(res, 403, 'Only administrators can upload plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
-        const orgId = ctx.identity.orgId!.toLowerCase();
+        if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+        const orgId = ctx.identity.orgId.toLowerCase();
         const validation = validateBody(req, PluginUploadBodySchema);
         if (!validation.ok) {
           return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -189,10 +190,10 @@ export function createUploadPluginRoutes(
         return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
       } finally {
         if (zipPath && fs.existsSync(zipPath)) {
-          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
+          try { fs.unlinkSync(zipPath); } catch (error) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(error) }); }
         }
         if (extractDir && fs.existsSync(extractDir)) {
-          try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (err) { logger.debug('Temp dir cleanup failed', { path: extractDir, error: String(err) }); }
+          try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (error) { logger.debug('Temp dir cleanup failed', { path: extractDir, error: String(error) }); }
         }
       }
     },

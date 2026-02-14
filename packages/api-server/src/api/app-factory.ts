@@ -1,10 +1,19 @@
 import { authenticateToken, requireAdmin } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
-import express, { Express, Request, Response } from 'express';
+import express, { Express, NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import { v4 as uuidv4 } from 'uuid';
 import { SSEManager } from '../http/sse-connection-manager';
+
+declare global {
+  namespace Express {
+    interface Request {
+      requestId?: string;
+    }
+  }
+}
 
 /**
  * Options for creating an Express application
@@ -105,6 +114,13 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
   app.set('trust proxy', config.server.trustProxy);
 
+  // Request ID — prefer existing header from nginx, otherwise generate one
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    req.requestId = (req.headers['x-request-id'] as string) || uuidv4();
+    res.setHeader('X-Request-Id', req.requestId);
+    next();
+  });
+
   // Health check registered before rate limiter so load balancers are never throttled
   if (!skipDefaultHealthCheck) {
     app.get('/health', async (_req: Request, res: Response) => {
@@ -138,6 +154,21 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     });
     app.use(limiter);
   }
+
+  // Request timeout
+  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000', 10);
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setTimeout(timeoutMs, () => {
+      if (!res.headersSent) {
+        res.status(503).json({
+          success: false,
+          statusCode: 503,
+          message: 'Request timeout',
+        });
+      }
+    });
+    next();
+  });
 
   // Metrics endpoint requires admin authentication
   if (!skipDefaultHealthCheck) {

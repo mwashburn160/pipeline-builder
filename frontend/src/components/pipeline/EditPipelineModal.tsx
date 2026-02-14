@@ -125,8 +125,8 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
         onSaved();
         setTimeout(() => onClose(), 1500);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update pipeline');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to update pipeline');
     } finally {
       setLoading(false);
     }

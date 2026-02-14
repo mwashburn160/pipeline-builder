@@ -27,7 +27,7 @@ async function notifyInviter(invitation: IInvitation, user: IUser, org: IOrganiz
       inviter.username,
       user.username,
       org.name,
-    ).catch(err => logger.error('Failed to send acceptance notification:', err));
+    ).catch(error => logger.error('Failed to send acceptance notification:', error));
   }
 }
 
@@ -168,8 +168,8 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         allowedOAuthProviders: result?.allowedOAuthProviders,
       },
     });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
       UNAUTHORIZED: { status: 403, message: 'You are not authorized to send invitations' },
       ALREADY_MEMBER: { status: 400, message: 'User is already a member of this organization' },
@@ -250,8 +250,8 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
     });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation accepted successfully' });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
       INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
       INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
@@ -359,8 +359,8 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
     });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation accepted successfully via OAuth' });
-  } catch (err) {
-    handleTransactionError(res, err, {
+  } catch (error) {
+    handleTransactionError(res, error, {
       INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
       INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
       INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
@@ -421,8 +421,8 @@ export async function getInvitation(req: Request, res: Response): Promise<void> 
         canAcceptViaGoogle: invitation.canAcceptViaOAuth('google'),
       },
     });
-  } catch (err) {
-    logger.error('[GET INVITATION] Failed:', err);
+  } catch (error) {
+    logger.error('[GET INVITATION] Failed:', error);
     return sendError(res, 500, 'Failed to get invitation');
   }
 }
@@ -469,8 +469,8 @@ export async function listInvitations(req: Request, res: Response): Promise<void
         pages: Math.ceil(total / Number(limit)),
       },
     });
-  } catch (err) {
-    logger.error('[LIST INVITATIONS] Failed:', err);
+  } catch (error) {
+    logger.error('[LIST INVITATIONS] Failed:', error);
     return sendError(res, 500, 'Failed to list invitations');
   }
 }
@@ -506,8 +506,8 @@ export async function revokeInvitation(req: Request, res: Response): Promise<voi
     logger.info('[REVOKE INVITATION] Invitation revoked', { invitationId, revokedBy: req.user!.sub });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation revoked successfully' });
-  } catch (err) {
-    logger.error('[REVOKE INVITATION] Failed:', err);
+  } catch (error) {
+    logger.error('[REVOKE INVITATION] Failed:', error);
     return sendError(res, 500, 'Failed to revoke invitation');
   }
 }
@@ -559,8 +559,8 @@ export async function resendInvitation(req: Request, res: Response): Promise<voi
     logger.info('[RESEND INVITATION] Invitation resent', { invitationId, email: invitation.email });
 
     res.json({ success: true, statusCode: 200, message: 'Invitation resent successfully', expiresAt: invitation.expiresAt });
-  } catch (err) {
-    logger.error('[RESEND INVITATION] Failed:', err);
+  } catch (error) {
+    logger.error('[RESEND INVITATION] Failed:', error);
     return sendError(res, 500, 'Failed to resend invitation');
   }
 }

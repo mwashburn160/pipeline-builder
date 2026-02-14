@@ -40,8 +40,8 @@ export default function RegisterPage() {
       await register(username, email, password, organizationName || undefined);
       setSuccess(true);
       setTimeout(() => router.push('/auth/login'), 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Registration failed. Please try again.');
     }
   };
 

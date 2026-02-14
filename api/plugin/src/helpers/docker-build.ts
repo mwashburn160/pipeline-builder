@@ -158,7 +158,7 @@ function setupBuilder(
   try {
     dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME], 'ignore');
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch (err) { logger.debug('No stale builder to clean up', { error: String(err) }); }
+  } catch (error) { logger.debug('No stale builder to clean up', { error: String(error) }); }
 
   logger.info('Creating buildx builder', { name: BUILDER_NAME, network });
 
@@ -175,5 +175,5 @@ function teardownBuilder(configDir: string, network: string): void {
   if (!network) return;
   try {
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch (err) { logger.debug('Builder teardown skipped', { error: String(err) }); }
+  } catch (error) { logger.debug('Builder teardown skipped', { error: String(error) }); }
 }

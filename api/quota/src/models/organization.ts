@@ -3,6 +3,7 @@
  * @description Mongoose schema and model for organizations with quota tracking.
  */
 
+import type { QuotaTier } from '@mwashburn160/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config';
 import { getNextResetDate } from '../helpers/quota-helpers';
@@ -28,10 +29,13 @@ export interface QuotaUsageTracking {
   apiCalls: QuotaUsage;
 }
 
+export type { QuotaTier };
+
 export interface IOrganization extends Document {
   _id: string;
   name: string;
   slug: string;
+  tier: QuotaTier;
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
 }
@@ -55,6 +59,7 @@ const organizationSchema = new Schema<IOrganization>(
     _id: { type: Schema.Types.Mixed },
     name: { type: String, required: true },
     slug: { type: String, required: true },
+    tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
     quotas: {
       plugins: { type: Number, default: config.quota.defaults.plugins },
       pipelines: { type: Number, default: config.quota.defaults.pipelines },

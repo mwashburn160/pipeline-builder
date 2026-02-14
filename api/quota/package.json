@@ -36,16 +36,17 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.18.5",
-    "@mwashburn160/api-server": "1.17.1",
-    "@mwashburn160/pipeline-core": "1.19.5",
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-server": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",
     "helmet": "8.1.0",
     "jsonwebtoken": "9.0.3",
     "mongoose": "8.15.1",
-    "winston": "3.17.0"
+    "winston": "3.17.0",
+    "zod": "3.24.4"
   },
   "engines": {
     "node": ">= 24.9.0"
@@ -54,7 +55,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.12.6",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
