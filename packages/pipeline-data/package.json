@@ -33,7 +33,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.19.4",
+    "@mwashburn160/api-core": "1.19.5",
     "drizzle-orm": "0.45.1",
     "pg": "8.16.3"
   },
@@ -42,7 +42,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.20.5",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

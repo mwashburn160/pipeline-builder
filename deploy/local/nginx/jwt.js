@@ -1,28 +1,53 @@
 var crypto = require('crypto');
 
 /**
+ * Extract a named cookie value from the Cookie header.
+ */
+function parse_cookie(r, name) {
+    var cookie = r.headersIn['Cookie'];
+    if (!cookie) return null;
+
+    var prefix = name + '=';
+    var parts = cookie.split(';');
+    for (var i = 0; i < parts.length; i++) {
+        var part = parts[i].trim();
+        if (part.indexOf(prefix) === 0) {
+            return part.substring(prefix.length);
+        }
+    }
+    return null;
+}
+
+/**
  * Internal Helper: Verifies and decodes the token once.
+ * Checks Authorization header first, then falls back to grafana_token cookie.
  */
 function get_payload(r) {
     var rid = r.variables.request_id || 'unknown';
-    var auth = r.headersIn['Authorization'];
+    var token = null;
 
-    if (!auth || !auth.startsWith("Bearer ")) {
-        return null;
+    // 1. Try Authorization header
+    var auth = r.headersIn['Authorization'];
+    if (auth && auth.startsWith("Bearer ")) {
+        token = auth.substring(7).trim();
     }
 
-    var token = auth.substring(7).trim();
-    if (token.length === 0) return null;
+    // 2. Fall back to grafana_token cookie
+    if (!token) {
+        token = parse_cookie(r, 'grafana_token');
+    }
 
-    // 1. Verify Signature
+    if (!token || token.length === 0) return null;
+
+    // 3. Verify Signature
     if (!verify_token(r, token)) return null;
 
     try {
-        // 2. Decode Payload
+        // 4. Decode Payload
         var payloadB64 = token.split('.')[1];
         var payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
 
-        // 3. Validate Expiry/Timing
+        // 5. Validate Expiry/Timing
         if (!validate_timing(r, payload)) return null;
 
         return payload;
@@ -78,4 +103,10 @@ function get_role(r) {
     return payload.role || "";
 }
 
-export default { get_org_id, get_user_id, get_role };
+function get_username(r) {
+    var payload = get_payload(r);
+    if (!payload) return "";
+    return payload.username || payload.email || "";
+}
+
+export default { get_org_id, get_user_id, get_role, get_username };

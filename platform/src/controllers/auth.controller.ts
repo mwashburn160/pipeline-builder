@@ -114,6 +114,9 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     const tokens = await issueTokens(user);
 
+    res.cookie('grafana_token', tokens.accessToken, {
+      httpOnly: true, sameSite: 'lax', path: '/', maxAge: tokens.expiresIn * 1000,
+    });
     res.json({ success: true, statusCode: 200, data: tokens });
   } catch (error) {
     logger.error('Login Error', error);
@@ -162,6 +165,9 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
     const tokens = await issueTokens(user);
 
+    res.cookie('grafana_token', tokens.accessToken, {
+      httpOnly: true, sameSite: 'lax', path: '/', maxAge: tokens.expiresIn * 1000,
+    });
     res.json({ success: true, statusCode: 200, data: tokens });
   } catch (error) {
     logger.error('Refresh Error', error);
@@ -185,6 +191,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
       { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
     );
 
+    res.clearCookie('grafana_token', { httpOnly: true, sameSite: 'lax', path: '/' });
     res.json({ success: true, statusCode: 200, message: 'Logged out' });
   } catch (error) {
     return sendError(res, 500, 'Logout failed');
