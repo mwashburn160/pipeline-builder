@@ -1,0 +1,85 @@
+---
+# =============================================================================
+# pgAdmin Service (PostgreSQL Admin UI)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgadmin
+  namespace: pipeline-builder
+  labels:
+    app: pgadmin
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30480
+      protocol: TCP
+      name: http
+  selector:
+    app: pgadmin
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgadmin-data
+  namespace: pipeline-builder
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 500Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgadmin
+  namespace: pipeline-builder
+  labels:
+    app: pgadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgadmin
+  template:
+    metadata:
+      labels:
+        app: pgadmin
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Postgres ready"
+      containers:
+        - name: pgadmin
+          image: dpage/pgadmin4:8
+          ports:
+            - containerPort: 80
+              name: http
+          envFrom:
+            - secretRef:
+                name: admin-secrets
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+            requests:
+              cpu: "200m"
+              memory: 256Mi
+          volumeMounts:
+            - name: pgadmin-data
+              mountPath: /var/lib/pgadmin
+      volumes:
+        - name: pgadmin-data
+          persistentVolumeClaim:
+            claimName: pgadmin-data

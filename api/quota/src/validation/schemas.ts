@@ -4,8 +4,7 @@
  */
 
 import { z } from 'zod';
-
-const VALID_QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls'] as const;
+import { VALID_QUOTA_TYPES } from '../helpers/quota-helpers';
 const VALID_TIERS = ['developer', 'pro', 'unlimited'] as const;
 
 const quotaLimit = z.number().int().min(-1);

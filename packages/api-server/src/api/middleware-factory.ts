@@ -44,7 +44,7 @@ export function createProtectedRoute(
   return [
     authenticateToken as RequestHandler,
     requireOrgId(sseManager) as RequestHandler,
-    checkQuota(quotaService, sseManager, quotaType) as RequestHandler,
+    checkQuota(quotaService, quotaType) as RequestHandler,
   ];
 }
 

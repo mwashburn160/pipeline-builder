@@ -105,8 +105,8 @@ export class SSEManager {
       this.removeClient(requestId, clientId);
       try {
         res.end();
-      } catch {
-        // Response may already be closed
+      } catch (err) {
+        log.debug('Response already closed on timeout', { requestId, clientId, error: err instanceof Error ? err.message : String(err) });
       }
     }, this.clientTimeoutMs);
 
@@ -226,8 +226,8 @@ export class SSEManager {
       clearTimeout(client.timeout);
       try {
         client.res.end();
-      } catch {
-        // Response may already be closed
+      } catch (err) {
+        log.debug('Response already closed on request close', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
@@ -284,8 +284,15 @@ export class SSEManager {
    * ```
    */
   middleware() {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     return (req: { params: { requestId: string } }, res: Response) => {
       const { requestId } = req.params;
+
+      if (!UUID_RE.test(requestId)) {
+        res.status(400).end('Invalid requestId format');
+        return;
+      }
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -327,8 +334,8 @@ export class SSEManager {
           this.removeClient(requestId, client.id);
           try {
             client.res.end();
-          } catch {
-            // Response may already be closed
+          } catch (err) {
+            log.debug('Response already closed during cleanup', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
           }
           cleaned++;
         }

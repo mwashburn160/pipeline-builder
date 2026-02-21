@@ -68,7 +68,5 @@ export class FrontEndProject extends NextJsProject {
      * Runs after synthesis to clean up test directories.
      * Next.js test configuration is handled separately.
      */
-    postSynthesize(): void {
-        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
-    }
+    postSynthesize(): void {}
 }

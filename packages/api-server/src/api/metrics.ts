@@ -14,8 +14,8 @@
  * ```
  */
 
-import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 import { Request, Response, NextFunction } from 'express';
+import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 const SERVICE_NAME = process.env.SERVICE_NAME || 'unknown';
 

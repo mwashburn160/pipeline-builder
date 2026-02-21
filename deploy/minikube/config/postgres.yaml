@@ -1,0 +1,230 @@
+---
+# =============================================================================
+# PostgreSQL Init Script ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: pipeline-builder
+data:
+  init.sql: |
+    -- ============================================================================
+    -- Complete Database Schema for pipeline_builder
+    -- ============================================================================
+
+    \connect pipeline_builder
+
+    -- Create update trigger function
+    CREATE OR REPLACE FUNCTION update_modified_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+    END;
+    $$ LANGUAGE 'plpgsql';
+
+    -- PLUGINS TABLE
+    CREATE TABLE IF NOT EXISTS plugins (
+        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id              VARCHAR(100) NOT NULL DEFAULT 'system',
+        created_by          VARCHAR(100) NOT NULL DEFAULT 'system',
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_by          VARCHAR(100) NOT NULL DEFAULT 'system',
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        name                VARCHAR(150) NOT NULL,
+        description         TEXT,
+        keywords            JSONB NOT NULL DEFAULT '{}',
+        version             VARCHAR(20) NOT NULL DEFAULT '1.0.0',
+        metadata            JSONB NOT NULL DEFAULT '{}',
+        plugin_type              VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
+        compute_type             VARCHAR(20) NOT NULL DEFAULT 'SMALL',
+        dockerfile               TEXT,
+        primary_output_directory VARCHAR(28),
+        env                 JSONB NOT NULL DEFAULT '{}',
+        install_commands    VARCHAR(512)[] NOT NULL DEFAULT '{}',
+        commands            VARCHAR(512)[] NOT NULL DEFAULT '{}',
+        image_tag           VARCHAR(128) NOT NULL UNIQUE,
+        access_modifier     VARCHAR(10) NOT NULL DEFAULT 'public'
+                            CHECK (access_modifier IN ('public', 'private')),
+        is_default          BOOLEAN NOT NULL DEFAULT false,
+        is_active           BOOLEAN NOT NULL DEFAULT true,
+        deleted_at          TIMESTAMPTZ,
+        deleted_by          VARCHAR(100)
+    );
+
+    -- PIPELINES TABLE
+    CREATE TABLE IF NOT EXISTS pipelines (
+        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id              VARCHAR(100) NOT NULL DEFAULT 'system',
+        created_by          VARCHAR(100) NOT NULL DEFAULT 'system',
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_by          VARCHAR(100) NOT NULL DEFAULT 'system',
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        project             VARCHAR(100) NOT NULL,
+        organization        VARCHAR(100) NOT NULL,
+        description         TEXT,
+        keywords            JSONB NOT NULL DEFAULT '[]',
+        props               JSONB NOT NULL DEFAULT '{}',
+        access_modifier     VARCHAR(10) NOT NULL DEFAULT 'public'
+                            CHECK (access_modifier IN ('public', 'private')),
+        is_default          BOOLEAN NOT NULL DEFAULT false,
+        is_active           BOOLEAN NOT NULL DEFAULT true,
+        deleted_at          TIMESTAMPTZ,
+        deleted_by          VARCHAR(100)
+    );
+
+    -- Add missing columns to existing tables (idempotent)
+    ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
+    ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile VARCHAR(100);
+    ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);
+    ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
+
+    -- Triggers
+    DROP TRIGGER IF EXISTS update_plugins_modtime ON plugins;
+    CREATE TRIGGER update_plugins_modtime
+        BEFORE UPDATE ON plugins
+        FOR EACH ROW
+        EXECUTE PROCEDURE update_modified_column();
+
+    DROP TRIGGER IF EXISTS update_pipelines_modtime ON pipelines;
+    CREATE TRIGGER update_pipelines_modtime
+        BEFORE UPDATE ON pipelines
+        FOR EACH ROW
+        EXECUTE PROCEDURE update_modified_column();
+
+    -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_plugins_org_id ON plugins(org_id) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(name) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_name_version ON plugins(name, version) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier ON plugins(access_modifier) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_is_default ON plugins(name, is_default) WHERE is_default = true AND deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_is_active ON plugins(is_active) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_plugins_image_tag ON plugins(image_tag) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_org_id ON pipelines(org_id) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_project ON pipelines(project) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_organization ON pipelines(organization) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_project_org ON pipelines(project, organization) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_access_modifier ON pipelines(access_modifier) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_is_default ON pipelines(project, organization, is_default) WHERE is_default = true AND deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_pipelines_is_active ON pipelines(is_active) WHERE deleted_at IS NULL;
+
+---
+# =============================================================================
+# PostgreSQL Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: pipeline-builder
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: postgres
+
+---
+# =============================================================================
+# PostgreSQL StatefulSet
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: pipeline-builder
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          command:
+            - postgres
+            - -c
+            - listen_addresses=*
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: "pipeline_builder"
+          resources:
+            limits:
+              cpu: "1.5"
+              memory: 1536Mi
+            requests:
+              cpu: "800m"
+              memory: 768Mi
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - pipeline_builder
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - pipeline_builder
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

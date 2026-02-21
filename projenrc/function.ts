@@ -31,6 +31,7 @@
 import { execSync } from 'node:child_process';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptAppProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
+import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
 
 /**
  * API service application project.
@@ -68,21 +69,8 @@ export class FunctionProject extends TypeScriptAppProject {
 
             tsconfig: {
                 compilerOptions: {
-                    // Source and output directories
-                    rootDir: 'src',
+                    ...BASE_STRICT_COMPILER_OPTIONS,
                     outDir: 'lib',
-
-                    // Strict type checking
-                    alwaysStrict: true,
-                    strict: true,
-                    strictNullChecks: true,
-                    strictPropertyInitialization: true,
-                    noImplicitAny: true,
-                    noImplicitReturns: true,
-                    noImplicitThis: true,
-                    noUnusedLocals: true,
-                    noUnusedParameters: true,
-                    noFallthroughCasesInSwitch: true,
 
                     // Module configuration (ES Modules)
                     module: 'NodeNext',
@@ -90,20 +78,9 @@ export class FunctionProject extends TypeScriptAppProject {
                     target: 'ESNext',
                     lib: ['ESNext'],
 
-                    // Type declarations and source maps
-                    declaration: true,
-                    inlineSourceMap: true,
-                    inlineSources: true,
-
-                    // Additional options
-                    esModuleInterop: true,
-                    resolveJsonModule: true,
-                    experimentalDecorators: true,
+                    // Build behavior
                     stripInternal: true,
-                    skipLibCheck: true,
-
-                    // Continue build despite errors (for iterative development)
-                    noEmitOnError: false
+                    noEmitOnError: false,
                 }
             }
         })
@@ -116,10 +93,4 @@ export class FunctionProject extends TypeScriptAppProject {
         execSync(`if [ ! -d ${this._home} ];then mkdir -p ${this._home};fi`)
     }
 
-    /**
-     * Runs after synthesis to clean up test directories.
-     */
-    postSynthesize(): void {
-        execSync(`if [ -d ${this._home}/${this.name}/test ];then rm -rf ${this._home}/${this.name}/test;fi`)
-    }
 }

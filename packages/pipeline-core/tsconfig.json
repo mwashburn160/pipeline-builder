@@ -26,8 +26,8 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
-    "moduleResolution": "nodenext",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "moduleResolution": "nodenext"
   },
   "include": [
     "src/**/*.ts"

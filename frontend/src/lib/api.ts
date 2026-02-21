@@ -1,9 +1,9 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, LogQueryResult, Plugin, Pipeline, User } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, Invitation, LogQueryResult, Plugin, Pipeline, User } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
 
-function base64UrlDecode(str: string): string {
+export function base64UrlDecode(str: string): string {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) base64 += '=';
   return atob(base64);
@@ -379,7 +379,7 @@ class ApiClient {
   }
 
   async register(username: string, email: string, password: string, organizationName?: string) {
-    return this.request<ApiResponse<{ user: unknown }>>('/api/auth/register', {
+    return this.request<ApiResponse<{ user: User }>>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ username, email, password, organizationName }),
     });
@@ -394,11 +394,11 @@ class ApiClient {
   }
 
   async getProfile() {
-    return this.request<ApiResponse<{ user: unknown }>>('/api/user/profile');
+    return this.request<ApiResponse<{ user: User }>>('/api/user/profile');
   }
 
   async updateProfile(data: { username?: string; email?: string }) {
-    return this.request<ApiResponse<{ user: unknown }>>('/api/user/profile', {
+    return this.request<ApiResponse<{ user: User }>>('/api/user/profile', {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -526,11 +526,11 @@ class ApiClient {
   }
 
   async getUserById(id: string) {
-    return this.request<ApiResponse<{ user: unknown }>>(`/api/users/${id}`);
+    return this.request<ApiResponse<{ user: User }>>(`/api/users/${id}`);
   }
 
   async updateUserById(id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string }) {
-    return this.request<ApiResponse<{ user: unknown }>>(`/api/users/${id}`, {
+    return this.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -548,22 +548,22 @@ class ApiClient {
 
   /** Get quotas for the requesting user's org (from JWT). */
   async getOwnQuotas() {
-    return this.request<ApiResponse<{ quota: unknown }>>('/api/quota');
+    return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>('/api/quota');
   }
 
   /** Get all orgs with quotas (system admin only). */
   async getAllOrgQuotas() {
-    return this.request<ApiResponse<{ organizations: unknown[]; total: number }>>('/api/quota/all');
+    return this.request<ApiResponse<{ organizations: OrgQuotaResponse[]; total: number }>>('/api/quota/all');
   }
 
   /** Get quotas for a specific org. */
   async getOrgQuotas(orgId: string) {
-    return this.request<ApiResponse<{ quota: unknown }>>(`/api/quota/${orgId}`);
+    return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`);
   }
 
   /** Update org name, slug, and/or quotas (system admin only). */
   async updateOrgQuotas(orgId: string, data: { name?: string; slug?: string; quotas?: Record<string, number> }) {
-    return this.request<ApiResponse<{ quota: unknown }>>(`/api/quota/${orgId}`, {
+    return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -571,7 +571,7 @@ class ApiClient {
 
   /** Reset usage counters (system admin only). */
   async resetOrgQuotaUsage(orgId: string, quotaType?: string) {
-    return this.request<ApiResponse<{ quota: unknown }>>(`/api/quota/${orgId}/reset`, {
+    return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}/reset`, {
       method: 'POST',
       body: JSON.stringify(quotaType ? { quotaType } : {}),
     });
@@ -592,7 +592,7 @@ class ApiClient {
 
   async searchPlugins(params: Record<string, string>) {
     const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/search${query}`);
+    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/search${query}`);
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
@@ -629,7 +629,7 @@ class ApiClient {
       throw new ApiError(data.message || 'Upload failed', statusCode, data.code);
     }
 
-    return data as ApiResponse<{ plugin: unknown; warning?: string }>;
+    return data as ApiResponse<{ plugin: Plugin; warning?: string }>;
   }
 
   async updatePlugin(id: string, data: {
@@ -648,7 +648,7 @@ class ApiClient {
     isActive?: boolean;
     primaryOutputDirectory?: string | null;
   }) {
-    return this.request<ApiResponse<{ plugin: unknown }>>(`/api/plugin/${id}`, {
+    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -675,11 +675,11 @@ class ApiClient {
 
   async searchPipelines(params: Record<string, string>) {
     const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ pipeline: unknown }>>(`/api/pipeline/search${query}`);
+    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/search${query}`);
   }
 
   async createPipeline(data: CreatePipelineData) {
-    return this.request<ApiResponse<{ pipeline: unknown; warning?: string }>>('/api/pipeline', {
+    return this.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipeline', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -694,7 +694,7 @@ class ApiClient {
     isDefault?: boolean;
     isActive?: boolean;
   }) {
-    return this.request<ApiResponse<{ pipeline: unknown }>>(`/api/pipeline/${id}`, {
+    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -711,22 +711,22 @@ class ApiClient {
   // ============================================
 
   async listInvitations() {
-    return this.request<ApiResponse<{ invitations: unknown[] }>>('/api/invitation');
+    return this.request<ApiResponse<{ invitations: Invitation[] }>>('/api/invitation');
   }
 
   async getInvitation(token: string) {
-    return this.request<ApiResponse<{ invitation: unknown }>>(`/api/invitation/${token}`);
+    return this.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${token}`);
   }
 
   async sendInvitation(data: { email: string; role?: 'user' | 'admin'; invitationType?: string }) {
-    return this.request<ApiResponse<{ invitation: unknown }>>('/api/invitation/send', {
+    return this.request<ApiResponse<{ invitation: Invitation }>>('/api/invitation/send', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async acceptInvitation(token: string) {
-    return this.request<ApiResponse<unknown>>('/api/invitation/accept', {
+    return this.request<ApiResponse<{ message: string }>>('/api/invitation/accept', {
       method: 'POST',
       body: JSON.stringify({ token }),
     });
@@ -739,7 +739,7 @@ class ApiClient {
   }
 
   async resendInvitation(invitationId: string) {
-    return this.request<ApiResponse<{ invitation: unknown }>>(`/api/invitation/${invitationId}/resend`, {
+    return this.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${invitationId}/resend`, {
       method: 'POST',
     });
   }

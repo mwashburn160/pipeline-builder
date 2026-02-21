@@ -1,0 +1,188 @@
+---
+# =============================================================================
+# MongoDB Init Script ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-init
+  namespace: pipeline-builder
+data:
+  mongo-init.js: |
+    db.createUser({
+        user: 'admin',
+        pwd: 'password',
+        roles: [{
+            db: 'admin',
+            role: 'dbAdminAnyDatabase'
+        }]
+    });
+    disableTelemetry()
+
+---
+# =============================================================================
+# MongoDB Keyfile Secret (for replica set authentication)
+# =============================================================================
+# Generate: openssl rand -base64 756 > mongodb-keyfile
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongodb-keyfile
+  namespace: pipeline-builder
+type: Opaque
+stringData:
+  mongodb-keyfile: "REPLACE_WITH_KEYFILE_CONTENT"
+
+---
+# =============================================================================
+# MongoDB Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: pipeline-builder
+  labels:
+    app: mongodb
+spec:
+  type: ClusterIP
+  ports:
+    - port: 27017
+      targetPort: 27017
+      protocol: TCP
+      name: mongodb
+  selector:
+    app: mongodb
+
+---
+# =============================================================================
+# MongoDB StatefulSet
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: pipeline-builder
+  labels:
+    app: mongodb
+spec:
+  serviceName: mongodb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      initContainers:
+        # Fix keyfile permissions (MongoDB requires 400)
+        - name: fix-keyfile-permissions
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /keyfile-readonly/mongodb-keyfile /keyfile/mongodb-keyfile
+              chmod 400 /keyfile/mongodb-keyfile
+              chown 999:999 /keyfile/mongodb-keyfile
+          volumeMounts:
+            - name: keyfile-readonly
+              mountPath: /keyfile-readonly
+            - name: keyfile
+              mountPath: /keyfile
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          command:
+            - mongod
+            - "--bind_ip_all"
+            - "--replSet"
+            - rs0
+            - "--keyFile"
+            - /keyfile/mongodb-keyfile
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_USERNAME
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              value: "platform"
+          resources:
+            limits:
+              cpu: "1.5"
+              memory: 1536Mi
+            requests:
+              cpu: "800m"
+              memory: 768Mi
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  mongosh --quiet --host localhost:27017 \
+                    --username "$MONGO_INITDB_ROOT_USERNAME" \
+                    --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                    --authenticationDatabase admin \
+                    --eval "db.getSiblingDB('admin').runCommand({ replSetGetStatus: 1 }).ok" || \
+                  (mongosh --quiet --host localhost:27017 \
+                    --username "$MONGO_INITDB_ROOT_USERNAME" \
+                    --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                    --authenticationDatabase admin \
+                    --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] })" && exit 1)
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  mongosh --quiet --host localhost:27017 \
+                    --username "$MONGO_INITDB_ROOT_USERNAME" \
+                    --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                    --authenticationDatabase admin \
+                    --eval "db.adminCommand('ping')"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+            - name: keyfile
+              mountPath: /keyfile
+              readOnly: true
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: keyfile-readonly
+          secret:
+            secretName: mongodb-keyfile
+        - name: keyfile
+          emptyDir: {}
+        - name: init-script
+          configMap:
+            name: mongodb-init
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

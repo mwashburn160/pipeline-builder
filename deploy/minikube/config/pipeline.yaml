@@ -1,0 +1,98 @@
+---
+# =============================================================================
+# Pipeline Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeline
+  namespace: pipeline-builder
+  labels:
+    app: pipeline
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: pipeline
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline
+  namespace: pipeline-builder
+  labels:
+    app: pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pipeline
+  template:
+    metadata:
+      labels:
+        app: pipeline
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: pipeline
+          image: ghcr.io/mwashburn160/pipeline:1.14.6
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: common-env
+            - configMapRef:
+                name: postgres-env
+            - configMapRef:
+                name: server-env
+            - configMapRef:
+                name: quota-client-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: SERVICE_NAME
+              value: "pipeline"
+            - name: HANDLER_TIMEOUT_MS
+              value: "30000"
+          resources:
+            limits:
+              cpu: "750m"
+              memory: 768Mi
+            requests:
+              cpu: "400m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5

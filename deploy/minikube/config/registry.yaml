@@ -1,0 +1,103 @@
+---
+# =============================================================================
+# Docker Registry Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: pipeline-builder
+  labels:
+    app: registry
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP
+      name: registry
+  selector:
+    app: registry
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: pipeline-builder
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: pipeline-builder
+  labels:
+    app: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          ports:
+            - containerPort: 5000
+              name: registry
+          env:
+            - name: REGISTRY_AUTH
+              value: "htpasswd"
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5000"
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: "/etc/ssl/private/tls.key"
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: "/etc/ssl/certs/tls.crt"
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: "registry realm"
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: "/etc/auth/registry.passwd"
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          resources:
+            limits:
+              cpu: "600m"
+              memory: 512Mi
+            requests:
+              cpu: "300m"
+              memory: 256Mi
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+            - name: registry-tls
+              mountPath: /etc/ssl/certs/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: registry-tls
+              mountPath: /etc/ssl/private/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: registry-auth
+              mountPath: /etc/auth
+              readOnly: true
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: registry-data
+        - name: registry-tls
+          secret:
+            secretName: registry-tls-secret
+        - name: registry-auth
+          secret:
+            secretName: registry-auth-secret

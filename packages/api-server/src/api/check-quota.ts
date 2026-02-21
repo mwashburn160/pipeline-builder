@@ -5,11 +5,9 @@
  * Must be used after `authenticateToken` and `requireOrgId`.
  */
 
-import { ErrorCode, createLogger } from '@mwashburn160/api-core';
-import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, getIdentity } from '@mwashburn160/api-core';
+import type { QuotaType, QuotaService, HttpRequest } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
-import { createRequestContext } from './request-types';
-import type { SSEManager } from '../http/sse-connection-manager';
 
 const logger = createLogger('check-quota');
 
@@ -27,18 +25,16 @@ const QUOTA_LABELS: Record<QuotaType, string> = {
  * On quota service failure, fails open (allows the request).
  *
  * @param quotaService - Quota service client
- * @param sseManager - SSE manager for request context
  * @param quotaType - Which quota to check (e.g. 'apiCalls', 'pipelines', 'plugins')
  * @returns Express middleware
  */
 export function checkQuota(
   quotaService: QuotaService,
-  sseManager: SSEManager,
   quotaType: QuotaType,
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const ctx = createRequestContext(req, res, sseManager);
-    const orgId = ctx.identity.orgId!;
+    const identity = req.context?.identity ?? getIdentity(req as unknown as HttpRequest);
+    const orgId = identity.orgId!;
     const authHeader = req.headers.authorization || '';
 
     try {

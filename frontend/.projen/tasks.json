@@ -116,7 +116,12 @@
     },
     "test": {
       "name": "test",
-      "description": "Run tests"
+      "description": "Run tests",
+      "steps": [
+        {
+          "exec": "jest --passWithNoTests --config jest.config.ts"
+        }
+      ]
     }
   },
   "env": {

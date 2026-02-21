@@ -54,7 +54,7 @@ export function createUploadPluginRoutes(
     upload.single('plugin') as RequestHandler,
     authenticateToken as RequestHandler,
     requireOrgId(sseManager) as RequestHandler,
-    checkQuota(quotaService, sseManager, 'plugins') as RequestHandler,
+    checkQuota(quotaService, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
       // Docker builds can take several minutes — override the default 30s timeout
       res.setTimeout(10 * 60 * 1000); // 10 minutes
@@ -183,7 +183,7 @@ export function createUploadPluginRoutes(
         });
       } catch (error) {
         if (res.headersSent) {
-          logger.error('Deployment failed (response already sent)', { error: errorMessage(error), orgId: ctx.identity.orgId });
+          logger.error('Deployment failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
           return;
         }
 
@@ -193,7 +193,7 @@ export function createUploadPluginRoutes(
 
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);
-        logger.error('Deployment failed', { error: message, orgId: ctx.identity.orgId, ...dbDetails });
+        logger.error('Deployment failed', { requestId: ctx.requestId, error: message, orgId: ctx.identity.orgId, ...dbDetails });
 
         return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
       } finally {

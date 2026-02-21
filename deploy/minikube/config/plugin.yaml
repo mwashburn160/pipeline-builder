@@ -1,0 +1,110 @@
+---
+# =============================================================================
+# Plugin Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin
+  namespace: pipeline-builder
+  labels:
+    app: plugin
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: plugin
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin
+  namespace: pipeline-builder
+  labels:
+    app: plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plugin
+  template:
+    metadata:
+      labels:
+        app: plugin
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: plugin
+          image: ghcr.io/mwashburn160/plugin:1.14.6
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: common-env
+            - configMapRef:
+                name: postgres-env
+            - configMapRef:
+                name: server-env
+            - configMapRef:
+                name: quota-client-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: registry-secret
+          env:
+            - name: SERVICE_NAME
+              value: "plugin"
+            - name: IMAGE_REGISTRY_HOST
+              value: "registry"
+            - name: IMAGE_REGISTRY_PORT
+              value: "5000"
+            - name: DOCKER_NETWORK
+              value: "backend-network"
+            # NOTE: Docker socket mounting is not available in Kubernetes.
+            # Plugin Docker builds will NOT work in minikube.
+            # For Docker-in-Docker (DinD) support, consider using:
+            #   1. Kaniko for in-cluster container builds
+            #   2. A DinD sidecar container
+            #   3. Buildkit with rootless mode
+          resources:
+            limits:
+              cpu: "750m"
+              memory: 768Mi
+            requests:
+              cpu: "400m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5

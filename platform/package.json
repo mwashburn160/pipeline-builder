@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.821.0",
-    "@mwashburn160/api-core": "1.19.5",
+    "@mwashburn160/api-core": "workspace:*",
     "adm-zip": "0.5.16",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",

@@ -33,7 +33,7 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
     const ctx = req.context!;
-    const orgId = ctx.identity.orgId;
+    const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
@@ -80,7 +80,7 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
     const ctx = req.context!;
-    const orgId = ctx.identity.orgId;
+    const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     try {
@@ -111,7 +111,7 @@ export function createReadPluginRoutes(
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
     const ctx = req.context!;
-    const orgId = ctx.identity.orgId;
+    const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
     const id = getParam(req.params, 'id');
 

@@ -9,6 +9,7 @@ import { Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { z, ZodSchema } from 'zod';
 import { config } from '../config';
+import { Organization } from '../models';
 import { emailSchema } from './validation';
 import type { IUser } from '../models/user.model';
 
@@ -113,10 +114,9 @@ export async function issueTokens(user: IUser): Promise<IssuedTokens> {
     tokenVersion: user.tokenVersion || 0,
   };
 
-  // Get organization name if needed
+  // Get organization name for token payload
   if (user.organizationId) {
     try {
-      const { Organization } = await import('../models/index.js');
       const org = await Organization.findById(user.organizationId).select('name');
       if (org) {
         payload.organizationName = org.name;

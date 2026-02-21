@@ -38,10 +38,13 @@ export function createUpdatePipelineRoutes(sseManager: SSEManager): Router {
 
     const body = validation.value;
 
+    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+    const orgId = ctx.identity.orgId;
+
     ctx.log('INFO', 'Pipeline update request received', { id });
 
     try {
-      const existing = await pipelineService.findById(id, ctx.identity.orgId!);
+      const existing = await pipelineService.findById(id, orgId);
 
       if (!existing) return sendPipelineNotFound(res);
 
@@ -79,7 +82,7 @@ export function createUpdatePipelineRoutes(sseManager: SSEManager): Router {
       const updated = await pipelineService.update(
         id,
         updateData,
-        ctx.identity.orgId!,
+        orgId,
         ctx.identity.userId || 'system',
       );
 

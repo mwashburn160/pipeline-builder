@@ -26,13 +26,14 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ES2024",
+    "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "declarationMap": true,
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "jest"
     ]
   },
   "include": [
@@ -41,8 +42,6 @@
   ],
   "exclude": [
     "dist",
-    "node_modules",
-    "**/*.spec.ts",
-    "**/*.test.ts"
+    "node_modules"
   ]
 }

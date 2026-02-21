@@ -25,14 +25,15 @@
     "stripInternal": true,
     "target": "ES2024",
     "rootDir": "src",
+    "skipLibCheck": true,
     "outDir": "dist",
     "noUncheckedIndexedAccess": true,
     "declarationMap": true,
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "jest"
     ]
   },
   "include": [
@@ -42,8 +43,6 @@
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "**/*.spec.ts",
-    "**/*.test.ts"
+    "dist"
   ]
 }

@@ -31,10 +31,13 @@ export function createDeletePipelineRoutes(sseManager: SSEManager): Router {
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
+    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+    const orgId = ctx.identity.orgId;
+
     ctx.log('INFO', 'Pipeline delete request received', { id });
 
     try {
-      const existing = await pipelineService.findById(id, ctx.identity.orgId!);
+      const existing = await pipelineService.findById(id, orgId);
 
       if (!existing) return sendPipelineNotFound(res);
 
@@ -46,7 +49,7 @@ export function createDeletePipelineRoutes(sseManager: SSEManager): Router {
         return sendError(res, 403, 'Only system admins can delete public pipelines.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
-      await pipelineService.delete(id, ctx.identity.orgId!, ctx.identity.userId || 'system');
+      await pipelineService.delete(id, orgId, ctx.identity.userId || 'system');
 
       ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
 

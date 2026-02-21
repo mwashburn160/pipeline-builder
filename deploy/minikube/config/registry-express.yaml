@@ -1,0 +1,64 @@
+---
+# =============================================================================
+# Registry Express Service (Docker Registry UI)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-express
+  namespace: pipeline-builder
+  labels:
+    app: registry-express
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30580
+      protocol: TCP
+      name: http
+  selector:
+    app: registry-express
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-express
+  namespace: pipeline-builder
+  labels:
+    app: registry-express
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry-express
+  template:
+    metadata:
+      labels:
+        app: registry-express
+    spec:
+      containers:
+        - name: registry-express
+          image: joxit/docker-registry-ui:2
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: REGISTRY_TITLE
+              value: "Pipeline Builder Registry"
+            - name: NGINX_PROXY_PASS_URL
+              value: "https://registry:5000"
+            - name: SINGLE_REGISTRY
+              value: "true"
+            - name: ENABLE_DELETE_IMAGES
+              value: "true"
+            - name: SHOW_CONTENT_DIGEST
+              value: "true"
+          resources:
+            limits:
+              cpu: "400m"
+              memory: 384Mi
+            requests:
+              cpu: "200m"
+              memory: 192Mi

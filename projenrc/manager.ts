@@ -22,6 +22,7 @@
 
 import { execSync } from 'node:child_process'
 import { TypeScriptAppProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
+import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
 
 /**
  * CLI application project for pipeline management.
@@ -52,58 +53,26 @@ export class ManagerProject extends TypeScriptAppProject {
             ...options,
             tsconfig: {
                 compilerOptions: {
-                    // Source and output directories
-                    rootDir: 'src',
-                    outDir: 'dist',  // Use 'dist' for CLI apps
-
-                    // Strict type checking
-                    alwaysStrict: true,
-                    strict: true,
-                    strictNullChecks: true,
-                    strictPropertyInitialization: true,
-                    noImplicitAny: true,
-                    noImplicitReturns: true,
-                    noImplicitThis: true,
-                    noUnusedLocals: true,
-                    noUnusedParameters: true,
-                    noFallthroughCasesInSwitch: true,
-                    noUncheckedIndexedAccess: true,
+                    ...BASE_STRICT_COMPILER_OPTIONS,
+                    outDir: 'dist',
 
                     // Module configuration (CommonJS for CLI compatibility)
                     module: 'CommonJS',
                     target: 'ES2024',
                     lib: ['ES2024'],
 
-                    // Type declarations and source maps
-                    declaration: true,
-                    declarationMap: true,
-                    inlineSourceMap: true,
-                    inlineSources: true,
+                    // Additional strict checks
+                    noUncheckedIndexedAccess: true,
 
                     // Additional options
-                    esModuleInterop: true,
-                    resolveJsonModule: true,
-                    experimentalDecorators: true,
+                    declarationMap: true,
                     allowJs: true,
                     forceConsistentCasingInFileNames: true,
-                    skipLibCheck: true,
-
-                    // Node.js types
-                    types: ['node']
+                    types: ['node', 'jest'],
                 },
 
-                // Include only source files
-                include: [
-                    'src/*'
-                ],
-
-                // Exclude output, dependencies, and tests
-                exclude: [
-                    'dist',
-                    'node_modules',
-                    '**/*.spec.ts',
-                    '**/*.test.ts'
-                ]
+                include: ['src/*'],
+                exclude: ['dist', 'node_modules'],
             }
         })
     }
@@ -115,10 +84,4 @@ export class ManagerProject extends TypeScriptAppProject {
         execSync(`if [ ! -d ${this.outdir} ];then mkdir -p ${this.outdir};fi`)
     }
 
-    /**
-     * Runs after synthesis to clean up test directories.
-     */
-    postSynthesize(): void {
-        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
-    }
 }

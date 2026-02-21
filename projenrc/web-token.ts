@@ -32,6 +32,7 @@
 import { execSync } from "node:child_process";
 import { TypeScriptModuleResolution } from "projen/lib/javascript";
 import { TypeScriptAppProject, TypeScriptProjectOptions } from "projen/lib/typescript";
+import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
 
 /**
  * Web token service application project.
@@ -62,24 +63,14 @@ export class WebTokenProject extends TypeScriptAppProject {
             ...options,
             tsconfig: {
                 compilerOptions: {
-                    // Target modern Node.js
-                    lib: ['ESNext'],
-                    target: 'ESNext',
+                    ...BASE_STRICT_COMPILER_OPTIONS,
+                    outDir: 'lib',
 
                     // ES Module configuration
                     module: 'NodeNext',
                     moduleResolution: TypeScriptModuleResolution.NODE_NEXT,
-
-                    // Source and output directories
-                    outDir: 'lib',
-                    rootDir: 'src',
-
-                    // Basic strict type checking
-                    strict: true,
-
-                    // Compatibility and optimization
-                    esModuleInterop: true,
-                    skipLibCheck: true,
+                    target: 'ESNext',
+                    lib: ['ESNext'],
                 }
             }
         })
@@ -92,10 +83,4 @@ export class WebTokenProject extends TypeScriptAppProject {
         execSync(`if [ ! -d ${this.outdir} ];then mkdir -p ${this.outdir};fi`)
     }
 
-    /**
-     * Runs after synthesis to clean up test directories.
-     */
-    postSynthesize(): void {
-        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
-    }
 }

@@ -51,7 +51,7 @@ export interface RequestContext {
  * ```
  */
 export function createRequestContext(
-  req: Request<unknown, unknown, unknown, unknown>,
+  req: Request,
   res: Response,
   sseManager: SSEManager,
 ): RequestContext {

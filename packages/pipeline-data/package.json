@@ -33,7 +33,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.19.5",
+    "@mwashburn160/api-core": "workspace:*",
     "drizzle-orm": "0.45.1",
     "pg": "8.16.3"
   },

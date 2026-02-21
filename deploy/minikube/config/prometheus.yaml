@@ -1,0 +1,135 @@
+---
+# =============================================================================
+# Prometheus ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: pipeline-builder
+data:
+  prometheus.yml: |
+    # Prometheus scrape configuration for Pipeline Builder services
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'platform'
+        static_configs:
+          - targets: ['platform:3000']
+
+      - job_name: 'plugin'
+        static_configs:
+          - targets: ['plugin:3000']
+
+      - job_name: 'pipeline'
+        static_configs:
+          - targets: ['pipeline:3000']
+
+      - job_name: 'quota'
+        static_configs:
+          - targets: ['quota:3000']
+
+---
+# =============================================================================
+# Prometheus Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: pipeline-builder
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: http
+  selector:
+    app: prometheus
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: pipeline-builder
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# =============================================================================
+# Prometheus Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: pipeline-builder
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsNonRoot: true
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.2.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.retention.time=7d"
+            - "--storage.tsdb.path=/prometheus"
+          ports:
+            - containerPort: 9090
+              name: http
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+            requests:
+              cpu: "250m"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: prometheus-data
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data

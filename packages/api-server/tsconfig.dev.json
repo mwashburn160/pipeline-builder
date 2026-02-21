@@ -25,9 +25,9 @@
     "stripInternal": true,
     "target": "ESNext",
     "rootDir": "src",
+    "skipLibCheck": true,
     "outDir": "lib",
-    "moduleResolution": "nodenext",
-    "skipLibCheck": true
+    "moduleResolution": "nodenext"
   },
   "include": [
     "src/**/*.ts",

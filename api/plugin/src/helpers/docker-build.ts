@@ -119,7 +119,7 @@ export function buildAndPush(req: BuildRequest): BuildResult {
       network: registry.network || 'default',
     });
 
-    execFileSync('docker', args, { stdio: 'inherit' });
+    execFileSync('docker', args, { stdio: 'inherit', timeout: 300_000 });
 
     return { fullImage };
   } finally {

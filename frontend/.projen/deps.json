@@ -6,6 +6,11 @@
       "type": "build"
     },
     {
+      "name": "@types/jest",
+      "version": "^30.0.0",
+      "type": "build"
+    },
+    {
       "name": "@types/node",
       "version": "24.9.0",
       "type": "build"
@@ -26,8 +31,18 @@
       "type": "build"
     },
     {
+      "name": "jest",
+      "version": "^30.2.0",
+      "type": "build"
+    },
+    {
       "name": "postcss",
       "version": "8.5.6",
+      "type": "build"
+    },
+    {
+      "name": "ts-jest",
+      "version": "^29.4.6",
       "type": "build"
     },
     {
@@ -37,17 +52,17 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.19.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.18.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.20.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

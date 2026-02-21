@@ -24,10 +24,14 @@ export interface AppConfig {
   };
 }
 
+if (!process.env.MONGODB_URI) {
+  throw new Error('MONGODB_URI environment variable is required');
+}
+
 export const config: AppConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
+    uri: process.env.MONGODB_URI,
   },
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),

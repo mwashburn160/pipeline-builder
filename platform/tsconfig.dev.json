@@ -24,10 +24,10 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
-    "moduleResolution": "nodenext",
-    "outDir": "lib",
     "rootDir": "src",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "outDir": "lib",
+    "moduleResolution": "nodenext"
   },
   "include": [
     "src/**/*.ts",

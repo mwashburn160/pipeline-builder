@@ -264,12 +264,6 @@ export function validatePluginFilter(filter: PluginFilter): void {
  */
 export function validatePipelineFilter(filter: PipelineFilter): void {
   validateCommonFilter(filter);
-
-  const errors: string[] = [];
-
-  if (errors.length > 0) {
-    throw new Error(`Pipeline filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
-  }
 }
 
 /**
@@ -372,8 +366,8 @@ export class FilterBuilder<T extends CommonFilter> {
   }
 
   withLimit(limit: number): this {
-    if (!Number.isInteger(limit) || limit < 0 || limit > 1000) {
-      throw new Error('Limit must be an integer between 0 and 1000');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      throw new Error('Limit must be an integer between 1 and 1000');
     }
     return this.set('limit' as keyof T, limit as T[keyof T]);
   }

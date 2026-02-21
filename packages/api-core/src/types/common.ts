@@ -11,7 +11,7 @@ export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls';
 /**
  * Valid quota type values.
  */
-export const VALID_QUOTA_TYPES: readonly QuotaType[] = ['plugins', 'pipelines', 'apiCalls'] as const;
+export const VALID_QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls'] as const;
 
 /**
  * Type guard to check if a value is a valid QuotaType.

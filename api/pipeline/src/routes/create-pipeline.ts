@@ -103,7 +103,7 @@ export function createCreatePipelineRoutes(
       } catch (error) {
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);
-        logger.error('Pipeline save failed', { error: message, orgId: ctx.identity.orgId, ...dbDetails });
+        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId: ctx.identity.orgId, ...dbDetails });
 
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }

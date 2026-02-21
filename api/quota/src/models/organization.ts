@@ -31,7 +31,7 @@ export interface QuotaUsageTracking {
 
 export type { QuotaTier };
 
-export interface IOrganization extends Document {
+export interface IOrganization extends Document<string> {
   _id: string;
   name: string;
   slug: string;

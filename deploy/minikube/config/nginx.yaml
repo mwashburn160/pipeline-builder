@@ -1,0 +1,676 @@
+---
+# =============================================================================
+# Nginx ConfigMap — nginx.conf
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: pipeline-builder
+data:
+  nginx.conf: |
+    # Load NJS Module
+    load_module modules/ngx_http_js_module.so;
+
+    # Environment Variables
+    env JWT_SECRET;
+
+    worker_processes auto;
+    worker_rlimit_nofile 65535;
+
+    events {
+        worker_connections 4096;
+        multi_accept on;
+    }
+
+    http {
+        error_log /var/log/nginx/error.log info;
+
+        # Custom Log Format for Tracing and Observability
+        log_format proxy_custom '$remote_addr - $remote_user [$time_local] '
+                                '"$request" $status $body_bytes_sent '
+                                'org_id:"$jwt_org_id" user_id:"$jwt_user_id" role:"$jwt_role" rid:"$request_id" '
+                                'svc:"$service" upstream:"$upstream_addr" '
+                                'urt:"$upstream_response_time" rt:"$request_time"';
+
+        access_log /var/log/nginx/access.log proxy_custom;
+
+        # NJS Integration
+        js_path "/etc/nginx/njs/";
+        js_import jwt from jwt.js;
+        js_import metrics from metrics.js;
+
+        # These variables execute the logic in your jwt.js
+        js_set $jwt_org_id jwt.get_org_id;
+        js_set $jwt_user_id jwt.get_user_id;
+        js_set $jwt_role jwt.get_role;
+        js_set $jwt_username jwt.get_username;
+
+        # General Settings
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        sendfile        on;
+        tcp_nopush      on;
+        tcp_nodelay     on;
+        keepalive_timeout  65;
+
+        # Kubernetes DNS Resolver (kube-dns / CoreDNS)
+        resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;
+
+        # Global Proxy Settings (Inherited by all locations)
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Request-ID      $request_id;
+        proxy_set_header Authorization     $http_authorization;
+
+        # Injecting the identity context extracted from JWT
+        proxy_set_header x-org-id          $jwt_org_id;
+        proxy_set_header x-user-id         $jwt_user_id;
+        proxy_set_header x-user-role       $jwt_role;
+        proxy_set_header x-request-id      $request_id;
+
+        # 1. HTTP to HTTPS Redirect
+        server {
+            listen 8080;
+            server_name localhost;
+            return 301 https://$host:8443$request_uri;
+        }
+
+        # 2. Main HTTPS Gateway
+        server {
+            listen 8443 ssl;
+            server_name localhost;
+
+            ssl_certificate      /etc/nginx/certs/tls.crt;
+            ssl_certificate_key  /etc/nginx/certs/tls.key;
+
+            # SSL Security Hardening
+            ssl_protocols               TLSv1.3 TLSv1.2;
+            ssl_ciphers                 ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+            ssl_prefer_server_ciphers   off;
+
+            # Security Headers
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Request-ID $request_id always;
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src 'self';" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+            # ========================================
+            # Pipeline Service API Routes
+            # ========================================
+            location = /api/pipeline {
+                set $service "pipeline";
+                if ($request_method = POST) {
+                    rewrite ^/api/pipeline$ /pipelines break;
+                    proxy_pass http://pipeline.pipeline-builder.svc.cluster.local:3000;
+                }
+                rewrite ^/api/pipeline$ /pipelines/find break;
+                proxy_pass http://pipeline.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location = /api/pipelines {
+                set $service "pipeline";
+                rewrite ^/api/pipelines$ /pipelines break;
+                proxy_pass http://pipeline.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/pipeline/([^/]+)$ {
+                set $service "pipeline";
+                rewrite ^/api/pipeline/(.+)$ /pipelines/$1 break;
+                proxy_pass http://pipeline.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            # ========================================
+            # Plugin Service API Routes
+            # ========================================
+            location = /api/plugin/upload {
+                set $service "plugin";
+                client_max_body_size 100m;
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 900s;
+                proxy_read_timeout 900s;
+                send_timeout 900s;
+                rewrite ^/api/plugin/upload$ /plugins break;
+                proxy_pass http://plugin.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location = /api/plugin {
+                set $service "plugin";
+                rewrite ^/api/plugin$ /plugins/find break;
+                proxy_pass http://plugin.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location = /api/plugins {
+                set $service "plugin";
+                rewrite ^/api/plugins$ /plugins break;
+                proxy_pass http://plugin.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/plugin/([^/]+)$ {
+                set $service "plugin";
+                rewrite ^/api/plugin/(.+)$ /plugins/$1 break;
+                proxy_pass http://plugin.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            # ========================================
+            # Quota Service API Routes
+            # ========================================
+            location = /api/quota {
+                set $service "quota";
+                rewrite ^/api/quota$ /quotas break;
+                proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/quota/([^/]+)/reset$ {
+                set $service "quota";
+                rewrite ^/api/quota/([^/]+)/reset$ /quotas/$1/reset break;
+                proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/quota/([^/]+)/increment$ {
+                set $service "quota";
+                rewrite ^/api/quota/([^/]+)/increment$ /quotas/$1/increment break;
+                proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/quota/([^/]+)/([^/]+)$ {
+                set $service "quota";
+                rewrite ^/api/quota/([^/]+)/([^/]+)$ /quotas/$1/$2 break;
+                proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            location ~ ^/api/quota/([^/]+)$ {
+                set $service "quota";
+                if ($request_method = PUT) {
+                    rewrite ^/api/quota/([^/]+)$ /quotas/$1 break;
+                    proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+                }
+                rewrite ^/api/quota/([^/]+)$ /quotas/$1 break;
+                proxy_pass http://quota.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            # ========================================
+            # Platform API Routes
+            # ========================================
+            location /api/auth/ {
+                set $service "auth";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/auth/;
+            }
+
+            location /api/user/ {
+                set $service "user";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/user/;
+            }
+
+            location /api/users {
+                set $service "users";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/users;
+            }
+
+            location = /api/organizations {
+                set $service "organizations";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/organizations;
+            }
+
+            location /api/organization/ {
+                set $service "organization";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/organization/;
+            }
+
+            location /api/invitation/ {
+                set $service "invitation";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/invitation/;
+            }
+
+            location = /api/invitation {
+                set $service "invitation";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/invitation;
+            }
+
+            location /api/logs {
+                set $service "logs";
+                proxy_pass http://platform.pipeline-builder.svc.cluster.local:3000/logs;
+            }
+
+            # ========================================
+            # Health & Metrics
+            # ========================================
+            location /health {
+                set $service "health";
+                access_log off;
+                add_header Content-Type application/json;
+                return 200 '{"status":"ok","timestamp":"$time_iso8601"}';
+            }
+
+            location /metrics {
+                set $service "metrics";
+                access_log off;
+                js_content metrics.get_metrics;
+            }
+
+            location /metrics/services {
+                set $service "service-metrics";
+                access_log off;
+                js_content metrics.service_metrics;
+            }
+
+            # ========================================
+            # Infrastructure Services
+            # ========================================
+            location /registry/ {
+                set $service "registry";
+                client_max_body_size 0;
+                proxy_pass http://registry.pipeline-builder.svc.cluster.local:5000/;
+            }
+
+            location /pgadmin/ {
+                set $service "pgadmin";
+                proxy_http_version 1.1;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Script-Name /pgadmin;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_pass http://pgadmin.pipeline-builder.svc.cluster.local:80;
+                proxy_redirect off;
+                proxy_buffering off;
+                proxy_hide_header X-Frame-Options;
+                add_header X-Frame-Options "SAMEORIGIN" always;
+                add_header X-Content-Type-Options "nosniff" always;
+                add_header X-Request-ID $request_id always;
+                add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            }
+
+            location /mongo-express/ {
+                set $service "mongo-express";
+                proxy_pass http://mongo-express.pipeline-builder.svc.cluster.local:8081;
+            }
+
+            location /registry-express/ {
+                set $service "registry-express";
+                proxy_pass http://registry-express.pipeline-builder.svc.cluster.local:80/;
+            }
+
+            location /grafana/ {
+                set $service "grafana";
+                proxy_http_version 1.1;
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header X-WEBAUTH-USER $jwt_username;
+                proxy_pass http://grafana.pipeline-builder.svc.cluster.local:3000;
+                proxy_redirect off;
+                proxy_buffering off;
+                proxy_hide_header X-Frame-Options;
+                add_header X-Frame-Options "SAMEORIGIN" always;
+                add_header X-Content-Type-Options "nosniff" always;
+                add_header X-Request-ID $request_id always;
+                add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            }
+
+            # ========================================
+            # Frontend (Next.js)
+            # ========================================
+            location /_next/ {
+                set $service "frontend";
+                proxy_pass http://frontend.pipeline-builder.svc.cluster.local:3000;
+                proxy_cache_valid 200 60m;
+                add_header Cache-Control "public, max-age=31536000, immutable";
+            }
+
+            location /public/ {
+                set $service "frontend";
+                proxy_pass http://frontend.pipeline-builder.svc.cluster.local:3000;
+                proxy_cache_valid 200 60m;
+            }
+
+            location / {
+                set $service "frontend";
+                proxy_pass http://frontend.pipeline-builder.svc.cluster.local:3000;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+            }
+
+            # ========================================
+            # Error Handling
+            # ========================================
+            error_page 500 502 503 504 /50x.html;
+            location = /50x.html {
+                root /usr/share/nginx/html;
+            }
+        }
+    }
+
+---
+# =============================================================================
+# Nginx ConfigMap — NJS Modules (jwt.js, metrics.js)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-njs
+  namespace: pipeline-builder
+data:
+  jwt.js: |
+    var crypto = require('crypto');
+
+    function parse_cookie(r, name) {
+        var cookie = r.headersIn['Cookie'];
+        if (!cookie) return null;
+        var prefix = name + '=';
+        var parts = cookie.split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i].trim();
+            if (part.indexOf(prefix) === 0) {
+                return part.substring(prefix.length);
+            }
+        }
+        return null;
+    }
+
+    function get_payload(r) {
+        var rid = r.variables.request_id || 'unknown';
+        var token = null;
+        var auth = r.headersIn['Authorization'];
+        if (auth && auth.startsWith("Bearer ")) {
+            token = auth.substring(7).trim();
+        }
+        if (!token) {
+            token = parse_cookie(r, 'grafana_token');
+        }
+        if (!token || token.length === 0) return null;
+        if (!verify_token(r, token)) return null;
+        try {
+            var payloadB64 = token.split('.')[1];
+            var payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+            if (!validate_timing(r, payload)) return null;
+            return payload;
+        } catch (e) {
+            r.error('[' + rid + '] [JWT] Parse error: ' + e.message);
+            return null;
+        }
+    }
+
+    function verify_token(r, token) {
+        var parts = token.split('.');
+        if (parts.length !== 3) return false;
+        var secret = process.env.JWT_SECRET;
+        if (!secret) {
+            r.error('[JWT] JWT_SECRET not set in environment');
+            return false;
+        }
+        var dataToVerify = parts[0] + '.' + parts[1];
+        var hmac = crypto.createHmac('sha256', secret);
+        hmac.update(dataToVerify);
+        return hmac.digest('base64url') === parts[2];
+    }
+
+    function validate_timing(r, payload) {
+        var now = Math.floor(Date.now() / 1000);
+        if (payload.nbf && payload.nbf > now) return false;
+        if (payload.exp && payload.exp < now) return false;
+        return true;
+    }
+
+    function get_org_id(r) {
+        var payload = get_payload(r);
+        if (!payload) return undefined;
+        var orgId = payload.organizationId || payload.orgId || payload.org_id || payload.organization || "";
+        return orgId.toString();
+    }
+
+    function get_user_id(r) {
+        var payload = get_payload(r);
+        if (!payload || !payload.sub) return undefined;
+        return payload.sub.toString();
+    }
+
+    function get_role(r) {
+        var payload = get_payload(r);
+        if (!payload) return undefined;
+        return payload.role || "";
+    }
+
+    function get_username(r) {
+        var payload = get_payload(r);
+        if (!payload) return "";
+        return payload.username || payload.email || "";
+    }
+
+    export default { get_org_id, get_user_id, get_role, get_username };
+
+  metrics.js: |
+    function prometheus_metrics(r) {
+        var now = Math.floor(Date.now() / 1000);
+        var uptime = now;
+        var metrics = [];
+        metrics.push('# HELP nginx_up Nginx is up and running');
+        metrics.push('# TYPE nginx_up gauge');
+        metrics.push('nginx_up 1');
+        metrics.push('');
+        metrics.push('# HELP nginx_uptime_seconds Nginx uptime in seconds');
+        metrics.push('# TYPE nginx_uptime_seconds counter');
+        metrics.push('nginx_uptime_seconds ' + uptime);
+        metrics.push('');
+        metrics.push('# HELP nginx_timestamp_seconds Current timestamp');
+        metrics.push('# TYPE nginx_timestamp_seconds gauge');
+        metrics.push('nginx_timestamp_seconds ' + now);
+        metrics.push('');
+        metrics.push('# HELP nginx_http_requests_total Total HTTP requests');
+        metrics.push('# TYPE nginx_http_requests_total counter');
+        metrics.push('nginx_http_requests_total{server="' + (r.variables.server_name || 'localhost') + '"} ' + (r.variables.connections_requests || 0));
+        metrics.push('');
+        metrics.push('# HELP nginx_connections_active Active connections');
+        metrics.push('# TYPE nginx_connections_active gauge');
+        metrics.push('nginx_connections_active ' + (r.variables.connections_active || 0));
+        metrics.push('');
+        metrics.push('# HELP nginx_connections_reading Connections reading request');
+        metrics.push('# TYPE nginx_connections_reading gauge');
+        metrics.push('nginx_connections_reading ' + (r.variables.connections_reading || 0));
+        metrics.push('');
+        metrics.push('# HELP nginx_connections_writing Connections writing response');
+        metrics.push('# TYPE nginx_connections_writing gauge');
+        metrics.push('nginx_connections_writing ' + (r.variables.connections_writing || 0));
+        metrics.push('');
+        metrics.push('# HELP nginx_connections_waiting Idle keepalive connections');
+        metrics.push('# TYPE nginx_connections_waiting gauge');
+        metrics.push('nginx_connections_waiting ' + (r.variables.connections_waiting || 0));
+        metrics.push('');
+        metrics.push('# HELP nginx_build_info Nginx build information');
+        metrics.push('# TYPE nginx_build_info gauge');
+        metrics.push('nginx_build_info{version="' + (r.variables.nginx_version || 'unknown') + '"} 1');
+        metrics.push('');
+        return metrics.join('\n');
+    }
+
+    function json_metrics(r) {
+        var now = Math.floor(Date.now() / 1000);
+        var metrics = {
+            timestamp: now,
+            timestamp_iso: new Date().toISOString(),
+            nginx: { version: r.variables.nginx_version || 'unknown', up: true },
+            connections: {
+                active: parseInt(r.variables.connections_active || 0),
+                reading: parseInt(r.variables.connections_reading || 0),
+                writing: parseInt(r.variables.connections_writing || 0),
+                waiting: parseInt(r.variables.connections_waiting || 0)
+            },
+            requests: {
+                total: parseInt(r.variables.connections_requests || 0),
+                current: parseInt(r.variables.connections_active || 0)
+            },
+            server: {
+                name: r.variables.server_name || 'localhost',
+                port: r.variables.server_port || '8443'
+            }
+        };
+        return JSON.stringify(metrics, null, 2);
+    }
+
+    function get_metrics(r) {
+        var format = r.args.format || 'prometheus';
+        var contentType = 'text/plain; version=0.0.4';
+        var body = '';
+        if (format === 'json') {
+            contentType = 'application/json';
+            body = json_metrics(r);
+        } else {
+            body = prometheus_metrics(r);
+        }
+        r.headersOut['Content-Type'] = contentType;
+        r.return(200, body);
+    }
+
+    function service_metrics(r) {
+        var services = ['get-pipeline','list-pipelines','create-pipeline','get-plugin','list-plugins','upload-plugin','platform'];
+        var metrics = [];
+        metrics.push('# HELP nginx_service_requests_total Total requests per service');
+        metrics.push('# TYPE nginx_service_requests_total counter');
+        for (var i = 0; i < services.length; i++) {
+            metrics.push('nginx_service_requests_total{service="' + services[i] + '"} 0');
+        }
+        metrics.push('');
+        r.headersOut['Content-Type'] = 'text/plain; version=0.0.4';
+        r.return(200, metrics.join('\n'));
+    }
+
+    export default { get_metrics, prometheus_metrics, json_metrics, service_metrics };
+
+---
+# =============================================================================
+# Nginx Service (NodePort — external entry point)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: pipeline-builder
+  labels:
+    app: nginx
+spec:
+  type: NodePort
+  ports:
+    - port: 8443
+      targetPort: 8443
+      nodePort: 30443
+      protocol: TCP
+      name: https
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
+      protocol: TCP
+      name: http
+  selector:
+    app: nginx
+
+---
+# =============================================================================
+# Nginx Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: pipeline-builder
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      initContainers:
+        - name: wait-for-services
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for backend services..."
+              for svc in platform frontend plugin pipeline quota; do
+                until wget -qO- http://${svc}.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do
+                  echo "Waiting for ${svc}..."
+                  sleep 5
+                done
+                echo "${svc} is ready"
+              done
+              echo "All services ready"
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - containerPort: 8443
+              name: https
+            - containerPort: 8080
+              name: http
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+            requests:
+              cpu: "200m"
+              memory: 128Mi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sfk https://localhost:8443/health || exit 1"
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sfk https://localhost:8443/health || exit 1"
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: nginx-njs
+              mountPath: /etc/nginx/njs
+              readOnly: true
+            - name: tls-certs
+              mountPath: /etc/nginx/certs
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-njs
+          configMap:
+            name: nginx-njs
+        - name: tls-certs
+          secret:
+            secretName: nginx-tls-secret

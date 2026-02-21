@@ -37,10 +37,13 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
     const body = validation.value;
 
+    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+    const orgId = ctx.identity.orgId;
+
     ctx.log('INFO', 'Plugin update request received', { id });
 
     try {
-      const existing = await pluginService.findById(id, ctx.identity.orgId!);
+      const existing = await pluginService.findById(id, orgId);
 
       if (!existing) return sendPluginNotFound(res);
 
@@ -85,7 +88,7 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
       const updated = await pluginService.update(
         id,
         updateData,
-        ctx.identity.orgId!,
+        orgId,
         ctx.identity.userId || 'system',
       );
 

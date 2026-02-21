@@ -16,7 +16,7 @@ function getDatabaseConfig() {
     port: parseInt(process.env.DB_PORT || '5432'),
     database: process.env.DATABASE || 'pipeline-builder',
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'password',
+    password: process.env.DB_PASSWORD || '',
     maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
     idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
     connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000'),

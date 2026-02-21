@@ -23,6 +23,7 @@
 import { execSync } from 'node:child_process';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
+import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
 
 /**
  * Base class for library package projects.
@@ -53,21 +54,8 @@ export class PackageProject extends TypeScriptProject {
             ...options,
             tsconfig: {
                 compilerOptions: {
-                    // Source and output directories
-                    rootDir: 'src',
+                    ...BASE_STRICT_COMPILER_OPTIONS,
                     outDir: 'lib',
-
-                    // Strict type checking
-                    alwaysStrict: true,
-                    strict: true,
-                    strictNullChecks: true,
-                    strictPropertyInitialization: true,
-                    noImplicitAny: true,
-                    noImplicitReturns: true,
-                    noImplicitThis: true,
-                    noUnusedLocals: true,
-                    noUnusedParameters: true,
-                    noFallthroughCasesInSwitch: true,
 
                     // Module configuration (ES Modules with Node.js support)
                     module: TypeScriptModuleResolution.NODE_NEXT,
@@ -75,22 +63,9 @@ export class PackageProject extends TypeScriptProject {
                     target: 'ESNext',
                     lib: ['ESNext'],
 
-                    // Type declarations and source maps
-                    declaration: true,
-                    inlineSourceMap: true,
-                    inlineSources: true,
-
-                    // ES Module interop and JSON support
-                    esModuleInterop: true,
-                    resolveJsonModule: true,
-
-                    // Decorators support (for future use)
-                    experimentalDecorators: true,
-
                     // Build behavior
-                    noEmitOnError: false,        // Continue build even with errors
-                    stripInternal: true,         // Remove @internal declarations
-                    skipLibCheck: true           // Skip lib.d.ts checks for faster builds
+                    noEmitOnError: false,
+                    stripInternal: true,
                 }
             }
         })
@@ -104,11 +79,4 @@ export class PackageProject extends TypeScriptProject {
         execSync(`if [ ! -d ${this.outdir} ];then mkdir -p ${this.outdir};fi`)
     }
 
-    /**
-     * Runs after synthesis to clean up test directories.
-     * Test directories are managed separately and not part of the build output.
-     */
-    postSynthesize(): void {
-        execSync(`if [ -d ${this.outdir}/test ];then rm -rf ${this.outdir}/test;fi`)
-    }
 }

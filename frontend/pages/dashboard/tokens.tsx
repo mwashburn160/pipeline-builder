@@ -7,61 +7,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
 import api from '@/lib/api';
-
-// ---------------------------------------------------------------------------
-// JWT helpers
-// ---------------------------------------------------------------------------
-
-interface JwtPayload {
-  [key: string]: unknown;
-}
-
-interface JwtParts {
-  header: Record<string, unknown>;
-  payload: JwtPayload;
-  signature: string;
-}
-
-function base64UrlDecode(str: string): string {
-  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (base64.length % 4) base64 += '=';
-  return atob(base64);
-}
-
-function decodeJwt(token: string): JwtParts | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const header = JSON.parse(base64UrlDecode(parts[0]));
-    const payload = JSON.parse(base64UrlDecode(parts[1]));
-    return { header, payload, signature: parts[2] };
-  } catch {
-    return null;
-  }
-}
-
-function formatTimestamp(value: unknown): string | null {
-  if (typeof value !== 'number') return null;
-  const ms = value < 1e12 ? value * 1000 : value;
-  return new Date(ms).toLocaleString();
-}
-
-function isExpired(payload: JwtPayload): boolean {
-  if (typeof payload.exp !== 'number') return false;
-  return Date.now() > payload.exp * 1000;
-}
-
-function expiresIn(payload: JwtPayload): string | null {
-  if (typeof payload.exp !== 'number') return null;
-  const diff = payload.exp * 1000 - Date.now();
-  if (diff <= 0) return 'Expired';
-  const mins = Math.floor(diff / 60000);
-  const hrs = Math.floor(mins / 60);
-  const days = Math.floor(hrs / 24);
-  if (days > 0) return `${days}d ${hrs % 24}h`;
-  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-  return `${mins}m`;
-}
+import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 
 // ---------------------------------------------------------------------------
 // Token card

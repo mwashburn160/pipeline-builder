@@ -1,0 +1,71 @@
+---
+# =============================================================================
+# Mongo Express Service (MongoDB Admin UI)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-express
+  namespace: pipeline-builder
+  labels:
+    app: mongo-express
+spec:
+  type: NodePort
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30081
+      protocol: TCP
+      name: http
+  selector:
+    app: mongo-express
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-express
+  namespace: pipeline-builder
+  labels:
+    app: mongo-express
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo-express
+  template:
+    metadata:
+      labels:
+        app: mongo-express
+    spec:
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for mongodb..."
+              until wget -qO- http://mongodb:27017 > /dev/null 2>&1; do sleep 3; done
+              echo "MongoDB ready"
+      containers:
+        - name: mongo-express
+          image: mongo-express:1.0
+          ports:
+            - containerPort: 8081
+              name: http
+          envFrom:
+            - secretRef:
+                name: admin-secrets
+          env:
+            - name: ME_CONFIG_SITE_BASEURL
+              value: "/mongo-express/"
+            - name: ME_CONFIG_MONGODB_ENABLE_ADMIN
+              value: "true"
+          resources:
+            limits:
+              cpu: "400m"
+              memory: 384Mi
+            requests:
+              cpu: "200m"
+              memory: 192Mi

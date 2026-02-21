@@ -3,9 +3,9 @@ import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import { v4 as uuidv4 } from 'uuid';
-import { SSEManager } from '../http/sse-connection-manager';
+import { v7 as uuid } from 'uuid';
 import { metricsMiddleware, metricsHandler } from './metrics';
+import { SSEManager } from '../http/sse-connection-manager';
 
 declare global {
   namespace Express {
@@ -116,8 +116,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Request ID — prefer existing header from nginx, otherwise generate one
   app.use((req: Request, res: Response, next: NextFunction) => {
-    req.requestId = (req.headers['x-request-id'] as string) || uuidv4();
-    res.setHeader('X-Request-Id', req.requestId);
+    const hdr = req.headers['x-request-id'];
+    const requestId = (Array.isArray(hdr) ? hdr[0] : hdr) || uuid();
+    req.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
     next();
   });
 

@@ -54,6 +54,7 @@ export interface HttpClientResponse<T = unknown> {
  */
 export class InternalHttpClient {
   private config: Required<ServiceConfig>;
+  private agent: http.Agent;
 
   /**
    * Create a new HTTP client instance.
@@ -66,6 +67,7 @@ export class InternalHttpClient {
       port: config.port,
       timeout: config.timeout ?? DEFAULT_TIMEOUT,
     };
+    this.agent = new http.Agent({ keepAlive: true });
   }
 
   /**
@@ -150,6 +152,7 @@ export class InternalHttpClient {
         method,
         headers,
         timeout: options?.timeout ?? this.config.timeout,
+        agent: this.agent,
       };
 
       const req = http.request(requestOptions, (res) => {
@@ -230,7 +233,8 @@ export function createSafeClient(config: ServiceConfig) {
     async get<T>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.get<T>(path, options);
-      } catch {
+      } catch (err) {
+        logger.debug('Safe GET failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
         return null;
       }
     },
@@ -245,7 +249,8 @@ export function createSafeClient(config: ServiceConfig) {
     ): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.post<T>(path, body, options);
-      } catch {
+      } catch (err) {
+        logger.debug('Safe POST failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
         return null;
       }
     },
@@ -260,7 +265,8 @@ export function createSafeClient(config: ServiceConfig) {
     ): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.put<T>(path, body, options);
-      } catch {
+      } catch (err) {
+        logger.debug('Safe PUT failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
         return null;
       }
     },

@@ -31,10 +31,13 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
+    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
+    const orgId = ctx.identity.orgId;
+
     ctx.log('INFO', 'Plugin delete request received', { id });
 
     try {
-      const existing = await pluginService.findById(id, ctx.identity.orgId!);
+      const existing = await pluginService.findById(id, orgId);
 
       if (!existing) return sendPluginNotFound(res);
 
@@ -46,7 +49,7 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
         return sendError(res, 403, 'Only system admins can delete public plugins.', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
-      await pluginService.delete(id, ctx.identity.orgId!, ctx.identity.userId || 'system');
+      await pluginService.delete(id, orgId, ctx.identity.userId || 'system');
 
       ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name });
 

@@ -6,20 +6,13 @@
  * validation, error helpers, and response building.
  */
 
-import { sendError, ErrorCode, DEFAULT_TIER } from '@mwashburn160/api-core';
+import { sendError, ErrorCode, DEFAULT_TIER, VALID_QUOTA_TYPES } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaTier } from '@mwashburn160/api-core';
 export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/api-core';
-export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits } from '@mwashburn160/api-core';
+export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits, VALID_QUOTA_TYPES, isValidQuotaType } from '@mwashburn160/api-core';
 import { Response } from 'express';
 import { config } from '../config';
 import { IOrganization, QuotaLimits, QuotaUsageTracking } from '../models/organization';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Valid quota type identifiers. */
-export const VALID_QUOTA_TYPES: readonly QuotaType[] = ['plugins', 'pipelines', 'apiCalls'];
 
 /** Shared auth options — allow x-org-id header override for service-to-service calls. */
 export const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -39,11 +32,6 @@ export function getNextResetDate(days: number): Date {
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
-
-/** Check whether a string is a valid QuotaType. */
-export function isValidQuotaType(value: string): value is QuotaType {
-  return (VALID_QUOTA_TYPES as readonly string[]).includes(value);
-}
 
 /**
  * Validate quota limit values from a request body.

@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.19.5';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.20.5';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.20.5';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.18.5';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -323,6 +323,10 @@ let pipeline_core = new PackageProject({
 });
 // Disable problematic ESLint rules for this package
 pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+// Run tests sequentially — heavy CDK imports cause Jest worker pool timeout warnings
+if (pipeline_core.jest) {
+  pipeline_core.jest.config.maxWorkers = 1;
+}
 pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
 // =============================================================================
@@ -395,6 +399,10 @@ let api_server = new PackageProject({
 api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 api_server.eslint?.addRules({ 'import/no-unresolved': 'off' });
 api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+// Run tests sequentially — heavy dependency imports cause Jest worker pool timeout warnings
+if (api_server.jest) {
+  api_server.jest.config.maxWorkers = 1;
+}
 
 // =============================================================================
 // Pipeline Manager - CLI tool for pipeline management
@@ -460,6 +468,9 @@ let manager = new ManagerProject({
 // Disable problematic ESLint rules for this package
 manager.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
 manager.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+
+// Prevent npm pack from re-including its own tarball output (circular inclusion)
+manager.addPackageIgnore('/dist/js/');
 
 /**
  * Post-compile tasks: Copy configuration files to dist directory
@@ -616,12 +627,20 @@ let frontend = new FrontEndProject({
     '@types/node@24.9.0',              // Node.js types
     '@types/react@19.2.13',            // React types
     '@types/react-dom@19.2.3',         // React DOM types
+    '@types/jest@^30.0.0',             // Jest types
     '@tailwindcss/postcss@4.1.18',     // Tailwind PostCSS plugin
     'autoprefixer@10.4.24',            // CSS autoprefixer
     'postcss@8.5.6',                   // CSS post-processor
+    'jest@^30.2.0',                    // Test runner
+    'ts-jest@^29.4.6',                 // TypeScript jest transformer
     `typescript@${typescriptVersion}`   // TypeScript compiler
   ]
 })
+
+/**
+ * Configure test task to run jest for frontend utility tests.
+ */
+frontend.testTask.exec('jest --passWithNoTests --config jest.config.ts');
 
 /**
  * Add npm scripts for the frontend application.
@@ -681,7 +700,7 @@ let quota = new FunctionProject({
     'express-rate-limit@8.2.1',                           // Rate limiting
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
-    'mongoose@8.15.1',                                    // MongoDB ODM
+    'mongoose@9.1.5',                                     // MongoDB ODM
     'winston@3.17.0',                                     // Logging
     'zod@3.24.4'                                          // Input validation
   ],

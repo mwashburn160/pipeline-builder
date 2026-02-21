@@ -1,0 +1,190 @@
+---
+# =============================================================================
+# Platform Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform
+  namespace: pipeline-builder
+  labels:
+    app: platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: platform
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform
+  namespace: pipeline-builder
+  labels:
+    app: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: platform
+  template:
+    metadata:
+      labels:
+        app: platform
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for mongodb..."
+              until wget -qO- http://mongodb:27017 > /dev/null 2>&1; do sleep 3; done
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: platform
+          image: ghcr.io/mwashburn160/platform:1.15.6
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: common-env
+            - configMapRef:
+                name: postgres-env
+            - configMapRef:
+                name: server-env
+            - configMapRef:
+                name: quota-client-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: mongodb-secret
+          env:
+            # JWT
+            - name: JWT_EXPIRES_IN
+              value: "86400"
+            - name: JWT_ALGORITHM
+              value: "HS256"
+            - name: JWT_SALT_ROUNDS
+              value: "12"
+            - name: REFRESH_TOKEN_EXPIRES_IN
+              value: "2592000"
+            # Platform
+            - name: PLATFORM_FRONTEND_URL
+              value: "https://localhost:30443"
+            - name: TRUST_PROXY
+              value: "1"
+            # Email
+            - name: EMAIL_ENABLED
+              value: "false"
+            - name: EMAIL_FROM
+              value: "noreply@example.com"
+            - name: EMAIL_FROM_NAME
+              value: "Platform"
+            - name: EMAIL_PROVIDER
+              value: "smtp"
+            - name: SMTP_HOST
+              value: "localhost"
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_SECURE
+              value: "false"
+            - name: SMTP_USER
+              value: ""
+            - name: SMTP_PASS
+              value: ""
+            - name: SES_REGION
+              value: "us-east-1"
+            - name: SES_ACCESS_KEY_ID
+              value: ""
+            - name: SES_SECRET_ACCESS_KEY
+              value: ""
+            - name: AWS_REGION
+              value: "us-east-1"
+            # Invitations
+            - name: INVITATION_EXPIRATION_DAYS
+              value: "7"
+            - name: INVITATION_MAX_PENDING_PER_ORG
+              value: "50"
+            # OAuth
+            - name: OAUTH_GOOGLE_CLIENT_ID
+              value: ""
+            - name: OAUTH_GOOGLE_CLIENT_SECRET
+              value: ""
+            - name: OAUTH_CALLBACK_BASE_URL
+              value: "https://localhost:30443"
+            # Service URLs
+            - name: LIST_PLUGINS_URL
+              value: "https://localhost:30443"
+            - name: GET_PLUGIN_URL
+              value: "https://localhost:30443"
+            - name: UPLOAD_PLUGIN_URL
+              value: "https://localhost:30443"
+            - name: LIST_PIPELINES_URL
+              value: "https://localhost:30443"
+            - name: GET_PIPELINE_URL
+              value: "https://localhost:30443"
+            - name: CREATE_PIPELINE_URL
+              value: "https://localhost:30443"
+            - name: SERVICE_TIMEOUT
+              value: "30000"
+            # Loki
+            - name: LOKI_URL
+              value: "http://loki:3100"
+            # Quotas
+            - name: QUOTA_BYPASS_ORG_ID
+              value: "system"
+            - name: QUOTA_DEFAULT_WINDOW_MS
+              value: "60000"
+            - name: QUOTA_CREATE_PLUGIN_LIMIT
+              value: "unlimited"
+            - name: QUOTA_CREATE_PLUGIN_WINDOW_MS
+              value: "60000"
+            - name: QUOTA_GET_PLUGIN_LIMIT
+              value: "10"
+            - name: QUOTA_GET_PLUGIN_WINDOW_MS
+              value: "60000"
+            - name: QUOTA_CREATE_PIPELINE_LIMIT
+              value: "unlimited"
+            - name: QUOTA_CREATE_PIPELINE_WINDOW_MS
+              value: "60000"
+            - name: QUOTA_GET_PIPELINE_LIMIT
+              value: "10"
+            - name: QUOTA_GET_PIPELINE_WINDOW_MS
+              value: "60000"
+          resources:
+            limits:
+              cpu: "750m"
+              memory: 768Mi
+            requests:
+              cpu: "400m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
