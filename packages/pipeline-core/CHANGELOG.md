@@ -1,3 +1,18 @@
+## 1.21.0 (2026-02-21)
+
+### 🚀 Features
+
+- added minikube ([0904688](https://github.com/mwashburn160/pipeline-builder/commit/0904688))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.21.0
+- Updated @mwashburn160/api-core to 1.20.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.6 (2026-02-14)
 
 ### 🩹 Fixes
