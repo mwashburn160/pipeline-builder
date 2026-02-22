@@ -6,7 +6,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nginx-config
-  namespace: pipeline-builder
 data:
   nginx.conf: |
     # Load NJS Module
@@ -361,7 +360,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nginx-njs
-  namespace: pipeline-builder
 data:
   jwt.js: |
     var crypto = require('crypto');
@@ -556,7 +554,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nginx
-  namespace: pipeline-builder
   labels:
     app: nginx
 spec:
@@ -583,9 +580,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nginx
-  namespace: pipeline-builder
   labels:
     app: nginx
+    app.kubernetes.io/component: gateway
 spec:
   replicas: 1
   selector:
@@ -595,10 +592,23 @@ spec:
     metadata:
       labels:
         app: nginx
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8443"
+        prometheus.io/path: "/metrics"
+        prometheus.io/scheme: "https"
     spec:
       initContainers:
         - name: wait-for-services
-          image: busybox:1.36
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
           command:
             - sh
             - -c
@@ -614,7 +624,12 @@ spec:
               echo "All services ready"
       containers:
         - name: nginx
-          image: nginx:1.27
+          image: nginx
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
           ports:
             - containerPort: 8443
               name: https
@@ -639,7 +654,7 @@ spec:
                 - sh
                 - -c
                 - "curl -sfk https://localhost:8443/health || exit 1"
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
@@ -649,7 +664,7 @@ spec:
                 - sh
                 - -c
                 - "curl -sfk https://localhost:8443/health || exit 1"
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3

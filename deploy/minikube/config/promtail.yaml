@@ -6,7 +6,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: promtail-config
-  namespace: pipeline-builder
 data:
   promtail-config.yml: |
     # Promtail Configuration — Kubernetes Pod Log Collection
@@ -80,7 +79,6 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: promtail
-  namespace: pipeline-builder
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -114,9 +112,9 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: promtail
-  namespace: pipeline-builder
   labels:
     app: promtail
+    app.kubernetes.io/component: observability
 spec:
   selector:
     matchLabels:
@@ -125,11 +123,17 @@ spec:
     metadata:
       labels:
         app: promtail
+        app.kubernetes.io/component: observability
     spec:
       serviceAccountName: promtail
       containers:
         - name: promtail
-          image: grafana/promtail:3.4.2
+          image: grafana/promtail
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/promtail/promtail-config.yml"
           resources:
@@ -139,6 +143,22 @@ spec:
             requests:
               cpu: "100m"
               memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
           volumeMounts:
             - name: promtail-config
               mountPath: /etc/promtail

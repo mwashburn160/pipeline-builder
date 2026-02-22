@@ -6,11 +6,12 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: common-env
-  namespace: pipeline-builder
 data:
   LOG_LEVEL: "info"
   LOG_FORMAT: "json"
   PLATFORM_BASE_URL: "https://localhost:30443"
+  SERVICE_TIMEOUT: "30000"
+  HANDLER_TIMEOUT_MS: "30000"
 
 ---
 # =============================================================================
@@ -20,11 +21,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-env
-  namespace: pipeline-builder
 data:
   DB_HOST: "postgres"
   DB_PORT: "5432"
   DATABASE: "pipeline_builder"
+  POSTGRES_DB: "pipeline_builder"
   DRIZZLE_MAX_POOL_SIZE: "20"
   DRIZZLE_IDLE_TIMEOUT_MILLIS: "30000"
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: "10000"
@@ -37,7 +38,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: server-env
-  namespace: pipeline-builder
 data:
   CORS_CREDENTIALS: "true"
   CORS_ORIGIN: ""
@@ -52,7 +52,65 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: quota-client-env
-  namespace: pipeline-builder
 data:
   QUOTA_SERVICE_HOST: "quota"
   QUOTA_SERVICE_PORT: "3000"
+
+---
+# =============================================================================
+# Platform Environment (platform-specific configuration)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-env
+data:
+  # JWT
+  JWT_EXPIRES_IN: "86400"
+  JWT_ALGORITHM: "HS256"
+  JWT_SALT_ROUNDS: "12"
+  REFRESH_TOKEN_EXPIRES_IN: "2592000"
+  # Platform
+  PLATFORM_FRONTEND_URL: "https://localhost:30443"
+  TRUST_PROXY: "1"
+  # Email
+  EMAIL_ENABLED: "false"
+  EMAIL_FROM: "noreply@example.com"
+  EMAIL_FROM_NAME: "Platform"
+  EMAIL_PROVIDER: "smtp"
+  SMTP_HOST: "localhost"
+  SMTP_PORT: "587"
+  SMTP_SECURE: "false"
+  SMTP_USER: ""
+  SMTP_PASS: ""
+  SES_REGION: "us-east-1"
+  SES_ACCESS_KEY_ID: ""
+  SES_SECRET_ACCESS_KEY: ""
+  AWS_REGION: "us-east-1"
+  # Invitations
+  INVITATION_EXPIRATION_DAYS: "7"
+  INVITATION_MAX_PENDING_PER_ORG: "50"
+  # OAuth
+  OAUTH_GOOGLE_CLIENT_ID: ""
+  OAUTH_GOOGLE_CLIENT_SECRET: ""
+  OAUTH_CALLBACK_BASE_URL: "https://localhost:30443"
+  # Service URLs (all same base URL — change once here)
+  LIST_PLUGINS_URL: "https://localhost:30443"
+  GET_PLUGIN_URL: "https://localhost:30443"
+  UPLOAD_PLUGIN_URL: "https://localhost:30443"
+  LIST_PIPELINES_URL: "https://localhost:30443"
+  GET_PIPELINE_URL: "https://localhost:30443"
+  CREATE_PIPELINE_URL: "https://localhost:30443"
+  # Loki
+  LOKI_URL: "http://loki:3100"
+  # Quota settings
+  QUOTA_BYPASS_ORG_ID: "system"
+  QUOTA_DEFAULT_WINDOW_MS: "60000"
+  QUOTA_CREATE_PLUGIN_LIMIT: "unlimited"
+  QUOTA_CREATE_PLUGIN_WINDOW_MS: "60000"
+  QUOTA_GET_PLUGIN_LIMIT: "10"
+  QUOTA_GET_PLUGIN_WINDOW_MS: "60000"
+  QUOTA_CREATE_PIPELINE_LIMIT: "unlimited"
+  QUOTA_CREATE_PIPELINE_WINDOW_MS: "60000"
+  QUOTA_GET_PIPELINE_LIMIT: "10"
+  QUOTA_GET_PIPELINE_WINDOW_MS: "60000"

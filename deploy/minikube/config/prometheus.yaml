@@ -6,7 +6,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: pipeline-builder
 data:
   prometheus.yml: |
     # Prometheus scrape configuration for Pipeline Builder services
@@ -15,21 +14,75 @@ data:
       evaluation_interval: 15s
 
     scrape_configs:
-      - job_name: 'platform'
-        static_configs:
-          - targets: ['platform:3000']
+      # Auto-discover pods with prometheus.io/scrape annotation
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - pipeline-builder
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
+        tls_config:
+          insecure_skip_verify: true
 
-      - job_name: 'plugin'
+      # Nginx gateway metrics (HTTPS)
+      - job_name: 'nginx'
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
         static_configs:
-          - targets: ['plugin:3000']
+          - targets: ['nginx:8443']
 
-      - job_name: 'pipeline'
-        static_configs:
-          - targets: ['pipeline:3000']
+---
+# =============================================================================
+# Prometheus RBAC
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
 
-      - job_name: 'quota'
-        static_configs:
-          - targets: ['quota:3000']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "nodes/proxy", "services", "endpoints"]
+    verbs: ["get", "watch", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: pipeline-builder
+roleRef:
+  kind: ClusterRole
+  name: prometheus
+  apiGroup: rbac.authorization.k8s.io
 
 ---
 # =============================================================================
@@ -39,7 +92,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: prometheus
-  namespace: pipeline-builder
   labels:
     app: prometheus
 spec:
@@ -57,7 +109,6 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-data
-  namespace: pipeline-builder
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -72,9 +123,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: pipeline-builder
   labels:
     app: prometheus
+    app.kubernetes.io/component: observability
 spec:
   replicas: 1
   selector:
@@ -84,14 +135,21 @@ spec:
     metadata:
       labels:
         app: prometheus
+        app.kubernetes.io/component: observability
     spec:
+      serviceAccountName: prometheus
       securityContext:
         fsGroup: 65534
         runAsUser: 65534
         runAsNonRoot: true
       containers:
         - name: prometheus
-          image: prom/prometheus:v3.2.1
+          image: prom/prometheus
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.retention.time=7d"

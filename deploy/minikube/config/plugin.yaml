@@ -6,7 +6,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: plugin
-  namespace: pipeline-builder
   labels:
     app: plugin
 spec:
@@ -24,9 +23,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: plugin
-  namespace: pipeline-builder
   labels:
     app: plugin
+    app.kubernetes.io/component: backend
 spec:
   replicas: 1
   selector:
@@ -36,10 +35,22 @@ spec:
     metadata:
       labels:
         app: plugin
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
     spec:
       initContainers:
         - name: wait-for-dependencies
-          image: busybox:1.36
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
           command:
             - sh
             - -c
@@ -51,7 +62,13 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.15.4
+          image: ghcr.io/mwashburn160/plugin
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
               name: http
@@ -77,14 +94,6 @@ spec:
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
-            - name: DOCKER_NETWORK
-              value: "backend-network"
-            # NOTE: Docker socket mounting is not available in Kubernetes.
-            # Plugin Docker builds will NOT work in minikube.
-            # For Docker-in-Docker (DinD) support, consider using:
-            #   1. Kaniko for in-cluster container builds
-            #   2. A DinD sidecar container
-            #   3. Buildkit with rootless mode
           resources:
             limits:
               cpu: "750m"
@@ -96,7 +105,7 @@ spec:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
@@ -104,7 +113,7 @@ spec:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
@@ -117,7 +126,6 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: plugin
-  namespace: pipeline-builder
   labels:
     app: plugin
 spec:

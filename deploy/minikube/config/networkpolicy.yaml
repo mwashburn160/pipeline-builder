@@ -1,0 +1,290 @@
+---
+# =============================================================================
+# Default Deny All Ingress
+# =============================================================================
+# NOTE: Requires a CNI that supports NetworkPolicy (e.g., Calico).
+# Without one, these policies are silently ignored (safe to apply).
+# Enable with: minikube start --cni=calico
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# =============================================================================
+# Nginx Gateway — ingress from anywhere (NodePort entry point)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8443
+        - port: 8080
+
+---
+# =============================================================================
+# API Services — ingress from nginx only
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-from-nginx
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [platform, pipeline, plugin, quota, frontend]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Quota — ingress from platform, pipeline, plugin
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-quota-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: quota
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Postgres — ingress from platform, pipeline, plugin, pgadmin
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, pgadmin]
+      ports:
+        - port: 5432
+
+---
+# =============================================================================
+# MongoDB — ingress from platform, quota, mongo-express
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mongodb-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, quota, mongo-express]
+      ports:
+        - port: 27017
+
+---
+# =============================================================================
+# Registry — ingress from plugin, registry-express, nginx
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-registry-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: registry
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [plugin, registry-express, nginx]
+      ports:
+        - port: 5000
+
+---
+# =============================================================================
+# Loki — ingress from promtail, grafana
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [promtail, grafana]
+      ports:
+        - port: 3100
+
+---
+# =============================================================================
+# Prometheus — ingress from grafana
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - port: 9090
+
+---
+# =============================================================================
+# Grafana — ingress from nginx
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Admin UIs — ingress from nginx
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-admin-uis-ingress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [pgadmin, mongo-express, registry-express]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 80
+        - port: 8081
+
+---
+# =============================================================================
+# Prometheus Scraping — allow from prometheus to all pods on metrics ports
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scraping
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [platform, pipeline, plugin, quota, frontend, nginx, grafana, loki]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 3000
+        - port: 3100
+        - port: 8443
+        - port: 9090
+
+---
+# =============================================================================
+# Allow All Egress (pods need DNS, external access for image pulls, etc.)
+# In production, restrict this further.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - {}

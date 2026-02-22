@@ -39,5 +39,50 @@ resources:
   - grafana.yaml
   - promtail.yaml
 
+  # Network & Resource Policies
+  - networkpolicy.yaml
+  - resource-limits.yaml
+
 commonLabels:
   app.kubernetes.io/part-of: pipeline-builder
+
+images:
+  # Application Services
+  - name: ghcr.io/mwashburn160/platform
+    newTag: "1.16.5"
+  - name: ghcr.io/mwashburn160/pipeline
+    newTag: "1.15.4"
+  - name: ghcr.io/mwashburn160/plugin
+    newTag: "1.15.4"
+  - name: ghcr.io/mwashburn160/quota
+    newTag: "1.14.4"
+  - name: ghcr.io/mwashburn160/frontend
+    newTag: "1.17.4"
+  # Infrastructure
+  - name: nginx
+    newTag: "1.27"
+  - name: postgres
+    newTag: "16"
+  - name: mongo
+    newTag: "7.0"
+  - name: registry
+    newTag: "2"
+  # Admin UIs
+  - name: dpage/pgadmin4
+    newTag: "8"
+  - name: mongo-express
+    newTag: "1.0"
+  - name: joxit/docker-registry-ui
+    newTag: "2"
+  # Observability
+  - name: prom/prometheus
+    newTag: "v3.2.1"
+  - name: grafana/grafana
+    newTag: "11.5.2"
+  - name: grafana/loki
+    newTag: "3.4.2"
+  - name: grafana/promtail
+    newTag: "3.4.2"
+  # Init containers
+  - name: busybox
+    newTag: "1.36"
