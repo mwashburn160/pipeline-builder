@@ -467,7 +467,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.16.4'
+    image: 'ghcr.io/mwashburn160/platform:1.16.5'
     container_name: platform
     depends_on:
       mongodb:
