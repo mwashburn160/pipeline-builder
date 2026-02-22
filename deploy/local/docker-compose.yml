@@ -386,6 +386,7 @@ services:
       GF_SECURITY_ALLOW_EMBEDDING: 'true'
       GF_SERVER_ROOT_URL: '%(protocol)s://%(domain)s:%(http_port)s/grafana/'
       GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: '/etc/grafana/dashboards/service-logs.json'
     volumes:
       - './db-data/grafana/:/var/lib/grafana:rw'
       - './grafana/provisioning/:/etc/grafana/provisioning/:ro'
@@ -432,7 +433,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.16.6'
+    image: 'ghcr.io/mwashburn160/frontend:1.17.4'
     container_name: frontend
     restart: always
     networks:
@@ -466,7 +467,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.15.6'
+    image: 'ghcr.io/mwashburn160/platform:1.16.4'
     container_name: platform
     depends_on:
       mongodb:
@@ -537,7 +538,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.14.6'
+    image: 'ghcr.io/mwashburn160/plugin:1.15.4'
     container_name: plugin
     depends_on:
       postgres:
@@ -563,7 +564,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.14.6'
+    image: 'ghcr.io/mwashburn160/pipeline:1.15.4'
     container_name: pipeline
     depends_on:
       postgres:
@@ -580,7 +581,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.13.6'
+    image: 'ghcr.io/mwashburn160/quota:1.14.4'
     container_name: quota
     depends_on:
       mongodb:

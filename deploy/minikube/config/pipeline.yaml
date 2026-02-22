@@ -51,7 +51,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: pipeline
-          image: ghcr.io/mwashburn160/pipeline:1.14.6
+          image: ghcr.io/mwashburn160/pipeline:1.15.4
           ports:
             - containerPort: 3000
               name: http
@@ -96,3 +96,29 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
+
+---
+# =============================================================================
+# Pipeline HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pipeline
+  namespace: pipeline-builder
+  labels:
+    app: pipeline
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pipeline
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -15,7 +15,7 @@
       {
         "name": "service",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
         "query": "label_values(http_requests_total, service)",
         "includeAll": true,
         "multi": true,
@@ -30,11 +30,11 @@
       "type": "timeseries",
       "title": "Request Rate by Service",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[5m]))",
           "legendFormat": "{{service}}"
         }
@@ -62,17 +62,17 @@
       "type": "timeseries",
       "title": "Request Duration p95",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
           "legendFormat": "p95 {{service}}"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.50, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
           "legendFormat": "p50 {{service}}"
         }
@@ -100,11 +100,11 @@
       "type": "timeseries",
       "title": "Error Rate (5xx)",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))",
           "legendFormat": "{{service}}"
         }
@@ -140,11 +140,11 @@
       "type": "timeseries",
       "title": "Requests by Status Code",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (status_code) (rate(http_requests_total{service=~\"$service\"}[5m]))",
           "legendFormat": "{{status_code}}"
         }
@@ -170,11 +170,11 @@
       "type": "timeseries",
       "title": "Memory Usage",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "process_resident_memory_bytes{service=~\"$service\"}",
           "legendFormat": "{{service}}"
         }
@@ -200,11 +200,11 @@
       "type": "timeseries",
       "title": "CPU Usage",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "rate(process_cpu_seconds_total{service=~\"$service\"}[5m])",
           "legendFormat": "{{service}}"
         }
@@ -230,11 +230,11 @@
       "type": "timeseries",
       "title": "Top Routes by Request Rate",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "topk(10, sum by (route, method) (rate(http_requests_total{service=~\"$service\"}[5m])))",
           "legendFormat": "{{method}} {{route}}"
         }
@@ -260,11 +260,11 @@
       "type": "timeseries",
       "title": "Event Loop Lag",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "" },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "nodejs_eventloop_lag_seconds{service=~\"$service\"}",
           "legendFormat": "{{service}}"
         }

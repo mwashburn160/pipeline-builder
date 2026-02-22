@@ -8,7 +8,7 @@
   "links": [],
   "panels": [
     {
-      "datasource": { "type": "loki", "uid": "" },
+      "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -36,7 +36,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "" },
+          "datasource": { "type": "loki", "uid": "loki" },
           "editorMode": "code",
           "expr": "sum by (service) (rate({service=~\"$service\"} [$__auto]))",
           "legendFormat": "{{service}}",
@@ -48,7 +48,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "" },
+      "datasource": { "type": "loki", "uid": "loki" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "" },
+          "datasource": { "type": "loki", "uid": "loki" },
           "editorMode": "code",
           "expr": "sum by (service) (rate({service=~\"$service\", level=\"error\"} [$__auto]))",
           "legendFormat": "{{service}}",
@@ -88,7 +88,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "loki", "uid": "" },
+      "datasource": { "type": "loki", "uid": "loki" },
       "gridPos": { "h": 18, "w": 24, "x": 0, "y": 12 },
       "id": 3,
       "options": {
@@ -103,7 +103,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "" },
+          "datasource": { "type": "loki", "uid": "loki" },
           "editorMode": "code",
           "expr": "{service=~\"$service\", level=~\"$level\"}",
           "queryType": "range",
@@ -120,7 +120,7 @@
     "list": [
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "type": "loki", "uid": "" },
+        "datasource": { "type": "loki", "uid": "loki" },
         "definition": "",
         "includeAll": true,
         "multi": true,
@@ -133,7 +133,7 @@
       },
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "type": "loki", "uid": "" },
+        "datasource": { "type": "loki", "uid": "loki" },
         "definition": "",
         "includeAll": true,
         "multi": true,

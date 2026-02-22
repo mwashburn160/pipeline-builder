@@ -82,15 +82,16 @@ function escapeLogQL(value: string): string {
  * The orgId filter is injected server-side and cannot be bypassed by the client.
  */
 function buildLogQL(params: LogQueryParams): string {
-  // Stream selector
+  // Stream selector — use service_name label (extracted from JSON logs by Promtail)
+  // to target only API services, not infrastructure containers
   const streamMatchers: string[] = [];
   if (params.service) {
-    streamMatchers.push(`service="${escapeLogQL(params.service)}"`);
+    streamMatchers.push(`service_name="${escapeLogQL(params.service)}"`);
   }
 
   const streamSelector = streamMatchers.length > 0
     ? `{${streamMatchers.join(', ')}}`
-    : '{service=~".+"}';
+    : '{service_name=~".+"}';
 
   // Pipeline stages
   const stages: string[] = [];
@@ -194,12 +195,16 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
   const now = Date.now();
   const oneHourAgo = now - 3_600_000;
 
+  // Loki expects nanosecond timestamps; frontend sends milliseconds
+  const startMs = params.start ? Number(params.start) : oneHourAgo;
+  const endMs = params.end ? Number(params.end) : now;
+
   const lokiParams: Record<string, string> = {
     query,
     limit: String(limit),
     direction: params.direction || 'backward',
-    start: params.start || String(oneHourAgo * 1_000_000), // Convert ms to ns
-    end: params.end || String(now * 1_000_000),
+    start: String(startMs * 1_000_000),
+    end: String(endMs * 1_000_000),
   };
 
   logger.debug('Querying Loki', { query, limit });
@@ -232,7 +237,7 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
  * Get available service names from Loki.
  */
 export async function getServiceNames(): Promise<string[]> {
-  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service/values');
+  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values');
   return response.data || [];
 }
 

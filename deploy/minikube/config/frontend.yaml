@@ -39,7 +39,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/mwashburn160/frontend:1.16.6
+          image: ghcr.io/mwashburn160/frontend:1.17.4
           ports:
             - containerPort: 3000
               name: http
@@ -69,3 +69,29 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
+
+---
+# =============================================================================
+# Frontend HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend
+  namespace: pipeline-builder
+  labels:
+    app: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

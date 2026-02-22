@@ -51,7 +51,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.14.6
+          image: ghcr.io/mwashburn160/plugin:1.15.4
           ports:
             - containerPort: 3000
               name: http
@@ -108,3 +108,29 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
+
+---
+# =============================================================================
+# Plugin HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: plugin
+  namespace: pipeline-builder
+  labels:
+    app: plugin
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: plugin
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
