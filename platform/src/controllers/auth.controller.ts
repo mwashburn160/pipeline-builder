@@ -1,6 +1,7 @@
-import { createLogger, sendError } from '@mwashburn160/api-core';
+import { createLogger, sendError, createSafeClient } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { config } from '../config';
 import { handleControllerError } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
 import {
@@ -13,6 +14,26 @@ import {
 } from '../utils/auth-utils';
 
 const logger = createLogger('AuthController');
+
+/** Create a billing service subscription for a new organization (fire-and-forget). */
+async function createBillingSubscription(orgId: string, planId: string): Promise<void> {
+  try {
+    const client = createSafeClient({
+      host: config.billing.serviceHost,
+      port: config.billing.servicePort,
+      timeout: config.billing.serviceTimeout,
+    });
+
+    await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
+      headers: { 'x-org-id': orgId },
+    });
+
+    logger.info('Billing subscription created for new org', { orgId, planId });
+  } catch (error) {
+    // Fail-open: don't block registration if billing is unavailable
+    logger.warn('Failed to create billing subscription (non-blocking)', { orgId, planId, error });
+  }
+}
 
 /** Error map for registration errors */
 const registerErrorMap: Record<string, { status: number; message: string }> = {
@@ -33,7 +54,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
   try {
     await session.withTransaction(async () => {
-      const { username, email, password, organizationName } = body;
+      const { username, email, password, organizationName, planId } = body;
 
       const existing = await User.exists({
         $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
@@ -82,8 +103,16 @@ export async function register(req: Request, res: Response): Promise<void> {
         role: user.role,
         organizationId: orgId,
         organizationName: orgName,
+        planId: isSystemOrg ? 'unlimited' : (planId || 'developer'),
       };
     });
+
+    // Create billing subscription after successful registration (fire-and-forget)
+    if (result && config.billing.enabled) {
+      const selectedPlan = (result as Record<string, string>).planId || 'developer';
+      const orgId = (result as Record<string, string>).organizationId;
+      void createBillingSubscription(orgId, selectedPlan);
+    }
 
     res.status(201).json({ success: true, statusCode: 201, data: { user: result } });
   } catch (error) {

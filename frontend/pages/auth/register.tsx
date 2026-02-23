@@ -1,10 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { UserPlus, CheckCircle } from 'lucide-react';
+import { UserPlus, CheckCircle, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import type { Plan } from '@/types';
+import api from '@/lib/api';
+
+const PLAN_COLORS: Record<string, string> = {
+  developer: 'border-green-500',
+  pro: 'border-blue-500',
+  unlimited: 'border-purple-500',
+};
+
+const PLAN_BADGE_COLORS: Record<string, string> = {
+  developer: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  pro: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  unlimited: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+};
+
+function formatPrice(cents: number): string {
+  if (cents === 0) return 'Free';
+  return `$${(cents / 100).toFixed(2)}/mo`;
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -14,8 +33,20 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [organizationName, setOrganizationName] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState('developer');
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    api.getPlans().then((res) => {
+      if (res.success && res.data?.plans) {
+        setPlans(res.data.plans);
+      }
+    }).catch(() => {
+      // Plans will fall back to empty — user can still register on default plan
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -37,7 +68,7 @@ export default function RegisterPage() {
     }
 
     try {
-      await register(username, email, password, organizationName || undefined);
+      await register(username, email, password, organizationName || undefined, selectedPlan);
       setSuccess(true);
       setTimeout(() => router.push('/auth/login'), 2000);
     } catch (error) {
@@ -70,7 +101,7 @@ export default function RegisterPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="max-w-md w-full space-y-8"
+        className="max-w-2xl w-full space-y-8"
       >
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">
@@ -143,6 +174,57 @@ export default function RegisterPage() {
                 disabled={isLoading}
               />
             </div>
+
+            {/* Plan Selection */}
+            {plans.length > 0 && (
+              <div>
+                <label className="label mb-3">Choose a plan</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {plans.map((plan) => {
+                    const isSelected = selectedPlan === plan.id;
+                    const borderColor = PLAN_COLORS[plan.id] || 'border-gray-300';
+                    const badgeColor = PLAN_BADGE_COLORS[plan.id] || 'bg-gray-100 text-gray-800';
+
+                    return (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => setSelectedPlan(plan.id)}
+                        disabled={isLoading}
+                        className={`relative rounded-lg border-2 p-4 text-left transition-all ${
+                          isSelected
+                            ? `${borderColor} bg-white dark:bg-gray-800 shadow-md`
+                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600'
+                        }`}
+                      >
+                        {isSelected && (
+                          <div className="absolute top-2 right-2">
+                            <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                        )}
+                        <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${badgeColor}`}>
+                          {plan.name}
+                        </span>
+                        <p className="mt-2 text-lg font-bold text-gray-900 dark:text-gray-100">
+                          {formatPrice(plan.prices.monthly)}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {plan.description}
+                        </p>
+                        <ul className="mt-3 space-y-1">
+                          {plan.features.slice(0, 3).map((feature) => (
+                            <li key={feature} className="flex items-start text-xs text-gray-600 dark:text-gray-400">
+                              <Check className="w-3 h-3 mr-1 mt-0.5 text-green-500 flex-shrink-0" />
+                              {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div>
               <label htmlFor="password" className="label">

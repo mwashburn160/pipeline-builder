@@ -9,5 +9,6 @@ packages:
   - platform
   - frontend
   - api/quota
+  - api/billing
   - api/plugin
   - api/pipeline

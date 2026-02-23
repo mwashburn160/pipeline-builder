@@ -243,6 +243,62 @@ export interface LogQueryResult {
 }
 
 /**
+ * Billing interval for subscriptions
+ */
+export type BillingInterval = 'monthly' | 'annual';
+
+/**
+ * Subscription lifecycle status
+ */
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
+
+/**
+ * Plan definition from the billing API
+ */
+export interface Plan {
+  id: string;
+  name: string;
+  description: string;
+  tier: QuotaTier;
+  prices: {
+    monthly: number;
+    annual: number;
+  };
+  features: string[];
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+/**
+ * Subscription info from the billing API
+ */
+export interface Subscription {
+  id: string;
+  orgId: string;
+  planId: string;
+  planName?: string;
+  status: SubscriptionStatus;
+  interval: BillingInterval;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Billing event from the admin API
+ */
+export interface BillingEvent {
+  id: string;
+  orgId: string;
+  subscriptionId?: string;
+  type: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+
+/**
  * Auth tokens
  */
 export interface AuthTokens {

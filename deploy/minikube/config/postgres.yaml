@@ -134,17 +134,54 @@ spec:
 
 ---
 # =============================================================================
-# PostgreSQL StatefulSet
+# PostgreSQL PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv
+  labels:
+    app: postgres
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/postgres
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# PostgreSQL PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  labels:
+    app: postgres
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  selector:
+    matchLabels:
+      app: postgres
+
+---
+# =============================================================================
+# PostgreSQL Deployment
 # =============================================================================
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: postgres
   labels:
     app: postgres
     app.kubernetes.io/component: database
 spec:
-  serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
@@ -219,17 +256,12 @@ spec:
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
       volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
         - name: init-script
           configMap:
             name: postgres-init
-  volumeClaimTemplates:
-    - metadata:
-        name: postgres-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
 
 ---
 # =============================================================================

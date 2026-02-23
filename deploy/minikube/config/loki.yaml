@@ -85,17 +85,54 @@ spec:
 
 ---
 # =============================================================================
-# Loki StatefulSet
+# Loki PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: loki-pv
+  labels:
+    app: loki
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/loki
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Loki PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  labels:
+    app: loki
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  selector:
+    matchLabels:
+      app: loki
+
+---
+# =============================================================================
+# Loki Deployment
 # =============================================================================
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: loki
   labels:
     app: loki
     app.kubernetes.io/component: observability
 spec:
-  serviceName: loki
   replicas: 1
   selector:
     matchLabels:
@@ -156,11 +193,6 @@ spec:
         - name: loki-config
           configMap:
             name: loki-config
-  volumeClaimTemplates:
-    - metadata:
-        name: loki-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
+        - name: loki-data
+          persistentVolumeClaim:
+            claimName: loki-data

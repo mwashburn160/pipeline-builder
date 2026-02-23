@@ -19,15 +19,42 @@ spec:
     app: registry
 
 ---
+# =============================================================================
+# Registry PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: registry-pv
+  labels:
+    app: registry
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/registry
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Registry PersistentVolumeClaim
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: registry-data
+  labels:
+    app: registry
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 2Gi
+  selector:
+    matchLabels:
+      app: registry
 
 ---
 apiVersion: apps/v1

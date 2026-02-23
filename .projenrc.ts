@@ -726,6 +726,74 @@ quota.addScripts({
 quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
+// Billing Service - Subscription and plan management
+// =============================================================================
+/**
+ * Billing service (billing)
+ *
+ * Manages subscription plans and billing lifecycle:
+ *
+ * - GET /billing/plans - List available plans
+ * - GET /billing/subscriptions - Get current subscription
+ * - POST /billing/subscriptions - Create subscription
+ * - PUT /billing/subscriptions/:id - Change plan or interval
+ * - POST /billing/subscriptions/:id/cancel - Cancel subscription
+ * - POST /billing/subscriptions/:id/reactivate - Reactivate subscription
+ * - Admin routes for subscription and event management
+ *
+ * MongoDB for plan, subscription, and billing event storage.
+ *
+ * @dependency api-core - Shared API utilities
+ * @dependency api-server - Express infrastructure
+ * @dependency pipeline-core - Configuration
+ * @dependency express - Web framework
+ * @dependency mongoose - MongoDB ODM for billing data
+ */
+let billing = new FunctionProject({
+  parent: root,
+  name: 'billing',
+  defaultReleaseBranch: branch,
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
+    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
+    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Configuration
+    `express@${expressVersion}`,                          // Web framework
+    'cors@2.8.6',                                         // CORS
+    'express-rate-limit@8.2.1',                           // Rate limiting
+    'helmet@8.1.0',                                       // Security
+    'jsonwebtoken@9.0.3',                                 // JWT auth
+    'mongoose@9.1.5',                                     // MongoDB ODM
+    'winston@3.17.0',                                     // Logging
+    'zod@3.24.4',                                         // Input validation
+    '@aws-sdk/client-marketplace-metering@3.821.0',       // AWS Marketplace ResolveCustomer
+    '@aws-sdk/client-marketplace-entitlement-service@3.821.0' // AWS Marketplace GetEntitlements
+  ],
+  devDeps: [
+    '@types/express@5.0.6',       // Express types
+    '@types/jsonwebtoken@9.0.10', // JWT types
+    '@types/cors@2.8.19',         // CORS types
+    '@types/node@25.0.6',         // Node.js types
+    '@jest/globals@30.2.0'        // Jest testing
+  ]
+});
+
+/**
+ * Add npm scripts for the billing service.
+ */
+billing.addScripts({
+  'start': 'node lib/index.js',
+  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-billing}:$(jq -r .version package.json) .',
+  'docker:tag': 'docker image tag ${PROJECT_NAME:-billing}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)',
+  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)'
+});
+// Disable problematic ESLint rules
+billing.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+
+// =============================================================================
 // Plugin Service - Plugin upload and management
 // =============================================================================
 /**

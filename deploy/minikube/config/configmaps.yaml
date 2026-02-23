@@ -114,3 +114,26 @@ data:
   QUOTA_CREATE_PIPELINE_WINDOW_MS: "60000"
   QUOTA_GET_PIPELINE_LIMIT: "10"
   QUOTA_GET_PIPELINE_WINDOW_MS: "60000"
+  # Billing
+  BILLING_ENABLED: "true"
+  BILLING_SERVICE_HOST: "billing"
+  BILLING_SERVICE_PORT: "3000"
+
+---
+# =============================================================================
+# Billing Environment (billing-specific configuration)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-env
+data:
+  BILLING_ENABLED: "true"
+  BILLING_PROVIDER: "stub"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX: "100"
+  # AWS Marketplace config (only needed when BILLING_PROVIDER=aws-marketplace)
+  AWS_MARKETPLACE_PRODUCT_CODE: ""
+  AWS_MARKETPLACE_REGION: "us-east-1"
+  AWS_MARKETPLACE_SNS_TOPIC_ARN: ""
+  AWS_MARKETPLACE_DIMENSION_MAP: ""

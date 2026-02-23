@@ -238,6 +238,15 @@ data:
             }
 
             # ========================================
+            # Billing Service API Routes
+            # ========================================
+            location /api/billing/ {
+                set $service "billing";
+                rewrite ^/api/billing(.*)$ /billing$1 break;
+                proxy_pass http://billing.pipeline-builder.svc.cluster.local:3000;
+            }
+
+            # ========================================
             # Health & Metrics
             # ========================================
             location /health {
@@ -614,7 +623,7 @@ spec:
             - -c
             - |
               echo "Waiting for backend services..."
-              for svc in platform frontend plugin pipeline quota; do
+              for svc in platform frontend plugin pipeline quota billing; do
                 until wget -qO- http://${svc}.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do
                   echo "Waiting for ${svc}..."
                   sleep 5

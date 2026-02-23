@@ -23,6 +23,7 @@ resources:
   - plugin.yaml
   - pipeline.yaml
   - quota.yaml
+  - billing.yaml
   - frontend.yaml
 
   # Admin UIs
@@ -56,6 +57,8 @@ images:
     newTag: "1.15.4"
   - name: ghcr.io/mwashburn160/quota
     newTag: "1.14.4"
+  - name: ghcr.io/mwashburn160/billing
+    newTag: "0.0.0"
   - name: ghcr.io/mwashburn160/frontend
     newTag: "1.17.4"
   # Infrastructure

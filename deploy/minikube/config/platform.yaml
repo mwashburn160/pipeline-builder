@@ -61,6 +61,8 @@ spec:
               until nc -z postgres 5432; do sleep 3; done
               echo "Waiting for quota..."
               until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Waiting for billing..."
+              until wget -qO- http://billing:3000/health > /dev/null 2>&1; do sleep 3; done
               echo "Dependencies ready"
       containers:
         - name: platform

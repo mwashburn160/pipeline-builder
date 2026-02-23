@@ -20,15 +20,42 @@ spec:
     app: pgadmin
 
 ---
+# =============================================================================
+# pgAdmin PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pgadmin-pv
+  labels:
+    app: pgadmin
+spec:
+  capacity:
+    storage: 500Mi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/pgadmin
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# pgAdmin PersistentVolumeClaim
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: pgadmin-data
+  labels:
+    app: pgadmin
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 500Mi
+  selector:
+    matchLabels:
+      app: pgadmin
 
 ---
 apiVersion: apps/v1

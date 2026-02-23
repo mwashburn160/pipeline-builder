@@ -487,15 +487,42 @@ spec:
     app: grafana
 
 ---
+# =============================================================================
+# Grafana PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grafana-pv
+  labels:
+    app: grafana
+spec:
+  capacity:
+    storage: 500Mi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/grafana
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Grafana PersistentVolumeClaim
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: grafana-data
+  labels:
+    app: grafana
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 500Mi
+  selector:
+    matchLabels:
+      app: grafana
 
 ---
 # =============================================================================

@@ -105,15 +105,42 @@ spec:
     app: prometheus
 
 ---
+# =============================================================================
+# Prometheus PersistentVolume (hostPath on minikube node)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prometheus-pv
+  labels:
+    app: prometheus
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/prometheus
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Prometheus PersistentVolumeClaim
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-data
+  labels:
+    app: prometheus
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 1Gi
+  selector:
+    matchLabels:
+      app: prometheus
 
 ---
 # =============================================================================

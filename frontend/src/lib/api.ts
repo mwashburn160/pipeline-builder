@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, Invitation, LogQueryResult, Plugin, Pipeline, User } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -378,10 +378,10 @@ class ApiClient {
     return response;
   }
 
-  async register(username: string, email: string, password: string, organizationName?: string) {
+  async register(username: string, email: string, password: string, organizationName?: string, planId?: string) {
     return this.request<ApiResponse<{ user: User }>>('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password, organizationName }),
+      body: JSON.stringify({ username, email, password, organizationName, planId }),
     });
   }
 
@@ -575,6 +575,71 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(quotaType ? { quotaType } : {}),
     });
+  }
+
+  // ============================================
+  // Billing endpoints (billing service — nginx proxies /api/billing → billing:3000/billing)
+  // ============================================
+
+  /** Get all available plans (public, no auth required). */
+  async getPlans() {
+    return this.request<ApiResponse<{ plans: Plan[]; total: number }>>('/api/billing/plans');
+  }
+
+  /** Get a single plan by ID. */
+  async getPlan(planId: string) {
+    return this.request<ApiResponse<{ plan: Plan }>>(`/api/billing/plans/${planId}`);
+  }
+
+  /** Get current org subscription. */
+  async getSubscription() {
+    return this.request<ApiResponse<{ subscription: Subscription | null }>>('/api/billing/subscriptions');
+  }
+
+  /** Create a new subscription. */
+  async createSubscription(planId: string, interval: BillingInterval = 'monthly') {
+    return this.request<ApiResponse<{ subscription: Subscription }>>('/api/billing/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify({ planId, interval }),
+    });
+  }
+
+  /** Change plan or interval on an existing subscription. */
+  async changeSubscription(id: string, data: { planId?: string; interval?: BillingInterval }) {
+    return this.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/subscriptions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Cancel subscription at end of current period. */
+  async cancelSubscription(id: string) {
+    return this.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  /** Reactivate a canceled subscription. */
+  async reactivateSubscription(id: string) {
+    return this.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/reactivate`, {
+      method: 'POST',
+    });
+  }
+
+  /** List all subscriptions (admin only). */
+  async listSubscriptions(params?: { status?: string; limit?: number; offset?: number }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<ApiResponse<{ subscriptions: Subscription[]; total: number }>>(`/api/billing/admin/subscriptions${query}`);
+  }
+
+  /** List billing events (admin only). */
+  async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${query}`);
   }
 
   // ============================================

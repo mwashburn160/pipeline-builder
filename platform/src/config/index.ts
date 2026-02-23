@@ -161,6 +161,12 @@ export const config = {
       },
     },
   },
+  billing: {
+    enabled: (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false',
+    serviceHost: process.env.BILLING_SERVICE_HOST || 'billing',
+    servicePort: parseInt(process.env.BILLING_SERVICE_PORT || '3000'),
+    serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000'),
+  },
   loki: {
     url: process.env.LOKI_URL || 'http://loki:3100',
     timeout: parseInt(process.env.LOKI_TIMEOUT || '10000'),

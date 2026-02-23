@@ -1,0 +1,99 @@
+/**
+ * @module helpers/billing-helpers
+ * @description Utility functions for billing operations.
+ */
+
+import type { QuotaTier } from '@mwashburn160/api-core';
+import { createLogger, createSafeClient } from '@mwashburn160/api-core';
+import { config } from '../config';
+import { BillingEvent } from '../models/billing-event';
+
+const logger = createLogger('billing-helpers');
+
+/** Billing interval type. */
+export type BillingInterval = 'monthly' | 'annual';
+
+/** Billing event type. */
+export type BillingEventType =
+  | 'subscription_created'
+  | 'subscription_updated'
+  | 'subscription_canceled'
+  | 'subscription_reactivated'
+  | 'plan_changed'
+  | 'interval_changed'
+  | 'payment_succeeded'
+  | 'payment_failed';
+
+/**
+ * Calculate the end date for a billing period.
+ */
+export function calculatePeriodEnd(start: Date, interval: BillingInterval): Date {
+  const end = new Date(start);
+  if (interval === 'annual') {
+    end.setFullYear(end.getFullYear() + 1);
+  } else {
+    end.setMonth(end.getMonth() + 1);
+  }
+  return end;
+}
+
+/**
+ * Create a billing event for audit logging.
+ */
+export async function createBillingEvent(
+  orgId: string,
+  type: BillingEventType,
+  details: Record<string, unknown> = {},
+  subscriptionId?: string,
+): Promise<void> {
+  try {
+    await BillingEvent.create({ orgId, type, details, subscriptionId });
+  } catch (error) {
+    logger.error('Failed to create billing event', { orgId, type, error });
+  }
+}
+
+/**
+ * Sync organization tier to the quota service after a subscription change.
+ */
+export async function syncTierToQuotaService(
+  orgId: string,
+  tier: QuotaTier,
+  authHeader: string,
+): Promise<boolean> {
+  try {
+    const client = createSafeClient({
+      host: config.quotaService.host,
+      port: config.quotaService.port,
+      timeout: 5000,
+    });
+
+    const response = await client.put(`/quotas/${orgId}`, { tier }, {
+      headers: {
+        'Authorization': authHeader,
+        'x-org-id': orgId,
+      },
+    });
+
+    if (response && response.statusCode < 400) {
+      logger.info('Synced tier to quota service', { orgId, tier });
+      return true;
+    }
+
+    logger.warn('Failed to sync tier to quota service', {
+      orgId, tier, statusCode: response?.statusCode,
+    });
+    return false;
+  } catch (error) {
+    logger.error('Error syncing tier to quota service', { orgId, tier, error });
+    return false;
+  }
+}
+
+/**
+ * Format cents to a display price string.
+ */
+export function formatPrice(cents: number): string {
+  if (cents === 0) return 'Free';
+  return `$${(cents / 100).toFixed(2)}`;
+}

@@ -9,11 +9,24 @@ CERT_DIR="$DEPLOY_DIR/certs"
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 
+if [ ! -d ./db-data/mongodb ]; then
+  mkdir -p ./db-data/mongodb/  
+fi
+if [ ! -d ./db-data/postgres ]; then
+  mkdir -p ./db-data/postgres/  
+fi
+if [ ! -d ./registry-data ]; then
+  mkdir -p ./registry-data   
+fi
+if [ ! -d ./pgadmin-data ]; then
+  mkdir -p ./pgadmin-data   
+fi
+
 echo "=== Starting Minikube ==="
 minikube start \
   --profile="$PROFILE" \
   --cpus=6 \
-  --memory=10240 \
+  --memory=7839 \
   --disk-size=30g \
   --driver=docker \
   --addons=default-storageclass,storage-provisioner,metrics-server
@@ -73,6 +86,10 @@ if ! kubectl get secret registry-auth-secret -n "$NAMESPACE" >/dev/null 2>&1; th
 else
   echo "  registry auth secret already exists"
 fi
+
+echo ""
+echo "=== Creating data directories on minikube node ==="
+minikube ssh --profile="$PROFILE" -- "sudo mkdir -p /mnt/data/postgres /mnt/data/mongodb /mnt/data/grafana /mnt/data/loki /mnt/data/prometheus /mnt/data/registry /mnt/data/pgadmin && sudo chmod 777 /mnt/data/postgres /mnt/data/mongodb /mnt/data/grafana /mnt/data/loki /mnt/data/prometheus /mnt/data/registry /mnt/data/pgadmin"
 
 echo ""
 echo "=== Applying Kubernetes manifests ==="
