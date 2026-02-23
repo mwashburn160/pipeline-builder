@@ -16,6 +16,12 @@ const logger = createLogger('http-client');
 const DEFAULT_TIMEOUT = 5000;
 
 /**
+ * Default retry configuration.
+ */
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_RETRY_DELAY_MS = 200;
+
+/**
  * HTTP request options.
  */
 export interface RequestOptions {
@@ -23,6 +29,10 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Request timeout in milliseconds */
   timeout?: number;
+  /** Maximum retry attempts for transient failures (default: 2) */
+  maxRetries?: number;
+  /** Base delay between retries in ms — doubles each attempt (default: 200) */
+  retryDelayMs?: number;
 }
 
 /**
@@ -72,56 +82,82 @@ export class InternalHttpClient {
 
   /**
    * Make a GET request.
-   *
-   * @param path - Request path
-   * @param options - Request options
-   * @returns Promise resolving to response
    */
   async get<T = unknown>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T>> {
-    return this.request<T>('GET', path, undefined, options);
+    return this.requestWithRetry<T>('GET', path, undefined, options);
   }
 
   /**
    * Make a POST request.
-   *
-   * @param path - Request path
-   * @param body - Request body
-   * @param options - Request options
-   * @returns Promise resolving to response
    */
   async post<T = unknown>(
     path: string,
     body?: unknown,
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
-    return this.request<T>('POST', path, body, options);
+    return this.requestWithRetry<T>('POST', path, body, options);
   }
 
   /**
    * Make a PUT request.
-   *
-   * @param path - Request path
-   * @param body - Request body
-   * @param options - Request options
-   * @returns Promise resolving to response
    */
   async put<T = unknown>(
     path: string,
     body?: unknown,
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
-    return this.request<T>('PUT', path, body, options);
+    return this.requestWithRetry<T>('PUT', path, body, options);
   }
 
   /**
    * Make a DELETE request.
-   *
-   * @param path - Request path
-   * @param options - Request options
-   * @returns Promise resolving to response
    */
   async delete<T = unknown>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T>> {
-    return this.request<T>('DELETE', path, undefined, options);
+    return this.requestWithRetry<T>('DELETE', path, undefined, options);
+  }
+
+  /**
+   * Request with retry logic for transient failures (timeouts, connection errors, 502/503/504).
+   */
+  private async requestWithRetry<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ): Promise<HttpClientResponse<T>> {
+    const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const baseDelay = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.request<T>(method, path, body, options);
+
+        // Retry on transient server errors
+        if (attempt < maxRetries && (response.statusCode === 502 || response.statusCode === 503 || response.statusCode === 504)) {
+          logger.debug('Retrying on transient status', { method, path, statusCode: response.statusCode, attempt: attempt + 1 });
+          await this.sleep(baseDelay * Math.pow(2, attempt));
+          continue;
+        }
+
+        return response;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt < maxRetries) {
+          logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
+          await this.sleep(baseDelay * Math.pow(2, attempt));
+          continue;
+        }
+      }
+    }
+
+    throw lastError!;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

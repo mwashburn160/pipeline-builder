@@ -26,15 +26,25 @@ export function loadServerConfig(): ServerConfig {
  * Load authentication configuration from environment variables
  */
 export function loadAuthConfig(): AuthConfig {
+  const jwtSecret = process.env.JWT_SECRET;
+  const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
+
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  if (!refreshSecret) {
+    throw new Error('REFRESH_TOKEN_SECRET environment variable is required');
+  }
+
   return {
     jwt: {
-      secret: process.env.JWT_SECRET || 'no-secret',
+      secret: jwtSecret,
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
     },
     refreshToken: {
-      secret: process.env.REFRESH_TOKEN_SECRET || 'no-secret',
+      secret: refreshSecret,
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
     },
   };

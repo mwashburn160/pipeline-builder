@@ -24,8 +24,10 @@ import { parsePluginZip, ValidationError } from '../helpers/manifest';
 
 const logger = createLogger('upload-plugin');
 
+const MAX_UPLOAD_SIZE = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '50', 10) * 1024 * 1024;
+
 const upload = multer({
-  limits: { files: 1, fileSize: 100 * 1024 * 1024 },
+  limits: { files: 1, fileSize: MAX_UPLOAD_SIZE },
   dest: 'uploads/',
   fileFilter: (_req, file, cb) => {
     const allowedMimes = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'];

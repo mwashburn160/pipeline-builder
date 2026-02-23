@@ -1,14 +1,68 @@
 #!/bin/sh
 set -eu
 
-# Local development platform initialization script.
-# Set ADMIN_PASSWORD in your environment or a random one will be generated.
-PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
-ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(openssl rand -base64 24)}
+# Platform initialization script — works with both local (Docker Compose) and minikube.
+# Usage:
+#   ./init-platform.sh              # defaults to "local"
+#   ./init-platform.sh local        # Docker Compose (https://localhost:8443)
+#   ./init-platform.sh minikube     # Minikube (tunnels via minikube service)
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TARGET="${1:-local}"
+PROFILE="pipeline-builder"
+NAMESPACE="pipeline-builder"
+TUNNEL_PID=""
+
+cleanup() {
+  if [ -n "$TUNNEL_PID" ]; then
+    kill "$TUNNEL_PID" 2>/dev/null || true
+    wait "$TUNNEL_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+case "$TARGET" in
+  local)
+    PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
+    ;;
+  minikube)
+    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+      echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
+    else
+      # Docker driver on macOS can't route to minikube IP directly.
+      # Use kubectl port-forward to tunnel through to nginx.
+      # Reuse existing port-forward if already running on 8443.
+      if curl -s -k -o /dev/null -w "" "https://localhost:8443/" 2>/dev/null; then
+        echo "=== Reusing existing port-forward on localhost:8443 ==="
+      else
+        echo "=== Setting up port-forward to nginx ==="
+        kubectl port-forward svc/nginx 8443:8443 -n "$NAMESPACE" > /dev/null 2>&1 &
+        TUNNEL_PID=$!
+        sleep 2
+        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+          echo "ERROR: Port-forward failed. Is the cluster running?" >&2
+          exit 1
+        fi
+        echo "  Forwarding localhost:8443 -> nginx:8443"
+      fi
+      PLATFORM_BASE_URL="https://localhost:8443"
+    fi
+    ;;
+  *)
+    echo "Usage: $0 [local|minikube]" >&2
+    exit 1
+    ;;
+esac
+
+echo ""
+echo "=== Initializing platform ($TARGET) ==="
+echo "  URL: $PLATFORM_BASE_URL"
 
 # Wait for platform service to be healthy
 MAX_RETRIES=30
 RETRY_INTERVAL=5
+echo ""
 echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/health ..."
 for i in $(seq 1 $MAX_RETRIES); do
     STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/health" 2>/dev/null || true)
@@ -23,18 +77,26 @@ for i in $(seq 1 $MAX_RETRIES); do
     sleep $RETRY_INTERVAL
 done
 
-curl -X POST ${PLATFORM_BASE_URL}/api/auth/register \
-     -k -s -o /dev/null \
+echo ""
+echo "=== Registering admin user ==="
+REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
+     -k -s -o /dev/null -w "%{http_code}" \
      -H 'Content-Type: application/json' \
      -d '{
            "username": "admin",
            "email": "admin@internal",
            "password": "SecurePassword123!",
            "organizationName": "system"
-         }'
+         }')
+if [ "$REG_STATUS" = "201" ] || [ "$REG_STATUS" = "200" ]; then
+    echo "  Admin user created."
+else
+    echo "  Admin user already exists (HTTP $REG_STATUS) — continuing."
+fi
 
-if [ $? -eq 0 ]; then
-    JWT_TOKEN=$(curl -X POST ${PLATFORM_BASE_URL}/api/auth/login \
+echo ""
+echo "=== Logging in ==="
+JWT_TOKEN=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \
     -d '{
@@ -42,19 +104,30 @@ if [ $? -eq 0 ]; then
          "password": "SecurePassword123!"
         }' | jq -r '.data.accessToken')
 
-    if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
-        echo "Login failed — could not obtain JWT token" >&2
-        exit 1
-    fi
+if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
+    echo "Login failed — could not obtain JWT token" >&2
+    exit 1
+fi
+echo "  Logged in successfully."
 
-    echo "Logged in successfully."
-    find plugins -type f -iname "plugin.zip" -exec sh -c '
-        echo "Loading plugin: $1" && curl -X POST "$2/api/plugin/upload" \
-         -s -o /dev/null --max-time 900 \
+PLUGINS_DIR="$DEPLOY_DIR/plugins"
+if [ -d "$PLUGINS_DIR" ]; then
+    echo ""
+    echo "=== Uploading plugins ==="
+    find "$PLUGINS_DIR" -type f -iname "plugin.zip" -exec sh -c '
+        echo "  Uploading: $1"
+        UPLOAD_STATUS=$(curl -X POST "$2/api/plugin/upload" \
+         -s -o /dev/null -w "%{http_code}" --max-time 900 \
          -H "Authorization: Bearer $3" \
          -H "x-org-id: system" \
          -F "plugin=@$1" \
          -F "accessModifier=public" \
-         --insecure
+         --insecure)
+        echo "    HTTP $UPLOAD_STATUS"
     ' _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" \;
+else
+    echo "No plugins directory found at $PLUGINS_DIR — skipping plugin upload."
 fi
+
+echo ""
+echo "=== Initialization complete ==="

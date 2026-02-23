@@ -29,8 +29,7 @@ export const UpdateQuotaSchema = z.object({
 /** POST /quotas/:orgId/increment — increment usage for a quota type. */
 export const IncrementQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
-    required_error: 'quotaType is required.',
-    invalid_type_error: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
+    message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
   }),
   amount: z.number().int().min(1).default(1),
 });
@@ -38,6 +37,6 @@ export const IncrementQuotaSchema = z.object({
 /** POST /quotas/:orgId/reset — reset usage counters. */
 export const ResetQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
-    invalid_type_error: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
+    message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
   }).optional(),
 });

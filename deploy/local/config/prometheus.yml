@@ -19,3 +19,14 @@ scrape_configs:
   - job_name: 'quota'
     static_configs:
       - targets: ['quota:3000']
+
+  - job_name: 'billing'
+    static_configs:
+      - targets: ['billing:3000']
+
+  - job_name: 'nginx'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets: ['nginx:8443']

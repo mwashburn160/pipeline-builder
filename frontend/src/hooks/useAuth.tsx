@@ -106,6 +106,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   /**
+   * Handle session expiry — API client fires this when refresh fails.
+   * Redirects to login page and clears local state.
+   */
+  useEffect(() => {
+    return api.onSessionExpired(() => {
+      clearPluginCache();
+      setUser(null);
+      router.push('/auth/login?expired=1');
+    });
+  }, [router]);
+
+  /**
    * Login with email/username and password
    */
   const login = useCallback(async (email: string, password: string) => {

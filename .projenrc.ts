@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.20.3';
+let apiCoreVersion = '1.21.0';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.21.3';
+let pipelineDataVersion = '1.22.0';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.21.3';
+let pipelineCoreVersion = '1.22.0';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.19.3';
+let apiServerVersion = '1.20.0';
 
 // =============================================================================
 // Root Project Configuration
@@ -181,7 +181,6 @@ root.addScripts({
  * @dependency express - Type definitions for Express Request/Response
  * @dependency jsonwebtoken - JWT token generation and validation
  * @dependency winston - Structured logging
- * @dependency axios - HTTP client for service-to-service communication
  */
 let api_core = new PackageProject({
   parent: root,
@@ -198,14 +197,13 @@ let api_core = new PackageProject({
   deps: [
     `express@${expressVersion}`,  // Express types for middleware definitions
     'jsonwebtoken@9.0.3',         // JWT authentication
-    'winston@3.17.0',             // Structured logging
-    'axios@1.13.3',               // HTTP client
+    'winston@3.19.0',             // Structured logging
     'zod@4.3.6'                   // Runtime type validation
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express type definitions
     '@types/jsonwebtoken@9.0.10', // JWT type definitions
-    '@types/node@24.9.0',         // Node.js type definitions
+    '@types/node@25.0.6',         // Node.js type definitions
     `typescript@${typescriptVersion}`
   ]
 });
@@ -256,8 +254,9 @@ let pipeline_data = new PackageProject({
     'drizzle-orm@0.45.1'                         // Type-safe ORM
   ],
   devDeps: [
-    '@types/node@24.9.0',  // Node.js type definitions
+    '@types/node@25.0.6',  // Node.js type definitions
     '@types/pg@8.16.0',    // PostgreSQL type definitions
+    'drizzle-kit@0.31.1',  // Migration generation and management
     `typescript@${typescriptVersion}`
   ]
 });
@@ -315,7 +314,7 @@ let pipeline_core = new PackageProject({
     'uuid@13.0.0'                                         // UUID generation
   ],
   devDeps: [
-    '@types/node@24.9.0',         // Node.js type definitions
+    '@types/node@25.0.6',         // Node.js type definitions
     '@types/aws-lambda@8.10.159', // AWS Lambda type definitions
     '@types/jsonwebtoken@9.0.10', // JWT type definitions
     '@jest/globals@30.2.0'        // Jest testing framework
@@ -391,7 +390,7 @@ let api_server = new PackageProject({
     '@types/express-serve-static-core@5.1.1', // Express core types
     '@types/cors@2.8.19',                  // CORS type definitions
     '@types/jsonwebtoken@9.0.10',          // JWT type definitions
-    '@types/node@24.9.0',                  // Node.js type definitions
+    '@types/node@25.0.6',                  // Node.js type definitions
     `typescript@${typescriptVersion}`
   ]
 });
@@ -624,7 +623,7 @@ let frontend = new FrontEndProject({
     'framer-motion@12.34.0'                               // Animation library
   ],
   devDeps: [
-    '@types/node@24.9.0',              // Node.js types
+    '@types/node@25.0.6',              // Node.js types
     '@types/react@19.2.13',            // React types
     '@types/react-dom@19.2.3',         // React DOM types
     '@types/jest@^30.0.0',             // Jest types
@@ -701,8 +700,8 @@ let quota = new FunctionProject({
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
     'mongoose@9.1.5',                                     // MongoDB ODM
-    'winston@3.17.0',                                     // Logging
-    'zod@3.24.4'                                          // Input validation
+    'winston@3.19.0',                                     // Logging
+    'zod@4.3.6'                                           // Input validation
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types
@@ -767,8 +766,8 @@ let billing = new FunctionProject({
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
     'mongoose@9.1.5',                                     // MongoDB ODM
-    'winston@3.17.0',                                     // Logging
-    'zod@3.24.4',                                         // Input validation
+    'winston@3.19.0',                                     // Logging
+    'zod@4.3.6',                                          // Input validation
     '@aws-sdk/client-marketplace-metering@3.821.0',       // AWS Marketplace ResolveCustomer
     '@aws-sdk/client-marketplace-entitlement-service@3.821.0' // AWS Marketplace GetEntitlements
   ],

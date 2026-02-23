@@ -143,7 +143,7 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - './db-data/mongodb/:/data/db/:rw'
+      - './data/db-data/mongodb/:/data/db/:rw'
       - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
       - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
@@ -179,7 +179,7 @@ services:
       retries: 3
       start_period: 60s
     volumes:
-      - './db-data/postgres/:/var/lib/postgresql/:rw'
+      - './data/db-data/postgres/:/var/lib/postgresql/data:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
@@ -214,6 +214,12 @@ services:
       ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD}
     networks:
       - backend-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/mongo-express/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -236,9 +242,15 @@ services:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
     volumes:
-      - './pgadmin-data/:/var/lib/pgadmin/:rw'
+      - './data/pgadmin-data/:/var/lib/pgadmin/:rw'
     networks:
       - backend-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/misc/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -269,7 +281,7 @@ services:
       - './auth/registry.passwd:/etc/auth/registry.passwd:ro'
       - './certs/registry.crt:/etc/ssl/certs/registry.crt:ro'
       - './certs/registry.key:/etc/ssl/private/registry.key:ro'
-      - './registry-data/:/var/lib/registry/:rw'
+      - './data/registry-data/:/var/lib/registry/:rw'
     networks:
       - proxy-network
       - backend-network
@@ -298,6 +310,12 @@ services:
       - registry
     networks:
       - backend-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -319,7 +337,7 @@ services:
       - '--storage.tsdb.retention.time=7d'
     volumes:
       - './config/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
-      - './db-data/prometheus/:/prometheus:rw'
+      - './data/db-data/prometheus/:/prometheus:rw'
     networks:
       - backend-network
     depends_on:
@@ -331,6 +349,14 @@ services:
         condition: service_healthy
       quota:
         condition: service_healthy
+      billing:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -339,13 +365,14 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
   loki:
     image: 'grafana/loki:3.4.2'
     container_name: loki
     restart: always
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
-      - './db-data/loki/:/loki:rw'
+      - './data/db-data/loki/:/loki:rw'
       - './config/loki-config.yml:/etc/loki/loki-config.yml:ro'
     networks:
       - backend-network
@@ -390,16 +417,16 @@ services:
       GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: '/etc/grafana/dashboards/service-logs.json'
     volumes:
-      - './db-data/grafana/:/var/lib/grafana:rw'
-      - './grafana/provisioning/:/etc/grafana/provisioning/:ro'
-      - './grafana/dashboards/:/etc/grafana/dashboards/:ro'
+      - './data/db-data/grafana/:/var/lib/grafana:rw'
+      - './data/db-data/grafana/provisioning/:/etc/grafana/provisioning/:ro'
+      - './data/db-data/grafana/dashboards/:/etc/grafana/dashboards/:ro'
     networks:
       - backend-network
     depends_on:
       loki:
         condition: service_healthy
       prometheus:
-        condition: service_started
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -422,6 +449,12 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9080/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -648,9 +681,3 @@ networks:
     name: backend-network
     driver: bridge
 
-# =============================================================================
-# Volumes
-# =============================================================================
-volumes:
-  loki-data:
-  grafana-data:

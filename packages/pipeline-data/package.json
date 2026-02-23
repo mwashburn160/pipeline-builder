@@ -20,10 +20,11 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2",
     "@types/jest": "^30.0.0",
-    "@types/node": "24.9.0",
+    "@types/node": "25.0.6",
     "@types/pg": "8.16.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
+    "drizzle-kit": "0.31.1",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -33,7 +34,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.20.3",
+    "@mwashburn160/api-core": "1.21.0",
     "drizzle-orm": "0.45.1",
     "pg": "8.16.3"
   },
@@ -42,7 +43,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.22.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -72,11 +72,27 @@ class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshAttempts = 0;
+  private sessionExpiredCallbacks: Set<() => void> = new Set();
 
   /** Refresh the token 5 minutes before it expires */
   private static REFRESH_BUFFER_MS = 5 * 60 * 1000;
   /** Maximum consecutive refresh failures before forcing logout */
   private static MAX_REFRESH_ATTEMPTS = 3;
+
+  /**
+   * Register a callback invoked when the session expires (refresh fails).
+   * Returns an unsubscribe function.
+   */
+  onSessionExpired(callback: () => void): () => void {
+    this.sessionExpiredCallbacks.add(callback);
+    return () => { this.sessionExpiredCallbacks.delete(callback); };
+  }
+
+  private notifySessionExpired(): void {
+    this.sessionExpiredCallbacks.forEach(cb => {
+      try { cb(); } catch { /* ignore listener errors */ }
+    });
+  }
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -324,6 +340,7 @@ class ApiClient {
   private async doRefresh(): Promise<boolean> {
     if (this.refreshAttempts >= ApiClient.MAX_REFRESH_ATTEMPTS) {
       this.clearTokens();
+      this.notifySessionExpired();
       return false;
     }
 
@@ -352,6 +369,7 @@ class ApiClient {
     }
 
     this.clearTokens();
+    this.notifySessionExpired();
     return false;
   }
 

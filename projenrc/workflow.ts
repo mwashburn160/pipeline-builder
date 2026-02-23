@@ -211,6 +211,14 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    id: 'test_target',
+                    name: 'Run tests',
+                    run: 'pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
+                    env: {
+                        GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}',
+                    },
+                },
+                {
                     id: 'semantic_version',
                     name: 'Semantic version',
                     run: 'pnpm nx release --first-release --skip-publish --verbose',

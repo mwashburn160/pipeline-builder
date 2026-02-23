@@ -11,7 +11,7 @@
     },
     {
       "name": "@types/node",
-      "version": "24.9.0",
+      "version": "25.0.6",
       "type": "build"
     },
     {
@@ -27,6 +27,11 @@
     {
       "name": "@typescript-eslint/parser",
       "version": "^8",
+      "type": "build"
+    },
+    {
+      "name": "drizzle-kit",
+      "version": "0.31.1",
       "type": "build"
     },
     {
@@ -62,7 +67,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.20.3",
+      "version": "1.21.0",
       "type": "runtime"
     },
     {

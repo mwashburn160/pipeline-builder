@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import Head from 'next/head';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Sun, Moon, GitBranch, Puzzle, Users, Building2, BarChart3, Settings, KeyRound, ChevronRight, Terminal, ScrollText, Activity } from 'lucide-react';
@@ -52,6 +53,10 @@ export default function DashboardPage() {
   const QUOTA_LABELS: Record<QuotaType, string> = { plugins: 'Plugins', pipelines: 'Pipelines', apiCalls: 'API Calls' };
 
   return (
+    <>
+    <Head>
+      <title>Dashboard - Pipeline Builder</title>
+    </Head>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
       <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
@@ -264,5 +269,6 @@ export default function DashboardPage() {
         </div>
       </main>
     </div>
+    </>
   );
 }

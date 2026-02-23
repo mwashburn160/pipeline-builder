@@ -21,7 +21,7 @@
     },
     {
       "name": "@types/node",
-      "version": "24.9.0",
+      "version": "25.0.6",
       "type": "build"
     },
     {
@@ -66,11 +66,6 @@
       "type": "build"
     },
     {
-      "name": "axios",
-      "version": "1.13.3",
-      "type": "runtime"
-    },
-    {
       "name": "express",
       "version": "5.2.1",
       "type": "runtime"
@@ -82,7 +77,7 @@
     },
     {
       "name": "winston",
-      "version": "3.17.0",
+      "version": "3.19.0",
       "type": "runtime"
     },
     {

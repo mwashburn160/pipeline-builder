@@ -1,3 +1,4 @@
+import Head from 'next/head';
 import Link from 'next/link';
 import { Sun, Moon, ArrowLeft } from 'lucide-react';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -28,6 +29,10 @@ export function DashboardLayout({
   const { isDark, toggle } = useDarkMode();
 
   return (
+    <>
+    <Head>
+      <title>{title} - Pipeline Builder</title>
+    </Head>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
       <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
@@ -54,5 +59,6 @@ export function DashboardLayout({
         {children}
       </main>
     </div>
+    </>
   );
 }

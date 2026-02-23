@@ -38,17 +38,17 @@
   "dependencies": {
     "@aws-sdk/client-marketplace-entitlement-service": "3.821.0",
     "@aws-sdk/client-marketplace-metering": "3.821.0",
-    "@mwashburn160/api-core": "1.20.3",
-    "@mwashburn160/api-server": "1.19.3",
-    "@mwashburn160/pipeline-core": "1.21.3",
+    "@mwashburn160/api-core": "1.21.0",
+    "@mwashburn160/api-server": "1.20.0",
+    "@mwashburn160/pipeline-core": "1.22.0",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",
     "helmet": "8.1.0",
     "jsonwebtoken": "9.0.3",
     "mongoose": "9.1.5",
-    "winston": "3.17.0",
-    "zod": "3.24.4"
+    "winston": "3.19.0",
+    "zod": "4.3.6"
   },
   "engines": {
     "node": ">= 24.9.0"
@@ -57,7 +57,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.1.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
