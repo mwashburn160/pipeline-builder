@@ -90,7 +90,6 @@ let root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  // Ignore common development artifacts and data directories
   gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam'],
   licensed: true,
   projenrcTs: true,
@@ -608,8 +607,7 @@ let frontend = new FrontEndProject({
   defaultReleaseBranch: branch,
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
-  // Frontend-specific gitignore patterns
-  gitignore: ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
+ gitignore : ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
   deps: [
     `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
     `@mwashburn160/api-server@${apiServerVersion}`,       // Server infrastructure
