@@ -18,7 +18,7 @@ import { NodePackageManager, NpmAccess } from 'projen/lib/javascript';
 import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
-import { Workflow } from './projenrc/workflow';
+
 import { ManagerProject } from './projenrc/manager';
 import { FrontEndProject } from './projenrc/frontend'
 import { FunctionProject } from './projenrc/function';
@@ -36,7 +36,6 @@ import { WebTokenProject } from './projenrc/web-token';
 let branch = 'main';
 
 /** PNPM package manager version (used in CI/CD workflows) */
-let pnpmVersion = '10.25.0';
 
 /** AWS CDK Constructs library version (for CDK infrastructure) */
 let constructsVersion = '10.4.5';
@@ -990,12 +989,6 @@ new PnpmWorkspace(root);
  */
 new VscodeSettings(root);
 
-/**
- * GitHub Actions workflow
- * - CI/CD pipeline for testing and building
- * - Uses the specified PNPM version
- */
-new Workflow(root, { pnpmVersion });
 
 /**
  * Synthesize all project configurations
