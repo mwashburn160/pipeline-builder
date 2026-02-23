@@ -612,7 +612,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:0.0.0'
+    image: 'ghcr.io/mwashburn160/billing:0.1.0'
     container_name: billing
     depends_on:
       mongodb:
