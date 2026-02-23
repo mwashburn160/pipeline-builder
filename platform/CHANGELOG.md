@@ -1,3 +1,13 @@
+## 1.17.0 (2026-02-23)
+
+### 🚀 Features
+
+- added billing ([0ac9659](https://github.com/mwashburn160/pipeline-builder/commit/0ac9659))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.16.5 (2026-02-22)
 
 ### 🩹 Fixes
