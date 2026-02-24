@@ -158,7 +158,7 @@ export default function UsersPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (userItem) => (
         <>
-          <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors" disabled={userItem.id === user!.id}>Edit</button>
+          <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors">Edit</button>
           {userItem.id !== user!.id && (
             <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
           )}
@@ -238,10 +238,13 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading}>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading || editingUser.id === user!.id}>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
+                {editingUser.id === user!.id && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
+                )}
               </div>
               <div>
                 <label className="label">New Password (leave blank to keep current)</label>
