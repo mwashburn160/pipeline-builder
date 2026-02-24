@@ -1,3 +1,17 @@
+## 1.24.1 (2026-02-24)
+
+### 🩹 Fixes
+
+- upgraded api-core=1.23.0 ([42bf75b](https://github.com/mwashburn160/pipeline-builder/commit/42bf75b))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.24.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.0 (2026-02-24)
 
 ### 🚀 Features
