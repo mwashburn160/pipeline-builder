@@ -1,3 +1,13 @@
+## 1.17.5 (2026-02-24)
+
+### 🩹 Fixes
+
+- re-version ([7afe26a](https://github.com/mwashburn160/pipeline-builder/commit/7afe26a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.17.4 (2026-02-24)
 
 ### 🩹 Fixes
