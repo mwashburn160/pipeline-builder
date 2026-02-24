@@ -479,7 +479,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.20.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.20.6'
     container_name: frontend
     restart: always
     networks:
@@ -513,7 +513,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.19.5'
+    image: 'ghcr.io/mwashburn160/platform:1.19.6'
     container_name: platform
     depends_on:
       mongodb:
