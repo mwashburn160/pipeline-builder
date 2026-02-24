@@ -1,3 +1,19 @@
+## 1.2.0 (2026-02-24)
+
+### 🚀 Features
+
+- added ai aws,grok providers ([d0cd653](https://github.com/mwashburn160/pipeline-builder/commit/d0cd653))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.24.0
+- Updated @mwashburn160/api-server to 1.22.0
+- Updated @mwashburn160/api-core to 1.23.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.0 (2026-02-24)
 
 ### 🚀 Features
