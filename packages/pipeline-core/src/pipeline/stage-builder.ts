@@ -97,14 +97,27 @@ export class StageBuilder {
     const stepMetadata = merge(this.globalMetadata, stepConfig.metadata ?? {});
     const stepAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
 
+    if (stepConfig.inputArtifact && !this.artifactManager) {
+      throw new Error(
+        `Step "${stepAlias}" requires inputArtifact but no artifactManager is configured. Add artifactManager to StageBuilderProps.`,
+      );
+    }
+    if (stepConfig.additionalInputArtifacts?.length && !this.artifactManager) {
+      throw new Error(
+        `Step "${stepAlias}" requires additionalInputArtifacts but no artifactManager is configured. Add artifactManager to StageBuilderProps.`,
+      );
+    }
+
     const input = stepConfig.inputArtifact && this.artifactManager
       ? this.artifactManager.getOutput(stepConfig.inputArtifact)
       : undefined;
 
-    const additionalInputs = stepConfig.additionalInputArtifacts && this.artifactManager
+    const additionalInputs = stepConfig.additionalInputArtifacts?.length && this.artifactManager
       ? Object.fromEntries(
-        Object.entries(stepConfig.additionalInputArtifacts)
-          .map(([path, key]) => [path, this.artifactManager!.getOutput(key)]),
+        stepConfig.additionalInputArtifacts.map(({ artifact, directory }) => [
+          directory || artifact.outputDirectory,
+          this.artifactManager!.getOutput(artifact),
+        ]),
       )
       : undefined;
 

@@ -1,0 +1,206 @@
+/**
+ * @module components/plugin/CreatePluginModal
+ * @description Tabbed modal for creating plugins via file upload or AI generation.
+ *
+ * Provides two creation modes:
+ * - **Upload**: Drag-and-drop or select a .zip/.tar.gz plugin archive
+ * - **AI Builder**: Generate a plugin config + Dockerfile from natural language
+ *
+ * The modal uses {@link AIPluginBuilderTab} for the AI builder workflow.
+ */
+
+import { useState, useRef } from 'react';
+import { Upload } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
+import { FormField } from '@/components/ui/FormField';
+import AIPluginBuilderTab from './AIPluginBuilderTab';
+import api from '@/lib/api';
+
+/** Props for the CreatePluginModal component. */
+interface CreatePluginModalProps {
+  /** Whether the current user can upload public plugins (admin only). */
+  canUploadPublic: boolean;
+  /** Callback to close the modal. */
+  onClose: () => void;
+  /** Callback when a plugin is successfully created (upload or AI deploy). */
+  onCreated: () => void;
+}
+
+export default function CreatePluginModal({ canUploadPublic, onClose, onCreated }: CreatePluginModalProps) {
+  const [activeTab, setActiveTab] = useState<'upload' | 'ai'>('upload');
+
+  // Upload tab state
+  const [file, setFile] = useState<File | null>(null);
+  const [access, setAccess] = useState<'public' | 'private'>('private');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (selected) {
+      const validTypes = ['application/zip', 'application/x-zip-compressed', 'application/gzip', 'application/x-gzip'];
+      const validExtensions = ['.zip', '.tar.gz', '.tgz'];
+      const hasValidExtension = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
+
+      if (!validTypes.includes(selected.type) && !hasValidExtension) {
+        setError('Please select a .zip or .tar.gz file');
+        return;
+      }
+
+      setFile(selected);
+      setError(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) {
+      setError('Please select a file to upload');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
+    try {
+      const response = await api.uploadPlugin(file, access, { signal: controller.signal });
+
+      if (response.success) {
+        setSuccess('Plugin uploaded successfully!');
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        onCreated();
+        setTimeout(() => onClose(), 2000);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Upload timed out. Please try again with a smaller file or check your connection.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to upload plugin');
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      setLoading(false);
+    }
+  };
+
+  const tabs = (
+    <div className="border-b border-gray-200 dark:border-gray-700 px-6">
+      <nav className="-mb-px flex space-x-8">
+        <button
+          onClick={() => { setActiveTab('upload'); setError(null); setSuccess(null); }}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'upload'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          Upload
+        </button>
+        <button
+          onClick={() => { setActiveTab('ai'); setError(null); setSuccess(null); }}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'ai'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          AI Builder
+        </button>
+      </nav>
+    </div>
+  );
+
+  const uploadFooter = (
+    <div className="flex justify-end space-x-3">
+      <button onClick={onClose} disabled={loading} className="btn btn-secondary">
+        Cancel
+      </button>
+      <button onClick={handleUpload} disabled={loading || !file} className="btn btn-primary">
+        {loading ? (
+          <><LoadingSpinner size="sm" className="mr-2" />Uploading...</>
+        ) : (
+          <><Upload className="w-4 h-4 mr-2" />Upload</>
+        )}
+      </button>
+    </div>
+  );
+
+  const aiFooter = (
+    <div className="flex justify-end">
+      <button onClick={onClose} className="btn btn-secondary">
+        Cancel
+      </button>
+    </div>
+  );
+
+  return (
+    <Modal
+      title="Create Plugin"
+      onClose={onClose}
+      maxWidth="max-w-2xl"
+      subHeader={tabs}
+      footer={activeTab === 'upload' ? uploadFooter : aiFooter}
+    >
+      {activeTab === 'upload' ? (
+        <>
+          {error && (
+            <div className="alert-error mb-4">
+              <p>{error}</p>
+            </div>
+          )}
+          {success && (
+            <div className="alert-success mb-4">
+              <p>{success}</p>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="label">Plugin File (.zip or .tar.gz)</label>
+              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
+                <div className="space-y-1 text-center">
+                  <Upload className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+                  <div className="flex text-sm text-gray-600 dark:text-gray-400">
+                    <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                      <span>Select a file</span>
+                      <input id="file-upload" name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={loading} />
+                    </label>
+                    <p className="pl-1">or drag and drop</p>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">ZIP or TAR.GZ up to 100MB</p>
+                </div>
+              </div>
+              {file && (
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
+                  <span className="text-gray-400 dark:text-gray-500 ml-2">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                </p>
+              )}
+            </div>
+
+            <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can upload public plugins' : undefined}>
+              <select value={access} onChange={(e) => setAccess(e.target.value as 'public' | 'private')} className="input" disabled={loading || !canUploadPublic}>
+                <option value="private">Private (Organization only)</option>
+                {canUploadPublic && <option value="public">Public (Available to all)</option>}
+              </select>
+            </FormField>
+          </div>
+        </>
+      ) : (
+        <AIPluginBuilderTab
+          canUploadPublic={canUploadPublic}
+          disabled={false}
+          onCreated={onCreated}
+          onClose={onClose}
+        />
+      )}
+    </Modal>
+  );
+}

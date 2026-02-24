@@ -8,7 +8,7 @@
  * project/organization to non-default before inserting the new one.
  */
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
 import { createRequestContext, createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
@@ -43,13 +43,7 @@ export function createCreatePipelineRoutes(
       const body = validation.value;
 
       try {
-        let accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
-
-        // Only system admins can create public pipelines
-        if (!isSystemAdmin(req) && accessModifier === 'public') {
-          accessModifier = 'private';
-          ctx.log('INFO', 'Non-system-admin forced to private access');
-        }
+        const accessModifier = resolveAccessModifier(req, body.accessModifier);
 
         // Normalize project and organization names
         const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();

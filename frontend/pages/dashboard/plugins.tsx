@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Upload, Search, Puzzle } from 'lucide-react';
+import { Search, Puzzle, Plus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -10,7 +10,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
-import UploadPluginModal from '@/components/plugin/UploadPluginModal';
+import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
@@ -50,7 +50,7 @@ export default function PluginsPage() {
   const debouncedVersion = useDebounce(filters.version, 300);
   const debouncedImageTag = useDebounce(filters.imageTag, 300);
 
-  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -211,9 +211,9 @@ export default function PluginsPage() {
       title="Plugins"
       actions={
         isAdmin ? (
-          <button onClick={() => setShowUploadModal(true)} className="btn btn-primary">
-            <Upload className="w-4 h-4 mr-2" />
-            Upload Plugin
+          <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+            <Plus className="w-4 h-4 mr-2" />
+            Create Plugin
           </button>
         ) : undefined
       }
@@ -291,19 +291,19 @@ export default function PluginsPage() {
           emptyState={{
             icon: Puzzle,
             title: 'No plugins yet',
-            description: isAdmin ? 'Get started by uploading your first plugin.' : 'No private plugins available for your organization.',
-            action: isAdmin ? <button onClick={() => setShowUploadModal(true)} className="btn btn-primary">Upload Plugin</button> : undefined,
+            description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
+            action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
           }}
           getRowKey={(p) => p.id}
           defaultSortColumn="name"
         />
       )}
 
-      {showUploadModal && (
-        <UploadPluginModal
+      {showCreateModal && (
+        <CreatePluginModal
           canUploadPublic={canUploadPublic}
-          onClose={() => setShowUploadModal(false)}
-          onUploaded={fetchPlugins}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={fetchPlugins}
         />
       )}
 

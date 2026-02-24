@@ -49,7 +49,7 @@ function buildCommands(plugin: Plugin, custom?: StepCustomization): { installCom
     commands: [
       BOOTSTRAP_CMD,
       ...(custom?.preCommands ?? []),
-      ...(plugin.commands ?? ['']),
+      ...(plugin.commands?.length ? plugin.commands : []),
       ...(custom?.postCommands ?? []),
     ],
   };
@@ -67,7 +67,16 @@ function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value
 /**
  * Create a CodeBuild step or Shell step based on plugin configuration.
  *
- * Spread order (last wins):
+ * Metadata merge order (last wins):
+ *   1. Step-level metadata (from options.metadata)
+ *   2. Plugin metadata (from plugin.metadata in database)
+ *
+ * Environment merge order (last wins):
+ *   1. Plugin env vars (from plugin.env)
+ *   2. Custom env vars (from options.env)
+ *   3. WORKDIR from merged metadata
+ *
+ * CDK prop spread order (last wins):
  *   programmatic defaults (input, commands, env, network) → metadata overrides
  *
  * This means metadata keys like `aws:cdk:pipelines:codebuildstep:commands`

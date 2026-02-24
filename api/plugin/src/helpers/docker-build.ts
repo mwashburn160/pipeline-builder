@@ -12,7 +12,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger, errorMessage } from '@mwashburn160/api-core';
 
 const logger = createLogger('docker-build');
 
@@ -158,7 +158,7 @@ function setupBuilder(
   try {
     dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME], 'ignore');
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch (error) { logger.debug('No stale builder to clean up', { error: String(error) }); }
+  } catch (error) { logger.debug('No stale builder to clean up', { error: errorMessage(error) }); }
 
   logger.info('Creating buildx builder', { name: BUILDER_NAME, network });
 
@@ -175,5 +175,5 @@ function teardownBuilder(configDir: string, network: string): void {
   if (!network) return;
   try {
     dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch (error) { logger.debug('Builder teardown skipped', { error: String(error) }); }
+  } catch (error) { logger.debug('Builder teardown skipped', { error: errorMessage(error) }); }
 }

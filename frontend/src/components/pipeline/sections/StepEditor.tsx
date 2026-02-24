@@ -6,6 +6,8 @@ import NetworkConfigEditor from '../editors/NetworkConfigEditor';
 import MetadataEditor from '../editors/MetadataEditor';
 import StringArrayEditor from '../editors/StringArrayEditor';
 import EnvEditor from '../editors/EnvEditor';
+import ArtifactKeyCombobox from '../editors/ArtifactKeyCombobox';
+import { type ArtifactKeyOption } from '@/lib/artifact-keys';
 
 export interface StepEditorProps {
   step: FormStep;
@@ -13,10 +15,12 @@ export interface StepEditorProps {
   disabled?: boolean;
   errorPrefix: string;
   errors?: Record<string, string>;
+  /** Available artifact keys for autocomplete (from synth + preceding stages/steps). */
+  availableArtifacts?: ArtifactKeyOption[];
 }
 
 export default function StepEditor({
-  step, onChange, disabled, errorPrefix, errors = {},
+  step, onChange, disabled, errorPrefix, errors = {}, availableArtifacts = [],
 }: StepEditorProps) {
   const updatePosition = (position: 'pre' | 'post') => onChange({ ...step, position });
   const updatePlugin = (plugin: FormPluginOptions) => onChange({ ...step, plugin });
@@ -128,14 +132,13 @@ export default function StepEditor({
 
       <CollapsibleSection title="Inputs" hasContent={!!step.inputArtifact || step.additionalInputArtifacts.length > 0}>
         <div className="mt-3 space-y-3">
-          <FormField label="Primary Input Artifact" hint="Colon-delimited artifact key from a previous step">
-            <input
-              type="text"
+          <FormField label="Primary Input Artifact" hint="Artifact key from a previous step (type or select)">
+            <ArtifactKeyCombobox
               value={step.inputArtifact}
-              onChange={(e) => updateInputArtifact(e.target.value)}
-              placeholder="stageName:stageAlias:pluginName:pluginAlias:outputDir"
+              onChange={updateInputArtifact}
+              options={availableArtifacts}
               disabled={disabled}
-              className="input"
+              placeholder="stageName:stageAlias:pluginName:pluginAlias:outputDir"
             />
           </FormField>
 
@@ -148,17 +151,16 @@ export default function StepEditor({
                     type="text"
                     value={entry.path}
                     onChange={(e) => updateAdditionalInput(idx, 'path', e.target.value)}
-                    placeholder="mount/path"
+                    placeholder="directory (optional, defaults to outputDir)"
                     disabled={disabled}
                     className="input flex-1"
                   />
-                  <input
-                    type="text"
+                  <ArtifactKeyCombobox
                     value={entry.key}
-                    onChange={(e) => updateAdditionalInput(idx, 'key', e.target.value)}
-                    placeholder="stageName:stageAlias:pluginName:pluginAlias:outputDir"
+                    onChange={(v) => updateAdditionalInput(idx, 'key', v)}
+                    options={availableArtifacts}
                     disabled={disabled}
-                    className="input flex-[2]"
+                    placeholder="stageName:stageAlias:pluginName:pluginAlias:outputDir"
                   />
                   <button
                     type="button"

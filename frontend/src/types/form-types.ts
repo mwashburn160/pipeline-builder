@@ -77,6 +77,8 @@ export interface CommandGroup {
 }
 
 export interface FormStep {
+  /** Stable unique ID for React key (not persisted) */
+  id: string;
   plugin: FormPluginOptions;
   metadata: MetadataEntry[];
   networkType: 'none' | 'subnetIds' | 'vpcId' | 'vpcLookup';
@@ -90,6 +92,8 @@ export interface FormStep {
 }
 
 export interface FormStage {
+  /** Stable unique ID for React key (not persisted) */
+  id: string;
   stageName: string;
   alias: string;
   steps: FormStep[];
@@ -162,8 +166,14 @@ export function createEmptyPlugin(): FormPluginOptions {
   return { name: '', alias: '', filter: createEmptyPluginFilter(), metadata: [] };
 }
 
+let _idCounter = 0;
+export function nextFormId(): string {
+  return `form-${++_idCounter}-${Date.now()}`;
+}
+
 export function createEmptyStep(): FormStep {
   return {
+    id: nextFormId(),
     plugin: createEmptyPlugin(),
     metadata: [],
     networkType: 'none',
@@ -178,7 +188,7 @@ export function createEmptyStep(): FormStep {
 }
 
 export function createEmptyStage(): FormStage {
-  return { stageName: '', alias: '', steps: [createEmptyStep()] };
+  return { id: nextFormId(), stageName: '', alias: '', steps: [createEmptyStep()] };
 }
 
 export function createInitialFormState(): FormBuilderState {

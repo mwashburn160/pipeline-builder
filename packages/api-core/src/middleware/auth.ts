@@ -197,8 +197,11 @@ export function optionalAuth(
     if (decoded.type === 'access') {
       req.user = decoded;
     }
-  } catch {
-    // Ignore errors for optional auth
+  } catch (error) {
+    // Optional auth — don't block the request, but log for debugging
+    logger.debug('Optional auth token verification failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 
   next();
@@ -281,4 +284,19 @@ export function isSystemOrg(req: Request): boolean {
  */
 export function isSystemAdmin(req: Request): boolean {
   return req.user?.role === 'admin' && isSystemOrg(req);
+}
+
+/**
+ * Resolve the effective access modifier for a resource.
+ * Only system admins can set access to 'public'; non-system-admins are forced to 'private'.
+ *
+ * @param req - Express request with user attached
+ * @param requested - The requested access modifier value
+ * @returns 'public' if system admin and requested public, otherwise 'private'
+ */
+export function resolveAccessModifier(req: Request, requested: string | undefined): 'public' | 'private' {
+  if (requested === 'public' && isSystemAdmin(req)) {
+    return 'public';
+  }
+  return 'private';
 }

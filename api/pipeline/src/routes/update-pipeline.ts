@@ -5,7 +5,7 @@
  * PUT /pipelines/:id — update a pipeline by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PipelineUpdateSchema } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PipelineUpdateSchema } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { BuilderProps } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
@@ -71,12 +71,7 @@ export function createUpdatePipelineRoutes(sseManager: SSEManager): Router {
 
       // Handle access modifier (only system admins can set to public)
       if (body.accessModifier !== undefined) {
-        let accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
-        if (!isSystemAdmin(req) && accessModifier === 'public') {
-          accessModifier = 'private';
-          ctx.log('INFO', 'Non-system-admin forced to private access');
-        }
-        updateData.accessModifier = accessModifier;
+        updateData.accessModifier = resolveAccessModifier(req, body.accessModifier);
       }
 
       const updated = await pipelineService.update(

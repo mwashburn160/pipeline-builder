@@ -57,6 +57,7 @@ describe('createEmptyPlugin', () => {
 describe('createEmptyStep', () => {
   it('should return step with default values', () => {
     const step = createEmptyStep();
+    expect(step.id).toBeTruthy();
     expect(step.plugin.name).toBe('');
     expect(step.metadata).toEqual([]);
     expect(step.networkType).toBe('none');
@@ -67,15 +68,28 @@ describe('createEmptyStep', () => {
     expect(step.inputArtifact).toBe('');
     expect(step.additionalInputArtifacts).toEqual([]);
   });
+
+  it('should generate unique IDs', () => {
+    const a = createEmptyStep();
+    const b = createEmptyStep();
+    expect(a.id).not.toBe(b.id);
+  });
 });
 
 describe('createEmptyStage', () => {
   it('should return stage with one empty step', () => {
     const stage = createEmptyStage();
+    expect(stage.id).toBeTruthy();
     expect(stage.stageName).toBe('');
     expect(stage.alias).toBe('');
     expect(stage.steps).toHaveLength(1);
     expect(stage.steps[0].plugin.name).toBe('');
+  });
+
+  it('should generate unique IDs', () => {
+    const a = createEmptyStage();
+    const b = createEmptyStage();
+    expect(a.id).not.toBe(b.id);
   });
 });
 

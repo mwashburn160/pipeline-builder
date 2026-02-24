@@ -3,6 +3,7 @@ import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
+import AIBuilderTab, { AIBuilderTabRef } from './AIBuilderTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from './wizard-validation';
@@ -21,7 +22,7 @@ export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
   createLoading, createError, createSuccess, canCreatePublic,
 }: CreatePipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'form'>('form');
+  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>('form');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export default function CreatePipelineModal({
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
+  const aiRef = useRef<AIBuilderTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top when step changes
@@ -43,14 +45,22 @@ export default function CreatePipelineModal({
     if (activeTab === 'upload') {
       return await uploadRef.current?.getProps() ?? null;
     }
+    if (activeTab === 'ai') {
+      return await aiRef.current?.getProps() ?? null;
+    }
     return formRef.current?.getProps() ?? null;
   };
 
   const handlePreview = async () => {
     setPreviewError(null);
-    const props = activeTab === 'form'
-      ? formRef.current?.getPropsPreview() ?? null
-      : await uploadRef.current?.getProps() ?? null;
+    let props: BuilderProps | null = null;
+    if (activeTab === 'form') {
+      props = formRef.current?.getPropsPreview() ?? null;
+    } else if (activeTab === 'upload') {
+      props = await uploadRef.current?.getProps() ?? null;
+    } else if (activeTab === 'ai') {
+      props = await aiRef.current?.getProps() ?? null;
+    }
     if (props) {
       setPreviewJson(JSON.stringify(props, null, 2));
       setShowPreview(true);
@@ -62,9 +72,16 @@ export default function CreatePipelineModal({
   const handleSubmit = async () => {
     const props = await resolveProps();
     if (!props) return;
-    // Description/keywords are extracted from the uploaded JSON (upload tab only)
-    const desc = activeTab === 'upload' ? uploadRef.current?.getDescription() ?? '' : '';
-    const kw = activeTab === 'upload' ? uploadRef.current?.getKeywords() ?? '' : '';
+    // Description/keywords from upload or AI tabs
+    let desc = '';
+    let kw = '';
+    if (activeTab === 'upload') {
+      desc = uploadRef.current?.getDescription() ?? '';
+      kw = uploadRef.current?.getKeywords() ?? '';
+    } else if (activeTab === 'ai') {
+      desc = aiRef.current?.getDescription() ?? '';
+      kw = aiRef.current?.getKeywords() ?? '';
+    }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
     await onSubmit(props, createAccess, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
   };
@@ -131,6 +148,16 @@ export default function CreatePipelineModal({
           }`}
         >
           Wizard
+        </button>
+        <button
+          onClick={() => setActiveTab('ai')}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'ai'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          AI Builder
         </button>
       </nav>
     </div>
@@ -231,6 +258,8 @@ export default function CreatePipelineModal({
 
       {activeTab === 'upload' ? (
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />
+      ) : activeTab === 'ai' ? (
+        <AIBuilderTab ref={aiRef} disabled={createLoading} />
       ) : (
         <FormBuilderTab
           ref={formRef}

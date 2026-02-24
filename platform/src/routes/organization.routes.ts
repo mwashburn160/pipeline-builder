@@ -8,6 +8,8 @@
 import { Router } from 'express';
 import {
   getMyOrganization,
+  getOrgAIConfig,
+  updateOrgAIConfig,
   getOrganizationById,
   updateOrganization,
   getOrganizationQuotas,
@@ -29,6 +31,16 @@ const router = Router();
 
 /** GET /organization - Get current user's organization */
 router.get('/', isAuthenticated, getMyOrganization);
+
+/*
+ * AI Provider Configuration (must be before /:id routes)
+ */
+
+/** GET /organization/ai-config - Get org AI provider config */
+router.get('/ai-config', isAuthenticated, getOrgAIConfig);
+
+/** PUT /organization/ai-config - Update org AI provider keys (admin only) */
+router.put('/ai-config', isAuthenticated, authorize('admin'), updateOrgAIConfig);
 
 /*
  * Organization CRUD (system admin can access any org)

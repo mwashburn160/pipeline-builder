@@ -66,6 +66,11 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
     return data;
   } catch (error) {
     if (error instanceof AxiosError) {
+      if (error.code === 'ECONNABORTED') {
+        lambdaLog.error('FETCH', `Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
+        throw new Error(`Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
+      }
+
       const msg = error.response
         ? `API error ${error.response.status}: ${error.response.statusText}`
         : error.code || error.message;

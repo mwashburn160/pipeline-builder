@@ -43,6 +43,11 @@ export interface IOrganization extends Document {
   members: Types.ObjectId[];
   quotas: IQuotaLimits;
   usage: IQuotaUsageTracking;
+  aiProviderKeys?: {
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
   // Methods
@@ -174,6 +179,11 @@ const organizationSchema = new Schema<IOrganization>(
         type: quotaUsageSchema,
         default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) }),
       },
+    },
+    aiProviderKeys: {
+      anthropic: { type: String, default: undefined },
+      openai: { type: String, default: undefined },
+      google: { type: String, default: undefined },
     },
   },
   {

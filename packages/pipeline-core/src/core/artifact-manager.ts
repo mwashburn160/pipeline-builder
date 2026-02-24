@@ -55,7 +55,9 @@ export class ArtifactManager {
   getOutput(key: ArtifactKey): FileSet {
     const step = this.get(key);
     if (!step) {
-      throw new Error(`No artifact registered for ${this.generateKey(key)}`);
+      const registered = this.list();
+      const available = registered.length > 0 ? ` Available: [${registered.join(', ')}]` : ' No artifacts registered.';
+      throw new Error(`No artifact registered for "${this.generateKey(key)}".${available}`);
     }
     const output = step.primaryOutput;
     if (!output) {
@@ -75,7 +77,9 @@ export class ArtifactManager {
   addOutput(key: ArtifactKey, directory: string): FileSet {
     const step = this.get(key);
     if (!step) {
-      throw new Error(`No artifact registered for ${this.generateKey(key)}`);
+      const registered = this.list();
+      const available = registered.length > 0 ? ` Available: [${registered.join(', ')}]` : ' No artifacts registered.';
+      throw new Error(`No artifact registered for "${this.generateKey(key)}".${available}`);
     }
     return step.addOutputDirectory(directory);
   }

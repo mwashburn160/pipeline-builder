@@ -393,3 +393,107 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
   }
 }
 
+// ============================================================================
+// AI Provider Configuration
+// ============================================================================
+
+const AI_PROVIDERS = ['anthropic', 'openai', 'google'] as const;
+
+function maskKey(key: string): string {
+  if (key.length <= 4) return '****';
+  return '...' + key.slice(-4);
+}
+
+/**
+ * Get organization AI provider configuration
+ * GET /organization/ai-config
+ */
+export async function getOrgAIConfig(req: Request, res: Response): Promise<void> {
+  if (!requireAuth(req, res)) return;
+
+  try {
+    const orgId = req.user!.organizationId;
+    if (!orgId) {
+      return sendError(res, 404, 'No organization associated with this user');
+    }
+
+    const org = await Organization.findById(toOrgId(orgId as string)).select('aiProviderKeys').lean();
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    const keys = org.aiProviderKeys || {};
+    const providers: Record<string, { configured: boolean; hint?: string }> = {};
+
+    for (const p of AI_PROVIDERS) {
+      const key = keys[p];
+      providers[p] = key
+        ? { configured: true, hint: maskKey(key) }
+        : { configured: false };
+    }
+
+    res.json({ success: true, statusCode: 200, data: { providers } });
+  } catch (error) {
+    logger.error('[GET AI CONFIG] Fetch Error:', error);
+    return sendError(res, 500, 'Error fetching AI configuration');
+  }
+}
+
+/**
+ * Update organization AI provider keys
+ * PUT /organization/ai-config
+ */
+export async function updateOrgAIConfig(req: Request, res: Response): Promise<void> {
+  if (!requireAuth(req, res)) return;
+
+  try {
+    const orgId = req.user!.organizationId;
+    if (!orgId) {
+      return sendError(res, 404, 'No organization associated with this user');
+    }
+
+    const org = await Organization.findById(toOrgId(orgId as string));
+    if (!org) {
+      return sendError(res, 404, 'Organization not found');
+    }
+
+    if (!org.aiProviderKeys) {
+      org.aiProviderKeys = {};
+    }
+
+    for (const p of AI_PROVIDERS) {
+      const value = req.body[p];
+      if (value === undefined) continue;
+      if (value === null || value === '') {
+        org.aiProviderKeys[p] = undefined;
+      } else if (typeof value === 'string') {
+        org.aiProviderKeys[p] = value;
+      }
+    }
+
+    org.markModified('aiProviderKeys');
+    await org.save();
+
+    logger.info(`[UPDATE AI CONFIG] Organization ${orgId} AI config updated by ${req.user!.sub}`);
+
+    // Return updated state
+    const providers: Record<string, { configured: boolean; hint?: string }> = {};
+    for (const p of AI_PROVIDERS) {
+      const key = org.aiProviderKeys[p];
+      providers[p] = key
+        ? { configured: true, hint: maskKey(key) }
+        : { configured: false };
+    }
+
+    res.json({
+      success: true,
+      statusCode: 200,
+      message: 'AI provider configuration updated',
+      data: { providers },
+    });
+  } catch (error) {
+    logger.error('[UPDATE AI CONFIG] Update Error:', error);
+    return sendError(res, 500, 'Error updating AI configuration');
+  }
+}
+

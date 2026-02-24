@@ -8,7 +8,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, parsePaginationParams } from '@mwashburn160/api-core';
-import { QuotaService } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
   validateFilter,

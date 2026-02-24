@@ -13,21 +13,24 @@ import {
   authenticateToken,
   sendSuccess,
   sendError,
+  sendBadRequest,
   ErrorCode,
   createLogger,
   getParam,
   errorMessage,
+  validateBody,
 } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import {
+  buildSubscriptionResponse,
   calculatePeriodEnd,
   createBillingEvent,
   syncTierToQuotaService,
 } from '../helpers/billing-helpers';
 import { Plan } from '../models/plan';
-import type { BillingInterval } from '../models/subscription';
 import { Subscription } from '../models/subscription';
 import { getPaymentProvider } from '../providers/provider-factory';
+import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas';
 
 const logger = createLogger('billing-subscriptions');
 const router: Router = Router();
@@ -57,19 +60,7 @@ router.get(
       const plan = await Plan.findById(subscription.planId).lean();
 
       return sendSuccess(res, 200, {
-        subscription: {
-          id: subscription._id.toString(),
-          orgId: subscription.orgId,
-          planId: subscription.planId,
-          planName: plan?.name ?? subscription.planId,
-          status: subscription.status,
-          interval: subscription.interval,
-          currentPeriodStart: subscription.currentPeriodStart.toISOString(),
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          createdAt: subscription.createdAt.toISOString(),
-          updatedAt: subscription.updatedAt.toISOString(),
-        },
+        subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId),
       });
     } catch (error) {
       logger.error('Failed to get subscription', { error: errorMessage(error), orgId });
@@ -91,18 +82,11 @@ router.post(
       return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
     }
 
-    const { planId, interval = 'monthly' } = req.body as {
-      planId?: string;
-      interval?: BillingInterval;
-    };
-
-    if (!planId) {
-      return sendError(res, 400, 'Plan ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    const validation = validateBody(req, SubscriptionCreateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-
-    if (!['monthly', 'annual'].includes(interval)) {
-      return sendError(res, 400, 'Invalid interval. Must be "monthly" or "annual"', ErrorCode.VALIDATION_ERROR);
-    }
+    const { planId, interval } = validation.value;
 
     try {
       // Verify plan exists
@@ -152,19 +136,7 @@ router.post(
       logger.info('Subscription created', { orgId, planId, interval });
 
       return sendSuccess(res, 201, {
-        subscription: {
-          id: subscription._id.toString(),
-          orgId: subscription.orgId,
-          planId: subscription.planId,
-          planName: plan.name,
-          status: subscription.status,
-          interval: subscription.interval,
-          currentPeriodStart: subscription.currentPeriodStart.toISOString(),
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          createdAt: subscription.createdAt.toISOString(),
-          updatedAt: subscription.updatedAt.toISOString(),
-        },
+        subscription: buildSubscriptionResponse(subscription, plan.name),
       });
     } catch (error) {
       logger.error('Failed to create subscription', { error: errorMessage(error), orgId });
@@ -187,17 +159,14 @@ router.put(
     }
 
     const subscriptionId = getParam(req.params, 'id');
-    const { planId, interval } = req.body as {
-      planId?: string;
-      interval?: BillingInterval;
-    };
+    const validation = validateBody(req, SubscriptionUpdateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+    const { planId, interval } = validation.value;
 
     if (!planId && !interval) {
       return sendError(res, 400, 'At least planId or interval is required', ErrorCode.VALIDATION_ERROR);
-    }
-
-    if (interval && !['monthly', 'annual'].includes(interval)) {
-      return sendError(res, 400, 'Invalid interval', ErrorCode.VALIDATION_ERROR);
     }
 
     try {
@@ -248,18 +217,7 @@ router.put(
       logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
       return sendSuccess(res, 200, {
-        subscription: {
-          id: subscription._id.toString(),
-          orgId: subscription.orgId,
-          planId: subscription.planId,
-          status: subscription.status,
-          interval: subscription.interval,
-          currentPeriodStart: subscription.currentPeriodStart.toISOString(),
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          createdAt: subscription.createdAt.toISOString(),
-          updatedAt: subscription.updatedAt.toISOString(),
-        },
+        subscription: buildSubscriptionResponse(subscription),
       });
     } catch (error) {
       logger.error('Failed to update subscription', { error: errorMessage(error), orgId });

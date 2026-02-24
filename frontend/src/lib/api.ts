@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -530,6 +530,17 @@ class ApiClient {
     });
   }
 
+  async getOrgAIConfig() {
+    return this.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config');
+  }
+
+  async updateOrgAIConfig(data: { anthropic?: string | null; openai?: string | null; google?: string | null }) {
+    return this.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // ============================================
   // User management endpoints (Admin)
   // ============================================
@@ -786,6 +797,72 @@ class ApiClient {
   async deletePipeline(id: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/pipeline/${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  async getAIProviders() {
+    return this.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/pipeline/providers');
+  }
+
+  async generatePipeline(prompt: string, provider: string, model: string, apiKey?: string) {
+    return this.request<ApiResponse<{ props: BuilderProps; description?: string; keywords?: string[] }>>('/api/pipeline/generate', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, provider, model, ...(apiKey ? { apiKey } : {}) }),
+    });
+  }
+
+  // ============================================
+  // Plugin AI generation endpoints
+  // ============================================
+
+  async getPluginAIProviders() {
+    return this.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/plugin/providers');
+  }
+
+  async generatePlugin(prompt: string, provider: string, model: string, apiKey?: string) {
+    return this.request<ApiResponse<{
+      config: {
+        name: string;
+        description?: string;
+        version: string;
+        pluginType: string;
+        computeType: string;
+        keywords: string[];
+        primaryOutputDirectory?: string;
+        installCommands: string[];
+        commands: string[];
+        env?: Record<string, string>;
+      };
+      dockerfile: string;
+    }>>('/api/plugin/generate', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, provider, model, ...(apiKey ? { apiKey } : {}) }),
+    });
+  }
+
+  async deployGeneratedPlugin(data: {
+    name: string;
+    description?: string;
+    version: string;
+    pluginType: string;
+    computeType: string;
+    keywords?: string[];
+    primaryOutputDirectory?: string;
+    installCommands: string[];
+    commands: string[];
+    env?: Record<string, string>;
+    dockerfile: string;
+    accessModifier: 'public' | 'private';
+  }) {
+    return this.request<ApiResponse<{ plugin: Plugin }> & {
+      id: string;
+      name: string;
+      version: string;
+      imageTag: string;
+      fullImage: string;
+    }>('/api/plugin/deploy-generated', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 

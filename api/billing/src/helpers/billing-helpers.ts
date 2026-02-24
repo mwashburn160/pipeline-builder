@@ -97,3 +97,36 @@ export function formatPrice(cents: number): string {
   if (cents === 0) return 'Free';
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+/**
+ * Build a full subscription response object (used in GET, POST, PUT routes).
+ */
+export function buildSubscriptionResponse(
+  subscription: {
+    _id: { toString(): string };
+    orgId: string;
+    planId: string;
+    status: string;
+    interval: string;
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date;
+    cancelAtPeriodEnd: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  planName?: string,
+): Record<string, unknown> {
+  return {
+    id: subscription._id.toString(),
+    orgId: subscription.orgId,
+    planId: subscription.planId,
+    ...(planName !== undefined && { planName }),
+    status: subscription.status,
+    interval: subscription.interval,
+    currentPeriodStart: subscription.currentPeriodStart.toISOString(),
+    currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+    cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+    createdAt: subscription.createdAt.toISOString(),
+    updatedAt: subscription.updatedAt.toISOString(),
+  };
+}

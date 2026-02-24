@@ -167,6 +167,18 @@ export interface StepCustomization {
 }
 
 /**
+ * An additional input artifact with an optional mount directory.
+ * When directory is omitted, defaults to the artifact's outputDirectory.
+ */
+export interface AdditionalInputArtifactConfig {
+  /** Artifact key identifying the source step's output */
+  readonly artifact: ArtifactKey;
+
+  /** Directory to mount the input at. Defaults to artifact.outputDirectory when omitted. */
+  readonly directory?: string;
+}
+
+/**
  * Configuration for a single step within a pipeline stage.
  * Uses PluginOptions for name-based plugin selection (resolved at build time).
  */
@@ -197,8 +209,8 @@ export interface StageStepOptions extends StepCustomization {
   /** Artifact key for this step's primary input (resolved via ArtifactManager) */
   readonly inputArtifact?: ArtifactKey;
 
-  /** Map of mount paths to artifact keys for additional inputs */
-  readonly additionalInputArtifacts?: Record<string, ArtifactKey>;
+  /** Additional input artifacts for this step. Each entry specifies an artifact and an optional mount directory. */
+  readonly additionalInputArtifacts?: AdditionalInputArtifactConfig[];
 }
 
 /**

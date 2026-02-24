@@ -12,7 +12,7 @@
 
 import * as fs from 'fs';
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { authenticateToken, createRequestContext, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
@@ -56,6 +56,13 @@ export function createUploadPluginRoutes(
     upload.single('plugin') as RequestHandler,
     authenticateToken as RequestHandler,
     requireOrgId(sseManager) as RequestHandler,
+    // Admin check BEFORE quota — non-admins should be rejected without consuming quota
+    ((req: Request, res: Response, next: () => void) => {
+      if (!isSystemAdmin(req)) {
+        return sendError(res, 403, 'Only administrators can upload plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+      next();
+    }) as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
       // Docker builds can take several minutes — override the default 30s timeout
@@ -72,27 +79,13 @@ export function createUploadPluginRoutes(
           return sendBadRequest(res, 'No plugin file uploaded', ErrorCode.MISSING_REQUIRED_FIELD);
         }
 
-        // Only admins (system or org) can upload plugins
-        if (ctx.identity.role !== 'admin') {
-          ctx.log('INFO', 'Non-admin denied plugin upload');
-          return sendError(res, 403, 'Only administrators can upload plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
-        }
-
         if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
         const orgId = ctx.identity.orgId.toLowerCase();
         const validation = validateBody(req, PluginUploadBodySchema);
         if (!validation.ok) {
           return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
         }
-        let accessModifier = validation.value.accessModifier === 'public'
-          ? 'public'
-          : 'private';
-
-        // Only system admins can create public plugins
-        if (!isSystemAdmin(req) && accessModifier === 'public') {
-          accessModifier = 'private';
-          ctx.log('INFO', 'Non-system-admin forced to private access');
-        }
+        const accessModifier = resolveAccessModifier(req, validation.value.accessModifier);
 
         zipPath = req.file.path;
         ctx.log('INFO', 'Upload received', {

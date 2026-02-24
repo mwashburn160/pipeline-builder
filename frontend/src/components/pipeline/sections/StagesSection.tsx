@@ -1,7 +1,9 @@
-import { FormStage, FormStep } from '@/types/form-types';
+import { FormBuilderState, FormStage, FormStep } from '@/types/form-types';
+import { type Plugin } from '@/types';
 import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
 import StepEditor from './StepEditor';
+import { computeAvailableArtifacts } from '@/lib/artifact-keys';
 
 interface StagesSectionProps {
   stages: FormStage[];
@@ -13,17 +15,22 @@ interface StagesSectionProps {
   onStepChange: (stageIndex: number, stepIndex: number, step: FormStep) => void;
   disabled?: boolean;
   errors?: Record<string, string>;
+  /** Synth config for computing available artifact keys. */
+  synth?: FormBuilderState['synth'];
+  /** Plugin list for looking up primaryOutputDirectory. */
+  plugins?: Plugin[];
 }
 
 export default function StagesSection({
   stages, onAddStage, onRemoveStage, onStageFieldChange,
   onAddStep, onRemoveStep, onStepChange, disabled, errors = {},
+  synth, plugins = [],
 }: StagesSectionProps) {
   return (
     <CollapsibleSection title={`Pipeline Stages (${stages.length})`} hasContent={stages.length > 0}>
       <div className="mt-3 space-y-4">
         {stages.map((stage, stageIdx) => (
-          <div key={stageIdx} className="border border-gray-300 dark:border-gray-600 rounded-xl p-4">
+          <div key={stage.id} className="border border-gray-300 dark:border-gray-600 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">Stage {stageIdx + 1}</h4>
               <button
@@ -67,7 +74,7 @@ export default function StagesSection({
               <div className="space-y-3">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Steps ({stage.steps.length})</h5>
                 {stage.steps.map((step, stepIdx) => (
-                  <div key={stepIdx} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
+                  <div key={step.id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Step {stepIdx + 1}</span>
                       <button
@@ -85,6 +92,7 @@ export default function StagesSection({
                       disabled={disabled}
                       errorPrefix={`stages.${stageIdx}.steps.${stepIdx}`}
                       errors={errors}
+                      availableArtifacts={synth ? computeAvailableArtifacts(synth, stages, plugins, stageIdx, stepIdx) : []}
                     />
                   </div>
                 ))}

@@ -1,0 +1,319 @@
+/**
+ * @module components/plugin/AIPluginBuilderTab
+ * @description AI builder tab for the Create Plugin modal.
+ *
+ * Provides a natural language prompt input and provider/model selection
+ * for generating plugin configurations (config + Dockerfile) via the AI SDK.
+ * Uses {@link useAIProviders} for provider fetch/merge logic. After generation,
+ * displays a preview and a deploy button that builds the Docker image and
+ * saves the plugin to the database.
+ */
+
+import { useState } from 'react';
+import { Sparkles, ChevronDown, ChevronUp, Rocket } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { FormField } from '@/components/ui/FormField';
+import { useAIProviders } from '@/hooks/useAIProviders';
+import api from '@/lib/api';
+
+/** Props for the AIPluginBuilderTab component. */
+interface AIPluginBuilderTabProps {
+  /** Whether the current user can upload public plugins (admin only). */
+  canUploadPublic: boolean;
+  /** Whether the tab inputs should be disabled. */
+  disabled?: boolean;
+  /** Callback when a plugin is successfully deployed. */
+  onCreated: () => void;
+  /** Callback to close the parent modal. */
+  onClose: () => void;
+}
+
+/** Shape of the AI-generated plugin configuration (without Dockerfile). */
+interface GeneratedConfig {
+  name: string;
+  description?: string;
+  version: string;
+  pluginType: string;
+  computeType: string;
+  keywords: string[];
+  primaryOutputDirectory?: string;
+  installCommands: string[];
+  commands: string[];
+  env?: Record<string, string>;
+}
+
+export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Generated output
+  const [generatedConfig, setGeneratedConfig] = useState<GeneratedConfig | null>(null);
+  const [generatedDockerfile, setGeneratedDockerfile] = useState<string | null>(null);
+
+  // Access level
+  const [access, setAccess] = useState<'public' | 'private'>('private');
+
+  const ai = useAIProviders(() => api.getPluginAIProviders());
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) {
+      setError('Please enter a description of your plugin.');
+      return;
+    }
+    if (!ai.selectedProvider || !ai.selectedModel) {
+      setError('Please select a provider and model.');
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    setGenerating(true);
+    setGeneratedConfig(null);
+    setGeneratedDockerfile(null);
+
+    try {
+      const keyToUse = ai.customApiKey.trim() || undefined;
+      const response = await api.generatePlugin(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse);
+      const data = response.data;
+      if (!data?.config || !data?.dockerfile) {
+        setError('AI did not produce a complete plugin configuration');
+        return;
+      }
+      setGeneratedConfig(data.config);
+      setGeneratedDockerfile(data.dockerfile);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Generation failed';
+      setError(message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    if (!generatedConfig || !generatedDockerfile) return;
+
+    setError(null);
+    setSuccess(null);
+    setDeploying(true);
+
+    try {
+      const response = await api.deployGeneratedPlugin({
+        ...generatedConfig,
+        dockerfile: generatedDockerfile,
+        accessModifier: access,
+      });
+
+      if (response.success) {
+        setSuccess(`Plugin "${generatedConfig.name}" deployed successfully!`);
+        onCreated();
+        setTimeout(() => onClose(), 2000);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Deployment failed';
+      setError(message);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const isWorking = generating || deploying;
+
+  if (ai.loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <LoadingSpinner size="md" className="mr-3" />
+        <span className="text-sm text-gray-500 dark:text-gray-400">Loading AI providers...</span>
+      </div>
+    );
+  }
+
+  if (ai.providers.length === 0) {
+    return (
+      <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-6 text-center">
+        <p className="text-sm text-yellow-800 dark:text-yellow-300 font-medium">No AI providers configured</p>
+        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+          Configure an API key in Settings or set an environment variable on the plugin service.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Provider and Model Selection */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">Provider</label>
+          <select
+            value={ai.selectedProvider}
+            onChange={(e) => ai.setSelectedProvider(e.target.value)}
+            className="input"
+            disabled={disabled || isWorking}
+          >
+            {ai.providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.source})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Model</label>
+          <select
+            value={ai.selectedModel}
+            onChange={(e) => ai.setSelectedModel(e.target.value)}
+            className="input"
+            disabled={disabled || isWorking}
+          >
+            {ai.currentModels.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Custom API Key Override */}
+      <div>
+        <button
+          type="button"
+          onClick={() => ai.setShowKeyOverride(!ai.showKeyOverride)}
+          className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+        >
+          {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
+          Use custom API key
+        </button>
+        {ai.showKeyOverride && (
+          <div className="mt-2">
+            <input
+              type="password"
+              value={ai.customApiKey}
+              onChange={(e) => ai.setCustomApiKey(e.target.value)}
+              placeholder={ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'}
+              className="input text-sm"
+              disabled={disabled || isWorking}
+            />
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Overrides the {ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Prompt Input */}
+      <div>
+        <label className="label">Describe your plugin</label>
+        <textarea
+          value={prompt}
+          onChange={(e) => { setPrompt(e.target.value); setError(null); }}
+          placeholder={'Example: "A Node.js 20 build plugin that runs npm ci and npm run build. Should support TypeScript and output to the dist directory."'}
+          rows={4}
+          className="input text-sm"
+          disabled={disabled || isWorking}
+          maxLength={5000}
+        />
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {prompt.length}/5000 characters
+          </p>
+          <button
+            onClick={handleGenerate}
+            disabled={disabled || isWorking || !prompt.trim()}
+            className="btn btn-primary"
+          >
+            {generating ? (
+              <>
+                <LoadingSpinner size="sm" className="mr-2" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 mr-2" />
+                Generate Plugin
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {(error || ai.error) && (
+        <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+          <p className="text-sm text-red-800 dark:text-red-300">{error || ai.error}</p>
+        </div>
+      )}
+
+      {/* Success */}
+      {success && (
+        <div className="alert-success">
+          <p>{success}</p>
+        </div>
+      )}
+
+      {/* Generated Output */}
+      {generatedConfig && generatedDockerfile && (
+        <div className="space-y-4">
+          {/* Plugin Config Preview */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="label">Generated Plugin Configuration</label>
+              <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                Ready to deploy
+              </span>
+            </div>
+            <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
+              {JSON.stringify(generatedConfig, null, 2)}
+            </pre>
+          </div>
+
+          {/* Dockerfile Preview */}
+          <div>
+            <label className="label">Generated Dockerfile</label>
+            <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
+              {generatedDockerfile}
+            </pre>
+          </div>
+
+          {/* Access Level + Deploy */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <div className="flex items-center justify-between">
+              <FormField label="Access Level" hint={!canUploadPublic ? 'Only admins can create public plugins' : undefined}>
+                <select
+                  value={access}
+                  onChange={(e) => setAccess(e.target.value as 'public' | 'private')}
+                  className="input !w-auto"
+                  disabled={isWorking || !canUploadPublic}
+                >
+                  <option value="private">Private (Organization only)</option>
+                  {canUploadPublic && <option value="public">Public (Available to all)</option>}
+                </select>
+              </FormField>
+
+              <button
+                onClick={handleDeploy}
+                disabled={disabled || isWorking}
+                className="btn btn-primary"
+              >
+                {deploying ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Building Docker image...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="w-4 h-4 mr-2" />
+                    Deploy Plugin
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              This will build a Docker image from the generated Dockerfile and save the plugin to your organization.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

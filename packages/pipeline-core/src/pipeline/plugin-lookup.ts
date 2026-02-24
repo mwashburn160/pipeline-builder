@@ -55,7 +55,7 @@ export class PluginLookup extends Construct {
 
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
-    this._runtime = props.runtime ?? Runtime.NODEJS_20_X;
+    this._runtime = props.runtime ?? Runtime.NODEJS_22_X;
 
     const onEventHandler = this.createLambdaFunction();
 
@@ -87,16 +87,21 @@ export class PluginLookup extends Construct {
 
     if (Token.isUnresolved(encoded)) {
       log.warn(`Plugin "${props.name}" value is unresolved (token) during synthesis — using fallback. This is expected during synth; the actual plugin will be resolved at deployment time.`);
-      return this.default();
+      return this.fallback();
     }
 
     try {
       const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
-      return JSON.parse(decoded) as Plugin;
+      const data = JSON.parse(decoded);
+
+      if (!data || typeof data !== 'object' || !data.name || !Array.isArray(data.commands)) {
+        throw new Error('Invalid plugin response: missing required fields (name, commands)');
+      }
+
+      return data as Plugin;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      log.warn(`Failed to parse plugin data: ${errorMsg}`);
-      return this.default();
+      throw new Error(`Failed to parse plugin "${props.name}" data: ${errorMsg}`);
     }
   }
 
@@ -171,11 +176,15 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Returns fallback/default plugin configuration used when:
-   * - value is unresolved during synthesis
-   * - custom resource response cannot be parsed
+   * Returns fallback plugin configuration used only when the plugin value is
+   * an unresolved CDK token during synthesis. This is expected — the actual
+   * plugin will be resolved at deployment time via the Custom Resource.
+   *
+   * IMPORTANT: This fallback should never appear in a deployed stack. If it
+   * does, it indicates the Custom Resource failed to resolve the plugin.
+   * The fallback uses empty commands so CodeBuild will fail visibly.
    */
-  private default(): Plugin {
+  private fallback(): Plugin {
     return {
       id: '00000000-0000-0000-0000-000000000000',
       orgId: 'system',

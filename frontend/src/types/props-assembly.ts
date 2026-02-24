@@ -263,9 +263,10 @@ export function assembleBuilderProps(
           ...(step.position === 'post' && { position: 'post' }),
           ...(step.inputArtifact && { inputArtifact: parseArtifactKeyString(step.inputArtifact) }),
           ...(additionalInputs.length > 0 && {
-            additionalInputArtifacts: Object.fromEntries(
-              additionalInputs.map((a) => [a.path, parseArtifactKeyString(a.key)])
-            ),
+            additionalInputArtifacts: additionalInputs.map((a) => ({
+              artifact: parseArtifactKeyString(a.key),
+              ...(a.path.trim() && { directory: a.path.trim() }),
+            })),
           }),
         };
       }),

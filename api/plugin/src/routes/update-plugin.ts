@@ -5,7 +5,7 @@
  * PUT /plugins/:id — update a plugin by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PluginUpdateSchema } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PluginUpdateSchema } from '@mwashburn160/api-core';
 import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
@@ -77,12 +77,7 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
       // Handle access modifier (only system admins can set to public)
       if (body.accessModifier !== undefined) {
-        let accessModifier = body.accessModifier === 'public' ? 'public' : 'private';
-        if (!isSystemAdmin(req) && accessModifier === 'public') {
-          accessModifier = 'private';
-          ctx.log('INFO', 'Non-system-admin forced to private access');
-        }
-        updateData.accessModifier = accessModifier;
+        updateData.accessModifier = resolveAccessModifier(req, body.accessModifier);
       }
 
       const updated = await pluginService.update(

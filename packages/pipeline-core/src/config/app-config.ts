@@ -31,8 +31,8 @@ export class CoreConstants {
   // Supported JWT algorithms
   static readonly ALLOWED_JWT_ALGORITHMS: Algorithm[] = ['HS256', 'RS256', 'ES256'];
 
-  // Custom Resource Handler configuration
-  static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000');
+  // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling)
+  static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '25000');
   static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
 }
 

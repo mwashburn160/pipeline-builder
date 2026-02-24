@@ -12,18 +12,21 @@ import {
   isSystemAdmin,
   sendSuccess,
   sendError,
+  sendBadRequest,
   ErrorCode,
   createLogger,
   getParam,
   errorMessage,
   parseQueryInt,
   parseQueryString,
+  validateBody,
 } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
-import { syncTierToQuotaService } from '../helpers/billing-helpers';
+import { buildSubscriptionResponse, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { BillingEvent } from '../models/billing-event';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
+import { AdminSubscriptionUpdateSchema } from '../validation/schemas';
 
 const logger = createLogger('billing-admin');
 const router: Router = Router();
@@ -64,18 +67,7 @@ router.get(
         Subscription.countDocuments(filter),
       ]);
 
-      const result = subscriptions.map((sub) => ({
-        id: sub._id.toString(),
-        orgId: sub.orgId,
-        planId: sub.planId,
-        status: sub.status,
-        interval: sub.interval,
-        currentPeriodStart: sub.currentPeriodStart.toISOString(),
-        currentPeriodEnd: sub.currentPeriodEnd.toISOString(),
-        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-        createdAt: sub.createdAt.toISOString(),
-        updatedAt: sub.updatedAt.toISOString(),
-      }));
+      const result = subscriptions.map((sub) => buildSubscriptionResponse(sub));
 
       return sendSuccess(res, 200, { subscriptions: result, total, limit, offset });
     } catch (error) {
@@ -95,7 +87,11 @@ router.put(
   requireAdmin as RequestHandler,
   async (req: Request, res: Response) => {
     const subscriptionId = getParam(req.params, 'id');
-    const { planId, status, interval, cancelAtPeriodEnd } = req.body;
+    const validation = validateBody(req, AdminSubscriptionUpdateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+    const { planId, status, interval, cancelAtPeriodEnd } = validation.value;
 
     try {
       const subscription = await Subscription.findById(subscriptionId);
@@ -124,18 +120,7 @@ router.put(
       logger.info('Admin updated subscription', { subscriptionId, planId, status });
 
       return sendSuccess(res, 200, {
-        subscription: {
-          id: subscription._id.toString(),
-          orgId: subscription.orgId,
-          planId: subscription.planId,
-          status: subscription.status,
-          interval: subscription.interval,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          currentPeriodStart: subscription.currentPeriodStart.toISOString(),
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-          createdAt: subscription.createdAt.toISOString(),
-          updatedAt: subscription.updatedAt.toISOString(),
-        },
+        subscription: buildSubscriptionResponse(subscription),
       });
     } catch (error) {
       logger.error('Failed to update subscription', { error: errorMessage(error) });

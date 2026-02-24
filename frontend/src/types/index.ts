@@ -94,6 +94,22 @@ export interface Organization {
 }
 
 /**
+ * Organization AI provider configuration
+ */
+export interface AIProviderStatus {
+  configured: boolean;
+  hint?: string;
+}
+
+export interface OrgAIConfig {
+  providers: {
+    anthropic: AIProviderStatus;
+    openai: AIProviderStatus;
+    google: AIProviderStatus;
+  };
+}
+
+/**
  * Plugin model
  */
 export interface Plugin {

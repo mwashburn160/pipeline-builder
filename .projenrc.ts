@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.21.0';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.22.0';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.22.0';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.20.0';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -847,7 +847,12 @@ let plugin = new FunctionProject({
     'uuid@13.0.0',                                        // UUID generation
     'yaml@2.8.2',                                         // YAML parsing
     'adm-zip@0.5.16',                                     // ZIP extraction
-    'multer@2.0.2'                                        // File uploads
+    'multer@2.0.2',                                       // File uploads
+    'ai@6.0.97',                                          // Vercel AI SDK core
+    '@ai-sdk/anthropic@3.0.46',                           // Anthropic provider
+    '@ai-sdk/openai@3.0.31',                              // OpenAI provider
+    '@ai-sdk/google@3.0.30',                              // Google provider
+    'zod@4.3.6',                                          // Schema validation (for structured output)
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types
@@ -930,7 +935,12 @@ let pipeline = new FunctionProject({
     'pg@8.16.3',                                          // PostgreSQL
     'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
     'uuid@13.0.0',                                        // UUID generation
-    'yaml@2.8.2'                                          // YAML parsing
+    'yaml@2.8.2',                                          // YAML parsing
+    'ai@6.0.97',                                           // Vercel AI SDK core
+    '@ai-sdk/anthropic@3.0.46',                            // Anthropic provider
+    '@ai-sdk/openai@3.0.31',                               // OpenAI provider
+    '@ai-sdk/google@3.0.30',                               // Google provider
+    'zod@4.3.6',                                           // Schema validation (for structured output)
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types

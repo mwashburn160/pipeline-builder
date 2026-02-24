@@ -273,7 +273,8 @@ export abstract class CrudService<
     options: QueryOptions = {},
   ): Promise<PaginatedResult<TEntity>> {
     try {
-      const { limit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
+      const { limit: rawLimit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
+      const limit = Math.min(Math.max(1, rawLimit), 1000);
 
       const cacheKey = this.getCacheKey('findPaginated', filter, orgId, options);
       const cached = this.getFromCache<PaginatedResult<TEntity>>(cacheKey);
@@ -679,7 +680,8 @@ export abstract class CrudService<
     options: QueryOptions = {},
   ): Promise<PaginatedResult<TEntity>> {
     try {
-      const { limit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
+      const { limit: rawLimit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
+      const limit = Math.min(Math.max(1, rawLimit), 1000);
 
       const cacheKey = this.getCacheKey('search', { query } as any, orgId, options);
       const cached = this.getFromCache<PaginatedResult<TEntity>>(cacheKey);

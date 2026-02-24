@@ -1,5 +1,5 @@
 import { validateFormState } from '../src/types/props-validation';
-import { createInitialFormState, createEmptyStep, createEmptyPlugin } from '../src/types/form-types';
+import { createInitialFormState, createEmptyStep, createEmptyStage, createEmptyPlugin } from '../src/types/form-types';
 import type { FormBuilderState } from '../src/types/form-types';
 
 // ---------------------------------------------------------------------------
@@ -129,14 +129,14 @@ describe('validateFormState', () => {
       const state = validState();
       const step = createEmptyStep();
       step.plugin.name = 'test-plugin';
-      state.stages = [{ stageName: '', alias: '', steps: [step] }];
+      state.stages = [{ ...createEmptyStage(), stageName: '', steps: [step] }];
       const errors = validateFormState(state);
       expect(errors['stages.0.stageName']).toBe('Stage name is required');
     });
 
     it('should require at least one step per stage', () => {
       const state = validState();
-      state.stages = [{ stageName: 'build', alias: '', steps: [] }];
+      state.stages = [{ ...createEmptyStage(), stageName: 'build', steps: [] }];
       const errors = validateFormState(state);
       expect(errors['stages.0.steps']).toBe('Stage must have at least one step');
     });
@@ -145,7 +145,7 @@ describe('validateFormState', () => {
       const state = validState();
       const step = createEmptyStep();
       step.plugin = createEmptyPlugin();
-      state.stages = [{ stageName: 'build', alias: '', steps: [step] }];
+      state.stages = [{ ...createEmptyStage(), stageName: 'build', steps: [step] }];
       const errors = validateFormState(state);
       expect(errors['stages.0.steps.0.plugin.name']).toBe('Plugin name is required');
     });
@@ -158,8 +158,8 @@ describe('validateFormState', () => {
       // step2 has empty plugin name
 
       state.stages = [
-        { stageName: 'build', alias: '', steps: [step1] },
-        { stageName: '', alias: '', steps: [step2] },
+        { ...createEmptyStage(), stageName: 'build', steps: [step1] },
+        { ...createEmptyStage(), stageName: '', steps: [step2] },
       ];
       const errors = validateFormState(state);
       expect(errors['stages.1.stageName']).toBe('Stage name is required');

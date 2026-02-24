@@ -10,6 +10,8 @@
  *   POST   /pipelines        — create new pipeline
  *   PUT    /pipelines/:id    — update existing pipeline
  *   DELETE /pipelines/:id    — delete existing pipeline
+ *   GET    /pipelines/providers — list available AI providers
+ *   POST   /pipelines/generate  — generate pipeline config from natural language
  */
 
 import { createLogger } from '@mwashburn160/api-core';
@@ -17,6 +19,7 @@ import { createApp, runServer, createQuotaService, createProtectedRoute, createA
 
 import { createCreatePipelineRoutes } from './routes/create-pipeline';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline';
+import { createGeneratePipelineRoutes } from './routes/generate-pipeline';
 import { createReadPipelineRoutes } from './routes/read-pipelines';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline';
 
@@ -38,6 +41,9 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createDele
 
 // -- Create route — manages its own middleware (uses 'pipelines' quota) -------
 app.use('/pipelines', createCreatePipelineRoutes(sseManager, quotaService));
+
+// -- AI generation routes — auth + orgId (no quota charge) -------------------
+app.use('/pipelines', createGeneratePipelineRoutes(sseManager));
 
 logger.info('All /pipelines routes registered');
 

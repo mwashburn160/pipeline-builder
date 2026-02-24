@@ -3,6 +3,7 @@ import { BuilderProps } from '@/types';
 import { FormBuilderState } from '@/types/form-types';
 import { propsToFormState } from '@/types/props-converter';
 import { useFormBuilderState } from './useFormBuilderState';
+import { usePlugins } from '@/hooks/usePlugins';
 import PipelineConfigSection from './sections/PipelineConfigSection';
 import SynthSection from './sections/SynthSection';
 import DefaultsSection from './sections/DefaultsSection';
@@ -48,6 +49,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     const initialState = initialStateRef.current;
 
     const { state, dispatch, validationErrors, setValidationErrors, assembleBuilderProps, assembleBuilderPropsForPreview } = useFormBuilderState(initialState);
+    const { plugins } = usePlugins();
     const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
 
     useImperativeHandle(ref, () => ({
@@ -157,6 +159,8 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         onStepChange={(stageIndex, stepIndex, step) => dispatch({ type: 'SET_STEP', stageIndex, stepIndex, step })}
         disabled={disabled}
         errors={validationErrors}
+        synth={state.synth}
+        plugins={plugins}
       />
     );
 

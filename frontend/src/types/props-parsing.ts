@@ -16,6 +16,7 @@ import {
   createEmptyNetworkConfig,
   createEmptyPlugin,
   createEmptyStep,
+  nextFormId,
 } from './form-types';
 
 type AnyRecord = Record<string, unknown>;
@@ -112,10 +113,10 @@ export function parseArtifactKeyString(key: string): Record<string, string> {
 }
 
 function parseAdditionalInputArtifacts(obj: unknown): AdditionalInputArtifact[] {
-  if (!obj || typeof obj !== 'object') return [];
-  return Object.entries(obj as AnyRecord).map(([path, key]) => ({
-    path,
-    key: artifactKeyToString(key),
+  if (!Array.isArray(obj)) return [];
+  return obj.map((entry) => ({
+    path: String((entry as AnyRecord).directory || ''),
+    key: artifactKeyToString((entry as AnyRecord).artifact),
   }));
 }
 
@@ -124,6 +125,7 @@ function parseSteps(steps: unknown[]): FormStep[] {
     const step = s as AnyRecord;
     const { networkType, network } = parseNetworkConfig(step.network);
     return {
+      id: nextFormId(),
       plugin: parsePluginOptions(step.plugin),
       metadata: parseMetadataEntries(step.metadata),
       networkType,
@@ -251,6 +253,7 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
     base.stages = rawProps.stages.map((s: unknown) => {
       const stage = s as AnyRecord;
       return {
+        id: nextFormId(),
         stageName: String(stage.stageName || ''),
         alias: String(stage.alias || ''),
         steps: Array.isArray(stage.steps) ? parseSteps(stage.steps) : [createEmptyStep()],
