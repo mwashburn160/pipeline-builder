@@ -102,11 +102,7 @@ export interface AIProviderStatus {
 }
 
 export interface OrgAIConfig {
-  providers: {
-    anthropic: AIProviderStatus;
-    openai: AIProviderStatus;
-    google: AIProviderStatus;
-  };
+  providers: Record<string, AIProviderStatus>;
 }
 
 /**

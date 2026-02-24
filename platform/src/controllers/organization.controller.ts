@@ -397,7 +397,7 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
 // AI Provider Configuration
 // ============================================================================
 
-const AI_PROVIDERS = ['anthropic', 'openai', 'google'] as const;
+const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
 
 function maskKey(key: string): string {
   if (key.length <= 4) return '****';

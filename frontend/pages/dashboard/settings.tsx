@@ -4,6 +4,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { isOrgAdmin, type AIProviderStatus } from '@/types';
+import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import api from '@/lib/api';
 
 export default function SettingsPage() {
@@ -26,15 +27,17 @@ export default function SettingsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // AI provider state
-  const [aiProviders, setAiProviders] = useState<Record<string, AIProviderStatus>>({
-    anthropic: { configured: false },
-    openai: { configured: false },
-    google: { configured: false },
-  });
-  const [aiKeyInputs, setAiKeyInputs] = useState<Record<string, string>>({ anthropic: '', openai: '', google: '' });
+  const [aiProviders, setAiProviders] = useState<Record<string, AIProviderStatus>>({});
   const [aiLoading, setAiLoading] = useState<Record<string, boolean>>({});
   const [aiSuccess, setAiSuccess] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Add/update provider form
+  const [selectedProvider, setSelectedProvider] = useState('');
+  const [newApiKey, setNewApiKey] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
+  // Inline update for existing providers
+  const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [editApiKey, setEditApiKey] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -58,8 +61,42 @@ export default function SettingsPage() {
     })();
   }, [user]);
 
-  const handleSaveAiKey = async (providerId: string) => {
-    const key = aiKeyInputs[providerId]?.trim();
+  // Configured provider IDs
+  const configuredIds = Object.entries(aiProviders)
+    .filter(([, s]) => s.configured)
+    .map(([id]) => id);
+
+  // Unconfigured providers for the dropdown
+  const availableProviders = Object.entries(AI_PROVIDER_NAMES)
+    .filter(([id]) => !configuredIds.includes(id));
+
+  const providerDisplayName = (id: string) => AI_PROVIDER_NAMES[id] || id;
+
+  const handleAddProvider = async () => {
+    const key = newApiKey.trim();
+    if (!selectedProvider || !key) return;
+
+    setAiError(null);
+    setAiSuccess(null);
+    setAddLoading(true);
+
+    try {
+      const response = await api.updateOrgAIConfig({ [selectedProvider]: key });
+      if (response.data?.providers) {
+        setAiProviders(response.data.providers);
+      }
+      setAiSuccess(`${providerDisplayName(selectedProvider)} added`);
+      setSelectedProvider('');
+      setNewApiKey('');
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'Failed to add provider');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  const handleUpdateProvider = async (providerId: string) => {
+    const key = editApiKey.trim();
     if (!key) return;
 
     setAiError(null);
@@ -71,16 +108,17 @@ export default function SettingsPage() {
       if (response.data?.providers) {
         setAiProviders(response.data.providers);
       }
-      setAiKeyInputs((prev) => ({ ...prev, [providerId]: '' }));
-      setAiSuccess(`${providerId.charAt(0).toUpperCase() + providerId.slice(1)} API key saved`);
+      setAiSuccess(`${providerDisplayName(providerId)} API key updated`);
+      setEditingProvider(null);
+      setEditApiKey('');
     } catch (error) {
-      setAiError(error instanceof Error ? error.message : 'Failed to save API key');
+      setAiError(error instanceof Error ? error.message : 'Failed to update API key');
     } finally {
       setAiLoading((prev) => ({ ...prev, [providerId]: false }));
     }
   };
 
-  const handleRemoveAiKey = async (providerId: string) => {
+  const handleRemoveProvider = async (providerId: string) => {
     setAiError(null);
     setAiSuccess(null);
     setAiLoading((prev) => ({ ...prev, [providerId]: true }));
@@ -90,9 +128,13 @@ export default function SettingsPage() {
       if (response.data?.providers) {
         setAiProviders(response.data.providers);
       }
-      setAiSuccess(`${providerId.charAt(0).toUpperCase() + providerId.slice(1)} API key removed`);
+      setAiSuccess(`${providerDisplayName(providerId)} removed`);
+      if (editingProvider === providerId) {
+        setEditingProvider(null);
+        setEditApiKey('');
+      }
     } catch (error) {
-      setAiError(error instanceof Error ? error.message : 'Failed to remove API key');
+      setAiError(error instanceof Error ? error.message : 'Failed to remove provider');
     } finally {
       setAiLoading((prev) => ({ ...prev, [providerId]: false }));
     }
@@ -220,68 +262,130 @@ export default function SettingsPage() {
         {aiError && <div className="alert-error mb-4"><p>{aiError}</p></div>}
         {aiSuccess && <div className="alert-success mb-4"><p>{aiSuccess}</p></div>}
 
-        <div className="space-y-4">
-          {([
-            { id: 'anthropic', name: 'Anthropic', placeholder: 'sk-ant-...' },
-            { id: 'openai', name: 'OpenAI', placeholder: 'sk-...' },
-            { id: 'google', name: 'Google', placeholder: 'AIza...' },
-          ] as const).map(({ id, name, placeholder }) => {
-            const status = aiProviders[id];
-            const loading = aiLoading[id] ?? false;
-            const admin = isOrgAdmin(user);
+        {/* Configured providers list */}
+        {configuredIds.length > 0 && (
+          <div className="space-y-3 mb-4">
+            {configuredIds.map((id) => {
+              const status = aiProviders[id];
+              const loading = aiLoading[id] ?? false;
+              const admin = isOrgAdmin(user);
+              const isEditing = editingProvider === id;
 
-            return (
-              <div key={id} className="flex items-center gap-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{name}</span>
-                    {status?.configured ? (
+              return (
+                <div key={id} className="flex items-center gap-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {providerDisplayName(id)}
+                      </span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
                         Configured
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                        Not configured
-                      </span>
-                    )}
-                  </div>
-                  {admin ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="password"
-                        value={aiKeyInputs[id] || ''}
-                        onChange={(e) => setAiKeyInputs((prev) => ({ ...prev, [id]: e.target.value }))}
-                        placeholder={status?.configured ? `Current: ${status.hint}` : placeholder}
-                        className="input text-sm flex-1"
-                        disabled={loading}
-                      />
-                      <button
-                        onClick={() => handleSaveAiKey(id)}
-                        disabled={loading || !aiKeyInputs[id]?.trim()}
-                        className="btn btn-primary text-sm"
-                      >
-                        {loading ? <LoadingSpinner size="sm" /> : 'Save'}
-                      </button>
-                      {status?.configured && (
+                      {status?.hint && (
+                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                          Key: {status.hint}
+                        </span>
+                      )}
+                    </div>
+                    {admin && isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="password"
+                          value={editApiKey}
+                          onChange={(e) => setEditApiKey(e.target.value)}
+                          placeholder="Enter new API key"
+                          className="input text-sm flex-1"
+                          disabled={loading}
+                        />
                         <button
-                          onClick={() => handleRemoveAiKey(id)}
+                          onClick={() => handleUpdateProvider(id)}
+                          disabled={loading || !editApiKey.trim()}
+                          className="btn btn-primary text-sm"
+                        >
+                          {loading ? <LoadingSpinner size="sm" /> : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingProvider(null); setEditApiKey(''); }}
+                          disabled={loading}
+                          className="btn btn-secondary text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : admin ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setEditingProvider(id); setEditApiKey(''); }}
+                          className="btn btn-secondary text-sm"
+                        >
+                          Update
+                        </button>
+                        <button
+                          onClick={() => handleRemoveProvider(id)}
                           disabled={loading}
                           className="btn btn-danger text-sm"
                         >
-                          Remove
+                          {loading ? <LoadingSpinner size="sm" /> : 'Remove'}
                         </button>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {status?.configured ? `Key ending in ${status.hint}` : 'Contact your admin to configure'}
-                    </p>
-                  )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Key ending in {status?.hint}
+                      </p>
+                    )}
+                  </div>
                 </div>
+              );
+            })}
+          </div>
+        )}
+
+        {configuredIds.length === 0 && (
+          <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">No AI providers configured yet.</p>
+        )}
+
+        {/* Add new provider — admin only */}
+        {isOrgAdmin(user) && availableProviders.length > 0 && (
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add Provider</h3>
+            <div className="flex items-end gap-3">
+              <div className="flex-shrink-0">
+                <label htmlFor="ai-provider-select" className="label text-xs">Provider</label>
+                <select
+                  id="ai-provider-select"
+                  value={selectedProvider}
+                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  className="input text-sm"
+                  disabled={addLoading}
+                >
+                  <option value="">Select provider...</option>
+                  {availableProviders.map(([id, name]) => (
+                    <option key={id} value={id}>{name}</option>
+                  ))}
+                </select>
               </div>
-            );
-          })}
-        </div>
+              <div className="flex-1">
+                <label htmlFor="ai-api-key" className="label text-xs">API Key</label>
+                <input
+                  id="ai-api-key"
+                  type="password"
+                  value={newApiKey}
+                  onChange={(e) => setNewApiKey(e.target.value)}
+                  placeholder="Enter API key"
+                  className="input text-sm"
+                  disabled={addLoading || !selectedProvider}
+                />
+              </div>
+              <button
+                onClick={handleAddProvider}
+                disabled={addLoading || !selectedProvider || !newApiKey.trim()}
+                className="btn btn-primary text-sm"
+              >
+                {addLoading ? <LoadingSpinner size="sm" /> : 'Add'}
+              </button>
+            </div>
+          </div>
+        )}
       </motion.div>
 
       {/* Change Password */}

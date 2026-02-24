@@ -534,7 +534,7 @@ class ApiClient {
     return this.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config');
   }
 
-  async updateOrgAIConfig(data: { anthropic?: string | null; openai?: string | null; google?: string | null }) {
+  async updateOrgAIConfig(data: Record<string, string | null>) {
     return this.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', {
       method: 'PUT',
       body: JSON.stringify(data),

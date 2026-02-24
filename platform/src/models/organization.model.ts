@@ -47,6 +47,8 @@ export interface IOrganization extends Document {
     anthropic?: string;
     openai?: string;
     google?: string;
+    xai?: string;
+    'amazon-bedrock'?: string;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -184,6 +186,8 @@ const organizationSchema = new Schema<IOrganization>(
       anthropic: { type: String, default: undefined },
       openai: { type: String, default: undefined },
       google: { type: String, default: undefined },
+      xai: { type: String, default: undefined },
+      'amazon-bedrock': { type: String, default: undefined },
     },
   },
   {
