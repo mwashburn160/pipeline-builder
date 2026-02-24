@@ -3,12 +3,12 @@ import { motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { isOrgAdmin, isSystemAdmin, type AIProviderStatus } from '@/types';
+import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import api from '@/lib/api';
 
 export default function SettingsPage() {
-  const { user, isReady, refreshUser } = useAuthGuard();
+  const { user, isReady, isAdmin, refreshUser } = useAuthGuard();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -268,7 +268,7 @@ export default function SettingsPage() {
             {configuredIds.map((id) => {
               const status = aiProviders[id];
               const loading = aiLoading[id] ?? false;
-              const admin = isOrgAdmin(user) || isSystemAdmin(user);
+              const admin = isAdmin;
               const isEditing = editingProvider === id;
 
               return (
@@ -345,7 +345,7 @@ export default function SettingsPage() {
         )}
 
         {/* Add new provider — admin only */}
-        {(isOrgAdmin(user) || isSystemAdmin(user)) && availableProviders.length > 0 && (
+        {isAdmin && availableProviders.length > 0 && (
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add Provider</h3>
             <div className="flex items-end gap-3">
