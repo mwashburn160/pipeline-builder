@@ -6,3 +6,9 @@ auth/
 
 # Persistent data directories — host-side mount source
 data/
+
+# Environment file with secrets
+.env
+
+# macOS
+.DS_Store

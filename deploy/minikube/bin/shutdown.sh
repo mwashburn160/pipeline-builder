@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -23,6 +23,10 @@ kubectl delete secret jwt-secret postgres-secret mongodb-secret mongodb-keyfile 
   nginx-tls-secret registry-tls-secret registry-auth-secret \
   -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 echo "  ConfigMaps and Secrets removed"
+
+echo ""
+echo "=== Removing namespace ==="
+kubectl delete namespace "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 
 echo ""
 echo "=== Stopping Minikube (profile: $PROFILE) ==="

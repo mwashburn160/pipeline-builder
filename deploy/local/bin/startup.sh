@@ -76,4 +76,4 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
 # Start services
 # -----------------------------------------------------------------------
 echo "=== Starting Docker Compose ==="
-docker compose up --build --remove-orphans "$@"
+docker compose up --remove-orphans "$@"

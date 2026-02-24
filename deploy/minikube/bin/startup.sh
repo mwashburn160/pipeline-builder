@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -74,6 +74,7 @@ echo "=== Creating app-env ConfigMap from .env ==="
 # Process .env: remove comments/empty lines, expand variable references
 CLEAN_ENV=$(mktemp -t "app-env.XXXXXX")
 FILTERED=$(mktemp -t "filtered.XXXXXX")
+trap 'rm -f "$CLEAN_ENV" "$FILTERED"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' > "$FILTERED"
 while IFS='=' read -r key value; do
   # Use the shell-expanded value (already sourced via set -a)
@@ -150,7 +151,13 @@ kubectl create secret generic grafana-secret \
 echo "  grafana-secret created/updated"
 
 # GHCR image pull secret (for pulling app images from ghcr.io)
-if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_TOKEN:-}" ]; then
+# Resolve token from: GHCR_TOKEN env var → ~/.npmrc → skip
+GHCR_TOKEN="${GHCR_TOKEN:-}"
+if [ -z "$GHCR_TOKEN" ] && [ -f "$HOME/.npmrc" ]; then
+  GHCR_TOKEN=$(grep '//npm.pkg.github.com/:_authToken=' "$HOME/.npmrc" 2>/dev/null | sed 's/.*_authToken=//' || true)
+fi
+GHCR_USER="${GHCR_USER:-mwashburn160}"
+if [ -n "$GHCR_TOKEN" ]; then
   kubectl create secret docker-registry ghcr-secret \
     --docker-server=ghcr.io \
     --docker-username="$GHCR_USER" \
@@ -160,7 +167,7 @@ if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_TOKEN:-}" ]; then
   kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
   echo "  ghcr-secret created/updated (default SA patched)"
 else
-  echo "  GHCR_USER/GHCR_TOKEN not set — skipping ghcr-secret"
+  echo "  WARNING: No GHCR token found (set GHCR_TOKEN or configure ~/.npmrc)"
 fi
 
 echo ""
