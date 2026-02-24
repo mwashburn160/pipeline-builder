@@ -151,9 +151,9 @@ kubectl create secret generic grafana-secret \
 echo "  grafana-secret created/updated"
 
 # GHCR image pull secret (for pulling app images from ghcr.io)
-# Resolve token from: GHCR_TOKEN env var → ~/.npmrc → skip
-GHCR_TOKEN="${GHCR_TOKEN:-}"
-if [ -z "$GHCR_TOKEN" ] && [ -f "$HOME/.npmrc" ]; then
+# Resolve token from ~/.npmrc (npm.pkg.github.com authToken)
+GHCR_TOKEN=""
+if [ -f "$HOME/.npmrc" ]; then
   GHCR_TOKEN=$(grep '//npm.pkg.github.com/:_authToken=' "$HOME/.npmrc" 2>/dev/null | sed 's/.*_authToken=//' || true)
 fi
 GHCR_USER="${GHCR_USER:-mwashburn160}"
