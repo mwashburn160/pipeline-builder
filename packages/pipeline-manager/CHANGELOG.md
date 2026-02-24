@@ -1,3 +1,18 @@
+## 1.19.0 (2026-02-24)
+
+### 🚀 Features
+
+- addded ai wizard ([e800052](https://github.com/mwashburn160/pipeline-builder/commit/e800052))
+- re-version ([a0166dd](https://github.com/mwashburn160/pipeline-builder/commit/a0166dd))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.23.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.18.0 (2026-02-23)
 
 ### 🚀 Features
