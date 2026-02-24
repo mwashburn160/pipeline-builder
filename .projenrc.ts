@@ -52,13 +52,13 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.1';
+let apiCoreVersion = '1.23.2';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.24.1';
+let pipelineDataVersion = '1.24.2';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = 'workspace:*';
+let pipelineCoreVersion = '1.24.2';
 
 /** @mwashburn160/api-server package version */
 let apiServerVersion = 'workspace:*';
