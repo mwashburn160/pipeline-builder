@@ -1,3 +1,13 @@
+## 1.20.8 (2026-02-24)
+
+### 🩹 Fixes
+
+- ai provider ([f6a8fea](https://github.com/mwashburn160/pipeline-builder/commit/f6a8fea))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.7 (2026-02-24)
 
 ### 🩹 Fixes
