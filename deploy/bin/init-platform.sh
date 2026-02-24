@@ -129,5 +129,25 @@ else
     echo "No plugins directory found at $PLUGINS_DIR — skipping plugin upload."
 fi
 
+SAMPLES_DIR="$DEPLOY_DIR/samples"
+if [ -d "$SAMPLES_DIR" ]; then
+    echo ""
+    echo "=== Creating sample pipelines ==="
+    find "$SAMPLES_DIR" -type f -iname "*.json" -exec sh -c '
+        echo "  Creating: $(basename "$1")"
+        BODY=$(jq ".accessModifier = \"public\"" "$1")
+        CREATE_STATUS=$(curl -X POST "$2/api/pipeline" \
+         -s -o /dev/null -w "%{http_code}" \
+         -H "Authorization: Bearer $3" \
+         -H "Content-Type: application/json" \
+         -H "x-org-id: system" \
+         -d "$BODY" \
+         --insecure)
+        echo "    HTTP $CREATE_STATUS"
+    ' _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" \;
+else
+    echo "No samples directory found at $SAMPLES_DIR — skipping pipeline creation."
+fi
+
 echo ""
 echo "=== Initialization complete ==="
