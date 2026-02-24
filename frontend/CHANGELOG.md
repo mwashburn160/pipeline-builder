@@ -1,3 +1,13 @@
+## 1.20.6 (2026-02-24)
+
+### 🩹 Fixes
+
+- updated ai providers ([3437c32](https://github.com/mwashburn160/pipeline-builder/commit/3437c32))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.5 (2026-02-24)
 
 ### 🩹 Fixes
