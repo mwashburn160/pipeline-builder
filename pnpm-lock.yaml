@@ -54,8 +54,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -154,8 +154,8 @@ importers:
         specifier: 3.0.57
         version: 3.0.57(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -266,8 +266,8 @@ importers:
         specifier: 3.0.57
         version: 3.0.57(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -375,8 +375,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -460,8 +460,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
@@ -582,8 +582,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/pipeline-core':
         specifier: workspace:*
         version: link:../pipeline-core
@@ -661,8 +661,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.23.0
+        version: 1.23.0
       '@mwashburn160/pipeline-data':
         specifier: workspace:*
         version: link:../pipeline-data
@@ -731,8 +731,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.23.0
+        version: 1.23.0
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.16.3)
@@ -868,8 +868,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.23.0
+        version: 1.23.0
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -2435,6 +2435,10 @@ packages:
 
   '@mongodb-js/saslprep@1.4.5':
     resolution: {integrity: sha512-k64Lbyb7ycCSXHSLzxVdb2xsKGPMvYZfCICXvDsI8Z65CeWQzTEKS4YmGbnqw+U9RBvLPTsB6UCmwkgsDTGWIw==}
+
+  '@mwashburn160/api-core@1.23.0':
+    resolution: {integrity: sha512-o9s+AbdJc1yc0K3mYnZA2494Iye1xBMPwNichI43wm6f3xd6S7QfI2Udmm14hj+PYjzgFFEeZizEK5b/j+nT9g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.23.0/1c4b5e4c6216a42159d7a5a0ec0804381445ac29}
+    engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -8244,6 +8248,15 @@ snapshots:
   '@mongodb-js/saslprep@1.4.5':
     dependencies:
       sparse-bitfield: 3.0.3
+
+  '@mwashburn160/api-core@1.23.0':
+    dependencies:
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
