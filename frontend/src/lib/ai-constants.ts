@@ -54,6 +54,16 @@ export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
     { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
   ],
+  xai: [
+    { id: 'grok-3', name: 'Grok 3' },
+    { id: 'grok-3-fast', name: 'Grok 3 Fast' },
+    { id: 'grok-3-mini', name: 'Grok 3 Mini' },
+  ],
+  'amazon-bedrock': [
+    { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' },
+    { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
+    { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
+  ],
 };
 
 /**
@@ -64,4 +74,6 @@ export const AI_PROVIDER_NAMES: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google',
+  xai: 'xAI (Grok)',
+  'amazon-bedrock': 'Amazon Bedrock',
 };

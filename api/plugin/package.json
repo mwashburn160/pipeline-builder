@@ -39,9 +39,11 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "4.0.63",
     "@ai-sdk/anthropic": "3.0.46",
     "@ai-sdk/google": "3.0.30",
     "@ai-sdk/openai": "3.0.31",
+    "@ai-sdk/xai": "3.0.57",
     "@mwashburn160/api-core": "workspace:*",
     "@mwashburn160/api-server": "workspace:*",
     "@mwashburn160/pipeline-core": "workspace:*",
@@ -66,7 +68,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.17.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -18,14 +18,16 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('AI_PROVIDER_CATALOG', () => {
-  it('contains anthropic, openai, and google providers', () => {
+  it('contains all supported providers', () => {
     expect(AI_PROVIDER_CATALOG).toHaveProperty('anthropic');
     expect(AI_PROVIDER_CATALOG).toHaveProperty('openai');
     expect(AI_PROVIDER_CATALOG).toHaveProperty('google');
+    expect(AI_PROVIDER_CATALOG).toHaveProperty('xai');
+    expect(AI_PROVIDER_CATALOG).toHaveProperty('amazon-bedrock');
   });
 
-  it('has exactly 3 providers', () => {
-    expect(Object.keys(AI_PROVIDER_CATALOG)).toHaveLength(3);
+  it('has exactly 5 providers', () => {
+    expect(Object.keys(AI_PROVIDER_CATALOG)).toHaveLength(5);
   });
 
   it.each(Object.entries(AI_PROVIDER_CATALOG))(
@@ -73,6 +75,8 @@ describe('AI_PROVIDER_ENV_VARS', () => {
     expect(AI_PROVIDER_ENV_VARS.anthropic).toBe('ANTHROPIC_API_KEY');
     expect(AI_PROVIDER_ENV_VARS.openai).toBe('OPENAI_API_KEY');
     expect(AI_PROVIDER_ENV_VARS.google).toBe('GOOGLE_GENERATIVE_AI_API_KEY');
+    expect(AI_PROVIDER_ENV_VARS.xai).toBe('XAI_API_KEY');
+    expect(AI_PROVIDER_ENV_VARS['amazon-bedrock']).toBe('AWS_ACCESS_KEY_ID');
   });
 });
 
@@ -108,6 +112,8 @@ describe('getAIProviderName', () => {
     expect(getAIProviderName('anthropic')).toBe('Anthropic');
     expect(getAIProviderName('openai')).toBe('OpenAI');
     expect(getAIProviderName('google')).toBe('Google');
+    expect(getAIProviderName('xai')).toBe('xAI (Grok)');
+    expect(getAIProviderName('amazon-bedrock')).toBe('Amazon Bedrock');
   });
 
   it('falls back to raw ID for unknown provider', () => {

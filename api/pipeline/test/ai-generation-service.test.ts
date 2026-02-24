@@ -17,6 +17,9 @@ jest.mock('ai', () => ({
   },
 }));
 
+jest.mock('@ai-sdk/amazon-bedrock', () => ({
+  createAmazonBedrock: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'amazon-bedrock', modelId }))),
+}));
 jest.mock('@ai-sdk/anthropic', () => ({
   createAnthropic: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'anthropic', modelId }))),
 }));
@@ -25,6 +28,9 @@ jest.mock('@ai-sdk/openai', () => ({
 }));
 jest.mock('@ai-sdk/google', () => ({
   createGoogleGenerativeAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'google', modelId }))),
+}));
+jest.mock('@ai-sdk/xai', () => ({
+  createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -35,7 +41,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     warn: jest.fn(),
   })),
   AI_PROVIDER_CATALOG: {
-    anthropic: {
+    'anthropic': {
       id: 'anthropic',
       name: 'Anthropic',
       models: [
@@ -43,34 +49,52 @@ jest.mock('@mwashburn160/api-core', () => ({
         { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
       ],
     },
-    openai: {
+    'openai': {
       id: 'openai',
       name: 'OpenAI',
       models: [
         { id: 'gpt-4o', name: 'GPT-4o' },
       ],
     },
-    google: {
+    'google': {
       id: 'google',
       name: 'Google',
       models: [
         { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
       ],
     },
+    'xai': {
+      id: 'xai',
+      name: 'xAI (Grok)',
+      models: [
+        { id: 'grok-3', name: 'Grok 3' },
+      ],
+    },
+    'amazon-bedrock': {
+      id: 'amazon-bedrock',
+      name: 'Amazon Bedrock',
+      models: [
+        { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' },
+      ],
+    },
   },
   AI_PROVIDER_ENV_VARS: {
-    anthropic: 'ANTHROPIC_API_KEY',
-    openai: 'OPENAI_API_KEY',
-    google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    'anthropic': 'ANTHROPIC_API_KEY',
+    'openai': 'OPENAI_API_KEY',
+    'google': 'GOOGLE_GENERATIVE_AI_API_KEY',
+    'xai': 'XAI_API_KEY',
+    'amazon-bedrock': 'AWS_ACCESS_KEY_ID',
   },
   getAIProviderModels: jest.fn((id: string) => {
     const catalog: Record<string, any[]> = {
-      anthropic: [
+      'anthropic': [
         { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
         { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
       ],
-      openai: [{ id: 'gpt-4o', name: 'GPT-4o' }],
-      google: [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }],
+      'openai': [{ id: 'gpt-4o', name: 'GPT-4o' }],
+      'google': [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }],
+      'xai': [{ id: 'grok-3', name: 'Grok 3' }],
+      'amazon-bedrock': [{ id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' }],
     };
     return catalog[id] ?? [];
   }),

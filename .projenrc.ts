@@ -852,6 +852,8 @@ let plugin = new FunctionProject({
     '@ai-sdk/anthropic@3.0.46',                           // Anthropic provider
     '@ai-sdk/openai@3.0.31',                              // OpenAI provider
     '@ai-sdk/google@3.0.30',                              // Google provider
+    '@ai-sdk/xai@3.0.57',                                 // xAI (Grok) provider
+    '@ai-sdk/amazon-bedrock@4.0.63',                      // Amazon Bedrock provider
     'zod@4.3.6',                                          // Schema validation (for structured output)
   ],
   devDeps: [
@@ -940,6 +942,8 @@ let pipeline = new FunctionProject({
     '@ai-sdk/anthropic@3.0.46',                            // Anthropic provider
     '@ai-sdk/openai@3.0.31',                               // OpenAI provider
     '@ai-sdk/google@3.0.30',                               // Google provider
+    '@ai-sdk/xai@3.0.57',                                  // xAI (Grok) provider
+    '@ai-sdk/amazon-bedrock@4.0.63',                       // Amazon Bedrock provider
     'zod@4.3.6',                                           // Schema validation (for structured output)
   ],
   devDeps: [

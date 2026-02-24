@@ -4,16 +4,18 @@
  *
  * Uses generateText() with Output.object() to produce structured plugin
  * configuration JSON + Dockerfile from natural language descriptions.
- * Supports multiple AI providers (Anthropic, OpenAI, Google).
+ * Supports multiple AI providers (Anthropic, OpenAI, Google, xAI, Amazon Bedrock).
  *
  * Provider types and model catalog are imported from the shared
  * {@link @mwashburn160/api-core} constants to avoid duplication with the
  * pipeline AI generation service.
  */
 
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createXai } from '@ai-sdk/xai';
 import {
   createLogger,
   AI_PROVIDER_CATALOG,
@@ -93,9 +95,11 @@ function initRegistry(): void {
   if (registry.size > 0) return;
 
   const factories: Record<string, (key: string) => (modelId: string) => LanguageModel> = {
-    anthropic: (key) => createAnthropic({ apiKey: key }),
-    openai: (key) => createOpenAI({ apiKey: key }),
-    google: (key) => createGoogleGenerativeAI({ apiKey: key }),
+    'anthropic': (key) => createAnthropic({ apiKey: key }),
+    'openai': (key) => createOpenAI({ apiKey: key }),
+    'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
+    'xai': (key) => createXai({ apiKey: key }),
+    'amazon-bedrock': () => createAmazonBedrock(),
   };
 
   for (const [id, info] of Object.entries(AI_PROVIDER_CATALOG)) {
@@ -178,6 +182,10 @@ function createModelWithKey(providerId: string, modelId: string, apiKey: string)
       return createOpenAI({ apiKey })(modelId);
     case 'google':
       return createGoogleGenerativeAI({ apiKey })(modelId);
+    case 'xai':
+      return createXai({ apiKey })(modelId);
+    case 'amazon-bedrock':
+      return createAmazonBedrock()(modelId);
     default:
       throw new Error(`Unsupported AI provider "${providerId}"`);
   }
