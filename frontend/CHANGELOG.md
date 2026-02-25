@@ -1,3 +1,13 @@
+## 1.21.6 (2026-02-25)
+
+### 🩹 Fixes
+
+- updated frontend ([335e5e2](https://github.com/mwashburn160/pipeline-builder/commit/335e5e2))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.21.5 (2026-02-25)
 
 ### 🩹 Fixes
