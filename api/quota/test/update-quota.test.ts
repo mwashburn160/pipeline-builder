@@ -12,11 +12,13 @@ const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 const mockSendQuotaExceeded = jest.fn();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
+const mockIsSystemOrg = jest.fn().mockReturnValue(false);
 
 jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
+  isSystemOrg: mockIsSystemOrg,
   ErrorCode: {
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     DATABASE_ERROR: 'DATABASE_ERROR',
@@ -388,5 +390,51 @@ describe('POST /quotas/:orgId/increment', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to increment quota usage', 'DATABASE_ERROR', 'DB error');
+  });
+
+  it('bypasses quota limit for system org', async () => {
+    mockIsSystemOrg.mockReturnValue(true);
+    const org = makeSaveableOrg({
+      quotas: { plugins: 10, pipelines: 10, apiCalls: -1 },
+      usage: {
+        plugins: { used: 10, resetAt: futureDate },
+        pipelines: { used: 2, resetAt: futureDate },
+        apiCalls: { used: 50, resetAt: futureDate },
+      },
+    });
+    mockFindOneAndUpdate.mockResolvedValue(org);
+
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      body: { quotaType: 'plugins', amount: 1 },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    // Should succeed even though usage equals limit
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      res, 200,
+      expect.objectContaining({
+        quota: expect.objectContaining({ type: 'plugins', limit: 10 }),
+      }),
+      'Usage incremented successfully',
+    );
+    // Should NOT call updateOne (no auto-reset) or sendQuotaExceeded
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+    expect(mockSendQuotaExceeded).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for system org when org does not exist', async () => {
+    mockIsSystemOrg.mockReturnValue(true);
+    mockFindOneAndUpdate.mockResolvedValue(null);
+
+    const req = mockReq({
+      params: { orgId: 'missing' },
+      body: { quotaType: 'plugins', amount: 1 },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'ORG_NOT_FOUND');
   });
 });
