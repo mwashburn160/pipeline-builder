@@ -483,7 +483,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.21.4'
+    image: 'ghcr.io/mwashburn160/frontend:1.21.6'
     container_name: frontend
     restart: always
     networks:
