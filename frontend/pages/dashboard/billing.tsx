@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { Check, AlertCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -45,7 +46,8 @@ function formatDate(iso: string): string {
 // ---------------------------------------------------------------------------
 
 export default function BillingPage() {
-  const { user, isReady } = useAuthGuard();
+  const router = useRouter();
+  const { user, isReady, isSysOrg } = useAuthGuard();
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -53,6 +55,13 @@ export default function BillingPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // System org does not have billing — redirect to dashboard
+  useEffect(() => {
+    if (isReady && isSysOrg) {
+      router.replace('/dashboard');
+    }
+  }, [isReady, isSysOrg, router]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -137,7 +146,7 @@ export default function BillingPage() {
     }
   };
 
-  if (!isReady || loading) return <LoadingPage />;
+  if (!isReady || loading || isSysOrg) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Billing">

@@ -33,7 +33,7 @@ export function DashboardLayout({
   maxWidth = '7xl',
   mainClassName = '',
 }: DashboardLayoutProps) {
-  const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
+  const { user, isReady, isSysOrg, isSysAdmin, isAdmin, logout } = useAuthGuard();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile } = useSidebarState();
   const router = useRouter();
@@ -67,6 +67,7 @@ export function DashboardLayout({
           <Sidebar
             isSysAdmin={isSysAdmin}
             isAdmin={isAdmin}
+            isSystemOrg={isSysOrg}
             user={user}
             unreadCount={unreadCount}
             currentPath={router.pathname}
@@ -98,6 +99,7 @@ export function DashboardLayout({
                 <Sidebar
                   isSysAdmin={isSysAdmin}
                   isAdmin={isAdmin}
+                  isSystemOrg={isSysOrg}
                   user={user}
                   unreadCount={unreadCount}
                   currentPath={router.pathname}

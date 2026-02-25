@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
-import { isSystemAdmin, isOrgAdmin } from '@/types';
+import { isSystemAdmin, isSystemOrg as checkSystemOrg, isOrgAdmin } from '@/types';
 
 interface AuthGuardOptions {
   requireAdmin?: boolean;
@@ -12,6 +12,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   const router = useRouter();
   const { user, isAuthenticated, isInitialized, isLoading, logout, refreshUser } = useAuth();
 
+  const isSysOrg = checkSystemOrg(user);
   const isSysAdmin = isSystemAdmin(user);
   const isOrgAdminUser = isOrgAdmin(user);
   const isAdmin = isSysAdmin || isOrgAdminUser;
@@ -43,6 +44,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     user,
     isReady,
     isAuthenticated,
+    isSysOrg,
     isSysAdmin,
     isOrgAdminUser,
     isAdmin,

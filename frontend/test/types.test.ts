@@ -1,4 +1,4 @@
-import { isSystemAdmin, isOrgAdmin, User } from '../src/types';
+import { isSystemOrg, isSystemAdmin, isOrgAdmin, User } from '../src/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -17,6 +17,38 @@ function mockUser(overrides: Partial<User> = {}): User {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe('isSystemOrg', () => {
+  it('should return true for user with system organizationId', () => {
+    expect(isSystemOrg(mockUser({ organizationId: 'system' }))).toBe(true);
+  });
+
+  it('should return true for user with system organizationName', () => {
+    expect(isSystemOrg(mockUser({ organizationName: 'system' }))).toBe(true);
+  });
+
+  it('should be case-insensitive', () => {
+    expect(isSystemOrg(mockUser({ organizationId: 'System' }))).toBe(true);
+    expect(isSystemOrg(mockUser({ organizationName: 'SYSTEM' }))).toBe(true);
+  });
+
+  it('should return true regardless of role', () => {
+    expect(isSystemOrg(mockUser({ role: 'user', organizationId: 'system' }))).toBe(true);
+    expect(isSystemOrg(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(true);
+  });
+
+  it('should return false for non-system org', () => {
+    expect(isSystemOrg(mockUser({ organizationId: 'org-1' }))).toBe(false);
+  });
+
+  it('should return false for null user', () => {
+    expect(isSystemOrg(null)).toBe(false);
+  });
+
+  it('should return false when organizationId and organizationName are undefined', () => {
+    expect(isSystemOrg(mockUser())).toBe(false);
+  });
+});
 
 describe('isSystemAdmin', () => {
   it('should return true for admin with system organizationId', () => {

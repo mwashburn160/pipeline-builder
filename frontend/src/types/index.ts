@@ -14,13 +14,21 @@ export interface User {
 }
 
 /**
+ * Check if user belongs to the system organization
+ */
+export function isSystemOrg(user: User | null): boolean {
+  if (!user) return false;
+  const orgId = user.organizationId?.toLowerCase();
+  const orgName = user.organizationName?.toLowerCase();
+  return orgId === 'system' || orgName === 'system';
+}
+
+/**
  * Check if user is system admin
  */
 export function isSystemAdmin(user: User | null): boolean {
   if (!user || user.role !== 'admin') return false;
-  const orgId = user.organizationId?.toLowerCase();
-  const orgName = user.organizationName?.toLowerCase();
-  return orgId === 'system' || orgName === 'system';
+  return isSystemOrg(user);
 }
 
 /**

@@ -29,6 +29,7 @@ interface NavItem {
   icon: LucideIcon;
   adminOnly?: boolean;
   systemAdminOnly?: boolean;
+  hideForSystemOrg?: boolean;
 }
 
 interface NavSection {
@@ -69,7 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Account',
     items: [
       { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard },
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, hideForSystemOrg: true },
       { title: 'Settings', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
     ],
@@ -83,6 +84,7 @@ const NAV_SECTIONS: NavSection[] = [
 interface SidebarProps {
   isSysAdmin: boolean;
   isAdmin: boolean;
+  isSystemOrg: boolean;
   user: User;
   unreadCount: number;
   currentPath: string;
@@ -94,6 +96,7 @@ interface SidebarProps {
 export function Sidebar({
   isSysAdmin,
   isAdmin,
+  isSystemOrg,
   user,
   unreadCount,
   currentPath,
@@ -110,6 +113,7 @@ export function Sidebar({
   const isItemVisible = (item: NavItem) => {
     if (item.systemAdminOnly && !isSysAdmin) return false;
     if (item.adminOnly && !isAdmin) return false;
+    if (item.hideForSystemOrg && isSystemOrg) return false;
     return true;
   };
 
