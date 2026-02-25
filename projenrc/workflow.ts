@@ -121,14 +121,14 @@ export class Workflow extends Component {
                 {
                     id: 'workflow_id',
                     name: 'Workflow ID from file',
-                    run: 'echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT',
+                    run: 'if [ -f workflow.yml ] && [ -s workflow.yml ]; then echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT; else echo WORKFLOW_ID=${{ github.run_id }} >> $GITHUB_OUTPUT; fi',
                 },
                 {
                     id: 'sha',
                     name: 'Derive SHAs for NX:BASE, NX:HEAD',
                     uses: 'nrwl/nx-set-shas@v4',
                     with: {
-                        'workflow-id': '${{ steps.read_workflow_id.outputs.WORKFLOW_ID }}',
+                        'workflow-id': '${{ steps.workflow_id.outputs.WORKFLOW_ID }}',
                         'main-branch-name': 'main'
                     },
                 },
