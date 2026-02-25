@@ -11,7 +11,6 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
-import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import { sendPluginNotFound } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
@@ -22,17 +21,17 @@ import { pluginService } from '../services/plugin-service';
  * Expects `authenticateToken` and `requireOrgId` to have already been
  * applied as router-level middleware in the parent.
  */
-export function createDeletePluginRoutes(sseManager: SSEManager): Router {
+export function createDeletePluginRoutes(): Router {
   const router: Router = Router();
 
   router.delete('/:id', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
-    const orgId = ctx.identity.orgId;
+    const orgId = ctx.identity.orgId?.toLowerCase();
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     ctx.log('INFO', 'Plugin delete request received', { id });
 
@@ -55,6 +54,7 @@ export function createDeletePluginRoutes(sseManager: SSEManager): Router {
 
       return res.status(200).json({ success: true, statusCode: 200, message: 'Plugin deleted.' });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to delete plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });

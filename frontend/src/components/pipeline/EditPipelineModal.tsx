@@ -6,7 +6,7 @@ import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
-import { WIZARD_STEPS } from './wizard-validation';
+import { WIZARD_STEPS } from '@/lib/wizard-validation';
 
 interface EditPipelineModalProps {
   pipeline: Pipeline;

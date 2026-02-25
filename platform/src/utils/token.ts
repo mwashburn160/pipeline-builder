@@ -2,13 +2,13 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { User } from '../models';
-import { IUser } from '../models/user.model';
+import { UserDocument } from '../models/user.model';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types';
 
 /**
  * Create access token payload from user
  */
-export function createAccessTokenPayload(user: IUser): AccessTokenPayload {
+export function createAccessTokenPayload(user: UserDocument): AccessTokenPayload {
   return {
     type: 'access',
     sub: user._id.toString(),
@@ -25,7 +25,7 @@ export function createAccessTokenPayload(user: IUser): AccessTokenPayload {
 /**
  * Create refresh token payload from user
  */
-export function createRefreshTokenPayload(user: IUser): RefreshTokenPayload {
+export function createRefreshTokenPayload(user: UserDocument): RefreshTokenPayload {
   return {
     type: 'refresh',
     sub: user._id.toString(),
@@ -36,7 +36,7 @@ export function createRefreshTokenPayload(user: IUser): RefreshTokenPayload {
 /**
  * Generate access token
  */
-export function generateAccessToken(user: IUser): string {
+export function generateAccessToken(user: UserDocument): string {
   return jwt.sign(createAccessTokenPayload(user), config.auth.jwt.secret, {
     algorithm: config.auth.jwt.algorithm,
     expiresIn: config.auth.jwt.expiresIn,
@@ -46,7 +46,7 @@ export function generateAccessToken(user: IUser): string {
 /**
  * Generate refresh token
  */
-export function generateRefreshToken(user: IUser): string {
+export function generateRefreshToken(user: UserDocument): string {
   return jwt.sign(createRefreshTokenPayload(user), config.auth.refreshToken.secret, {
     algorithm: config.auth.jwt.algorithm,
     expiresIn: config.auth.refreshToken.expiresIn,
@@ -56,7 +56,7 @@ export function generateRefreshToken(user: IUser): string {
 /**
  * Generate both tokens
  */
-export function generateTokenPair(user: IUser): { accessToken: string; refreshToken: string } {
+export function generateTokenPair(user: UserDocument): { accessToken: string; refreshToken: string } {
   return {
     accessToken: generateAccessToken(user),
     refreshToken: generateRefreshToken(user),
@@ -73,7 +73,7 @@ export function hashRefreshToken(token: string): string {
 /**
  * Generate and persist new token pair for user.
  */
-export async function issueTokens(user: IUser): Promise<{ accessToken: string; refreshToken: string }> {
+export async function issueTokens(user: UserDocument): Promise<{ accessToken: string; refreshToken: string }> {
   const { accessToken, refreshToken } = generateTokenPair(user);
   const hashedRefresh = hashRefreshToken(refreshToken);
   await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });

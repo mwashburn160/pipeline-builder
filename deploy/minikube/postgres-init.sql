@@ -63,6 +63,31 @@ CREATE TABLE IF NOT EXISTS pipelines (
     deleted_by          VARCHAR(100)
 );
 
+-- MESSAGES TABLE
+CREATE TABLE IF NOT EXISTS messages (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by          TEXT NOT NULL DEFAULT 'system',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by          TEXT NOT NULL DEFAULT 'system',
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    thread_id           UUID,
+    recipient_org_id    VARCHAR(255) NOT NULL,
+    message_type        VARCHAR(20) NOT NULL DEFAULT 'conversation'
+                        CHECK (message_type IN ('conversation', 'announcement')),
+    subject             VARCHAR(500) NOT NULL,
+    content             TEXT NOT NULL,
+    is_read             BOOLEAN NOT NULL DEFAULT false,
+    priority            VARCHAR(20) NOT NULL DEFAULT 'normal'
+                        CHECK (priority IN ('normal', 'high', 'urgent')),
+    access_modifier     VARCHAR(10) NOT NULL DEFAULT 'private'
+                        CHECK (access_modifier IN ('public', 'private')),
+    is_default          BOOLEAN NOT NULL DEFAULT false,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    deleted_at          TIMESTAMPTZ,
+    deleted_by          TEXT
+);
+
 -- Add missing columns to existing tables (idempotent)
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -86,6 +111,12 @@ CREATE TRIGGER update_pipelines_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 
+DROP TRIGGER IF EXISTS update_messages_modtime ON messages;
+CREATE TRIGGER update_messages_modtime
+    BEFORE UPDATE ON messages
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_plugins_org_id ON plugins(org_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(name) WHERE deleted_at IS NULL;
@@ -101,3 +132,14 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_project_org ON pipelines(project, organ
 CREATE INDEX IF NOT EXISTS idx_pipelines_access_modifier ON pipelines(access_modifier) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_pipelines_is_default ON pipelines(project, organization, is_default) WHERE is_default = true AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_pipelines_is_active ON pipelines(is_active) WHERE deleted_at IS NULL;
+
+-- Messages indexes
+CREATE INDEX IF NOT EXISTS message_org_id_idx ON messages(org_id);
+CREATE INDEX IF NOT EXISTS message_recipient_org_id_idx ON messages(recipient_org_id);
+CREATE INDEX IF NOT EXISTS message_thread_id_idx ON messages(thread_id);
+CREATE INDEX IF NOT EXISTS message_message_type_idx ON messages(message_type);
+CREATE INDEX IF NOT EXISTS message_created_at_idx ON messages(created_at);
+CREATE INDEX IF NOT EXISTS message_active_idx ON messages(is_active);
+CREATE INDEX IF NOT EXISTS message_is_read_idx ON messages(is_read);
+CREATE INDEX IF NOT EXISTS message_recipient_active_created_idx ON messages(recipient_org_id, is_active, created_at);
+CREATE INDEX IF NOT EXISTS message_org_active_idx ON messages(org_id, is_active);

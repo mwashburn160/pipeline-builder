@@ -311,6 +311,40 @@ export interface BillingEvent {
 }
 
 /**
+ * Message type identifiers
+ */
+export type MessageType = 'announcement' | 'conversation';
+
+/**
+ * Message priority levels
+ */
+export type MessagePriority = 'normal' | 'high' | 'urgent';
+
+/**
+ * Internal message model
+ */
+export interface Message {
+  id: string;
+  orgId: string;
+  threadId: string | null;
+  recipientOrgId: string;
+  messageType: MessageType;
+  subject: string;
+  content: string;
+  isRead: boolean;
+  priority: MessagePriority;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  accessModifier: 'public' | 'private';
+  isDefault: boolean;
+  isActive: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+}
+
+/**
  * Auth tokens
  */
 export interface AuthTokens {

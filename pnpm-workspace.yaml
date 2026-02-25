@@ -12,3 +12,4 @@ packages:
   - api/billing
   - api/plugin
   - api/pipeline
+  - api/message

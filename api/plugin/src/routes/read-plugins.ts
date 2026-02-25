@@ -71,6 +71,7 @@ export function createReadPluginRoutes(
         },
       });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to list plugins', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });
@@ -102,6 +103,7 @@ export function createReadPluginRoutes(
 
       return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to find plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });
@@ -132,6 +134,7 @@ export function createReadPluginRoutes(
 
       return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to get plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });

@@ -9,7 +9,7 @@
  */
 
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
-import { createRequestContext, createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
+import { createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
@@ -32,7 +32,7 @@ export function createCreatePipelineRoutes(
     '/',
     ...createProtectedRoute(sseManager, quotaService, 'pipelines'),
     async (req: Request, res: Response) => {
-      const ctx = createRequestContext(req, res, sseManager);
+      const ctx = req.context!;
 
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);

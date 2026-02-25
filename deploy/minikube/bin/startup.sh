@@ -219,7 +219,7 @@ echo "  registry-auth-secret created/updated"
 echo ""
 echo "=== Creating PostgreSQL init ConfigMap ==="
 kubectl create configmap postgres-init \
-  --from-file=init.sql="$K8S_DIR/postgres-init.sql" \
+  --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql" \
   -n "$NAMESPACE" \
   --dry-run=client -o yaml | kubectl apply -f -
 echo "  postgres-init ConfigMap created/updated"
@@ -227,13 +227,13 @@ echo "  postgres-init ConfigMap created/updated"
 echo ""
 echo "=== Creating MongoDB init ConfigMap & keyfile Secret ==="
 kubectl create configmap mongodb-init \
-  --from-file=mongo-init.js="$K8S_DIR/mongodb-init.js" \
+  --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js" \
   -n "$NAMESPACE" \
   --dry-run=client -o yaml | kubectl apply -f -
 echo "  mongodb-init ConfigMap created/updated"
 
 kubectl create secret generic mongodb-keyfile \
-  --from-file=mongodb-keyfile="$K8S_DIR/mongodb-keyfile" \
+  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile" \
   -n "$NAMESPACE" \
   --dry-run=client -o yaml | kubectl apply -f -
 echo "  mongodb-keyfile Secret created/updated"

@@ -1,10 +1,11 @@
-import { eq, SQL } from 'drizzle-orm';
+import { eq, or, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   normalizeStringFilter,
+  parseBooleanFilter,
 } from './access-control-builder';
-import { PipelineFilter, PluginFilter } from '../core/query-filters';
-import { schema } from '../database/drizzle-schema';
+import { MessageFilter, PipelineFilter, PluginFilter } from '../core/query-filters';
+import { schema, type MessagePriority, type MessageType } from '../database/drizzle-schema';
 
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
@@ -75,6 +76,79 @@ export function buildPluginConditions(
 
   if (filter.imageTag !== undefined) {
     conditions.push(eq(schema.plugin.imageTag, filter.imageTag as string));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for message queries.
+ *
+ * Custom access control for messages:
+ * - Messages are visible to the sender org (orgId) OR the recipient org (recipientOrgId)
+ * - Broadcast announcements (recipientOrgId = '*') are visible to all orgs
+ * - System org can see all messages
+ *
+ * @param filter - Message filter criteria
+ * @param orgId - User's organization ID
+ * @returns Array of SQL conditions
+ */
+export function buildMessageConditions(
+  filter: Partial<MessageFilter>,
+  orgId: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+  const normalizedOrgId = orgId.toLowerCase();
+
+  // Custom access control: sender OR recipient OR broadcast
+  if (normalizedOrgId === 'system') {
+    // System org can see all messages
+  } else {
+    conditions.push(
+      or(
+        eq(schema.message.orgId, normalizedOrgId),
+        eq(schema.message.recipientOrgId, normalizedOrgId),
+        eq(schema.message.recipientOrgId, '*'),
+      )!,
+    );
+  }
+
+  // Active filter (default to active only)
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(schema.message.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    conditions.push(eq(schema.message.isActive, true));
+  }
+
+  // Thread filter
+  if (filter.threadId !== undefined) {
+    conditions.push(eq(schema.message.threadId, filter.threadId));
+  }
+
+  // Recipient org filter
+  if (filter.recipientOrgId !== undefined) {
+    conditions.push(eq(schema.message.recipientOrgId, normalizeStringFilter(filter.recipientOrgId)));
+  }
+
+  // Message type filter
+  if (filter.messageType !== undefined) {
+    conditions.push(eq(schema.message.messageType, filter.messageType as MessageType));
+  }
+
+  // Read status filter
+  if (filter.isRead !== undefined) {
+    conditions.push(eq(schema.message.isRead, parseBooleanFilter(filter.isRead)));
+  }
+
+  // Priority filter
+  if (filter.priority !== undefined) {
+    conditions.push(eq(schema.message.priority, filter.priority as MessagePriority));
+  }
+
+  // ID filter
+  if (filter.id !== undefined) {
+    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
+    conditions.push(eq(schema.message.id, id));
   }
 
   return conditions;

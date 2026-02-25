@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import AIBuilderTab, { AIBuilderTabRef } from './AIBuilderTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
-import { WIZARD_STEPS } from './wizard-validation';
+import { WIZARD_STEPS } from '@/lib/wizard-validation';
 
 interface CreatePipelineModalProps {
   isOpen: boolean;

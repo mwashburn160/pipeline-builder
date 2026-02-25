@@ -11,7 +11,7 @@ import { z, ZodSchema } from 'zod';
 import { config } from '../config';
 import { Organization } from '../models';
 import { emailSchema } from './validation';
-import type { IUser } from '../models/user.model';
+import type { UserDocument } from '../models/user.model';
 
 const logger = createLogger('AuthUtils');
 
@@ -105,7 +105,7 @@ export interface IssuedTokens {
  * @param user - User document
  * @returns Token pair with expiry
  */
-export async function issueTokens(user: IUser): Promise<IssuedTokens> {
+export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
   const payload: TokenPayload = {
     type: 'access',
     sub: user._id.toString(),

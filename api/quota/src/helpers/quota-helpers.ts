@@ -12,7 +12,7 @@ export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/
 export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits, VALID_QUOTA_TYPES, isValidQuotaType } from '@mwashburn160/api-core';
 import { Response } from 'express';
 import { config } from '../config';
-import { IOrganization, QuotaLimits, QuotaUsageTracking } from '../models/organization';
+import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models/organization';
 
 /** Shared auth options — allow x-org-id header override for service-to-service calls. */
 export const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -88,7 +88,7 @@ export function sendMissingOrgId(res: Response): void {
  * Only sets fields that are explicitly provided (not undefined).
  */
 export function applyQuotaLimits(
-  org: IOrganization,
+  org: OrganizationDocument,
   updates: Partial<Record<QuotaType, number>>,
 ): void {
   for (const key of VALID_QUOTA_TYPES) {
@@ -166,7 +166,7 @@ function buildSummaries(
 }
 
 /** Build an org quota response from a database document. */
-export function buildOrgQuotaResponse(org: IOrganization): OrgQuotaResponse {
+export function buildOrgQuotaResponse(org: OrganizationDocument): OrgQuotaResponse {
   return {
     orgId: String(org._id),
     name: org.name,

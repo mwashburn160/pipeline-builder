@@ -6,7 +6,7 @@ import { config } from '../config';
 /**
  * Quota usage tracking interface
  */
-export interface IQuotaUsage {
+export interface QuotaUsage {
   used: number;
   resetAt: Date;
 }
@@ -14,7 +14,7 @@ export interface IQuotaUsage {
 /**
  * Quota limits interface
  */
-export interface IQuotaLimits {
+export interface QuotaLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
@@ -23,10 +23,10 @@ export interface IQuotaLimits {
 /**
  * Quota usage interface
  */
-export interface IQuotaUsageTracking {
-  plugins: IQuotaUsage;
-  pipelines: IQuotaUsage;
-  apiCalls: IQuotaUsage;
+export interface QuotaUsageTracking {
+  plugins: QuotaUsage;
+  pipelines: QuotaUsage;
+  apiCalls: QuotaUsage;
 }
 
 export type { QuotaTier };
@@ -34,27 +34,27 @@ export type { QuotaTier };
 /**
  * Organization document interface
  */
-export interface IOrganization extends Document {
+export interface OrganizationDocument extends Document {
   name: string;
   slug: string;
   description?: string;
   tier: QuotaTier;
   owner: Types.ObjectId;
   members: Types.ObjectId[];
-  quotas: IQuotaLimits;
-  usage: IQuotaUsageTracking;
+  quotas: QuotaLimits;
+  usage: QuotaUsageTracking;
   aiProviderKeys?: {
-    anthropic?: string;
-    openai?: string;
-    google?: string;
-    xai?: string;
+    'anthropic'?: string;
+    'openai'?: string;
+    'google'?: string;
+    'xai'?: string;
     'amazon-bedrock'?: string;
   };
   createdAt: Date;
   updatedAt: Date;
   // Methods
   checkQuota(type: 'plugins' | 'pipelines' | 'apiCalls'): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date };
-  incrementUsage(type: 'plugins' | 'pipelines' | 'apiCalls', amount?: number): Promise<IOrganization>;
+  incrementUsage(type: 'plugins' | 'pipelines' | 'apiCalls', amount?: number): Promise<OrganizationDocument>;
   resetUsageIfExpired(type: 'plugins' | 'pipelines' | 'apiCalls'): Promise<boolean>;
 }
 
@@ -100,7 +100,7 @@ function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'ap
   return config.quota.tier[tier].resetPeriod[type];
 }
 
-const quotaUsageSchema = new Schema<IQuotaUsage>(
+const quotaUsageSchema = new Schema<QuotaUsage>(
   {
     used: { type: Number, default: 0, min: 0 },
     resetAt: { type: Date, default: () => getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) },
@@ -108,7 +108,7 @@ const quotaUsageSchema = new Schema<IQuotaUsage>(
   { _id: false },
 );
 
-const organizationSchema = new Schema<IOrganization>(
+const organizationSchema = new Schema<OrganizationDocument>(
   {
     _id: {
       type: Schema.Types.Mixed,
@@ -183,10 +183,10 @@ const organizationSchema = new Schema<IOrganization>(
       },
     },
     aiProviderKeys: {
-      anthropic: { type: String, default: undefined },
-      openai: { type: String, default: undefined },
-      google: { type: String, default: undefined },
-      xai: { type: String, default: undefined },
+      'anthropic': { type: String, default: undefined },
+      'openai': { type: String, default: undefined },
+      'google': { type: String, default: undefined },
+      'xai': { type: String, default: undefined },
       'amazon-bedrock': { type: String, default: undefined },
     },
   },
@@ -280,7 +280,7 @@ organizationSchema.methods.checkQuota = function (
 organizationSchema.methods.incrementUsage = async function (
   type: 'plugins' | 'pipelines' | 'apiCalls',
   amount: number = 1,
-): Promise<IOrganization> {
+): Promise<OrganizationDocument> {
   // First, reset if expired
   await this.resetUsageIfExpired(type);
 
@@ -305,13 +305,13 @@ organizationSchema.methods.incrementUsage = async function (
 /**
  * Generate unique slug from organization name
  */
-organizationSchema.pre<IOrganization>('validate', async function () {
+organizationSchema.pre<OrganizationDocument>('validate', async function () {
   if (!this.isModified('name') && this.slug) return;
 
   const baseSlug = slugify(this.name, { lower: true, strict: true });
   const slugRegex = new RegExp(`^(${baseSlug})(-[0-9]+)?$`, 'i');
 
-  const existingOrgs = await (this.constructor as Model<IOrganization>)
+  const existingOrgs = await (this.constructor as Model<OrganizationDocument>)
     .find({
       slug: slugRegex,
       _id: { $ne: this._id },
@@ -337,4 +337,4 @@ organizationSchema.pre<IOrganization>('validate', async function () {
   }
 });
 
-export default model<IOrganization>('Organization', organizationSchema);
+export default model<OrganizationDocument>('Organization', organizationSchema);

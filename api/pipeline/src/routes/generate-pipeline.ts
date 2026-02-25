@@ -20,7 +20,7 @@ import {
   validateBody,
   AIGenerateBodySchema,
 } from '@mwashburn160/api-core';
-import { createRequestContext, createAuthenticatedWithOrgRoute, SSEManager } from '@mwashburn160/api-server';
+import { createAuthenticatedWithOrgRoute, SSEManager } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
@@ -99,7 +99,7 @@ export function createGeneratePipelineRoutes(sseManager: SSEManager): Router {
     '/generate',
     ...createAuthenticatedWithOrgRoute(sseManager),
     async (req: Request, res: Response) => {
-      const ctx = createRequestContext(req, res, sseManager);
+      const ctx = req.context!;
 
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {

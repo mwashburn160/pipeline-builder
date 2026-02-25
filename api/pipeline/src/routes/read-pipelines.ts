@@ -71,6 +71,7 @@ export function createReadPipelineRoutes(
         },
       });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to list pipelines', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });
@@ -102,6 +103,7 @@ export function createReadPipelineRoutes(
 
       return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to find pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });
@@ -132,6 +134,7 @@ export function createReadPipelineRoutes(
 
       return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to get pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });

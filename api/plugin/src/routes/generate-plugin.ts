@@ -31,8 +31,8 @@ import {
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
 } from '@mwashburn160/api-core';
-import { createRequestContext, checkQuota } from '@mwashburn160/api-server';
-import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
+import { checkQuota } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
 import { eq } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
@@ -45,12 +45,10 @@ const logger = createLogger('generate-plugin');
 /**
  * Create and register AI plugin generation routes.
  *
- * @param sseManager - SSE connection manager for request context
  * @param quotaService - Quota service for usage tracking
  * @returns Express Router with AI generation endpoints
  */
 export function createGeneratePluginRoutes(
-  sseManager: SSEManager,
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
@@ -77,7 +75,7 @@ export function createGeneratePluginRoutes(
    * Validated with {@link AIGenerateBodySchema}.
    */
   router.post('/generate', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
 
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
@@ -155,7 +153,7 @@ export function createGeneratePluginRoutes(
       // Docker builds can take several minutes
       res.setTimeout(10 * 60 * 1000);
 
-      const ctx = createRequestContext(req, res, sseManager);
+      const ctx = req.context!;
       const config = Config.get();
 
       let tempDir: string | undefined;

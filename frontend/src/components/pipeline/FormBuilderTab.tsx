@@ -2,7 +2,7 @@ import { useImperativeHandle, forwardRef, useRef, useState, ReactNode } from 're
 import { BuilderProps } from '@/types';
 import { FormBuilderState } from '@/types/form-types';
 import { propsToFormState } from '@/types/props-converter';
-import { useFormBuilderState } from './useFormBuilderState';
+import { useFormBuilderState } from '@/hooks/useFormBuilderState';
 import { usePlugins } from '@/hooks/usePlugins';
 import PipelineConfigSection from './sections/PipelineConfigSection';
 import SynthSection from './sections/SynthSection';
@@ -12,7 +12,7 @@ import StagesSection from './sections/StagesSection';
 import CollapsibleSection from './editors/CollapsibleSection';
 import MetadataEditor from './editors/MetadataEditor';
 import WizardStepper from './WizardStepper';
-import { WIZARD_STEPS, validateStep, getStepStatuses } from './wizard-validation';
+import { WIZARD_STEPS, validateStep, getStepStatuses } from '@/lib/wizard-validation';
 
 export interface FormBuilderTabRef {
   getProps: () => BuilderProps | null;

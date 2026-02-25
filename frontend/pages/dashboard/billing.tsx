@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
-import { ArrowLeft, Sun, Moon, Check, CreditCard, AlertCircle } from 'lucide-react';
+import { Check, AlertCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useDarkMode } from '@/hooks/useDarkMode';
+import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Toast } from '@/components/ui/Toast';
 import type { Plan, Subscription, BillingInterval } from '@/types';
@@ -47,7 +46,6 @@ function formatDate(iso: string): string {
 
 export default function BillingPage() {
   const { user, isReady } = useAuthGuard();
-  const { isDark, toggle: toggleDarkMode } = useDarkMode();
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -88,14 +86,12 @@ export default function BillingPage() {
     setActionLoading(true);
     try {
       if (subscription) {
-        // Change plan
         const res = await api.changeSubscription(subscription.id, { planId, interval });
         if (res.success) {
           setToast({ message: 'Plan changed successfully', type: 'success' });
           await fetchData();
         }
       } else {
-        // New subscription
         const res = await api.createSubscription(planId, interval);
         if (res.success) {
           setToast({ message: 'Subscription created successfully', type: 'success' });
@@ -144,29 +140,8 @@ export default function BillingPage() {
   if (!isReady || loading) return <LoadingPage />;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <CreditCard className="w-5 h-5" />
-                Billing
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Manage your subscription and plan</p>
-            </div>
-          </div>
-          <button onClick={toggleDarkMode} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-            {isDark ? <Sun className="w-5 h-5 text-gray-400" /> : <Moon className="w-5 h-5 text-gray-600" />}
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <DashboardLayout title="Billing">
+      <div className="space-y-8">
         {/* Current Subscription Status */}
         {subscription && (
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6">
@@ -318,11 +293,11 @@ export default function BillingPage() {
             );
           })}
         </div>
-      </main>
+      </div>
 
       {toast && (
         <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />
       )}
-    </div>
+    </DashboardLayout>
   );
 }

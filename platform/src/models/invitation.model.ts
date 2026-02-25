@@ -19,7 +19,7 @@ export type InvitationType = 'email' | 'oauth' | 'any';
 /**
  * Invitation document interface
  */
-export interface IInvitation extends Document {
+export interface InvitationDocument extends Document {
   _id: Types.ObjectId;
   email: string;
   organizationId: Types.ObjectId;
@@ -45,7 +45,7 @@ export interface IInvitation extends Document {
   canAcceptViaEmail(): boolean;
 }
 
-const invitationSchema = new Schema<IInvitation>(
+const invitationSchema = new Schema<InvitationDocument>(
   {
     email: {
       type: String,
@@ -179,4 +179,4 @@ invitationSchema.methods.canAcceptViaEmail = function (): boolean {
  */
 invitationSchema.index({ organizationId: 1, email: 1, status: 1 });
 
-export default model<IInvitation>('Invitation', invitationSchema);
+export default model<InvitationDocument>('Invitation', invitationSchema);

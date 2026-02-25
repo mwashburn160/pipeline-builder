@@ -1,8 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
-import { ArrowLeft, Sun, Moon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useDarkMode } from '@/hooks/useDarkMode';
+import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Toast } from '@/components/ui/Toast';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
@@ -162,7 +160,6 @@ function OrgListItem({
 
 export default function QuotasPage() {
   const { user, isReady, isSysAdmin } = useAuthGuard();
-  const { isDark, toggle } = useDarkMode();
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -308,90 +305,80 @@ export default function QuotasPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const titleExtra = !loading && orgData ? (
+    <div className="hidden sm:flex items-center gap-2">
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
+        {orgData.orgId}
+      </span>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+        editTier === 'unlimited'
+          ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
+          : editTier === 'pro'
+            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
+            : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+      }`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
+        {TIER_PRESETS[editTier].label}
+      </span>
+    </div>
+  ) : undefined;
+
+  const headerActions = isSysAdmin && !loading ? (
+    <div className="flex items-center gap-2">
+      <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary text-xs disabled:opacity-40">
+        Discard
+      </button>
+      <button type="button" onClick={handleSave} disabled={!dirty || saving} className="btn btn-primary text-xs disabled:opacity-40">
+        {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save'}
+      </button>
+    </div>
+  ) : undefined;
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex transition-colors">
-      {/* Sidebar */}
-      {isSysAdmin && (
-        <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
-              Organizations
-            </p>
-            <input
-              type="text"
-              placeholder="Filter..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="input !py-1.5 text-xs"
-            />
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-              {platformOrgs.length} org{platformOrgs.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {filteredOrgs.map((org) => (
-              <OrgListItem
-                key={org.id}
-                org={org}
-                selected={org.id === selectedOrgId}
-                healthColor={orgHealthColors[org.id]}
-                onClick={() => handleSelectOrg(org.id)}
+    <DashboardLayout
+      title={isSysAdmin ? 'Organization Quotas' : 'Quotas'}
+      titleExtra={titleExtra}
+      actions={headerActions}
+      mainClassName="!p-0"
+    >
+      <div className="flex min-h-[calc(100vh-theme(spacing.16))]">
+        {/* Internal org sidebar (sysadmin only) */}
+        {isSysAdmin && (
+          <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
+                Organizations
+              </p>
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="input !py-1.5 text-xs"
               />
-            ))}
-            {filteredOrgs.length === 0 && (
-              <p className="p-5 text-sm text-gray-400 dark:text-gray-500 text-center">No matches</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Main panel */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <Link href="/dashboard" className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors">
-                <ArrowLeft className="w-5 h-5" />
-              </Link>
-              <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                {isSysAdmin ? 'Organization Quotas' : 'Quotas'}
-              </h1>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                {platformOrgs.length} org{platformOrgs.length !== 1 ? 's' : ''}
+              </p>
             </div>
-            <div className="flex items-center gap-3">
-              {isSysAdmin && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300">
-                  System Admin
-                </span>
+            <div className="flex-1 overflow-y-auto">
+              {filteredOrgs.map((org) => (
+                <OrgListItem
+                  key={org.id}
+                  org={org}
+                  selected={org.id === selectedOrgId}
+                  healthColor={orgHealthColors[org.id]}
+                  onClick={() => handleSelectOrg(org.id)}
+                />
+              ))}
+              {filteredOrgs.length === 0 && (
+                <p className="p-5 text-sm text-gray-400 dark:text-gray-500 text-center">No matches</p>
               )}
-              {!loading && orgData && (
-                <>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
-                    {orgData.orgId}
-                  </span>
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    editTier === 'unlimited'
-                      ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
-                      : editTier === 'pro'
-                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
-                        : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
-                    {TIER_PRESETS[editTier].label}
-                  </span>
-                </>
-              )}
-              <button
-                onClick={toggle}
-                className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Toggle dark mode"
-              >
-                {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-              </button>
             </div>
           </div>
-        </header>
+        )}
 
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        {/* Main content */}
+        <div className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-4xl">
             {!loading && orgData && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
@@ -512,27 +499,16 @@ export default function QuotasPage() {
               ) : null}
             </div>
 
-            {isSysAdmin && !loading && (
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary disabled:opacity-40">
-                  Discard
-                </button>
-                <button type="button" onClick={handleSave} disabled={!dirty || saving} className="btn btn-primary disabled:opacity-40">
-                  {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save Changes'}
-                </button>
-              </div>
-            )}
-
             {!isSysAdmin && !loading && (
               <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
                 Contact a system administrator to change quota limits.
               </p>
             )}
           </div>
-        </main>
+        </div>
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
-    </div>
+    </DashboardLayout>
   );
 }

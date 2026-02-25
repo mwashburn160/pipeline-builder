@@ -19,7 +19,7 @@ import mongoose from 'mongoose';
 
 import { config } from './config';
 import { connectDatabase } from './helpers/database';
-import getQuotaRoutes from './routes/get-quota';
+import getQuotaRoutes from './routes/read-quotas';
 import updateQuotaRoutes from './routes/update-quota';
 
 // -- Express app ---------------------------------------------------------------

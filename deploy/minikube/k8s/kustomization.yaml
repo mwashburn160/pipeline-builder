@@ -59,7 +59,7 @@ images:
   - name: ghcr.io/mwashburn160/billing
     newTag: "1.2.5"
   - name: ghcr.io/mwashburn160/frontend
-    newTag: "1.20.8"
+    newTag: "1.20.9"
   # Infrastructure
   - name: nginx
     newTag: "1.27"

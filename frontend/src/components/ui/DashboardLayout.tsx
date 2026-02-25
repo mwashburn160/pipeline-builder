@@ -1,7 +1,14 @@
+import { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
-import { Sun, Moon, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { Menu, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDarkMode } from '@/hooks/useDarkMode';
+import { useSidebarState } from '@/hooks/useSidebarState';
+import { Sidebar } from './Sidebar';
+import { LoadingPage } from './Loading';
+import api from '@/lib/api';
 
 interface DashboardLayoutProps {
   title: string;
@@ -26,39 +33,119 @@ export function DashboardLayout({
   maxWidth = '7xl',
   mainClassName = '',
 }: DashboardLayoutProps) {
+  const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
   const { isDark, toggle } = useDarkMode();
+  const { mobileOpen, toggleMobile, closeMobile } = useSidebarState();
+  const router = useRouter();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const result = await api.getUnreadCount();
+      setUnreadCount(result.data?.count || 0);
+    } catch {
+      // Silently fail — message service may not be running
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
+
+  if (!isReady || !user) return <LoadingPage />;
 
   return (
     <>
-    <Head>
-      <title>{title} - Pipeline Builder</title>
-    </Head>
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
-      <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm shadow dark:shadow-gray-900/30 border-b border-gray-200/60 dark:border-gray-700/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <Link href="/dashboard" className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
-            {titleExtra}
-          </div>
-          <div className="flex items-center space-x-4">
-            {actions}
-            <button
-              onClick={toggle}
-              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="Toggle dark mode"
-            >
-              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-          </div>
+      <Head>
+        <title>{title} - Pipeline Builder</title>
+      </Head>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex">
+        {/* Desktop sidebar */}
+        <div className="hidden lg:flex lg:w-64 lg:flex-shrink-0 lg:fixed lg:inset-y-0">
+          <Sidebar
+            isSysAdmin={isSysAdmin}
+            isAdmin={isAdmin}
+            user={user}
+            unreadCount={unreadCount}
+            currentPath={router.pathname}
+            isDark={isDark}
+            onToggleDark={toggle}
+            onLogout={logout}
+          />
         </div>
-      </header>
-      <main className={`${maxWidthClasses[maxWidth]} mx-auto py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
-        {children}
-      </main>
-    </div>
+
+        {/* Mobile sidebar overlay */}
+        <AnimatePresence>
+          {mobileOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-40 lg:hidden"
+                onClick={closeMobile}
+              />
+              <motion.div
+                initial={{ x: -256 }}
+                animate={{ x: 0 }}
+                exit={{ x: -256 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="fixed inset-y-0 left-0 w-64 z-50 lg:hidden"
+              >
+                <Sidebar
+                  isSysAdmin={isSysAdmin}
+                  isAdmin={isAdmin}
+                  user={user}
+                  unreadCount={unreadCount}
+                  currentPath={router.pathname}
+                  isDark={isDark}
+                  onToggleDark={toggle}
+                  onLogout={logout}
+                />
+                <button
+                  onClick={closeMobile}
+                  className="absolute top-4 right-[-44px] p-2 rounded-lg bg-white/90 dark:bg-gray-800/90 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 shadow-lg"
+                  aria-label="Close sidebar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Main content area */}
+        <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
+          {/* Slim top bar */}
+          <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200/60 dark:border-gray-700/60">
+            <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={toggleMobile}
+                  className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  aria-label="Open menu"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
+                {titleExtra}
+              </div>
+              {actions && (
+                <div className="flex items-center gap-3">
+                  {actions}
+                </div>
+              )}
+            </div>
+          </header>
+
+          <main className={`${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
+            {children}
+          </main>
+        </div>
+      </div>
     </>
   );
 }

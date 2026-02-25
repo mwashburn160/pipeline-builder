@@ -15,7 +15,7 @@ export interface PlanPrices {
   annual: number;
 }
 
-export interface IPlan extends Document<string> {
+export interface PlanDocument extends Document<string> {
   _id: string;
   name: string;
   description: string;
@@ -33,7 +33,7 @@ export interface IPlan extends Document<string> {
 // Schema
 // ---------------------------------------------------------------------------
 
-const planSchema = new Schema<IPlan>(
+const planSchema = new Schema<PlanDocument>(
   {
     _id: { type: Schema.Types.Mixed },
     name: { type: String, required: true },
@@ -59,5 +59,5 @@ const planSchema = new Schema<IPlan>(
 // ---------------------------------------------------------------------------
 
 export const Plan =
-  (mongoose.models.Plan as mongoose.Model<IPlan>) ||
-  mongoose.model<IPlan>('Plan', planSchema);
+  (mongoose.models.Plan as mongoose.Model<PlanDocument>) ||
+  mongoose.model<PlanDocument>('Plan', planSchema);

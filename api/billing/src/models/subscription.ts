@@ -12,7 +12,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
 export type BillingInterval = 'monthly' | 'annual';
 
-export interface ISubscription extends Document {
+export interface SubscriptionDocument extends Document {
   orgId: string;
   planId: string;
   status: SubscriptionStatus;
@@ -31,7 +31,7 @@ export interface ISubscription extends Document {
 // Schema
 // ---------------------------------------------------------------------------
 
-const subscriptionSchema = new Schema<ISubscription>(
+const subscriptionSchema = new Schema<SubscriptionDocument>(
   {
     orgId: { type: String, required: true, index: true },
     planId: { type: String, required: true },
@@ -75,5 +75,5 @@ subscriptionSchema.index(
 // ---------------------------------------------------------------------------
 
 export const Subscription =
-  (mongoose.models.Subscription as mongoose.Model<ISubscription>) ||
-  mongoose.model<ISubscription>('Subscription', subscriptionSchema);
+  (mongoose.models.Subscription as mongoose.Model<SubscriptionDocument>) ||
+  mongoose.model<SubscriptionDocument>('Subscription', subscriptionSchema);

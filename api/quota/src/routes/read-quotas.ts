@@ -31,7 +31,7 @@ import {
   sendInvalidQuotaType,
 } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
-import { Organization, IOrganization } from '../models/organization';
+import { Organization, OrganizationDocument } from '../models/organization';
 
 const logger = createLogger('quota-read');
 const router: Router = Router();
@@ -74,7 +74,7 @@ router.get(
         .sort({ name: 1 })
         .lean();
 
-      const organizations = orgs.map((org) => buildOrgQuotaResponse(org as IOrganization));
+      const organizations = orgs.map((org) => buildOrgQuotaResponse(org as OrganizationDocument));
 
       return sendSuccess(res, 200, { organizations, total: organizations.length });
     } catch (error) {
@@ -139,7 +139,7 @@ async function fetchOrgQuotas(res: Response, orgId: string): Promise<void> {
       return;
     }
 
-    sendSuccess(res, 200, { quota: buildOrgQuotaResponse(org as IOrganization) });
+    sendSuccess(res, 200, { quota: buildOrgQuotaResponse(org as OrganizationDocument) });
   } catch (error) {
     logger.error('Quota query failed', { error: errorMessage(error), orgId });
     sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);

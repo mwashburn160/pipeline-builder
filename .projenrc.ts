@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.4';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.24.4';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.24.4';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.22.4';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -967,6 +967,79 @@ pipeline.addScripts({
 });
 // Disable problematic ESLint rules
 pipeline.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+
+// =============================================================================
+// Message Service - Internal messaging between organizations and system org
+// =============================================================================
+/**
+ * Message service (message)
+ *
+ * Internal messaging system for org-to-system-org communication:
+ *
+ * - POST /messages - Create a new message or announcement
+ * - POST /messages/:id/reply - Reply to a thread
+ * - GET /messages - List inbox (conversations + announcements)
+ * - GET /messages/announcements - List announcements
+ * - GET /messages/conversations - List conversations
+ * - GET /messages/unread/count - Get unread count
+ * - GET /messages/:id - Get single message
+ * - GET /messages/:id/thread - Get thread messages
+ * - PUT /messages/:id/read - Mark message as read
+ * - DELETE /messages/:id - Soft delete (admin only)
+ *
+ * Features:
+ * - Announcements: System org broadcasts to all orgs
+ * - Conversations: Two-way threaded messaging between org and system org
+ * - Read tracking and unread counts
+ * - Priority levels (normal, high, urgent)
+ * - PostgreSQL storage via pipeline-data
+ *
+ * @dependency api-core - Shared API utilities
+ * @dependency api-server - Express infrastructure
+ * @dependency pipeline-core - Configuration and database
+ * @dependency express - Web framework
+ * @dependency pg - PostgreSQL client
+ * @dependency drizzle-orm - PostgreSQL ORM
+ * @dependency uuid - UUID generation
+ * @dependency zod - Input validation
+ */
+let msg = new FunctionProject({
+  parent: root,
+  name: 'message',
+  defaultReleaseBranch: branch,
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
+    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
+    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
+    `express@${expressVersion}`,                          // Web framework
+    'pg@8.16.3',                                          // PostgreSQL
+    'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
+    'uuid@13.0.0',                                        // UUID generation
+    'zod@4.3.6',                                          // Input validation
+  ],
+  devDeps: [
+    '@types/express@5.0.6',       // Express types
+    '@types/node@25.0.6',         // Node.js types
+    '@types/pg@8.16.0',           // PostgreSQL types
+    '@jest/globals@30.2.0'        // Jest testing
+  ]
+});
+
+/**
+ * Add npm scripts for the message service.
+ */
+msg.addScripts({
+  'start': 'node lib/index.js',
+  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-message}:$(jq -r .version package.json) .',
+  'docker:tag': 'docker image tag ${PROJECT_NAME:-message}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)',
+  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)'
+});
+// Disable problematic ESLint rules
+msg.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
 // Workspace Configuration

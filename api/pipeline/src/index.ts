@@ -34,10 +34,10 @@ app.use(attachRequestContext(sseManager));
 app.use('/pipelines', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePipelineRoutes(sseManager));
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePipelineRoutes());
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePipelineRoutes(sseManager));
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePipelineRoutes());
 
 // -- Create route — manages its own middleware (uses 'pipelines' quota) -------
 app.use('/pipelines', createCreatePipelineRoutes(sseManager, quotaService));

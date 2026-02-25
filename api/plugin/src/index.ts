@@ -32,16 +32,16 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- AI generation routes (MUST be before read routes to avoid /:id catching "providers"/"generate")
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createGeneratePluginRoutes(sseManager, quotaService));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createGeneratePluginRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/plugins', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePluginRoutes(sseManager));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePluginRoutes());
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePluginRoutes(sseManager));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePluginRoutes());
 
 // -- Upload route — manages its own middleware (multer → auth → plugins quota)
 app.use('/plugins', createUploadPluginRoutes(sseManager, quotaService));

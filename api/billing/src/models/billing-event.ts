@@ -19,7 +19,7 @@ export type BillingEventType =
   | 'payment_succeeded'
   | 'payment_failed';
 
-export interface IBillingEvent extends Document {
+export interface BillingEventDocument extends Document {
   orgId: string;
   subscriptionId?: string;
   type: BillingEventType;
@@ -31,7 +31,7 @@ export interface IBillingEvent extends Document {
 // Schema
 // ---------------------------------------------------------------------------
 
-const billingEventSchema = new Schema<IBillingEvent>(
+const billingEventSchema = new Schema<BillingEventDocument>(
   {
     orgId: { type: String, required: true, index: true },
     subscriptionId: { type: String, default: null },
@@ -62,5 +62,5 @@ const billingEventSchema = new Schema<IBillingEvent>(
 // ---------------------------------------------------------------------------
 
 export const BillingEvent =
-  (mongoose.models.BillingEvent as mongoose.Model<IBillingEvent>) ||
-  mongoose.model<IBillingEvent>('BillingEvent', billingEventSchema);
+  (mongoose.models.BillingEvent as mongoose.Model<BillingEventDocument>) ||
+  mongoose.model<BillingEventDocument>('BillingEvent', billingEventSchema);

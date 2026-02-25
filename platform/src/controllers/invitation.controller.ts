@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { requireOrgMembership, handleTransactionError } from '../helpers/controller-helper';
-import { Invitation, IInvitation, Organization, IOrganization, User, IUser } from '../models';
+import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation.model';
 import { validateBody } from '../utils/auth-utils';
 import { emailService } from '../utils/email';
@@ -19,7 +19,7 @@ function getExpirationDate(): Date {
   return new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
 }
 
-async function notifyInviter(invitation: IInvitation, user: IUser, org: IOrganization, session: mongoose.ClientSession): Promise<void> {
+async function notifyInviter(invitation: InvitationDocument, user: UserDocument, org: OrganizationDocument, session: mongoose.ClientSession): Promise<void> {
   const inviter = await User.findById(invitation.invitedBy).session(session);
   if (inviter) {
     emailService.sendInvitationAccepted(
@@ -32,9 +32,9 @@ async function notifyInviter(invitation: IInvitation, user: IUser, org: IOrganiz
 }
 
 async function processInvitationAcceptance(
-  invitation: IInvitation,
-  user: IUser,
-  org: IOrganization,
+  invitation: InvitationDocument,
+  user: UserDocument,
+  org: OrganizationDocument,
   acceptedVia: 'email' | InvitationOAuthProvider,
   session: mongoose.ClientSession,
 ): Promise<void> {

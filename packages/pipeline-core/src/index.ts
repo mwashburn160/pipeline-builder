@@ -43,12 +43,15 @@ export {
   // Query builders
   buildPluginConditions,
   buildPipelineConditions,
+  buildMessageConditions,
   validatePluginFilter,
   validatePipelineFilter,
+  validateMessageFilter,
 
   // Query filter types
   type PluginFilter,
   type PipelineFilter,
+  type MessageFilter,
 
   // CRUD service
   CrudService,

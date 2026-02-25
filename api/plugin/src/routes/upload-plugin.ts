@@ -13,7 +13,7 @@
 import * as fs from 'fs';
 
 import { extractDbError, ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
-import { authenticateToken, createRequestContext, checkQuota, requireOrgId } from '@mwashburn160/api-server';
+import { authenticateToken, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
 import { eq } from 'drizzle-orm';
@@ -68,7 +68,7 @@ export function createUploadPluginRoutes(
       // Docker builds can take several minutes — override the default 30s timeout
       res.setTimeout(10 * 60 * 1000); // 10 minutes
 
-      const ctx = createRequestContext(req, res, sseManager);
+      const ctx = req.context!;
       const config = Config.get();
 
       let zipPath: string | undefined;

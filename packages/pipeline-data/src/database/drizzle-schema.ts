@@ -237,11 +237,117 @@ export const pipeline = pgTable('pipelines', {
 }));
 
 /**
+ * Message type identifiers
+ */
+export type MessageType = 'announcement' | 'conversation';
+
+/**
+ * Message priority levels
+ */
+export type MessagePriority = 'normal' | 'high' | 'urgent';
+
+/**
+ * Table for storing internal messages between organizations and the system org.
+ *
+ * Features:
+ * - Announcements: System org broadcasts to all orgs (recipientOrgId = '*')
+ * - Conversations: Two-way threaded messaging between an org and system org
+ * - Thread support via threadId (null for root messages, references root for replies)
+ * - Read tracking per message
+ * - Priority levels (normal, high, urgent)
+ * - Soft delete support
+ *
+ * @table messages
+ */
+export const message = pgTable('messages', {
+  // Primary key
+  id: uuid('id').primaryKey().defaultRandom(),
+
+  // Organization and access control
+  orgId: varchar('org_id', { length: 255 })
+    .default('system')
+    .notNull(),
+
+  // Audit fields
+  createdBy: text('created_by')
+    .default('system')
+    .notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: text('updated_by')
+    .default('system')
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+
+  // Threading
+  threadId: uuid('thread_id'),
+
+  // Message routing
+  recipientOrgId: varchar('recipient_org_id', { length: 255 })
+    .notNull(),
+
+  // Message content
+  messageType: varchar('message_type', { length: 20 })
+    .$type<MessageType>()
+    .default('conversation' as MessageType)
+    .notNull(),
+  subject: varchar('subject', { length: 500 })
+    .notNull(),
+  content: text('content')
+    .notNull(),
+
+  // Status
+  isRead: boolean('is_read')
+    .default(false)
+    .notNull(),
+  priority: varchar('priority', { length: 20 })
+    .$type<MessagePriority>()
+    .default('normal' as MessagePriority)
+    .notNull(),
+
+  // Access and visibility
+  accessModifier: varchar('access_modifier', { length: 10 })
+    .$type<AccessModifier>()
+    .default('private' as AccessModifier)
+    .notNull(),
+  isDefault: boolean('is_default')
+    .default(false)
+    .notNull(),
+  isActive: boolean('is_active')
+    .default(true)
+    .notNull(),
+
+  // Deletion tracking (soft delete)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
+}, (table) => ({
+  // Indexes for common queries
+  orgIdIdx: index('message_org_id_idx').on(table.orgId),
+  recipientOrgIdIdx: index('message_recipient_org_id_idx').on(table.recipientOrgId),
+  threadIdIdx: index('message_thread_id_idx').on(table.threadId),
+  messageTypeIdx: index('message_message_type_idx').on(table.messageType),
+  createdAtIdx: index('message_created_at_idx').on(table.createdAt),
+  activeIdx: index('message_active_idx').on(table.isActive),
+  isReadIdx: index('message_is_read_idx').on(table.isRead),
+
+  // Composite index for inbox queries (recipient + active + created)
+  recipientActiveCreatedIdx: index('message_recipient_active_created_idx')
+    .on(table.recipientOrgId, table.isActive, table.createdAt),
+
+  // Composite index for org inbox (orgId + active)
+  orgActiveIdx: index('message_org_active_idx').on(table.orgId, table.isActive),
+}));
+
+/**
  * Complete Drizzle schema export
  */
 export const schema = {
   plugin,
   pipeline,
+  message,
 } as const;
 
 /**
@@ -253,11 +359,15 @@ export type PluginInsert = typeof plugin.$inferInsert;
 export type Pipeline = typeof pipeline.$inferSelect;
 export type PipelineInsert = typeof pipeline.$inferInsert;
 
+export type Message = typeof message.$inferSelect;
+export type MessageInsert = typeof message.$inferInsert;
+
 /**
  * Helper types for working with partial updates
  */
 export type PluginUpdate = Partial<Omit<PluginInsert, 'id' | 'createdAt' | 'createdBy'>>;
 export type PipelineUpdate = Partial<Omit<PipelineInsert, 'id' | 'createdAt' | 'createdBy'>>;
+export type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
 
 /**
  * Helper function to create a new plugin with timestamps.
@@ -273,6 +383,14 @@ export function createPlugin(data: Omit<PluginInsert, 'id' | 'createdAt' | 'upda
  */
 export function createPipeline(data: Omit<PipelineInsert, 'id' | 'createdAt' | 'updatedAt'>): PipelineInsert {
   return forCreation<PipelineInsert>(data) as PipelineInsert;
+}
+
+/**
+ * Helper function to create a new message with timestamps.
+ * Uses the generic forCreation helper.
+ */
+export function createMessage(data: Omit<MessageInsert, 'id' | 'createdAt' | 'updatedAt'>): MessageInsert {
+  return forCreation<MessageInsert>(data) as MessageInsert;
 }
 
 /**
@@ -292,6 +410,14 @@ export function updatePipelineTimestamp(updates: PipelineUpdate, updatedBy: stri
 }
 
 /**
+ * Helper function to update message timestamp.
+ * Uses the generic withUpdateTimestamp helper.
+ */
+export function updateMessageTimestamp(updates: MessageUpdate, updatedBy: string): MessageUpdate {
+  return withUpdateTimestamp<MessageUpdate>(updates, updatedBy);
+}
+
+/**
  * Helper function for soft deleting a plugin.
  * Uses the generic forSoftDelete helper.
  */
@@ -305,4 +431,12 @@ export function softDeletePlugin(deletedBy: string): PluginUpdate {
  */
 export function softDeletePipeline(deletedBy: string): PipelineUpdate {
   return forSoftDelete<PipelineUpdate>(deletedBy);
+}
+
+/**
+ * Helper function for soft deleting a message.
+ * Uses the generic forSoftDelete helper.
+ */
+export function softDeleteMessage(deletedBy: string): MessageUpdate {
+  return forSoftDelete<MessageUpdate>(deletedBy);
 }

@@ -31,7 +31,7 @@ export interface QuotaUsageTracking {
 
 export type { QuotaTier };
 
-export interface IOrganization extends Document<string> {
+export interface OrganizationDocument extends Document<string> {
   _id: string;
   name: string;
   slug: string;
@@ -54,7 +54,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
 
 const defaultUsage = () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetDays) });
 
-const organizationSchema = new Schema<IOrganization>(
+const organizationSchema = new Schema<OrganizationDocument>(
   {
     _id: { type: Schema.Types.Mixed },
     name: { type: String, required: true },
@@ -79,5 +79,5 @@ const organizationSchema = new Schema<IOrganization>(
 // ---------------------------------------------------------------------------
 
 export const Organization =
-  (mongoose.models.Organization as mongoose.Model<IOrganization>) ||
-  mongoose.model<IOrganization>('Organization', organizationSchema);
+  (mongoose.models.Organization as mongoose.Model<OrganizationDocument>) ||
+  mongoose.model<OrganizationDocument>('Organization', organizationSchema);

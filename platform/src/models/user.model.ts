@@ -23,7 +23,7 @@ export interface OAuthProviders {
 /**
  * User document interface
  */
-export interface IUser extends Document {
+export interface UserDocument extends Document {
   _id: Types.ObjectId;
   username: string;
   email: string;
@@ -35,7 +35,7 @@ export interface IUser extends Document {
   refreshToken?: string;
   oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
-  invalidateAllSessions(): Promise<IUser>;
+  invalidateAllSessions(): Promise<UserDocument>;
   hasOAuthProvider(provider: keyof OAuthProviders): boolean;
   getLinkedProviders(): string[];
 }
@@ -51,7 +51,7 @@ const oauthProviderSchema = new Schema<OAuthProviderData>(
   { _id: false },
 );
 
-const userSchema = new Schema<IUser>(
+const userSchema = new Schema<UserDocument>(
   {
     username: {
       type: String,
@@ -114,7 +114,7 @@ function validatePasswordStrength(password: string): string | null {
 /**
  * Validate and hash password before saving
  */
-userSchema.pre<IUser>('save', async function () {
+userSchema.pre<UserDocument>('save', async function () {
   if (!this.isModified('password') || !this.password) return;
 
   const strengthError = validatePasswordStrength(this.password);
@@ -137,7 +137,7 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
 /**
  * Invalidate all user sessions by incrementing token version
  */
-userSchema.methods.invalidateAllSessions = async function (): Promise<IUser> {
+userSchema.methods.invalidateAllSessions = async function (): Promise<UserDocument> {
   this.tokenVersion += 1;
   return this.save();
 };
@@ -165,4 +165,4 @@ userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
 userSchema.index({ organizationId: 1, role: 1 }); // listAllUsers filter: org + role
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
-export default mongoose.model<IUser>('User', userSchema);
+export default mongoose.model<UserDocument>('User', userSchema);

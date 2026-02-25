@@ -160,4 +160,30 @@
   .alert-success p {
     @apply text-sm text-green-800 dark:text-green-300;
   }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    @apply h-full flex flex-col bg-white dark:bg-gray-900
+           border-r border-gray-200 dark:border-gray-700;
+  }
+
+  .sidebar-nav-item {
+    @apply flex items-center gap-3 px-3 py-2 text-sm font-medium
+           rounded-lg mx-2 transition-colors;
+  }
+
+  .sidebar-nav-item-active {
+    @apply bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300;
+  }
+
+  .sidebar-nav-item-default {
+    @apply text-gray-600 dark:text-gray-400
+           hover:bg-gray-50 dark:hover:bg-gray-800/50
+           hover:text-gray-900 dark:hover:text-gray-100;
+  }
+
+  .sidebar-section-label {
+    @apply text-[11px] font-semibold uppercase tracking-wider
+           text-gray-400 dark:text-gray-500 px-4 mb-1 mt-5;
+  }
 }

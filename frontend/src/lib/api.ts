@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority } from '@/types';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -921,6 +921,86 @@ class ApiClient {
 
   async getLogLevels() {
     return this.request<ApiResponse<{ levels: string[] }>>('/api/logs/levels');
+  }
+
+  // ============================================
+  // Message endpoints
+  // ============================================
+
+  /** List inbox messages (root messages only), optionally filtered by type */
+  async getMessages(params?: { messageType?: MessageType; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
+    const query = params ? '?' + new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<ApiResponse<Message[]> & { pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/api/messages${query}`);
+  }
+
+  /** List announcements only */
+  async getAnnouncements() {
+    return this.request<ApiResponse<Message[]>>('/api/messages/announcements');
+  }
+
+  /** List conversations only */
+  async getConversations() {
+    return this.request<ApiResponse<Message[]>>('/api/messages/conversations');
+  }
+
+  /** Get unread message count */
+  async getUnreadCount() {
+    return this.request<ApiResponse<{ count: number }>>('/api/messages/unread/count');
+  }
+
+  /** Get a single message by ID */
+  async getMessage(id: string) {
+    return this.request<ApiResponse<Message>>(`/api/messages/${id}`);
+  }
+
+  /** Get all messages in a thread */
+  async getThread(id: string) {
+    return this.request<ApiResponse<Message[]>>(`/api/messages/${id}/thread`);
+  }
+
+  /** Send a new message (announcement or conversation) */
+  async sendMessage(data: {
+    recipientOrgId: string;
+    messageType: MessageType;
+    subject: string;
+    content: string;
+    priority?: MessagePriority;
+  }) {
+    return this.request<ApiResponse<Message>>('/api/messages', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Reply to a message thread */
+  async replyToMessage(id: string, content: string) {
+    return this.request<ApiResponse<Message>>(`/api/messages/${id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  /** Mark a message as read */
+  async markMessageAsRead(id: string) {
+    return this.request<ApiResponse<Message>>(`/api/messages/${id}/read`, {
+      method: 'PUT',
+    });
+  }
+
+  /** Mark all messages in a thread as read */
+  async markThreadAsRead(id: string) {
+    return this.request<ApiResponse<{ updated: number }>>(`/api/messages/${id}/thread/read`, {
+      method: 'PUT',
+    });
+  }
+
+  /** Delete a message (soft delete) */
+  async deleteMessage(id: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/messages/${id}`, {
+      method: 'DELETE',
+    });
   }
 }
 

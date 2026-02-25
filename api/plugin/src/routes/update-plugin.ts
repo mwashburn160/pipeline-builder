@@ -5,8 +5,7 @@
  * PUT /plugins/:id — update a plugin by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PluginUpdateSchema } from '@mwashburn160/api-core';
-import { createRequestContext, SSEManager } from '@mwashburn160/api-server';
+import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import {
   normalizePlugin,
@@ -20,11 +19,11 @@ import { pluginService } from '../services/plugin-service';
  * Expects `authenticateToken` and `requireOrgId` to have already been
  * applied as router-level middleware in the parent.
  */
-export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
+export function createUpdatePluginRoutes(): Router {
   const router: Router = Router();
 
   router.put('/:id', async (req: Request, res: Response) => {
-    const ctx = createRequestContext(req, res, sseManager);
+    const ctx = req.context!;
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -37,8 +36,8 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
     const body = validation.value;
 
-    if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
-    const orgId = ctx.identity.orgId;
+    const orgId = ctx.identity.orgId?.toLowerCase();
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
     ctx.log('INFO', 'Plugin update request received', { id });
 
@@ -57,28 +56,26 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
       // Build update data from validated body
       const updateData: Record<string, unknown> = {
+        ...pickDefined({
+          name: body.name,
+          description: body.description,
+          keywords: body.keywords,
+          version: body.version,
+          metadata: body.metadata,
+          pluginType: body.pluginType,
+          computeType: body.computeType,
+          primaryOutputDirectory: body.primaryOutputDirectory,
+          env: body.env,
+          installCommands: body.installCommands,
+          commands: body.commands,
+          isActive: body.isActive,
+          isDefault: body.isDefault,
+        }),
+        // Access modifier requires special handling (admin-only public)
+        ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
         updatedAt: new Date(),
         updatedBy: ctx.identity.userId || 'system',
       };
-
-      if (body.name !== undefined) updateData.name = body.name;
-      if (body.description !== undefined) updateData.description = body.description;
-      if (body.keywords !== undefined) updateData.keywords = body.keywords;
-      if (body.version !== undefined) updateData.version = body.version;
-      if (body.metadata !== undefined) updateData.metadata = body.metadata;
-      if (body.pluginType !== undefined) updateData.pluginType = body.pluginType;
-      if (body.computeType !== undefined) updateData.computeType = body.computeType;
-      if (body.primaryOutputDirectory !== undefined) updateData.primaryOutputDirectory = body.primaryOutputDirectory;
-      if (body.env !== undefined) updateData.env = body.env;
-      if (body.installCommands !== undefined) updateData.installCommands = body.installCommands;
-      if (body.commands !== undefined) updateData.commands = body.commands;
-      if (body.isActive !== undefined) updateData.isActive = body.isActive;
-      if (body.isDefault !== undefined) updateData.isDefault = body.isDefault;
-
-      // Handle access modifier (only system admins can set to public)
-      if (body.accessModifier !== undefined) {
-        updateData.accessModifier = resolveAccessModifier(req, body.accessModifier);
-      }
 
       const updated = await pluginService.update(
         id,
@@ -93,6 +90,7 @@ export function createUpdatePluginRoutes(sseManager: SSEManager): Router {
 
       return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(updated) });
     } catch (error) {
+      ctx.log('ERROR', 'Failed to update plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
     }
   });

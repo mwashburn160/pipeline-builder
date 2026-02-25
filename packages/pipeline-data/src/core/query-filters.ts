@@ -167,6 +167,38 @@ export interface PipelineFilter extends CommonFilter {
 }
 
 /**
+ * Filter interface for message-specific properties.
+ * Extends CommonFilter to include message-related filter options.
+ */
+export interface MessageFilter extends CommonFilter {
+  /**
+   * Thread ID to filter by (for fetching thread replies)
+   */
+  readonly threadId?: string;
+
+  /**
+   * Recipient organization ID to filter by
+   * Use '*' for broadcast announcements
+   */
+  readonly recipientOrgId?: string;
+
+  /**
+   * Message type filter
+   */
+  readonly messageType?: 'announcement' | 'conversation';
+
+  /**
+   * Filter by read status
+   */
+  readonly isRead?: boolean;
+
+  /**
+   * Filter by priority level
+   */
+  readonly priority?: string;
+}
+
+/**
  * Type guard to check if a filter is a PluginFilter
  */
 export function isPluginFilter(filter: CommonFilter): filter is PluginFilter {
@@ -454,5 +486,56 @@ export class PipelineFilterBuilder extends FilterBuilder<PipelineFilter> {
 
   withPipelineNamePattern(pattern: string): this {
     return this.set('pipelineNamePattern', pattern);
+  }
+}
+
+/**
+ * Builder for message filters with message-specific methods
+ */
+export class MessageFilterBuilder extends FilterBuilder<MessageFilter> {
+  withThreadId(threadId: string): this {
+    return this.set('threadId', threadId);
+  }
+
+  withRecipientOrgId(recipientOrgId: string): this {
+    return this.set('recipientOrgId', recipientOrgId);
+  }
+
+  withMessageType(messageType: 'announcement' | 'conversation'): this {
+    return this.set('messageType', messageType);
+  }
+
+  withIsRead(isRead: boolean): this {
+    return this.set('isRead', isRead);
+  }
+
+  withPriority(priority: string): this {
+    return this.set('priority', priority);
+  }
+}
+
+/**
+ * Validates message filter properties
+ * @throws Error if validation fails
+ */
+export function validateMessageFilter(filter: MessageFilter): void {
+  validateCommonFilter(filter);
+
+  const errors: string[] = [];
+
+  if (filter.messageType !== undefined) {
+    if (!['announcement', 'conversation'].includes(filter.messageType)) {
+      errors.push('messageType must be "announcement" or "conversation"');
+    }
+  }
+
+  if (filter.priority !== undefined) {
+    if (!['normal', 'high', 'urgent'].includes(filter.priority)) {
+      errors.push('priority must be "normal", "high", or "urgent"');
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Message filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
   }
 }
