@@ -123,7 +123,6 @@ export class Workflow extends Component {
                     name: 'Derive SHAs for NX:BASE, NX:HEAD',
                     uses: 'nrwl/nx-set-shas@v4',
                     with: { 
-                        'workflow-id': 'workflow.yml',
                         'main-branch-name': 'main'
                     },
                 },
