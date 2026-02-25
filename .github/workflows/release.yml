@@ -59,7 +59,7 @@ jobs:
         id: sha
         uses: nrwl/nx-set-shas@v4
         with:
-          workflow-id: ${{ github.workspace }}/workflow.yml
+          workflow-id: release.yml
           main-branch-name: main
       - name: Affected projects and images
         id: affected
