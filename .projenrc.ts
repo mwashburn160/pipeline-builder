@@ -45,7 +45,7 @@ let constructsVersion = '10.4.5';
 let typescriptVersion = '5.9.3';
 
 /** AWS CDK library version (for infrastructure as code) */
-let cdkVersion = '2.237.0';
+let cdkVersion = '2.240.0';
 
 /** Express.js framework version (for API servers) */
 let expressVersion = '5.2.1'
