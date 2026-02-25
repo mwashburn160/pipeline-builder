@@ -46,12 +46,12 @@
     },
     {
       "name": "@types/node",
-      "version": "25.0.6",
+      "version": "25.3.0",
       "type": "build"
     },
     {
       "name": "@types/nodemailer",
-      "version": "7.0.9",
+      "version": "7.0.11",
       "type": "build"
     },
     {
@@ -102,12 +102,12 @@
     },
     {
       "name": "@aws-sdk/client-sesv2",
-      "version": "3.821.0",
+      "version": "3.997.0",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.23.7",
+      "version": "1.23.8",
       "type": "runtime"
     },
     {
@@ -152,7 +152,7 @@
     },
     {
       "name": "mongoose",
-      "version": "9.1.5",
+      "version": "9.2.2",
       "type": "runtime"
     },
     {
@@ -162,12 +162,12 @@
     },
     {
       "name": "nodemailer",
-      "version": "7.0.13",
+      "version": "8.0.1",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.16.3",
+      "version": "8.18.0",
       "type": "runtime"
     },
     {

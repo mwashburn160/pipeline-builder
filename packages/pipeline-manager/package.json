@@ -38,13 +38,13 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/pipeline-core": "workspace:*",
+    "@mwashburn160/pipeline-core": "1.24.8",
     "aws-cdk-lib": "2.240.0",
-    "axios": "1.13.3",
-    "commander": "14.0.2",
+    "axios": "1.13.5",
+    "commander": "14.0.3",
     "figlet": "1.10.0",
     "form-data": "4.0.5",
-    "ora": "9.1.0",
+    "ora": "9.3.0",
     "picocolors": "1.1.1",
     "progress": "2.0.3",
     "typescript": "5.9.3",
@@ -54,7 +54,7 @@
     "node": ">= 24.9.0"
   },
   "license": "Apache-2.0",
-  "version": "1.20.8",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

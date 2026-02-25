@@ -72,7 +72,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "workspace:*",
+      "version": "1.24.8",
       "type": "runtime"
     },
     {
@@ -82,12 +82,12 @@
     },
     {
       "name": "axios",
-      "version": "1.13.3",
+      "version": "1.13.5",
       "type": "runtime"
     },
     {
       "name": "commander",
-      "version": "14.0.2",
+      "version": "14.0.3",
       "type": "runtime"
     },
     {
@@ -102,7 +102,7 @@
     },
     {
       "name": "ora",
-      "version": "9.1.0",
+      "version": "9.3.0",
       "type": "runtime"
     },
     {

@@ -52,13 +52,13 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.7';
+let apiCoreVersion = '1.23.8';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.24.7';
+let pipelineDataVersion = '1.24.8';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = 'workspace:*';
+let pipelineCoreVersion = '1.24.8';
 
 /** @mwashburn160/api-server package version */
 let apiServerVersion = 'workspace:*';
@@ -202,7 +202,7 @@ let api_core = new PackageProject({
   devDeps: [
     '@types/express@5.0.6',       // Express type definitions
     '@types/jsonwebtoken@9.0.10', // JWT type definitions
-    '@types/node@25.0.6',         // Node.js type definitions
+    '@types/node@25.3.0',         // Node.js type definitions
     `typescript@${typescriptVersion}`
   ]
 });
@@ -249,13 +249,13 @@ let pipeline_data = new PackageProject({
   npmAccess: NpmAccess.RESTRICTED,
   deps: [
     `@mwashburn160/api-core@${apiCoreVersion}`, // Logging and utilities
-    'pg@8.16.3',                                 // PostgreSQL client
+    'pg@8.18.0',                                 // PostgreSQL client
     'drizzle-orm@0.45.1'                         // Type-safe ORM
   ],
   devDeps: [
-    '@types/node@25.0.6',  // Node.js type definitions
+    '@types/node@25.3.0',  // Node.js type definitions
     '@types/pg@8.16.0',    // PostgreSQL type definitions
-    'drizzle-kit@0.31.1',  // Migration generation and management
+    'drizzle-kit@0.31.9',  // Migration generation and management
     `typescript@${typescriptVersion}`
   ]
 });
@@ -309,12 +309,12 @@ let pipeline_core = new PackageProject({
     `constructs@${constructsVersion}`,                    // CDK constructs
     `aws-cdk-lib@${cdkVersion}`,                          // AWS CDK library
     'jsonwebtoken@9.0.3',                                 // JWT utilities
-    'axios@1.13.3',                                       // HTTP client
+    'axios@1.13.5',                                       // HTTP client
     'uuid@13.0.0'                                         // UUID generation
   ],
   devDeps: [
-    '@types/node@25.0.6',         // Node.js type definitions
-    '@types/aws-lambda@8.10.159', // AWS Lambda type definitions
+    '@types/node@25.3.0',         // Node.js type definitions
+    '@types/aws-lambda@8.10.160', // AWS Lambda type definitions
     '@types/jsonwebtoken@9.0.10', // JWT type definitions
     '@jest/globals@30.2.0'        // Jest testing framework
   ]
@@ -389,7 +389,7 @@ let api_server = new PackageProject({
     '@types/express-serve-static-core@5.1.1', // Express core types
     '@types/cors@2.8.19',                  // CORS type definitions
     '@types/jsonwebtoken@9.0.10',          // JWT type definitions
-    '@types/node@25.0.6',                  // Node.js type definitions
+    '@types/node@25.3.0',                  // Node.js type definitions
     `typescript@${typescriptVersion}`
   ]
 });
@@ -449,13 +449,13 @@ let manager = new ManagerProject({
     `typescript@${typescriptVersion}`,                    // TypeScript runtime
     `aws-cdk-lib@${cdkVersion}`,                          // AWS CDK
     'form-data@4.0.5',                                    // Multipart uploads
-    'commander@14.0.2',                                   // CLI framework
+    'commander@14.0.3',                                   // CLI framework
     'figlet@1.10.0',                                      // ASCII art
-    'axios@1.13.3',                                       // HTTP client
-    'progress@2.0.3',                                     // Progress bars
+    'axios@1.13.5',                                       // HTTP client
+    'progress@2.0.3',                                    // Progress bars
     'picocolors@1.1.1',                                   // Terminal colors
     'yaml@2.8.2',                                         // YAML parsing
-    'ora@9.1.0'                                           // Terminal spinners
+    'ora@9.3.0'                                           // Terminal spinners
   ],
   devDeps: [
     '@types/figlet@1.7.0',   // Figlet type definitions
@@ -524,17 +524,17 @@ let platform = new WebTokenProject({
     `@mwashburn160/api-core@${apiCoreVersion}`, // API core utilities (logging, validation, errors)
     `express@${expressVersion}`,  // Web framework
     'express-rate-limit@8.2.1',   // Rate limiting
-    'nodemailer@7.0.13',          // Email sending
+    'nodemailer@8.0.1',          // Email sending
     'zod@4.3.6',                  // Runtime type validation
-    '@aws-sdk/client-sesv2@3.821.0', // AWS SES v2 email transport
+    '@aws-sdk/client-sesv2@3.997.0', // AWS SES v2 email transport
     'jsonwebtoken@9.0.3',         // JWT tokens
     'slugify@1.6.6',              // URL slugs
     'winston@3.19.0',             // Logging
     'bcryptjs@3.0.3',             // Password hashing
-    'mongoose@9.1.5',             // MongoDB ODM
+    'mongoose@9.2.2',             // MongoDB ODM
     'helmet@8.1.0',               // Security headers
     'cors@2.8.6',                 // CORS
-    'pg@8.16.3',                  // PostgreSQL client
+    'pg@8.18.0',                  // PostgreSQL client
     'drizzle-orm@0.45.1',         // PostgreSQL ORM
     'uuid@13.0.0',                // UUID generation
     'yaml@2.8.2',                 // YAML parsing
@@ -545,10 +545,10 @@ let platform = new WebTokenProject({
   devDeps: [
     '@types/express@5.0.6',
     '@types/express-serve-static-core@5.1.1',
-    '@types/nodemailer@7.0.9',
+    '@types/nodemailer@7.0.11',
     '@types/jsonwebtoken@9.0.10',
     '@types/cors@2.8.19',
-    '@types/node@25.0.6',
+    '@types/node@25.3.0',
     '@types/pg@8.16.0',
     '@types/adm-zip@0.5.7',
     '@types/multer@2.0.0',
@@ -615,17 +615,17 @@ let frontend = new FrontEndProject({
     'next@14.2.0',                                        // React framework
     'react@18.2.0',                                       // UI library
     'react-dom@18.2.0',                                   // DOM renderer
-    'lucide-react@0.563.0',                               // Icons
+    'lucide-react@0.575.0',                               // Icons
     'clsx@^2.1.1',                                        // Conditional classes
-    'tailwindcss@4.1.18',                                 // CSS framework
-    'framer-motion@12.34.0'                               // Animation library
+    'tailwindcss@4.2.1',                                 // CSS framework
+    'framer-motion@12.34.3'                               // Animation library
   ],
   devDeps: [
-    '@types/node@25.0.6',              // Node.js types
-    '@types/react@19.2.13',            // React types
+    '@types/node@25.3.0',              // Node.js types
+    '@types/react@19.2.14',            // React types
     '@types/react-dom@19.2.3',         // React DOM types
     '@types/jest@^30.0.0',             // Jest types
-    '@tailwindcss/postcss@4.1.18',     // Tailwind PostCSS plugin
+    '@tailwindcss/postcss@4.2.1',     // Tailwind PostCSS plugin
     'autoprefixer@10.4.24',            // CSS autoprefixer
     'postcss@8.5.6',                   // CSS post-processor
     'jest@^30.2.0',                    // Test runner
@@ -705,7 +705,7 @@ let quota = new FunctionProject({
     '@types/express@5.0.6',       // Express types
     '@types/jsonwebtoken@9.0.10', // JWT types
     '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.0.6',         // Node.js types
+    '@types/node@25.3.0',         // Node.js types
     '@jest/globals@30.2.0'        // Jest testing
   ]
 });
@@ -773,7 +773,7 @@ let billing = new FunctionProject({
     '@types/express@5.0.6',       // Express types
     '@types/jsonwebtoken@9.0.10', // JWT types
     '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.0.6',         // Node.js types
+    '@types/node@25.3.0',         // Node.js types
     '@jest/globals@30.2.0'        // Jest testing
   ]
 });
@@ -860,7 +860,7 @@ let plugin = new FunctionProject({
     '@types/express@5.0.6',       // Express types
     '@types/jsonwebtoken@9.0.10', // JWT types
     '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.0.6',         // Node.js types
+    '@types/node@25.3.0',         // Node.js types
     '@types/pg@8.16.0',           // PostgreSQL types
     '@types/adm-zip@0.5.7',       // ADM-ZIP types
     '@types/multer@2.0.0',        // Multer types
@@ -950,7 +950,7 @@ let pipeline = new FunctionProject({
     '@types/express@5.0.6',       // Express types
     '@types/jsonwebtoken@9.0.10', // JWT types
     '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.0.6',         // Node.js types
+    '@types/node@25.3.0',         // Node.js types
     '@types/pg@8.16.0',           // PostgreSQL types
     '@jest/globals@30.2.0'        // Jest testing
   ]
@@ -1023,7 +1023,7 @@ let msg = new FunctionProject({
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types
-    '@types/node@25.0.6',         // Node.js types
+    '@types/node@25.3.0',         // Node.js types
     '@types/pg@8.16.0',           // PostgreSQL types
     '@jest/globals@30.2.0'        // Jest testing
   ]

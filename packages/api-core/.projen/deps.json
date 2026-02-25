@@ -21,7 +21,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.0.6",
+      "version": "25.3.0",
       "type": "build"
     },
     {

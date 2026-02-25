@@ -41,7 +41,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.0.6",
+      "version": "25.3.0",
       "type": "build"
     },
     {
@@ -117,7 +117,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.23.7",
+      "version": "1.23.8",
       "type": "runtime"
     },
     {
@@ -127,7 +127,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "workspace:*",
+      "version": "1.24.8",
       "type": "runtime"
     },
     {
