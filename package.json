@@ -23,7 +23,7 @@
     "@swc-node/core": "1.14.1",
     "@swc-node/register": "1.11.1",
     "@types/node": "^24",
-    "constructs": "10.4.5",
+    "constructs": "10.5.1",
     "npm-check-updates": "19.3.2",
     "nx": "^22",
     "projen": "0.99.8",

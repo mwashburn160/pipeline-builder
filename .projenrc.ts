@@ -39,7 +39,7 @@ let branch = 'main';
 let pnpmVersion = '10.25.0';
 
 /** AWS CDK Constructs library version (for CDK infrastructure) */
-let constructsVersion = '10.4.5';
+let constructsVersion = '10.5.1';
 
 /** TypeScript compiler version (consistent across all packages) */
 let typescriptVersion = '5.9.3';
@@ -52,10 +52,10 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.6';
+let apiCoreVersion = '1.23.7';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = 'workspace:*';
+let pipelineDataVersion = '1.24.7';
 
 /** @mwashburn160/pipeline-core package version */
 let pipelineCoreVersion = 'workspace:*';

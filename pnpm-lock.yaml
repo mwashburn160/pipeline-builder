@@ -27,8 +27,8 @@ importers:
         specifier: ^24
         version: 24.10.11
       constructs:
-        specifier: 10.4.5
-        version: 10.4.5
+        specifier: 10.5.1
+        version: 10.5.1
       npm-check-updates:
         specifier: 19.3.2
         version: 19.3.2
@@ -37,7 +37,7 @@ importers:
         version: 22.4.5(@swc-node/register@1.11.1(@swc/core@1.15.11)(@swc/types@0.1.25)(typescript@5.9.3))(@swc/core@1.15.11)
       projen:
         specifier: 0.99.8
-        version: 0.99.8(constructs@10.4.5)
+        version: 0.99.8(constructs@10.5.1)
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@swc/core@1.15.11)(@types/node@24.10.11)(typescript@5.9.3)
@@ -54,8 +54,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -139,8 +139,8 @@ importers:
   api/message:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -227,8 +227,8 @@ importers:
         specifier: 3.0.57
         version: 3.0.57(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -339,8 +339,8 @@ importers:
         specifier: 3.0.57
         version: 3.0.57(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -448,8 +448,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -533,8 +533,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
@@ -655,8 +655,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/pipeline-core':
         specifier: workspace:*
         version: link:../pipeline-core
@@ -734,20 +734,20 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       '@mwashburn160/pipeline-data':
-        specifier: workspace:*
-        version: link:../pipeline-data
+        specifier: 1.24.7
+        version: 1.24.7(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.240.0
-        version: 2.240.0(constructs@10.4.5)
+        version: 2.240.0(constructs@10.5.1)
       axios:
         specifier: 1.13.3
         version: 1.13.3
       constructs:
-        specifier: 10.4.5
-        version: 10.4.5
+        specifier: 10.5.1
+        version: 10.5.1
       jsonwebtoken:
         specifier: 9.0.3
         version: 9.0.3
@@ -804,8 +804,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.16.3)
@@ -863,7 +863,7 @@ importers:
         version: link:../pipeline-core
       aws-cdk-lib:
         specifier: 2.240.0
-        version: 2.240.0(constructs@10.4.5)
+        version: 2.240.0(constructs@10.5.1)
       axios:
         specifier: 1.13.3
         version: 1.13.3
@@ -941,8 +941,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@mwashburn160/api-core':
-        specifier: 1.23.6
-        version: 1.23.6
+        specifier: 1.23.7
+        version: 1.23.7
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -2513,6 +2513,14 @@ packages:
     resolution: {integrity: sha512-jemeFH8ELkyBtJ6Qjo9aAaKHq78ftl0cc5wNoGxEbrV7jH415JPBkS0bl90eNgGfr+F/56SZALYo8QeXKpXpYA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.23.6/480bfdf06a40a968cf7fda0410db26ab59bc7baa}
     engines: {node: '>= 24.9.0'}
 
+  '@mwashburn160/api-core@1.23.7':
+    resolution: {integrity: sha512-zQo6ouLR9qPHAydjNnl3TInyOoYaoS6GPodYyMObOHWJKcNaWUKrIQAggPDS8v7Ex3eJ/Q4bxFyBzCOOwN3K2w==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.23.7/45ba5386db302e550c8ded459f56e5e855cf349c}
+    engines: {node: '>= 24.9.0'}
+
+  '@mwashburn160/pipeline-data@1.24.7':
+    resolution: {integrity: sha512-/GWu+FRGRz6WOSRpz4FhXaLMLrkkTSTcybHcPNWSUv6ouRyYZDwJG1T8fOV+fLeEzdQq7m5DrxF2XJlX30ClFw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.24.7/ccac379a3317659f90859594465e79e993d6941f}
+    engines: {node: '>= 24.9.0'}
+
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
 
@@ -3869,8 +3877,8 @@ packages:
     resolution: {integrity: sha512-MWufYdFw53ccGjCA+Ol7XJYpAlW6/prSMzuPOTRnJGcGzuhLn4Scrz7qf6o8bROZ514ltazcIFJZevcfbo0x7A==}
     engines: {'0': node >= 6.0}
 
-  constructs@10.4.5:
-    resolution: {integrity: sha512-fOoP70YLevMZr5avJHx2DU3LNYmC6wM8OwdrNewMZou1kZnPGOeVzBrRjZNgFDHUlulYUjkpFRSpTE3D+n+ZSg==}
+  constructs@10.5.1:
+    resolution: {integrity: sha512-f/TfFXiS3G/yVIXDjOQn9oTlyu9Wo7Fxyjj7lb8r92iO81jR2uST+9MstxZTmDGx/CgIbxCXkFXgupnLTNxQZg==}
 
   content-disposition@1.0.1:
     resolution: {integrity: sha512-oIXISMynqSqm241k6kcQ5UwttDILMK4BiurCfGEREw6+X9jkkpEe5T9FZaApyLGGOnFuyMWZpdolTXMtvEJ08Q==}
@@ -8332,6 +8340,52 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@mwashburn160/api-core@1.23.7':
+    dependencies:
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
+
+  '@mwashburn160/pipeline-data@1.24.7(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
+    dependencies:
+      '@mwashburn160/api-core': 1.23.6
+      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.16.3)
+      pg: 8.16.3
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
       '@emnapi/core': 1.8.1
@@ -9478,12 +9532,12 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
-  aws-cdk-lib@2.240.0(constructs@10.4.5):
+  aws-cdk-lib@2.240.0(constructs@10.5.1):
     dependencies:
       '@aws-cdk/asset-awscli-v1': 2.2.263
       '@aws-cdk/asset-node-proxy-agent-v6': 2.1.0
       '@aws-cdk/cloud-assembly-schema': 50.4.0
-      constructs: 10.4.5
+      constructs: 10.5.1
 
   aws4fetch@1.0.20: {}
 
@@ -9794,7 +9848,7 @@ snapshots:
       readable-stream: 3.6.2
       typedarray: 0.0.6
 
-  constructs@10.4.5: {}
+  constructs@10.5.1: {}
 
   content-disposition@1.0.1: {}
 
@@ -11944,9 +11998,9 @@ snapshots:
 
   progress@2.0.3: {}
 
-  projen@0.99.8(constructs@10.4.5):
+  projen@0.99.8(constructs@10.5.1):
     dependencies:
-      constructs: 10.4.5
+      constructs: 10.5.1
 
   prom-client@15.1.3:
     dependencies:
