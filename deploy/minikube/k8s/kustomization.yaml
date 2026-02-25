@@ -20,6 +20,7 @@ resources:
   - platform.yaml
   - plugin.yaml
   - pipeline.yaml
+  - message.yaml
   - quota.yaml
   - billing.yaml
   - frontend.yaml
@@ -54,6 +55,8 @@ images:
     newTag: "1.18.5"
   - name: ghcr.io/mwashburn160/plugin
     newTag: "1.18.5"
+  - name: ghcr.io/mwashburn160/message
+    newTag: "0.0.0"
   - name: ghcr.io/mwashburn160/quota
     newTag: "1.17.5"
   - name: ghcr.io/mwashburn160/billing

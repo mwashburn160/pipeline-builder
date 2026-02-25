@@ -46,7 +46,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, quota, billing, frontend]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend]
   policyTypes:
     - Ingress
   ingress:
@@ -77,13 +77,13 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, billing]
+                values: [platform, pipeline, plugin, message, billing]
       ports:
         - port: 3000
 
 ---
 # =============================================================================
-# Postgres — ingress from platform, pipeline, plugin, pgadmin
+# Postgres — ingress from platform, pipeline, plugin, message, pgadmin
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -101,7 +101,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, pgadmin]
+                values: [platform, pipeline, plugin, message, pgadmin]
       ports:
         - port: 5432
 
@@ -259,7 +259,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, quota, billing, frontend, nginx, grafana, loki]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, nginx, grafana, loki]
   policyTypes:
     - Ingress
   ingress:

@@ -91,6 +91,8 @@ services:
         condition: service_healthy
       pipeline:
         condition: service_healthy
+      message:
+        condition: service_healthy
       quota:
         condition: service_healthy
       billing:
@@ -348,6 +350,8 @@ services:
       plugin:
         condition: service_healthy
       pipeline:
+        condition: service_healthy
+      message:
         condition: service_healthy
       quota:
         condition: service_healthy
@@ -627,6 +631,22 @@ services:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
       SERVICE_NAME: pipeline
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
+
+  message:
+    restart: always
+    networks: *api-networks
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+    image: 'ghcr.io/mwashburn160/message:0.0.0'
+    container_name: message
+    depends_on:
+      postgres:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: message
 
   quota:
     restart: always
