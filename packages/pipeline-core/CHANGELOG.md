@@ -1,3 +1,18 @@
+## 1.24.6 (2026-02-25)
+
+### 🩹 Fixes
+
+- upgraded cdk=2.240.0 ([ad1bdee](https://github.com/mwashburn160/pipeline-builder/commit/ad1bdee))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.24.6
+- Updated @mwashburn160/api-core to 1.23.6
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.5 (2026-02-24)
 
 ### 🩹 Fixes

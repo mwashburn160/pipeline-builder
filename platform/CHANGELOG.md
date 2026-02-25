@@ -1,3 +1,9 @@
+## 1.19.7 (2026-02-25)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.23.6
+
 ## 1.19.6 (2026-02-24)
 
 ### 🩹 Fixes
