@@ -121,7 +121,7 @@ export class Workflow extends Component {
                 ...this.bootstrapSteps(),
                 {
                     id: 'nx_base',
-                    name: 'Read NX_BASE from file',
+                    name: 'Set NX_BASE',
                     run: 'if [ -f nx_base.yml ] && [ -s nx_base.yml ]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
@@ -145,7 +145,7 @@ export class Workflow extends Component {
                 {
                     id: 'publish',
                     name: 'Check publish images',
-                    run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
+                    run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base \${{ steps.nx_base.outputs.NX_BASE }} --head \${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
                 },
                 {
                     id: 'publish_details',
