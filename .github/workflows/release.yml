@@ -55,11 +55,14 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 30 days
         run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+      - name: Workflow ID from file
+        id: workflow_id
+        run: echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT
       - name: Derive SHAs for NX:BASE, NX:HEAD
         id: sha
         uses: nrwl/nx-set-shas@v4
         with:
-          workflow-id: ./workflow.yml
+          workflow-id: ${{ steps.read_workflow_id.outputs.WORKFLOW_ID }}
           main-branch-name: main
       - name: Affected projects and images
         id: affected
@@ -80,7 +83,7 @@ jobs:
       - name: Publish details
         id: publish_details
         run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"
-      - name: Workflow id
+      - name: Workflow ID
         id: workflow_id
         if: ${{ success() }}
         run: "echo WORKFLOW_ID: ${{ github.run_id }}"

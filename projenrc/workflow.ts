@@ -119,11 +119,16 @@ export class Workflow extends Component {
             steps: [
                 ...this.bootstrapSteps(),
                 {
+                    id: 'workflow_id',
+                    name: 'Workflow ID from file',
+                    run: 'echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT',
+                },
+                {
                     id: 'sha',
                     name: 'Derive SHAs for NX:BASE, NX:HEAD',
                     uses: 'nrwl/nx-set-shas@v4',
                     with: {
-                        'workflow-id': './workflow.yml',
+                        'workflow-id': '${{ steps.read_workflow_id.outputs.WORKFLOW_ID }}',
                         'main-branch-name': 'main'
                     },
                 },
@@ -157,7 +162,7 @@ export class Workflow extends Component {
                 },
                 {
                     id: 'workflow_id',
-                    name: 'Workflow id',
+                    name: 'Workflow ID',
                     if: '${{ success() }}',
                     run: 'echo WORKFLOW_ID: ${{ github.run_id }}',
                 },
