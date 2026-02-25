@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — use workspace protocol for local resolution
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.8';
+let apiCoreVersion = '1.23.9';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.24.8';
+let pipelineDataVersion = '1.24.9';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.24.8';
+let pipelineCoreVersion = '1.24.9';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = 'workspace:*';
+let apiServerVersion = '1.22.9';
 
 // =============================================================================
 // Root Project Configuration
@@ -697,7 +697,7 @@ let quota = new FunctionProject({
     'express-rate-limit@8.2.1',                           // Rate limiting
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
-    'mongoose@9.1.5',                                     // MongoDB ODM
+    'mongoose@9.2.2',                                     // MongoDB ODM
     'winston@3.19.0',                                     // Logging
     'zod@4.3.6'                                           // Input validation
   ],
@@ -763,11 +763,11 @@ let billing = new FunctionProject({
     'express-rate-limit@8.2.1',                           // Rate limiting
     'helmet@8.1.0',                                       // Security
     'jsonwebtoken@9.0.3',                                 // JWT auth
-    'mongoose@9.1.5',                                     // MongoDB ODM
+    'mongoose@9.2.2',                                     // MongoDB ODM
     'winston@3.19.0',                                     // Logging
     'zod@4.3.6',                                          // Input validation
-    '@aws-sdk/client-marketplace-metering@3.821.0',       // AWS Marketplace ResolveCustomer
-    '@aws-sdk/client-marketplace-entitlement-service@3.821.0' // AWS Marketplace GetEntitlements
+    '@aws-sdk/client-marketplace-metering@3.997.0',       // AWS Marketplace ResolveCustomer
+    '@aws-sdk/client-marketplace-entitlement-service@3.997.0' // AWS Marketplace GetEntitlements
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types
@@ -842,18 +842,18 @@ let plugin = new FunctionProject({
     'jsonwebtoken@9.0.3',                                 // JWT auth
     'helmet@8.1.0',                                       // Security
     'cors@2.8.6',                                         // CORS
-    'pg@8.16.3',                                          // PostgreSQL
+    'pg@8.18.0',                                          // PostgreSQL
     'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
     'uuid@13.0.0',                                        // UUID generation
     'yaml@2.8.2',                                         // YAML parsing
     'adm-zip@0.5.16',                                     // ZIP extraction
     'multer@2.0.2',                                       // File uploads
-    'ai@6.0.97',                                          // Vercel AI SDK core
-    '@ai-sdk/anthropic@3.0.46',                           // Anthropic provider
+    'ai@6.0.99',                                          // Vercel AI SDK core
+    '@ai-sdk/anthropic@3.0.47',                           // Anthropic provider
     '@ai-sdk/openai@3.0.31',                              // OpenAI provider
-    '@ai-sdk/google@3.0.30',                              // Google provider
-    '@ai-sdk/xai@3.0.57',                                 // xAI (Grok) provider
-    '@ai-sdk/amazon-bedrock@4.0.63',                      // Amazon Bedrock provider
+    '@ai-sdk/google@3.0.31',                              // Google provider
+    '@ai-sdk/xai@3.0.59',                                 // xAI (Grok) provider
+    '@ai-sdk/amazon-bedrock@4.0.64',                      // Amazon Bedrock provider
     'zod@4.3.6',                                          // Schema validation (for structured output)
   ],
   devDeps: [
@@ -934,16 +934,16 @@ let pipeline = new FunctionProject({
     'jsonwebtoken@9.0.3',                                 // JWT auth
     'helmet@8.1.0',                                       // Security
     'cors@2.8.6',                                         // CORS
-    'pg@8.16.3',                                          // PostgreSQL
+    'pg@8.18.0',                                          // PostgreSQL
     'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
     'uuid@13.0.0',                                        // UUID generation
     'yaml@2.8.2',                                          // YAML parsing
-    'ai@6.0.97',                                           // Vercel AI SDK core
-    '@ai-sdk/anthropic@3.0.46',                            // Anthropic provider
+    'ai@6.0.99',                                           // Vercel AI SDK core
+    '@ai-sdk/anthropic@3.0.47',                            // Anthropic provider
     '@ai-sdk/openai@3.0.31',                               // OpenAI provider
-    '@ai-sdk/google@3.0.30',                               // Google provider
-    '@ai-sdk/xai@3.0.57',                                  // xAI (Grok) provider
-    '@ai-sdk/amazon-bedrock@4.0.63',                       // Amazon Bedrock provider
+    '@ai-sdk/google@3.0.31',                               // Google provider
+    '@ai-sdk/xai@3.0.59',                                  // xAI (Grok) provider
+    '@ai-sdk/amazon-bedrock@4.0.64',                       // Amazon Bedrock provider
     'zod@4.3.6',                                           // Schema validation (for structured output)
   ],
   devDeps: [
@@ -1016,7 +1016,7 @@ let msg = new FunctionProject({
     `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
     `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
     `express@${expressVersion}`,                          // Web framework
-    'pg@8.16.3',                                          // PostgreSQL
+    'pg@8.18.0',                                          // PostgreSQL
     'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
     'uuid@13.0.0',                                        // UUID generation
     'zod@4.3.6',                                          // Input validation

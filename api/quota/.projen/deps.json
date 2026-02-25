@@ -77,17 +77,17 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.23.8",
+      "version": "1.23.9",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "workspace:*",
+      "version": "1.22.9",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.24.8",
+      "version": "1.24.9",
       "type": "runtime"
     },
     {
@@ -117,7 +117,7 @@
     },
     {
       "name": "mongoose",
-      "version": "9.1.5",
+      "version": "9.2.2",
       "type": "runtime"
     },
     {
