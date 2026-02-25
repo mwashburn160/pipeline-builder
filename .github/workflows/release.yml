@@ -59,6 +59,7 @@ jobs:
         id: sha
         uses: nrwl/nx-set-shas@v4
         with:
+          workflow-id: workflow.yml
           main-branch-name: main
       - name: Affected projects and images
         id: affected
@@ -162,6 +163,10 @@ jobs:
       - name: Push new tag to the repository
         id: push_changes
         run: git push --follow-tags
+      - name: Build complete
+        id: build_complete
+        if: ${{ success() }}
+        run: 'echo ${{ github.run_id }} > workflow.yml && git add workflow.yml && git commit -m "chore: updated workflow id" && git push'
   publish:
     name: publish image
     needs:

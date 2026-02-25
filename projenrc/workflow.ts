@@ -122,7 +122,10 @@ export class Workflow extends Component {
                     id: 'sha',
                     name: 'Derive SHAs for NX:BASE, NX:HEAD',
                     uses: 'nrwl/nx-set-shas@v4',
-                    with: { 'main-branch-name': 'main' },
+                    with: { 
+                        'workflow-id': 'workflow.yml',
+                        'main-branch-name': 'main'
+                    },
                 },
                 {
                     id: 'affected',
@@ -242,6 +245,12 @@ export class Workflow extends Component {
                     id: 'push_changes',
                     name: 'Push new tag to the repository',
                     run: 'git push --follow-tags',
+                },
+                {
+                    id: 'build_complete',
+                    name: 'Build complete',
+                    if: '${{ success() }}',
+                    run: 'echo ${{ github.run_id }} > workflow.yml && git add workflow.yml && git commit -m "chore: updated workflow id" && git push',
                 },
             ],
         };
