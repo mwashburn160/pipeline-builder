@@ -79,6 +79,9 @@ jobs:
       - name: Publish details
         id: publish_details
         run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"
+      - name: workflow id
+        id: workflow_id
+        run: "echo WORKFLOW_ID: ${{ github.run_id }}"
   build:
     name: build
     needs: init

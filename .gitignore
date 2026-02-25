@@ -52,5 +52,4 @@ registry-data
 !/nx.json
 !/pnpm-workspace.yaml
 !/.vscode/settings.json
-!/.github/workflows/release.yml
 !/.projenrc.ts

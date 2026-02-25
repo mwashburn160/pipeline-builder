@@ -154,6 +154,11 @@ export class Workflow extends Component {
                     name: 'Publish details',
                     run: 'echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}',
                 },
+                {
+                    id: 'workflow_id',
+                    name: 'workflow id',
+                    run: 'echo WORKFLOW_ID: ${{ github.run_id }}',
+                },
             ],
         };
     }
