@@ -112,6 +112,7 @@ export class Workflow extends Component {
             },
             outputs: {
                 NX_BASE: { stepId: 'nx_base', outputName: 'NX_BASE' },
+                NX_HEAD: { stepId: 'nx_head', outputName: 'NX_HEAD' },
                 AFFECTED_IMAGES: { stepId: 'affected', outputName: 'AFFECTED_IMAGES' },
                 AFFECTED_PROJECTS: { stepId: 'affected', outputName: 'AFFECTED_PROJECTS' },
                 PUBLISH_IMAGE: { stepId: 'publish', outputName: 'PUBLISH_IMAGE' },
@@ -119,18 +120,14 @@ export class Workflow extends Component {
             steps: [
                 ...this.bootstrapSteps(),
                 {
-                    id: 'read_workflow_id',
-                    name: 'Read Workflow ID from file',
-                    run: 'if [ -f workflow.yml ] && [ -s workflow.yml ]; then echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT; else echo WORKFLOW_ID=${{ github.run_id }} >> $GITHUB_OUTPUT; fi',
+                    id: 'nx_base',
+                    name: 'Read NX_BASE from file',
+                    run: 'if [ -f nx_base.yml] && [ -s nx_base.yml]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
-                    id: 'sha',
-                    name: 'Derive SHAs for NX:BASE, NX:HEAD',
-                    uses: 'nrwl/nx-set-shas@v4',
-                    with: {
-                        'workflow-id': '${{ steps.read_workflow_id.outputs.WORKFLOW_ID }}',
-                        'main-branch-name': 'main'
-                    },
+                    id: 'nx_head',
+                    name: 'Set NX_HEAD',
+                    run: 'echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT',
                 },
                 {
                     id: 'affected',
@@ -146,11 +143,6 @@ export class Workflow extends Component {
                     run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}',
                 },
                 {
-                    id: 'nx_base',
-                    name: 'Exported NX:BASE',
-                    run: 'echo NX_BASE=${{ env.NX_BASE }} >> $GITHUB_OUTPUT',
-                },
-                {
                     id: 'publish',
                     name: 'Check publish images',
                     run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
@@ -159,13 +151,7 @@ export class Workflow extends Component {
                     id: 'publish_details',
                     name: 'Publish details',
                     run: 'echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}',
-                },
-                {
-                    id: 'workflow_id',
-                    name: 'Workflow ID',
-                    if: '${{ success() }}',
-                    run: 'echo WORKFLOW_ID: ${{ github.run_id }}',
-                },
+                }
             ],
         };
     }
@@ -209,7 +195,7 @@ export class Workflow extends Component {
                 {
                     id: 'set_nx_base',
                     name: 'Set NX:BASE, NX:HEAD',
-                    run: 'echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_ENV',
+                    run: 'echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV',
                 },
                 {
                     id: 'details_nx_base',
@@ -261,7 +247,7 @@ export class Workflow extends Component {
                     id: 'build_complete',
                     name: 'Build complete',
                     if: '${{ success() }}',
-                    run: 'echo ${{ github.run_id }} > workflow.yml && git add workflow.yml && git commit -m "chore: updated workflow id" && git push',
+                    run: 'echo $(git rev-parse HEAD) > nx_base.yml && git add nx_base.yml && git commit -m "chore: updated last successfully built commit" && git push',
                 },
             ],
         };

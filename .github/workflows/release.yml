@@ -13,6 +13,7 @@ jobs:
       packages: read
     outputs:
       NX_BASE: ${{ steps.nx_base.outputs.NX_BASE }}
+      NX_HEAD: ${{ steps.nx_head.outputs.NX_HEAD }}
       AFFECTED_IMAGES: ${{ steps.affected.outputs.AFFECTED_IMAGES }}
       AFFECTED_PROJECTS: ${{ steps.affected.outputs.AFFECTED_PROJECTS }}
       PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}
@@ -55,15 +56,12 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 30 days
         run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
-      - name: Read Workflow ID from file
-        id: read_workflow_id
-        run: if [ -f workflow.yml ] && [ -s workflow.yml ]; then echo WORKFLOW_ID=$(cat workflow.yml) >> $GITHUB_OUTPUT; else echo WORKFLOW_ID=${{ github.run_id }} >> $GITHUB_OUTPUT; fi
-      - name: Derive SHAs for NX:BASE, NX:HEAD
-        id: sha
-        uses: nrwl/nx-set-shas@v4
-        with:
-          workflow-id: ${{ steps.read_workflow_id.outputs.WORKFLOW_ID }}
-          main-branch-name: main
+      - name: Read NX_BASE from file
+        id: nx_base
+        run: if [ -f nx_base.yml] && [ -s nx_base.yml]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
+      - name: Set NX_HEAD
+        id: nx_head
+        run: echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
       - name: Affected projects and images
         id: affected
         env:
@@ -74,19 +72,12 @@ jobs:
       - name: Affected details
         id: affected_details
         run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
-      - name: Exported NX:BASE
-        id: nx_base
-        run: echo NX_BASE=${{ env.NX_BASE }} >> $GITHUB_OUTPUT
       - name: Check publish images
         id: publish
         run: echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json | jq 'any(contains("frontend","platform","billing","quota","message","pipeline","plugin"))') >> $GITHUB_OUTPUT
       - name: Publish details
         id: publish_details
         run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"
-      - name: Workflow ID
-        id: workflow_id
-        if: ${{ success() }}
-        run: "echo WORKFLOW_ID: ${{ github.run_id }}"
   build:
     name: build
     needs: init
@@ -137,7 +128,7 @@ jobs:
         run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX:BASE, NX:HEAD
         id: set_nx_base
-        run: echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_ENV
+        run: echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV
       - name: Details NX_BASE, NX_HEAD
         id: details_nx_base
         run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"'
@@ -173,7 +164,7 @@ jobs:
       - name: Build complete
         id: build_complete
         if: ${{ success() }}
-        run: 'echo ${{ github.run_id }} > workflow.yml && git add workflow.yml && git commit -m "chore: updated workflow id" && git push'
+        run: 'echo $(git rev-parse HEAD) > nx_base.yml && git add nx_base.yml && git commit -m "chore: updated last successfully built commit" && git push'
   publish:
     name: publish image
     needs:
