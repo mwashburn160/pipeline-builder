@@ -122,7 +122,7 @@ export class Workflow extends Component {
                 {
                     id: 'nx_base',
                     name: 'Read NX_BASE from file',
-                    run: 'if [ -f nx_base.yml] && [ -s nx_base.yml]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
+                    run: 'if [ -f nx_base.yml ] && [ -s nx_base.yml ]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
                     id: 'nx_head',
