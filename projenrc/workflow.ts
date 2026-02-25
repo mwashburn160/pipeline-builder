@@ -122,7 +122,8 @@ export class Workflow extends Component {
                     id: 'sha',
                     name: 'Derive SHAs for NX:BASE, NX:HEAD',
                     uses: 'nrwl/nx-set-shas@v4',
-                    with: { 
+                    with: {
+                        'workflow-id': 'workflow.yml',
                         'main-branch-name': 'main'
                     },
                 },
@@ -156,7 +157,8 @@ export class Workflow extends Component {
                 },
                 {
                     id: 'workflow_id',
-                    name: 'workflow id',
+                    name: 'Workflow id',
+                    if: '${{ success() }}',
                     run: 'echo WORKFLOW_ID: ${{ github.run_id }}',
                 },
             ],
