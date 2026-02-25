@@ -50,18 +50,23 @@ let cdkVersion = '2.240.0';
 /** Express.js framework version (for API servers) */
 let expressVersion = '5.2.1'
 
-// Internal package versions — use workspace protocol for local resolution
+// Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.23.9';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.24.9';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.24.9';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.22.9';
+let apiServerVersion = 'workspace:*';
+
+// Published npm versions — for yarn-managed projects (frontend) that don't support workspace protocol
+let apiCoreNpmVersion = '1.23.9';
+let pipelineCoreNpmVersion = '1.24.9';
+let apiServerNpmVersion = '1.22.9';
 
 // =============================================================================
 // Root Project Configuration
@@ -609,9 +614,9 @@ let frontend = new FrontEndProject({
   minNodeVersion: root.minNodeVersion,
  gitignore : ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Server infrastructure
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Pipeline types
+    `@mwashburn160/api-core@${apiCoreNpmVersion}`,           // API utilities (npm - yarn project)
+    `@mwashburn160/api-server@${apiServerNpmVersion}`,       // Server infrastructure (npm - yarn project)
+    `@mwashburn160/pipeline-core@${pipelineCoreNpmVersion}`, // Pipeline types (npm - yarn project)
     'next@14.2.0',                                        // React framework
     'react@18.2.0',                                       // UI library
     'react-dom@18.2.0',                                   // DOM renderer
