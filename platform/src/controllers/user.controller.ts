@@ -118,7 +118,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updates },
-      { new: true, runValidators: true },
+      { returnDocument: 'after', runValidators: true },
     ).lean();
 
     if (!updatedUser) {

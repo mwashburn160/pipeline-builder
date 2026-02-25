@@ -9,6 +9,7 @@
 
 import {
   authenticateToken,
+  isSystemOrg,
   sendSuccess,
   sendError,
   sendQuotaExceeded,
@@ -156,6 +157,27 @@ router.post(
       const typedType = quotaType as QuotaType;
       const usagePath = `usage.${typedType}`;
 
+      // System org is exempt from quota enforcement — increment without limit check
+      if (isSystemOrg(req)) {
+        const org = await Organization.findOneAndUpdate(
+          { _id: targetOrgId },
+          { $inc: { [`${usagePath}.used`]: amount } },
+          { returnDocument: 'after' },
+        );
+        if (!org) return sendOrgNotFound(res);
+
+        const limit = org.quotas[typedType];
+        return sendSuccess(res, 200, {
+          quota: {
+            type: quotaType,
+            limit,
+            used: org.usage[typedType].used,
+            remaining: limit === -1 ? -1 : Math.max(0, limit - org.usage[typedType].used),
+            resetAt: org.usage[typedType].resetAt,
+          },
+        }, 'Usage incremented successfully');
+      }
+
       // Auto-reset expired periods atomically before incrementing
       await Organization.updateOne(
         { _id: targetOrgId, [`${usagePath}.resetAt`]: { $lte: new Date() } },
@@ -173,7 +195,7 @@ router.post(
           ],
         },
         { $inc: { [`${usagePath}.used`]: amount } },
-        { new: true },
+        { returnDocument: 'after' },
       );
 
       if (!org) {
