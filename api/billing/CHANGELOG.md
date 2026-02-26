@@ -1,3 +1,19 @@
+## 1.5.2 (2026-02-26)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.25.1 ([2857a44](https://github.com/mwashburn160/pipeline-builder/commit/2857a44))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.27.2
+- Updated @mwashburn160/api-server to 1.25.2
+- Updated @mwashburn160/api-core to 1.26.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.1 (2026-02-26)
 
 ### 🩹 Fixes
