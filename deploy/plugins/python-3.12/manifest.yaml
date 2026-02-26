@@ -1,12 +1,8 @@
 name: python-3.12
 description: Python 3.12 plugin for building and deploying Python applications using AWS CDK with CodeBuildStep
 keywords:
-  - aws
-  - cdk
-  - synth
-  - cloudformation
   - python
-  - codebuild
+  - pytest
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

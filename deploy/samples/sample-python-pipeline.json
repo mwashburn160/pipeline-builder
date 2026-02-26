@@ -3,9 +3,8 @@
   "organization": "AcmeCorp",
   "description": "A sample pipeline for demonstration purposes.",
   "keywords": [
-    "aws",
-    "cdk",
-    "codestar",
+    "python",
+    "pytest",
     "codebuild"
   ],
   "accessModifier": "public",
@@ -27,7 +26,7 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "github-samples/pets-workshop",
+          "repo": "Pytest-with-Eric/pytest-logging-example",
           "branch": "main",
           "trigger": "NONE"
         }
