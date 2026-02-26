@@ -1,22 +1,22 @@
 name: python-3.12
-description: Python 3.12 plugin for building and deploying Python applications using
-  AWS CDK with CodeBuildStep
+description: Python 3.12 plugin for building and deploying Python applications using AWS CDK with CodeBuildStep
 keywords:
-- aws
-- cdk
-- synth
-- cloudformation
-- python
-- codebuild
+  - aws
+  - cdk
+  - synth
+  - cloudformation
+  - python
+  - codebuild
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-- python -m pip install --upgrade pip setuptools wheel
-- pip install pytest pytest-cov
-- if [ ! -f requirements.txt ]; then pip install -r requirements.txt; fi
+  - python -m pip install --upgrade pip setuptools wheel
+  - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+  - pip show pytest > /dev/null 2>&1 || { echo "pytest: installing..."; pip install pytest; }
+  - pip show pytest-cov > /dev/null 2>&1 || { echo "pytest-cov: installing..."; pip install pytest-cov; }
 commands:
-- pytest tests.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
-env:
+  - pytest tests.py --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+env: {}

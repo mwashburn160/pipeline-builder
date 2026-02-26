@@ -42,9 +42,9 @@
     "@ai-sdk/google": "3.0.31",
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@mwashburn160/api-core": "1.26.4",
+    "@mwashburn160/api-core": "1.26.5",
     "@mwashburn160/api-server": "workspace:*",
-    "@mwashburn160/pipeline-core": "workspace:*",
+    "@mwashburn160/pipeline-core": "1.27.5",
     "ai": "6.0.99",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
@@ -64,7 +64,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.21.5",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
