@@ -38,9 +38,9 @@
   "dependencies": {
     "@aws-sdk/client-marketplace-entitlement-service": "3.997.0",
     "@aws-sdk/client-marketplace-metering": "3.997.0",
-    "@mwashburn160/api-core": "1.26.0",
-    "@mwashburn160/api-server": "1.25.0",
-    "@mwashburn160/pipeline-core": "1.27.0",
+    "@mwashburn160/api-core": "1.26.1",
+    "@mwashburn160/api-server": "1.25.1",
+    "@mwashburn160/pipeline-core": "1.27.1",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",

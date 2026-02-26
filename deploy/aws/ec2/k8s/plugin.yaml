@@ -1,0 +1,173 @@
+---
+# =============================================================================
+# Plugin Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: plugin
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plugin
+  template:
+    metadata:
+      labels:
+        app: plugin
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Docker GID 997 (inside minikube) — allows Docker socket access
+      securityContext:
+        supplementalGroups: [997]
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres.pipeline-builder 5432; do sleep 3; done
+              echo "Waiting for redis..."
+              until nc -z redis.pipeline-builder 6379; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: plugin
+          image: ghcr.io/mwashburn160/plugin
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: registry-secret
+          env:
+            - name: SERVICE_NAME
+              value: "plugin"
+            - name: IMAGE_REGISTRY_HOST
+              value: "registry"
+            - name: IMAGE_REGISTRY_PORT
+              value: "5000"
+            - name: DOCKER_NETWORK
+              value: "host"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: PLUGIN_BUILD_CONCURRENCY
+              value: "1"
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: 1Gi
+            requests:
+              cpu: "400m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+
+---
+# =============================================================================
+# Plugin HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: plugin
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# =============================================================================
+# Plugin PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: plugin

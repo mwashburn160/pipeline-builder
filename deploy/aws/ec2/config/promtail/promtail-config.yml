@@ -1,0 +1,58 @@
+# Promtail Configuration — Kubernetes Pod Log Collection
+# Uses static_configs with file glob to discover pod logs directly
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki.pipeline-builder.svc.cluster.local:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: pipeline-builder-pods
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: pipeline-builder
+          __path__: /var/log/pods/pipeline-builder_*/*/*.log
+    pipeline_stages:
+      # Parse CRI / Docker JSON log format
+      - cri: {}
+      # Extract pod name and container from the file path
+      # Path: /var/log/pods/pipeline-builder_<pod>_<uid>/<container>/N.log
+      - match:
+          selector: '{job="pipeline-builder"}'
+          stages:
+            - regex:
+                source: filename
+                expression: '/var/log/pods/pipeline-builder_(?P<pod>[^_]+)-[^/]+/(?P<container>[^/]+)/'
+            - labels:
+                pod:
+                container:
+      # Extract app name from pod (e.g. "platform" from "platform-84dc786bd5-4jkvj")
+      - match:
+          selector: '{job="pipeline-builder"}'
+          stages:
+            - regex:
+                source: filename
+                expression: '/var/log/pods/pipeline-builder_(?P<service>[a-z][\-a-z]*[a-z])-[0-9a-f]'
+            - labels:
+                service:
+      # Parse structured JSON logs from API services
+      - json:
+          expressions:
+            level: level
+            service_name: service
+            msg: message
+            ts: timestamp
+      # Promote parsed fields to Loki labels
+      - labels:
+          level:
+          service_name:
+      # Use the parsed message as the log line (falls back to raw if not present)
+      - output:
+          source: msg

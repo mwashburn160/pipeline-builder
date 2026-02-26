@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder - EC2 deployment with minikube, Let's Encrypt SSL,
+  Route53 DNS, and hardened security.
+
+# =============================================================================
+# Parameters
+# =============================================================================
+Parameters:
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name (e.g., pipeline.example.com)
+    AllowedPattern: "^[a-zA-Z0-9][a-zA-Z0-9\\-\\.]*[a-zA-Z0-9]$"
+    ConstraintDescription: Must be a valid domain name
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route53 Hosted Zone ID for the domain
+
+  InstanceType:
+    Type: String
+    Default: t3.large
+    AllowedValues:
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+    Description: >
+      EC2 instance type. t3.large (2 vCPU/8 GiB) is the cost-focused default.
+      t3.xlarge (4 vCPU/16 GiB) recommended for comfortable production usage.
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 key pair name for SSH access
+
+  GhcrToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub Container Registry (ghcr.io) token for pulling private images
+
+  GhcrUser:
+    Type: String
+    Default: mwashburn160
+    Description: GitHub username for GHCR authentication
+
+  SshCidr:
+    Type: String
+    Default: "0.0.0.0/0"
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    Description: CIDR range allowed for SSH access (recommend restricting to your IP/32)
+
+  EbsVolumeSize:
+    Type: Number
+    Default: 50
+    MinValue: 30
+    MaxValue: 200
+    Description: Root EBS volume size in GiB (gp3, encrypted)
+
+  GitRepo:
+    Type: String
+    Default: "https://github.com/mwashburn160/pipeline-builder.git"
+    Description: Git repository URL to clone on the EC2 instance
+
+  GitBranch:
+    Type: String
+    Default: main
+    Description: Git branch to checkout
+
+# =============================================================================
+# Resources
+# =============================================================================
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # VPC & Networking
+  # ---------------------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-${DomainName}"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-public"
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  # ---------------------------------------------------------------------------
+  # Security Group (Hardened)
+  # ---------------------------------------------------------------------------
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Pipeline Builder EC2 - SSH, HTTP, HTTPS only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # SSH - restricted to SshCidr
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshCidr
+          Description: SSH access
+        # HTTP - required for Let's Encrypt ACME challenge
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP (Let's Encrypt + redirect)
+        # HTTPS - public application access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS (application)
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-sg"
+
+  # ---------------------------------------------------------------------------
+  # Elastic IP
+  # ---------------------------------------------------------------------------
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-eip"
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      InstanceId: !Ref EC2Instance
+
+  # ---------------------------------------------------------------------------
+  # IAM Role (for SSM Session Manager access)
+  # ---------------------------------------------------------------------------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-role"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # ---------------------------------------------------------------------------
+  # EC2 Instance (Hardened)
+  # ---------------------------------------------------------------------------
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref EbsVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 2
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash
+            set -euo pipefail
+            exec > >(tee /var/log/user-data.log) 2>&1
+            echo "=== Pipeline Builder EC2 Bootstrap ==="
+            echo "Domain: ${DomainName}"
+            echo "Instance: ${InstanceType}"
+            echo "Started: $(date -u)"
+
+            # Export variables for bootstrap.sh
+            export DOMAIN="${DomainName}"
+            export GHCR_TOKEN="${GhcrToken}"
+            export GHCR_USER="${GhcrUser}"
+            export GIT_REPO="${GitRepo}"
+            export GIT_BRANCH="${GitBranch}"
+
+            # Install git
+            dnf install -y git
+
+            # Clone repository
+            INSTALL_DIR="/opt/pipeline-builder"
+            git clone --branch "$GIT_BRANCH" "$GIT_REPO" "$INSTALL_DIR"
+
+            # Run bootstrap
+            chmod +x "$INSTALL_DIR/deploy/aws/ec2/bin/"*.sh
+            bash "$INSTALL_DIR/deploy/aws/ec2/bin/bootstrap.sh"
+
+            echo "=== Bootstrap complete: $(date -u) ==="
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-${DomainName}"
+
+  # ---------------------------------------------------------------------------
+  # Route53 DNS Record
+  # ---------------------------------------------------------------------------
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - !Ref ElasticIP
+
+# =============================================================================
+# Outputs
+# =============================================================================
+Outputs:
+  PublicIP:
+    Description: Elastic IP address of the EC2 instance
+    Value: !Ref ElasticIP
+
+  ApplicationURL:
+    Description: Application URL
+    Value: !Sub "https://${DomainName}"
+
+  SSHCommand:
+    Description: SSH command to connect to the instance
+    Value: !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP}"
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+
+  BootstrapLog:
+    Description: Command to check bootstrap progress
+    Value: !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP} 'tail -f /var/log/user-data.log'"

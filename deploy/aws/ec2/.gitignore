@@ -1,0 +1,11 @@
+# Secrets
+.env
+
+# Generated certificates
+certs/
+
+# Registry auth
+auth/
+
+# Persistent data
+data/
