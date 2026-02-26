@@ -35,7 +35,9 @@ jest.mock('bullmq', () => {
 
 jest.mock('ioredis', () => {
   class MockRedis {
+    status = 'ready';
     disconnect = jest.fn();
+    on = jest.fn();
   }
   return { __esModule: true, default: MockRedis };
 });
@@ -171,7 +173,7 @@ describe('plugin-build-queue', () => {
     });
 
     jest.mock('ioredis', () => {
-      class MockRedis { disconnect = jest.fn(); }
+      class MockRedis { status = 'ready'; disconnect = jest.fn(); on = jest.fn(); }
       return { __esModule: true, default: MockRedis };
     });
 
