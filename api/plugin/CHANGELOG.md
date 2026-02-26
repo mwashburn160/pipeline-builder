@@ -1,3 +1,13 @@
+## 1.20.6 (2026-02-26)
+
+### 🩹 Fixes
+
+- updated concurrency ([7a1b1ff](https://github.com/mwashburn160/pipeline-builder/commit/7a1b1ff))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.5 (2026-02-26)
 
 ### 🩹 Fixes
