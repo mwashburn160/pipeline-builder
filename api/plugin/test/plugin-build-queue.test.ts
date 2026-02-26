@@ -324,7 +324,7 @@ describe('plugin-build-queue', () => {
       expect(mockRmSync).toHaveBeenCalledWith('/tmp/build-ctx', { recursive: true, force: true });
     });
 
-    it('cleans up temp directory after build failure', async () => {
+    it('does not clean up temp directory on non-final attempt failure (preserves for retry)', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
@@ -333,7 +333,24 @@ describe('plugin-build-queue', () => {
       mockBuildAndPush.mockRejectedValue(new Error('Docker build failed'));
       mockExistsSync.mockReturnValue(true);
 
+      // attemptsMade=1, attempts=2 → not final, should preserve context for retry
       await expect(capturedWorkerProcessor!(makeJob(makeJobData()))).rejects.toThrow('Docker build failed');
+
+      expect(mockRmSync).not.toHaveBeenCalled();
+    });
+
+    it('cleans up temp directory after final attempt failure', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+
+      queueModule.startWorker(sse, quota);
+
+      mockBuildAndPush.mockRejectedValue(new Error('Docker build failed'));
+      mockExistsSync.mockReturnValue(true);
+
+      // attemptsMade=2 >= attempts=2 → final attempt, should clean up
+      const job = { ...makeJob(makeJobData()), attemptsMade: 2 };
+      await expect(capturedWorkerProcessor!(job)).rejects.toThrow('Docker build failed');
 
       expect(mockRmSync).toHaveBeenCalledWith('/tmp/build-ctx', { recursive: true, force: true });
     });

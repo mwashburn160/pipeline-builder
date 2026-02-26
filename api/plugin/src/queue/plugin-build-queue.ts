@@ -156,6 +156,17 @@ export function waitForWorkerReady(timeoutMs = 10000): Promise<void> {
   });
 }
 
+/** Remove the temporary build context directory. */
+function cleanupContextDir(dir: string): void {
+  if (dir && fs.existsSync(dir)) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      logger.debug('Temp dir cleanup failed', { path: dir, error: errorMessage(err) });
+    }
+  }
+}
+
 /**
  * Start the BullMQ worker that processes plugin Docker builds.
  * Called once from plugin service index.ts after createApp().
@@ -221,21 +232,22 @@ export function startWorker(
           fullImage,
         });
 
+        // Clean up on success
+        cleanupContextDir(buildRequest.contextDir);
+
         return { pluginId: result.id, fullImage };
-      } finally {
-        // Clean up temp build context
-        if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) {
-          try {
-            fs.rmSync(buildRequest.contextDir, { recursive: true, force: true });
-          } catch (err) {
-            logger.debug('Temp dir cleanup failed', { path: buildRequest.contextDir, error: errorMessage(err) });
-          }
+      } catch (err) {
+        // Only clean up build context after final attempt (so retries can reuse it)
+        const maxAttempts = job.opts.attempts ?? 1;
+        if (job.attemptsMade >= maxAttempts) {
+          cleanupContextDir(buildRequest.contextDir);
         }
+        throw err;
       }
     },
     {
       connection: getConnection(),
-      concurrency: 2, // process up to 2 builds simultaneously
+      concurrency: 1, // sequential builds to avoid buildx builder conflicts
     },
   );
 
@@ -272,7 +284,7 @@ export function startWorker(
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   });
 
-  logger.info('Plugin build worker started', { concurrency: 2 });
+  logger.info('Plugin build worker started', { concurrency: 1 });
   return worker;
 }
 

@@ -55,7 +55,7 @@ images:
   - name: ghcr.io/mwashburn160/pipeline
     newTag: "1.20.4"
   - name: ghcr.io/mwashburn160/plugin
-    newTag: "1.20.4"
+    newTag: "1.20.5"
   - name: ghcr.io/mwashburn160/message
     newTag: "1.2.4"
   - name: ghcr.io/mwashburn160/quota
