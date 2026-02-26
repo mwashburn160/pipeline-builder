@@ -1,7 +1,8 @@
-# Python 3.12 Plugin — Minimal Python build environment
+# Python Plugin — Minimal Python build environment
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 
-FROM public.ecr.aws/docker/library/python:3.12-slim
+ARG PYTHON_VERSION=3.12
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
 
 # System dependencies for builds
 RUN apt-get update && apt-get install -y --no-install-recommends \

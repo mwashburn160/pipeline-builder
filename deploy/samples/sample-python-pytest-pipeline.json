@@ -44,6 +44,28 @@
         "WORKDIR": "./",
         "ENABLE_CACHE": true
       }
-    }
+    },
+    "stages": [
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "python-pytest",
+              "filter": {
+                "name": "python-pytest",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "PYTHON_VERSION": "3.12"
+            },
+            "position": "pre"
+          }
+        ]
+      }
+    ]
   }
 }
