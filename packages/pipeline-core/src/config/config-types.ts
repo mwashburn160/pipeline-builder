@@ -1,3 +1,4 @@
+import type { QuotaTier } from '@mwashburn160/api-core';
 import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
@@ -15,6 +16,7 @@ export interface AppConfig {
   readonly pluginBuild: PluginBuildConfig;
   readonly aws: AWSConfig;
   readonly rateLimit: RateLimitConfig;
+  readonly billing: BillingConfig;
 }
 
 export interface ServerConfig {
@@ -94,4 +96,28 @@ export interface RateLimitConfig {
   readonly windowMs: number;
   readonly legacyHeaders: boolean;
   readonly standardHeaders: boolean;
+}
+
+/** Price configuration for a single billing plan (in cents). */
+export interface BillingPlanPrices {
+  readonly monthly: number;
+  readonly annual: number;
+}
+
+/** Full billing plan definition used for seeding and runtime configuration. */
+export interface BillingPlanConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly tier: QuotaTier;
+  readonly prices: BillingPlanPrices;
+  readonly features: readonly string[];
+  readonly isActive: boolean;
+  readonly isDefault: boolean;
+  readonly sortOrder: number;
+}
+
+/** Billing plans configuration. */
+export interface BillingConfig {
+  readonly plans: readonly BillingPlanConfig[];
 }

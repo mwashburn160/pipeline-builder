@@ -1,5 +1,6 @@
 import { Duration } from 'aws-cdk-lib';
 import type { Algorithm } from 'jsonwebtoken';
+import { loadBillingConfig } from './billing-config';
 import type { AppConfig } from './config-types';
 import {
   loadDatabaseConfig,
@@ -75,6 +76,7 @@ export class Config {
       pluginBuild: loadPluginBuildConfig(),
       aws: loadAWSConfig(),
       rateLimit: loadRateLimitConfig(),
+      billing: loadBillingConfig(),
     };
   }
 

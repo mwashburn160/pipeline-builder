@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.25.8';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.26.8';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.26.8';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.24.8';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -755,7 +755,9 @@ quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * - Admin routes for subscription and event management
  *
  * Features:
- * - Plan management with tiered pricing (free, pro, enterprise)
+ * - Plan definitions centralized in Config (pipeline-core/billing-config.ts)
+ * - Pricing, descriptions, and features configurable via environment variables
+ * - Plan management with tiered pricing (developer, pro, unlimited)
  * - Subscription lifecycle (create, upgrade, downgrade, cancel, reactivate)
  * - AWS Marketplace SaaS integration (ResolveCustomer, GetEntitlements)
  * - Billing event tracking and audit trail
@@ -763,7 +765,7 @@ quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  *
  * @dependency api-core - Shared API utilities
  * @dependency api-server - Express infrastructure
- * @dependency pipeline-core - Configuration
+ * @dependency pipeline-core - Configuration and billing plan definitions
  * @dependency express - Web framework
  * @dependency mongoose - MongoDB ODM for billing data
  * @dependency aws-sdk/client-marketplace-metering - AWS Marketplace ResolveCustomer

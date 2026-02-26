@@ -31,9 +31,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.25.8",
-    "@mwashburn160/api-server": "1.24.8",
-    "@mwashburn160/pipeline-core": "1.26.8",
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-server": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "clsx": "^2.1.1",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",

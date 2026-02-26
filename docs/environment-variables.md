@@ -271,10 +271,34 @@ Used by the plugin service for BullMQ Docker build queue.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BILLING_ENABLED` | `true` | Enable/disable billing service |
+| `BILLING_ENABLED` | `false` | Enable/disable billing service |
 | `BILLING_SERVICE_HOST` | `billing` | Billing service hostname |
 | `BILLING_SERVICE_PORT` | `3000` | Billing service port |
 | `BILLING_PROVIDER` | `stub` | Provider: `stub` (local dev) or `aws-marketplace` |
+
+### Billing Plan Pricing (in cents)
+
+Plan definitions are centralized in `pipeline-core/src/config/billing-config.ts` and seeded into MongoDB on startup. Prices are the most likely values to change per environment.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BILLING_PLAN_DEVELOPER_MONTHLY` | `0` | Developer plan monthly price (cents) |
+| `BILLING_PLAN_DEVELOPER_ANNUAL` | `0` | Developer plan annual price (cents) |
+| `BILLING_PLAN_PRO_MONTHLY` | `799` | Pro plan monthly price (cents) |
+| `BILLING_PLAN_PRO_ANNUAL` | `7990` | Pro plan annual price (cents) |
+| `BILLING_PLAN_UNLIMITED_MONTHLY` | `1199` | Unlimited plan monthly price (cents) |
+| `BILLING_PLAN_UNLIMITED_ANNUAL` | `11990` | Unlimited plan annual price (cents) |
+
+### Billing Plan Overrides (Optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BILLING_PLAN_DEVELOPER_DESCRIPTION` | *(code default)* | Developer plan description |
+| `BILLING_PLAN_PRO_DESCRIPTION` | *(code default)* | Pro plan description |
+| `BILLING_PLAN_UNLIMITED_DESCRIPTION` | *(code default)* | Unlimited plan description |
+| `BILLING_PLAN_DEVELOPER_FEATURES` | *(code default)* | Developer features (JSON array) |
+| `BILLING_PLAN_PRO_FEATURES` | *(code default)* | Pro features (JSON array) |
+| `BILLING_PLAN_UNLIMITED_FEATURES` | *(code default)* | Unlimited features (JSON array) |
 
 ### AWS Marketplace (when `BILLING_PROVIDER=aws-marketplace`)
 
