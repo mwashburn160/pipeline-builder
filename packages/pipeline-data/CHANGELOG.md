@@ -1,3 +1,13 @@
+## 1.26.7 (2026-02-26)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.26.6 ([da986ea](https://github.com/mwashburn160/pipeline-builder/commit/da986ea))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.26.6 (2026-02-26)
 
 ### 🩹 Fixes

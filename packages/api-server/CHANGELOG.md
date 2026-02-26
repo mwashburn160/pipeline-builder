@@ -1,3 +1,17 @@
+## 1.24.7 (2026-02-26)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.26.6 ([da986ea](https://github.com/mwashburn160/pipeline-builder/commit/da986ea))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.26.7
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.6 (2026-02-26)
 
 ### 🩹 Fixes
