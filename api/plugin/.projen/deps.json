@@ -117,7 +117,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "workspace:*",
+      "version": "1.26.3",
       "type": "runtime"
     },
     {
