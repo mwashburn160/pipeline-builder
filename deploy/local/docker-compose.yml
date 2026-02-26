@@ -640,6 +640,7 @@ services:
       DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
 
   pipeline:
     restart: always

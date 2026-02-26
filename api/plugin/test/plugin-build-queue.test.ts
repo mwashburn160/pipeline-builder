@@ -57,6 +57,7 @@ jest.mock('../src/helpers/docker-build', () => ({
 
 const mockDbTransaction = jest.fn();
 jest.mock('@mwashburn160/pipeline-core', () => ({
+  Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
   db: { transaction: mockDbTransaction },
   schema: { plugin: {} },
   AccessModifier: {},
@@ -187,6 +188,7 @@ describe('plugin-build-queue', () => {
     }));
 
     jest.mock('@mwashburn160/pipeline-core', () => ({
+      Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
       db: { transaction: mockDbTransaction },
       schema: { plugin: {} },
       AccessModifier: {},

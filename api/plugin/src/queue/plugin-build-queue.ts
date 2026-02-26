@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import { createLogger, errorMessage, extractDbError } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
-import { db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
+import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
@@ -177,6 +177,8 @@ export function startWorker(
 ): Worker<PluginBuildJobData> {
   if (worker) return worker;
 
+  const { concurrency } = Config.get().pluginBuild;
+
   worker = new Worker<PluginBuildJobData>(
     QUEUE_NAME,
     async (job: Job<PluginBuildJobData>) => {
@@ -247,7 +249,7 @@ export function startWorker(
     },
     {
       connection: getConnection(),
-      concurrency: 1, // sequential builds to avoid buildx builder conflicts
+      concurrency,
     },
   );
 
@@ -284,7 +286,7 @@ export function startWorker(
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   });
 
-  logger.info('Plugin build worker started', { concurrency: 1 });
+  logger.info('Plugin build worker started', { concurrency });
   return worker;
 }
 

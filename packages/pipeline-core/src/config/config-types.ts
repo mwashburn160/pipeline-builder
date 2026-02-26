@@ -12,6 +12,7 @@ export interface AppConfig {
   readonly auth: AuthConfig;
   readonly database: DatabaseConfig;
   readonly registry: RegistryConfig;
+  readonly pluginBuild: PluginBuildConfig;
   readonly aws: AWSConfig;
   readonly rateLimit: RateLimitConfig;
 }
@@ -64,6 +65,11 @@ export interface RegistryConfig {
   readonly token: string;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
+}
+
+export interface PluginBuildConfig {
+  /** Max concurrent Docker plugin builds (BullMQ worker concurrency). */
+  readonly concurrency: number;
 }
 
 export interface AWSConfig {

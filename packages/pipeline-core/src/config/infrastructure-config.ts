@@ -1,7 +1,7 @@
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import type { AWSConfig, RegistryConfig } from './config-types';
+import type { AWSConfig, PluginBuildConfig, RegistryConfig } from './config-types';
 import { getComputeType } from '../core/pipeline-helpers';
 
 /**
@@ -14,6 +14,15 @@ export function loadRegistryConfig(): RegistryConfig {
     user: process.env.IMAGE_REGISTRY_USER || 'admin',
     token: process.env.IMAGE_REGISTRY_TOKEN || 'password',
     network: process.env.DOCKER_NETWORK || '',
+  };
+}
+
+/**
+ * Load plugin build configuration from environment variables
+ */
+export function loadPluginBuildConfig(): PluginBuildConfig {
+  return {
+    concurrency: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY || '1', 10),
   };
 }
 

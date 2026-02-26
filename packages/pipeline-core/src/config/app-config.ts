@@ -7,6 +7,7 @@ import {
 } from './database-config';
 import {
   loadRegistryConfig,
+  loadPluginBuildConfig,
   loadAWSConfig,
 } from './infrastructure-config';
 import {
@@ -71,6 +72,7 @@ export class Config {
       auth: loadAuthConfig(),
       database: loadDatabaseConfig(),
       registry: loadRegistryConfig(),
+      pluginBuild: loadPluginBuildConfig(),
       aws: loadAWSConfig(),
       rateLimit: loadRateLimitConfig(),
     };
