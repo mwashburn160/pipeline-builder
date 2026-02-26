@@ -1,3 +1,13 @@
+## 1.25.0 (2026-02-26)
+
+### 🚀 Features
+
+- added redis ([24bfe36](https://github.com/mwashburn160/pipeline-builder/commit/24bfe36))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.4 (2026-02-25)
 
 ### 🩹 Fixes

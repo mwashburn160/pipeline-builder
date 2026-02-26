@@ -1,3 +1,17 @@
+## 1.22.0 (2026-02-26)
+
+### 🚀 Features
+
+- added redis ([24bfe36](https://github.com/mwashburn160/pipeline-builder/commit/24bfe36))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.26.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.21.4 (2026-02-25)
 
 ### 🩹 Fixes
