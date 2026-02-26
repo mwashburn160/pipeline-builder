@@ -673,6 +673,10 @@ pnpm build && pnpm test
 
 Pipeline Builder provides 50+ strongly-typed metadata keys for CodePipeline, CodeBuild, and network configuration. See [docs/metadata-keys.md](docs/metadata-keys.md) for the full reference.
 
+## Environment Variables
+
+Complete reference for all environment variables across every service, package, and deployment target: [docs/environment-variables.md](docs/environment-variables.md).
+
 ## API Reference
 
 Full endpoint documentation, query parameters, and curl examples: [docs/api-reference.md](docs/api-reference.md).
