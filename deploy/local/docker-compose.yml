@@ -200,7 +200,7 @@ services:
     image: 'redis:7-alpine'
     container_name: redis
     restart: always
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 128mb --maxmemory-policy noeviction
     networks:
       - backend-network
     healthcheck:
@@ -505,7 +505,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.21.6'
+    image: 'ghcr.io/mwashburn160/frontend:1.22.4'
     container_name: frontend
     restart: always
     networks:
@@ -539,7 +539,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.20.7'
+    image: 'ghcr.io/mwashburn160/platform:1.21.4'
     container_name: platform
     depends_on:
       mongodb:
@@ -616,7 +616,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.19.4'
+    image: 'ghcr.io/mwashburn160/plugin:1.20.4'
     container_name: plugin
     depends_on:
       postgres:
@@ -646,7 +646,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.19.4'
+    image: 'ghcr.io/mwashburn160/pipeline:1.20.4'
     container_name: pipeline
     depends_on:
       postgres:
@@ -663,7 +663,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/message:1.1.4'
+    image: 'ghcr.io/mwashburn160/message:1.2.4'
     container_name: message
     depends_on:
       postgres:
@@ -679,7 +679,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.18.5'
+    image: 'ghcr.io/mwashburn160/quota:1.19.4'
     container_name: quota
     depends_on:
       mongodb:
@@ -702,7 +702,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:1.3.4'
+    image: 'ghcr.io/mwashburn160/billing:1.4.4'
     container_name: billing
     depends_on:
       mongodb:

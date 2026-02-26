@@ -80,10 +80,26 @@ let worker: Worker<PluginBuildJobData> | null = null;
 
 function getConnection(): IORedis {
   if (!connection) {
+    const host = process.env.REDIS_HOST || 'localhost';
+    const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+
     connection = new IORedis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      host,
+      port,
       maxRetriesPerRequest: null, // Required by BullMQ
+    });
+
+    connection.on('connect', () => {
+      logger.info('Redis connected', { host, port });
+    });
+    connection.on('error', (err) => {
+      logger.error('Redis connection error', { error: err.message, host, port });
+    });
+    connection.on('close', () => {
+      logger.warn('Redis connection closed', { host, port });
+    });
+    connection.on('reconnecting', () => {
+      logger.info('Redis reconnecting', { host, port });
     });
   }
   return connection;
@@ -112,6 +128,33 @@ export function getQueue(): Queue<PluginBuildJobData> {
 // ---------------------------------------------------------------------------
 // Worker
 // ---------------------------------------------------------------------------
+
+/** Returns true if the worker is connected and ready to process jobs. */
+export function isWorkerReady(): boolean {
+  if (!worker || !connection) return false;
+  return connection.status === 'ready';
+}
+
+/**
+ * Wait for the BullMQ worker to connect to Redis.
+ * Resolves when ready, rejects after timeout.
+ */
+export function waitForWorkerReady(timeoutMs = 10000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (isWorkerReady()) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      reject(new Error(`Worker not ready after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    worker?.on('ready', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 /**
  * Start the BullMQ worker that processes plugin Docker builds.
@@ -219,6 +262,14 @@ export function startWorker(
 
   worker.on('error', (error) => {
     logger.error('Worker error', { error: error.message });
+  });
+
+  worker.on('ready', () => {
+    logger.info('Plugin build worker ready (Redis connected)');
+  });
+
+  worker.on('completed', (job) => {
+    logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   });
 
   logger.info('Plugin build worker started', { concurrency: 2 });

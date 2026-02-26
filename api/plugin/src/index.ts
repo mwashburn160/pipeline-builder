@@ -18,7 +18,7 @@
 import { createLogger } from '@mwashburn160/api-core';
 import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
-import { startWorker, shutdownQueue } from './queue/plugin-build-queue';
+import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createGeneratePluginRoutes } from './routes/generate-plugin';
 import { createReadPluginRoutes } from './routes/read-plugins';
@@ -55,5 +55,6 @@ logger.info('All /plugins routes registered');
 void runServer(app, {
   name: 'Plugin Service',
   sseManager,
+  onBeforeStart: () => waitForWorkerReady(),
   onShutdown: () => shutdownQueue(),
 });
