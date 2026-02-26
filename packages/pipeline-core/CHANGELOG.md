@@ -1,3 +1,17 @@
+## 1.27.4 (2026-02-26)
+
+### 🩹 Fixes
+
+- upgraded version ([752e2a1](https://github.com/mwashburn160/pipeline-builder/commit/752e2a1))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.27.4
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.27.3 (2026-02-26)
 
 ### 🩹 Fixes
