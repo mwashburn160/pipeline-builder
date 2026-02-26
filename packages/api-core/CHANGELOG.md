@@ -1,3 +1,13 @@
+## 1.26.3 (2026-02-26)
+
+### 🩹 Fixes
+
+- updatedd response format ([8f29012](https://github.com/mwashburn160/pipeline-builder/commit/8f29012))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.26.2 (2026-02-26)
 
 This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.

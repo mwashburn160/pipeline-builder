@@ -1,3 +1,18 @@
+## 1.27.3 (2026-02-26)
+
+### 🩹 Fixes
+
+- updatedd response format ([8f29012](https://github.com/mwashburn160/pipeline-builder/commit/8f29012))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.27.3
+- Updated @mwashburn160/api-core to 1.26.3
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.27.2 (2026-02-26)
 
 ### 🩹 Fixes
