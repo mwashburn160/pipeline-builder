@@ -97,6 +97,8 @@ spec:
               value: "redis"
             - name: REDIS_PORT
               value: "6379"
+            - name: PLUGIN_BUILD_CONCURRENCY
+              value: "1"
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
