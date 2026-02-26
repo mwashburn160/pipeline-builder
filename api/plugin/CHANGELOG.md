@@ -1,3 +1,14 @@
+## 1.20.5 (2026-02-26)
+
+### 🩹 Fixes
+
+- updated redis unit tests ([2de07ea](https://github.com/mwashburn160/pipeline-builder/commit/2de07ea))
+- updated redis ([3df82e9](https://github.com/mwashburn160/pipeline-builder/commit/3df82e9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.20.4 (2026-02-26)
 
 ### 🩹 Fixes
