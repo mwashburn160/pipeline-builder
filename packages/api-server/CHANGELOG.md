@@ -1,3 +1,22 @@
+## 1.25.0 (2026-02-26)
+
+### 🚀 Features
+
+- added plans config ([5d35628](https://github.com/mwashburn160/pipeline-builder/commit/5d35628))
+
+### 🩹 Fixes
+
+- upgraded api-server=1.24.8 ([794b621](https://github.com/mwashburn160/pipeline-builder/commit/794b621))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.27.0
+- Updated @mwashburn160/api-core to 1.26.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.8 (2026-02-26)
 
 ### 🩹 Fixes
