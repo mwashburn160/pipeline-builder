@@ -1,3 +1,13 @@
+## 1.25.5 (2026-02-26)
+
+### 🩹 Fixes
+
+- updated app-config ([ad287bf](https://github.com/mwashburn160/pipeline-builder/commit/ad287bf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.25.4 (2026-02-26)
 
 ### 🩹 Fixes

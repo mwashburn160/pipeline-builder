@@ -1,3 +1,17 @@
+## 1.26.5 (2026-02-26)
+
+### 🩹 Fixes
+
+- updated app-config ([ad287bf](https://github.com/mwashburn160/pipeline-builder/commit/ad287bf))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.25.5
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.26.4 (2026-02-26)
 
 ### 🩹 Fixes
