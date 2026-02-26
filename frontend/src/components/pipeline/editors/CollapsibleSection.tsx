@@ -1,13 +1,25 @@
 import { useState, ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+/** Props for {@link CollapsibleSection}. */
 interface CollapsibleSectionProps {
+  /** Section heading text. */
   title: string;
+  /** Whether the section starts expanded (defaults to false). */
   defaultOpen?: boolean;
+  /** Content rendered inside the collapsible body. */
   children: ReactNode;
+  /** When true, displays a "configured" badge next to the title. */
   hasContent?: boolean;
 }
 
+/**
+ * Collapsible form section with a toggle header.
+ *
+ * Renders a bordered container with a clickable header that expands/collapses
+ * the child content. Shows a "configured" badge when hasContent is true to
+ * indicate that the section has non-default values.
+ */
 export default function CollapsibleSection({ title, defaultOpen = false, children, hasContent }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 

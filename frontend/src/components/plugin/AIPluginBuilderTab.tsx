@@ -9,11 +9,12 @@
  * saves the plugin to the database.
  */
 
-import { useState } from 'react';
-import { Sparkles, ChevronDown, ChevronUp, Rocket } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Sparkles, ChevronDown, ChevronUp, Rocket, CheckCircle, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { useAIProviders } from '@/hooks/useAIProviders';
+import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
 
 /** Props for the AIPluginBuilderTab component. */
@@ -42,6 +43,7 @@ interface GeneratedConfig {
   env?: Record<string, string>;
 }
 
+/** AI-powered plugin builder that generates config and Dockerfile from a natural language prompt. */
 export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -56,7 +58,21 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   // Access level
   const [access, setAccess] = useState<'public' | 'private'>('private');
 
+  // Build queue tracking
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
+
   const ai = useAIProviders(() => api.getPluginAIProviders());
+
+  // Auto-complete on successful build
+  useEffect(() => {
+    if (buildStatus === 'completed') {
+      setSuccess(`Plugin "${generatedConfig?.name}" deployed successfully!`);
+      onCreated();
+      setTimeout(() => onClose(), 2000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildStatus]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -96,6 +112,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
 
     setError(null);
     setSuccess(null);
+    setRequestId(null);
     setDeploying(true);
 
     try {
@@ -105,7 +122,11 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         accessModifier: access,
       });
 
-      if (response.success) {
+      if (response.statusCode === 202 && response.requestId) {
+        // Build queued — start listening for SSE events
+        setRequestId(response.requestId);
+      } else if (response.success) {
+        // Fallback: synchronous response
         setSuccess(`Plugin "${generatedConfig.name}" deployed successfully!`);
         onCreated();
         setTimeout(() => onClose(), 2000);
@@ -118,7 +139,8 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
     }
   };
 
-  const isWorking = generating || deploying;
+  const isBuilding = requestId !== null && buildStatus === 'building';
+  const isWorking = generating || deploying || isBuilding;
 
   if (ai.loading) {
     return (
@@ -247,7 +269,41 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       {/* Success */}
       {success && (
         <div className="alert-success">
-          <p>{success}</p>
+          <p className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
+            {success}
+          </p>
+        </div>
+      )}
+
+      {/* Build failure */}
+      {buildStatus === 'failed' && lastEvent && (
+        <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+          <p className="text-sm text-red-800 dark:text-red-300 flex items-center gap-2">
+            <XCircle className="w-4 h-4" />
+            {lastEvent.message}
+          </p>
+        </div>
+      )}
+
+      {/* Build progress log */}
+      {requestId && events.length > 0 && (
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 max-h-48 overflow-y-auto">
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Build Log</p>
+          {events.map((event, i) => (
+            <div key={i} className={`text-xs font-mono py-0.5 ${
+              event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
+              event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
+              'text-gray-600 dark:text-gray-400'
+            }`}>
+              {event.message}
+            </div>
+          ))}
+          {isBuilding && (
+            <div className="flex items-center gap-2 mt-1 text-xs text-blue-600 dark:text-blue-400">
+              <LoadingSpinner size="sm" /> Building Docker image...
+            </div>
+          )}
         </div>
       )}
 
@@ -295,10 +351,10 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
                 disabled={disabled || isWorking}
                 className="btn btn-primary"
               >
-                {deploying ? (
+                {deploying || isBuilding ? (
                   <>
                     <LoadingSpinner size="sm" className="mr-2" />
-                    Building Docker image...
+                    {isBuilding ? 'Building...' : 'Queueing build...'}
                   </>
                 ) : (
                   <>

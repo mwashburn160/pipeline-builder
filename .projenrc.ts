@@ -5,7 +5,7 @@
  * configuration and build tool. It manages:
  * - Monorepo architecture with PNPM workspaces
  * - Core packages (api-core, api-server, pipeline-data, pipeline-core)
- * - Service projects (quota, plugin, pipeline, platform, frontend)
+ * - Service projects (quota, plugin, pipeline, billing, message, platform, frontend)
  * - CLI tool (pipeline-manager)
  * - Build orchestration with Nx
  * - GitHub Actions workflows
@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.24.4';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.25.4';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.25.4';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.23.4';
+let apiServerVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -90,7 +90,7 @@ let root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam'],
+  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env'],
   licensed: true,
   projenrcTs: true,
   jest: false,
@@ -174,12 +174,14 @@ root.addScripts({
  * - Logging infrastructure (Winston)
  * - Error codes and HTTP status constants
  * - Quota service client interface
+ * - Runtime type validation (Zod)
  *
  * All other packages depend on this package for common API functionality.
  *
  * @dependency express - Type definitions for Express Request/Response
  * @dependency jsonwebtoken - JWT token generation and validation
  * @dependency winston - Structured logging
+ * @dependency zod - Runtime type validation and schema definitions
  */
 let api_core = new PackageProject({
   parent: root,
@@ -360,6 +362,7 @@ pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
  * @dependency cors - CORS middleware
  * @dependency jsonwebtoken - JWT authentication
  * @dependency uuid - Request ID generation
+ * @dependency prom-client - Prometheus metrics collection
  */
 let api_server = new PackageProject({
   parent: root,
@@ -486,9 +489,12 @@ manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error'
  * Multi-database platform service for user authentication and organization management:
  *
  * - User registration, login, and JWT token issuance
- * - Organization creation and management
+ * - OAuth authentication (third-party providers)
+ * - Organization creation, management, and member roles
+ * - Invitation system for organization onboarding
  * - Email verification and password reset flows
  * - User profile management
+ * - Pipeline and plugin proxy routes (API gateway)
  * - MongoDB for user/organization data
  * - PostgreSQL for relational data
  *
@@ -510,6 +516,7 @@ manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error'
  * @dependency yaml - Configuration parsing
  * @dependency adm-zip - File archive handling
  * @dependency multer - File upload handling
+ * @dependency prom-client - Prometheus metrics collection
  */
 let platform = new WebTokenProject({
   parent: root,
@@ -599,12 +606,14 @@ platform.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * @dependency lucide-react - Icon library
  * @dependency clsx - Conditional className utility
  * @dependency tailwindcss - Utility-first CSS framework
+ * @dependency framer-motion - Animation and transition library
  */
 let frontend = new FrontEndProject({
   parent: root,
   name: 'frontend',
   outdir: './frontend',
   defaultReleaseBranch: branch,
+  packageManager: root.package.packageManager,
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
  gitignore : ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
@@ -612,9 +621,9 @@ let frontend = new FrontEndProject({
     `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities (npm - yarn project)
     `@mwashburn160/api-server@${apiServerVersion}`,       // Server infrastructure (npm - yarn project)
     `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Pipeline types (npm - yarn project)
-    'next@14.2.0',                                        // React framework
-    'react@18.2.0',                                       // UI library
-    'react-dom@18.2.0',                                   // DOM renderer
+    'next@16.1.6',                                        // React framework
+    'react@19.2.4',                                       // UI library
+    'react-dom@19.2.4',                                   // DOM renderer
     'lucide-react@0.575.0',                               // Icons
     'clsx@^2.1.1',                                        // Conditional classes
     'tailwindcss@4.2.1',                                 // CSS framework
@@ -679,6 +688,7 @@ frontend.addScripts({
  * @dependency jsonwebtoken - JWT authentication
  * @dependency mongoose - MongoDB ODM for quota data
  * @dependency winston - Structured logging
+ * @dependency zod - Input validation
  */
 let quota = new FunctionProject({
   parent: root,
@@ -728,7 +738,7 @@ quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 /**
  * Billing service (billing)
  *
- * Manages subscription plans and billing lifecycle:
+ * Manages subscription plans, billing lifecycle, and AWS Marketplace integration:
  *
  * - GET /billing/plans - List available plans
  * - GET /billing/subscriptions - Get current subscription
@@ -736,15 +746,23 @@ quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * - PUT /billing/subscriptions/:id - Change plan or interval
  * - POST /billing/subscriptions/:id/cancel - Cancel subscription
  * - POST /billing/subscriptions/:id/reactivate - Reactivate subscription
+ * - POST /billing/marketplace/resolve - Resolve AWS Marketplace customer token
  * - Admin routes for subscription and event management
  *
- * MongoDB for plan, subscription, and billing event storage.
+ * Features:
+ * - Plan management with tiered pricing (free, pro, enterprise)
+ * - Subscription lifecycle (create, upgrade, downgrade, cancel, reactivate)
+ * - AWS Marketplace SaaS integration (ResolveCustomer, GetEntitlements)
+ * - Billing event tracking and audit trail
+ * - MongoDB for plan, subscription, and billing event storage
  *
  * @dependency api-core - Shared API utilities
  * @dependency api-server - Express infrastructure
  * @dependency pipeline-core - Configuration
  * @dependency express - Web framework
  * @dependency mongoose - MongoDB ODM for billing data
+ * @dependency aws-sdk/client-marketplace-metering - AWS Marketplace ResolveCustomer
+ * @dependency aws-sdk/client-marketplace-entitlement-service - AWS Marketplace GetEntitlements
  */
 let billing = new FunctionProject({
   parent: root,
@@ -799,11 +817,14 @@ billing.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * Manages custom plugins for CI/CD pipelines:
  *
  * - POST /plugins - Upload and register a new plugin (multipart/form-data)
+ * - POST /plugins/generate - AI-powered plugin generation
  * - GET /plugins - List plugins with filtering and pagination
  * - PUT /plugins/:id - Update plugin metadata
  * - DELETE /plugins/:id - Delete a plugin (soft delete)
  *
  * Features:
+ * - AI-powered plugin generation (Anthropic, OpenAI, Google, xAI, Bedrock)
+ * - Asynchronous build queue (BullMQ + Redis) for Docker image builds
  * - Plugin manifest validation (YAML)
  * - Docker image building and pushing to registry
  * - Quota enforcement (checks with quota service)
@@ -824,6 +845,10 @@ billing.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * @dependency yaml - Manifest parsing
  * @dependency adm-zip - Plugin archive extraction
  * @dependency multer - File upload handling
+ * @dependency ai - Vercel AI SDK for multi-provider LLM integration
+ * @dependency zod - Schema validation for structured AI output
+ * @dependency bullmq - Redis-backed job queue for async builds
+ * @dependency ioredis - Redis client (required by BullMQ)
  */
 let plugin = new FunctionProject({
   parent: root,
@@ -855,6 +880,8 @@ let plugin = new FunctionProject({
     '@ai-sdk/xai@3.0.59',                                 // xAI (Grok) provider
     '@ai-sdk/amazon-bedrock@4.0.64',                      // Amazon Bedrock provider
     'zod@4.3.6',                                          // Schema validation (for structured output)
+    'bullmq@5.34.8',                                      // Job queue (Redis-backed)
+    'ioredis@5.6.1',                                      // Redis client (required by BullMQ)
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types
@@ -889,11 +916,13 @@ plugin.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * Manages CI/CD pipeline configurations and metadata:
  *
  * - POST /pipelines - Create a new pipeline
+ * - POST /pipelines/generate - AI-powered pipeline generation
  * - GET /pipelines - List pipelines with filtering and pagination
  * - PUT /pipelines/:id - Update pipeline configuration
  * - DELETE /pipelines/:id - Delete a pipeline (soft delete)
  *
  * Features:
+ * - AI-powered pipeline generation (Anthropic, OpenAI, Google, xAI, Bedrock)
  * - Pipeline metadata storage (name, description, configuration)
  * - YAML configuration validation
  * - Quota enforcement (checks with quota service)
@@ -916,6 +945,8 @@ plugin.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * @dependency drizzle-orm - PostgreSQL ORM
  * @dependency uuid - UUID generation
  * @dependency yaml - Configuration parsing
+ * @dependency ai - Vercel AI SDK for multi-provider LLM integration
+ * @dependency zod - Schema validation for structured AI output
  */
 let pipeline = new FunctionProject({
   parent: root,
@@ -1003,7 +1034,7 @@ pipeline.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
  * @dependency uuid - UUID generation
  * @dependency zod - Input validation
  */
-let msg = new FunctionProject({
+let message = new FunctionProject({
   parent: root,
   name: 'message',
   defaultReleaseBranch: branch,
@@ -1032,14 +1063,14 @@ let msg = new FunctionProject({
 /**
  * Add npm scripts for the message service.
  */
-msg.addScripts({
+message.addScripts({
   'start': 'node lib/index.js',
   'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-message}:$(jq -r .version package.json) .',
   'docker:tag': 'docker image tag ${PROJECT_NAME:-message}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)',
   'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)'
 });
 // Disable problematic ESLint rules
-msg.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+message.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
 // Workspace Configuration

@@ -3,19 +3,27 @@ import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon 
 import api from '@/lib/api';
 import type { Message } from '@/types';
 
+/** Props for the ThreadView component. */
 interface ThreadViewProps {
+  /** The root message that starts this conversation thread. */
   rootMessage: Message;
+  /** The current user's organization ID, used to distinguish sent vs. received messages. */
   currentOrgId: string;
+  /** Callback to navigate back to the message list (mobile). */
   onBack: () => void;
+  /** Callback to mark a single message as read by ID. */
   onMarkAsRead: (id: string) => void;
+  /** Callback to mark the entire thread as read when opened. */
   onThreadRead: (id: string) => void;
 }
 
+/** Formats a date string as a locale-specific date/time string. */
 function formatDateTime(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleString();
 }
 
+/** Colored badge indicating message priority; renders nothing for "normal" priority. */
 function PriorityBadge({ priority }: { priority: string }) {
   if (priority === 'normal') return null;
   const colors = priority === 'urgent'
@@ -31,6 +39,7 @@ function PriorityBadge({ priority }: { priority: string }) {
   );
 }
 
+/** Chat-style thread view displaying a conversation with reply input. */
 export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, onThreadRead }: ThreadViewProps) {
   const [thread, setThread] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +99,7 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <button
           onClick={onBack}
-          className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="lg:hidden p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-gray-500" />
         </button>
@@ -101,13 +110,17 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
             ) : (
               <MessageCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
             )}
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
-              {rootMessage.subject}
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {rootMessage.messageType === 'announcement'
+                ? 'Announcement'
+                : rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase()
+                  ? rootMessage.recipientOrgId
+                  : rootMessage.orgId}
             </h2>
             <PriorityBadge priority={rootMessage.priority} />
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {rootMessage.messageType === 'announcement' ? 'Announcement' : 'Conversation'} with {rootMessage.orgId === currentOrgId ? rootMessage.recipientOrgId : rootMessage.orgId}
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+            {rootMessage.subject}
           </p>
         </div>
       </div>

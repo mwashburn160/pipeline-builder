@@ -3,12 +3,12 @@
  * @description Express route handlers implementing business logic for all API endpoints.
  */
 
-export * from './auth.controller';
-export * from './oauth.controller';
-export * from './user.controller';
-export * from './organization.controller';
-export * from './organization-members.controller';
-export * from './invitation.controller';
-export * from './plugin.controller';
-export * from './pipeline.controller';
-export * from './log.controller';
+export * from './auth';
+export * from './oauth';
+export * from './user';
+export * from './organization';
+export * from './organization-members';
+export * from './invitation';
+export * from './plugin';
+export * from './pipeline';
+export * from './log';

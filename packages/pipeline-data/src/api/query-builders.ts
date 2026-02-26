@@ -153,16 +153,3 @@ export function buildMessageConditions(
 
   return conditions;
 }
-
-/**
- * Parse pagination parameters from filter
- */
-export function parsePagination(
-  filter: { limit?: number | string; offset?: number | string },
-  defaultLimit: number = 50,
-): { limit: number; offset: number } {
-  const limit = filter.limit ? parseInt(String(filter.limit)) : defaultLimit;
-  const offset = filter.offset ? parseInt(String(filter.offset)) : 0;
-
-  return { limit, offset };
-}

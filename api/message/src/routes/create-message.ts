@@ -1,3 +1,11 @@
+/**
+ * @module routes/create-message
+ * @description Message creation and reply routes (authenticated).
+ *
+ * POST /messages            -- Create a new message (announcement or conversation)
+ * POST /messages/:id/reply  -- Reply to an existing thread
+ */
+
 import {
   sendError,
   sendBadRequest,
@@ -17,11 +25,12 @@ import { messageService } from '../services/message-service';
 type MessageInsert = typeof schema.message.$inferInsert;
 
 /**
- * Create routes for creating messages.
+ * Create the message creation router (authenticated).
  *
- * Routes:
- *   POST /messages        — Create new message (announcement or conversation)
- *   POST /messages/:id/reply — Reply to a thread
+ * Registers:
+ * - POST /messages           -- create a new announcement or conversation
+ * - POST /messages/:id/reply -- reply to an existing thread
+ * @returns Express Router
  */
 export function createCreateMessageRoutes(): Router {
   const router = Router();

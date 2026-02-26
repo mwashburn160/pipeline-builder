@@ -5,39 +5,65 @@ import type { LucideIcon } from 'lucide-react';
 import { LoadingSpinner } from './Loading';
 import { EmptyState } from './EmptyState';
 
+/** Definition for a single table column. */
 export interface Column<T> {
+  /** Unique identifier for the column */
   id: string;
+  /** Header label displayed in the table head */
   header: string;
+  /** Additional CSS classes for the header cell */
   headerClassName?: string;
+  /** Additional CSS classes for each body cell in this column */
   cellClassName?: string;
+  /** Render function that produces the cell content for a given row */
   render: (item: T, index: number) => ReactNode;
+  /** Accessor for the sortable value; when provided, the column becomes sortable */
   sortValue?: (item: T) => string | number | boolean | Date | null | undefined;
+  /** When true, the column is excluded from rendering */
   hidden?: boolean;
 }
 
+/** Props for the DataTable component. */
 export interface DataTableProps<T> {
+  /** Array of items to render as rows */
   data: T[];
+  /** Column definitions controlling headers, rendering, and sorting */
   columns: Column<T>[];
+  /** When true, a loading spinner is shown instead of the table */
   isLoading: boolean;
+  /** Configuration for the empty state displayed when data is empty */
   emptyState: {
     icon: LucideIcon;
     title: string;
     description: string;
     action?: ReactNode;
   };
+  /** Function to derive a unique React key for each row */
   getRowKey?: (item: T, index: number) => string;
+  /** Whether rows animate in with a staggered fade; defaults to true */
   animated?: boolean;
+  /** Delay increment (seconds) between each row's entrance animation */
   animationDelay?: number;
+  /** Maximum total animation delay (seconds) to cap staggering on large lists */
   maxAnimationDelay?: number;
+  /** Column ID to sort by on initial render */
   defaultSortColumn?: string;
+  /** Initial sort direction; defaults to 'asc' */
   defaultSortDirection?: 'asc' | 'desc';
 }
 
+/** Internal state tracking the currently sorted column and direction. */
 interface SortState {
   columnId: string | null;
   direction: 'asc' | 'desc';
 }
 
+/**
+ * Compares two values for sorting. Handles nulls, strings, dates, booleans, and numbers.
+ * @param a - First value
+ * @param b - Second value
+ * @returns Negative if a < b, positive if a > b, zero if equal
+ */
 function compare(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
   if (a == null) return 1;
@@ -55,6 +81,7 @@ function compare(a: unknown, b: unknown): number {
   return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
 }
 
+/** Sortable data table with loading state, empty state, and optional row entrance animations. */
 export function DataTable<T>({
   data,
   columns,

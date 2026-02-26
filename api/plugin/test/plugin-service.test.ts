@@ -134,7 +134,7 @@ describe('PluginService', () => {
       const result = await service.setDefaultForOrg('org-1', 'plugin-1', 'user-1');
 
       expect(mockSetDefault).toHaveBeenCalledWith(
-        'orgId', 'orgId', 'org-1', 'org-1', 'plugin-1', 'user-1',
+        'org-1', 'org-1', 'plugin-1', 'user-1',
       );
       expect(result).toEqual(updated);
     });
@@ -156,11 +156,4 @@ describe('PluginService', () => {
     });
   });
 
-  describe('buildSearchConditions', () => {
-    it('should return search and access control conditions', () => {
-      const conditions = (service as any).buildSearchConditions('test-query', 'org-1');
-
-      expect(conditions).toHaveLength(2);
-    });
-  });
 });

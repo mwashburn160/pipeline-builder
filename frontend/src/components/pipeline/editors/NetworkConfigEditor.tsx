@@ -1,16 +1,30 @@
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
 import StringArrayEditor from './StringArrayEditor';
 
+/** How the VPC/network is specified. */
 type NetworkType = 'none' | 'subnetIds' | 'vpcId' | 'vpcLookup';
 
+/** Props for {@link NetworkConfigEditor}. */
 interface NetworkConfigEditorProps {
+  /** Currently selected network configuration strategy. */
   networkType: NetworkType;
+  /** Current network configuration values (VPC ID, subnets, tags, etc.). */
   network: FormNetworkConfig;
+  /** Callback when the network type selector changes. */
   onTypeChange: (type: NetworkType) => void;
+  /** Callback when any network configuration field changes. */
   onNetworkChange: (network: FormNetworkConfig) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
 }
 
+/**
+ * Editor for VPC/network configuration used by synth, defaults, and step sections.
+ *
+ * Supports three network modes: direct subnet IDs, VPC by ID (with subnet type selection),
+ * and VPC by tag lookup (with region, name, and tag key-value pairs).
+ * Each mode reveals the relevant fields for that configuration strategy.
+ */
 export default function NetworkConfigEditor({
   networkType, network, onTypeChange, onNetworkChange, disabled,
 }: NetworkConfigEditorProps) {

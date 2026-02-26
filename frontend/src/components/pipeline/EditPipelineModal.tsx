@@ -8,13 +8,26 @@ import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 
+/** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
+  /** The pipeline record to edit (may be partial; full data is fetched on mount). */
   pipeline: Pipeline;
+  /** Whether the current user is a system admin (controls access modifier editing). */
   isSysAdmin: boolean;
+  /** Callback to close the modal. */
   onClose: () => void;
+  /** Callback invoked after a successful save so the parent can refresh its list. */
   onSaved: () => void;
 }
 
+/**
+ * Modal for editing an existing pipeline configuration.
+ *
+ * Fetches the full pipeline record by ID on mount, then renders a wizard-mode
+ * FormBuilderTab pre-populated with the existing configuration. Includes a
+ * read-only System Information section and controls for access modifier,
+ * active/default status.
+ */
 export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
   const [fullPipeline, setFullPipeline] = useState<Pipeline | null>(null);
   const [fetching, setFetching] = useState(true);

@@ -1,12 +1,18 @@
 import { useEffect } from 'react';
 
+/** Props for the Toast component. */
 interface ToastProps {
+  /** Text displayed in the toast notification */
   message: string;
+  /** Visual style variant: green for success, red for error */
   type: 'success' | 'error';
+  /** Callback fired when the toast auto-dismisses */
   onDone: () => void;
+  /** Time in milliseconds before the toast auto-dismisses; defaults to 3500 */
   duration?: number;
 }
 
+/** Fixed-position toast notification that auto-dismisses after a configurable duration. */
 export function Toast({ message, type, onDone, duration = 3500 }: ToastProps) {
   useEffect(() => {
     const t = setTimeout(onDone, duration);

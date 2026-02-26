@@ -225,15 +225,4 @@ describe('MessageService', () => {
     });
   });
 
-  describe('buildSearchConditions', () => {
-    it('should return search and access control conditions', () => {
-      const conditions = (service as any).buildSearchConditions('test', 'org-1');
-      expect(conditions).toHaveLength(2);
-    });
-
-    it('should apply simplified access for system org', () => {
-      const conditions = (service as any).buildSearchConditions('test', 'system');
-      expect(conditions).toHaveLength(2);
-    });
-  });
 });

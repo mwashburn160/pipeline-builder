@@ -117,17 +117,17 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.24.4",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.23.4",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.25.4",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
@@ -138,6 +138,11 @@
     {
       "name": "ai",
       "version": "6.0.99",
+      "type": "runtime"
+    },
+    {
+      "name": "bullmq",
+      "version": "5.34.8",
       "type": "runtime"
     },
     {
@@ -163,6 +168,11 @@
     {
       "name": "helmet",
       "version": "8.1.0",
+      "type": "runtime"
+    },
+    {
+      "name": "ioredis",
+      "version": "5.6.1",
       "type": "runtime"
     },
     {

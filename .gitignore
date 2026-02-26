@@ -41,6 +41,7 @@ db-data
 pgadmin-data
 registry-data
 .aws-sam
+deploy/**/.env
 !/.github/pull_request_template.md
 !/.npmrc
 !/test/

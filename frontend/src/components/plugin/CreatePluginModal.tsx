@@ -27,6 +27,7 @@ interface CreatePluginModalProps {
   onCreated: () => void;
 }
 
+/** Tabbed modal for creating plugins via file upload or AI generation. */
 export default function CreatePluginModal({ canUploadPublic, onClose, onCreated }: CreatePluginModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'ai'>('upload');
 

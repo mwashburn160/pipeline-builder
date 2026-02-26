@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 
+/**
+ * Button that copies the given text to the clipboard and shows a brief "Copied" confirmation.
+ * Requires a secure context (HTTPS or localhost) for the Clipboard API.
+ */
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 

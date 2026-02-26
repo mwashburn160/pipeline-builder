@@ -21,7 +21,6 @@ import {
   updateMemberRoleSchema,
   transferOwnershipSchema,
   updateQuotasSchema,
-  validateBody,
 } from '../src/utils/validation';
 
 // ---------------------------------------------------------------------------
@@ -281,17 +280,3 @@ describe('updateQuotasSchema', () => {
   });
 });
 
-describe('validateBody', () => {
-  it('should return parsed data on valid input', () => {
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
-    const result = validateBody(loginSchema, { identifier: 'user', password: 'pass' }, res);
-    expect(result).toEqual({ identifier: 'user', password: 'pass' });
-  });
-
-  it('should return null and send error on invalid input', () => {
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
-    const result = validateBody(loginSchema, {}, res);
-    expect(result).toBeNull();
-    expect(res.status).toHaveBeenCalledWith(400);
-  });
-});

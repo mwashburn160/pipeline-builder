@@ -1,4 +1,4 @@
-import { ValidationError, NetworkError } from '../src/utils/error.handler';
+import { ValidationError, NetworkError } from '../src/utils/error-handler';
 
 // ---------------------------------------------------------------------------
 // Tests

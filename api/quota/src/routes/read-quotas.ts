@@ -130,6 +130,12 @@ router.get(
 // Shared handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Fetch all quota information for a single organization.
+ * Returns default quotas if the org document does not exist.
+ * @param res - Express response object
+ * @param orgId - Organization ID to look up
+ */
 async function fetchOrgQuotas(res: Response, orgId: string): Promise<void> {
   try {
     const org = await Organization.findById(orgId).select('tier quotas usage name slug').lean();
@@ -146,4 +152,5 @@ async function fetchOrgQuotas(res: Response, orgId: string): Promise<void> {
   }
 }
 
+/** Read-side quota router (mounted at /quotas). */
 export default router;

@@ -7,6 +7,7 @@ import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import api from '@/lib/api';
 
+/** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
   const { user, isReady, isAdmin, refreshUser } = useAuthGuard();
 

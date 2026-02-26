@@ -5,14 +5,27 @@ import CollapsibleSection from './CollapsibleSection';
 import MetadataEditor from './MetadataEditor';
 import PluginNameCombobox from './PluginNameCombobox';
 
+/** Props for {@link PluginOptionsEditor}. */
 interface PluginOptionsEditorProps {
+  /** Current plugin options state (name, alias, filter, metadata). */
   value: FormPluginOptions;
+  /** Callback when any plugin option changes. */
   onChange: (val: FormPluginOptions) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation error message for the plugin name field. */
   error?: string;
+  /** Display label prefix (e.g. "Plugin", "Step Plugin"). */
   label?: string;
 }
 
+/**
+ * Editor for configuring a plugin reference within a pipeline step or synth section.
+ *
+ * Renders a plugin name combobox, alias field, collapsible filter section
+ * (ID, org, access, version, image tag), and collapsible metadata section.
+ * When a plugin is selected from the combobox, filter fields are auto-populated.
+ */
 export default function PluginOptionsEditor({
   value, onChange, disabled, error, label = 'Plugin',
 }: PluginOptionsEditorProps) {
@@ -41,9 +54,7 @@ export default function PluginOptionsEditor({
   const hasFilter = value.filter.id !== '' || value.filter.orgId !== '' ||
     value.filter.accessModifier !== '' || value.filter.isDefault !== '' ||
     value.filter.isActive !== '' || value.filter.name !== '' ||
-    value.filter.namePattern !== '' || value.filter.version !== '' ||
-    value.filter.versionMin !== '' || value.filter.versionMax !== '' ||
-    value.filter.imageTag !== '';
+    value.filter.version !== '' || value.filter.imageTag !== '';
 
   return (
     <div className="space-y-3">
@@ -145,52 +156,17 @@ export default function PluginOptionsEditor({
                 className="input"
               />
             </div>
-            <div>
-              <label className="label">Name Pattern</label>
-              <input
-                type="text"
-                value={value.filter.namePattern}
-                onChange={(e) => updateFilter({ namePattern: e.target.value })}
-                placeholder="e.g. nodejs-*"
-                disabled={disabled}
-                className="input"
-              />
-            </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="label">Version</label>
-              <input
-                type="text"
-                value={value.filter.version}
-                onChange={(e) => updateFilter({ version: e.target.value })}
-                placeholder="e.g. 1.0.0"
-                disabled={disabled}
-                className="input"
-              />
-            </div>
-            <div>
-              <label className="label">Version Min</label>
-              <input
-                type="text"
-                value={value.filter.versionMin}
-                onChange={(e) => updateFilter({ versionMin: e.target.value })}
-                placeholder="e.g. 1.0.0"
-                disabled={disabled}
-                className="input"
-              />
-            </div>
-            <div>
-              <label className="label">Version Max</label>
-              <input
-                type="text"
-                value={value.filter.versionMax}
-                onChange={(e) => updateFilter({ versionMax: e.target.value })}
-                placeholder="e.g. 2.0.0"
-                disabled={disabled}
-                className="input"
-              />
-            </div>
+          <div>
+            <label className="label">Version</label>
+            <input
+              type="text"
+              value={value.filter.version}
+              onChange={(e) => updateFilter({ version: e.target.value })}
+              placeholder="e.g. 1.0.0"
+              disabled={disabled}
+              className="input"
+            />
           </div>
           <div>
             <label className="label">Image Tag</label>

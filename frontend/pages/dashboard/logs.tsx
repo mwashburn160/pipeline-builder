@@ -25,6 +25,11 @@ const LEVEL_COLORS: Record<string, 'green' | 'yellow' | 'red' | 'gray' | 'blue'>
   debug: 'gray',
 };
 
+/**
+ * Formats a timestamp string as a locale-aware date/time string.
+ * @param ts - Timestamp string (ISO 8601 or epoch).
+ * @returns Localized date/time string.
+ */
 function formatTimestamp(ts: string): string {
   try {
     return new Date(ts).toLocaleString();
@@ -33,6 +38,11 @@ function formatTimestamp(ts: string): string {
   }
 }
 
+/**
+ * Extracts the display message from a log entry, preferring parsed message over raw line.
+ * @param entry - A log entry from the API.
+ * @returns The most useful message string for display.
+ */
 function getLogMessage(entry: LogEntry): string {
   const parsed = entry.parsed;
   if (parsed && typeof parsed.message === 'string') return parsed.message;
@@ -40,6 +50,7 @@ function getLogMessage(entry: LogEntry): string {
   return entry.line;
 }
 
+/** Log viewer page. Queries and displays service logs with filtering by service, level, time range, and search text. */
 export default function LogsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [entries, setEntries] = useState<LogEntry[]>([]);

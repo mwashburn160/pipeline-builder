@@ -31,19 +31,19 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/pipelines', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
+app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePipelineRoutes());
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createUpdatePipelineRoutes());
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePipelineRoutes());
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipelineRoutes());
 
 // -- Create route — manages its own middleware (uses 'pipelines' quota) -------
-app.use('/pipelines', createCreatePipelineRoutes(sseManager, quotaService));
+app.use('/pipelines', createCreatePipelineRoutes(quotaService));
 
 // -- AI generation routes — auth + orgId (no quota charge) -------------------
-app.use('/pipelines', createGeneratePipelineRoutes(sseManager));
+app.use('/pipelines', createGeneratePipelineRoutes());
 
 logger.info('All /pipelines routes registered');
 

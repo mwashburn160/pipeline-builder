@@ -1,6 +1,6 @@
 import { createLogger } from '@mwashburn160/api-core';
 
-const log = createLogger('RetryStrategy');
+const logger = createLogger('RetryStrategy');
 
 /**
  * Configuration for connection retry strategy
@@ -48,19 +48,19 @@ export class ConnectionRetryStrategy {
       try {
         const result = await operation();
         if (this.attempts > 0) {
-          log.info('Operation succeeded after retry');
+          logger.info('Operation succeeded after retry');
         }
         return result;
       } catch (error) {
         this.attempts++;
 
         if (this.attempts >= this.config.maxRetries) {
-          log.error(`Max retry attempts (${this.config.maxRetries}) reached`);
+          logger.error(`Max retry attempts (${this.config.maxRetries}) reached`);
           throw error;
         }
 
         const delay = this.calculateBackoff(this.attempts);
-        log.warn(
+        logger.warn(
           `Operation failed (attempt ${this.attempts}/${this.config.maxRetries}), retrying in ${delay}ms...`,
           { error: error instanceof Error ? error.message : String(error) },
         );
@@ -81,30 +81,30 @@ export class ConnectionRetryStrategy {
   async handleConnectionError(error: Error, testConnection: () => Promise<boolean>): Promise<void> {
     this.attempts++;
 
-    log.error(
+    logger.error(
       `Connection error (attempt ${this.attempts}/${this.config.maxRetries}):`,
       error.message,
     );
 
     if (this.attempts < this.config.maxRetries) {
       const delay = this.calculateBackoff(this.attempts);
-      log.info(`Retrying connection in ${delay}ms...`);
+      logger.info(`Retrying connection in ${delay}ms...`);
 
       await this.sleep(delay);
 
       try {
         const isHealthy = await testConnection();
         if (isHealthy) {
-          log.info('Connection restored');
+          logger.info('Connection restored');
           this.attempts = 0; // Reset on successful connection
         } else {
-          log.error('Connection test failed after retry');
+          logger.error('Connection test failed after retry');
         }
       } catch (retryError) {
-        log.error('Retry failed:', retryError);
+        logger.error('Retry failed:', retryError);
       }
     } else {
-      log.error('Max connection retry attempts reached');
+      logger.error('Max connection retry attempts reached');
     }
   }
 

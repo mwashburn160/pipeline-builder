@@ -31,6 +31,11 @@ const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; colo
 // Components
 // ---------------------------------------------------------------------------
 
+/**
+ * Colored badge indicating quota health status (OK, Warning, Critical, Unlimited).
+ * @param used - Current usage count.
+ * @param limit - Quota limit (-1 for unlimited).
+ */
 function StatusBadge({ used, limit }: { used: number; limit: number }) {
   const { label, color } = statusInfo(used, limit);
   return (
@@ -41,6 +46,14 @@ function StatusBadge({ used, limit }: { used: number; limit: number }) {
   );
 }
 
+/**
+ * Card displaying a single quota's usage, progress bar, and optional admin limit editor.
+ * @param quotaKey - The quota type (plugins, pipelines, or apiCalls).
+ * @param quota - Current quota data including used, limit, and reset info.
+ * @param isAdmin - Whether to show the limit editing controls.
+ * @param editVal - The current edited limit value.
+ * @param onEditChange - Callback when the admin changes the limit.
+ */
 function QuotaCard({
   quotaKey,
   quota,
@@ -122,6 +135,13 @@ function QuotaCard({
   );
 }
 
+/**
+ * Sidebar list item for an organization, with a health-color indicator dot.
+ * @param org - Organization identity (id, name, slug).
+ * @param selected - Whether this org is currently selected.
+ * @param healthColor - Tailwind background class for the health indicator dot.
+ * @param onClick - Callback when the item is clicked.
+ */
 function OrgListItem({
   org,
   selected,
@@ -158,6 +178,7 @@ function OrgListItem({
 // Main Page
 // ---------------------------------------------------------------------------
 
+/** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
 export default function QuotasPage() {
   const { user, isReady, isSysAdmin } = useAuthGuard();
 
@@ -181,7 +202,7 @@ export default function QuotasPage() {
     if (!isSysAdmin) return;
     try {
       const res = await api.listOrganizations();
-      const raw = res.organizations || res.data?.organizations || [];
+      const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
       if (orgs.length > 0 && !selectedOrgId) setSelectedOrgId(orgs[0].id);
@@ -418,8 +439,8 @@ export default function QuotasPage() {
               </div>
             )}
 
-            {/* Tier selector */}
-            {!loading && orgData && (
+            {/* Tier selector — system admin only */}
+            {!loading && orgData && isSysAdmin && (
               <div className="mb-8">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                   Plan Tier

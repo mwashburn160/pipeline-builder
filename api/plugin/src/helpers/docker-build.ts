@@ -8,9 +8,12 @@
  * container hostnames (e.g. a private registry on the compose network).
  */
 
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 import { createLogger, errorMessage } from '@mwashburn160/api-core';
 
@@ -69,9 +72,13 @@ function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
 /**
  * Build a Docker image and push it to the configured registry.
  *
+ * Uses async child_process.execFile so the Node.js event loop is not
+ * blocked during long-running Docker builds. This allows the Express
+ * server to continue handling requests while builds run in the background.
+ *
  * @throws Error if the build or push fails
  */
-export function buildAndPush(req: BuildRequest): BuildResult {
+export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   const { contextDir, dockerfile, imageTag, registry } = req;
 
   validateBuildInputs(registry, imageTag);
@@ -80,9 +87,6 @@ export function buildAndPush(req: BuildRequest): BuildResult {
   const fullImage = `${registryAddr}/plugin:${imageTag}`;
 
   // --- Docker config dir (auth + builder state live here) ------------------
-  // All `docker` invocations use `--config <dir>` so auth credentials,
-  // builder references, and TLS settings are isolated to this build and
-  // cleaned up automatically when the temp directory is removed.
   const configDir = path.join(contextDir, '.docker');
   fs.mkdirSync(configDir, { recursive: true });
 
@@ -119,7 +123,7 @@ export function buildAndPush(req: BuildRequest): BuildResult {
       network: registry.network || 'default',
     });
 
-    execFileSync('docker', args, { stdio: 'inherit', timeout: 300_000 });
+    await execFileAsync('docker', args, { timeout: 300_000 });
 
     return { fullImage };
   } finally {

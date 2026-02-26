@@ -11,7 +11,7 @@ import {
   schema,
   type PluginFilter,
 } from '@mwashburn160/pipeline-core';
-import { SQL, or, ilike, eq } from 'drizzle-orm';
+import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -118,32 +118,12 @@ export class PluginService extends CrudService<
     return sortableColumns[sortBy] || null;
   }
 
-  /**
-   * Build search conditions for fuzzy matching
-   *
-   * Searches across: name, description, version
-   *
-   * @param query - Search query string
-   * @param orgId - User's organization ID for access control
-   * @returns Array of SQL conditions
-   */
-  protected buildSearchConditions(query: string, orgId: string): SQL[] {
-    const normalizedQuery = `%${query.toLowerCase()}%`;
+  protected getProjectColumn(): AnyColumn | null {
+    return null; // Plugins are org-scoped, not project-scoped
+  }
 
-    // Search across name, description, and version
-    const searchCondition = or(
-      ilike(schema.plugin.name, normalizedQuery),
-      ilike(schema.plugin.description, normalizedQuery),
-      ilike(schema.plugin.version, normalizedQuery),
-    )!;
-
-    // Add access control (user's org or public)
-    const accessCondition = or(
-      eq(schema.plugin.orgId, orgId.toLowerCase()),
-      eq(schema.plugin.accessModifier, 'public'),
-    )!;
-
-    return [searchCondition, accessCondition];
+  protected getOrgColumn(): AnyColumn {
+    return schema.plugin.orgId;
   }
 
   /**
@@ -162,15 +142,7 @@ export class PluginService extends CrudService<
     pluginId: string,
     userId: string,
   ): Promise<Plugin> {
-    // Plugins use orgId for both project and organization scoping
-    return this.setDefault(
-      'orgId',
-      'orgId',
-      orgId,
-      orgId,
-      pluginId,
-      userId,
-    );
+    return this.setDefault(orgId, orgId, pluginId, userId);
   }
 
   /**

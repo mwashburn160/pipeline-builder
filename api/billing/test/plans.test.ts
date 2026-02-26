@@ -38,7 +38,9 @@ jest.mock('../src/models/plan', () => ({
   },
 }));
 
-import planRouter from '../src/routes/plans';
+import { createReadPlanRoutes } from '../src/routes/read-plans';
+
+const planRouter = createReadPlanRoutes();
 
 // ---------------------------------------------------------------------------
 // Helpers

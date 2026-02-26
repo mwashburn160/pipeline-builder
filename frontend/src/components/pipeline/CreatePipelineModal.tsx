@@ -8,16 +8,31 @@ import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 
+/** Props for {@link CreatePipelineModal}. */
 interface CreatePipelineModalProps {
+  /** Whether the modal is currently visible. */
   isOpen: boolean;
+  /** Callback to close the modal. */
   onClose: () => void;
+  /** Callback invoked with assembled BuilderProps when the user submits. */
   onSubmit: (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => Promise<void>;
+  /** Whether a create request is in flight. */
   createLoading: boolean;
+  /** Error message from the last create attempt, if any. */
   createError: string | null;
+  /** Success message from the last create attempt, if any. */
   createSuccess: string | null;
+  /** Whether the current user is allowed to create public pipelines. */
   canCreatePublic: boolean;
 }
 
+/**
+ * Modal for creating a new pipeline configuration.
+ *
+ * Offers three input modes via tabs: Upload (JSON file/paste), Wizard (step-by-step form),
+ * and AI Builder (natural language generation). The Wizard tab uses a multi-step flow
+ * with Previous/Next navigation, while the other tabs submit directly.
+ */
 export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
   createLoading, createError, createSuccess, canCreatePublic,

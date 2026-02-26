@@ -1,11 +1,18 @@
+/** Props for the RoleBanner component. */
 interface RoleBannerProps {
+  /** Whether the user is a system-level admin */
   isSysAdmin: boolean;
+  /** Whether the user is an organization admin */
   isOrgAdmin: boolean;
+  /** Whether the user has any admin role */
   isAdmin: boolean;
+  /** Plural resource name shown in the banner message (e.g. "pipelines", "plugins") */
   resourceName: string;
+  /** Organization name displayed for org admin context */
   orgName?: string;
 }
 
+/** Contextual banner that indicates the user's access scope based on their role. */
 export function RoleBanner({ isSysAdmin, isOrgAdmin, isAdmin, resourceName, orgName }: RoleBannerProps) {
   if (isSysAdmin) {
     return (

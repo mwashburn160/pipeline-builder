@@ -2,7 +2,7 @@ import { createLogger } from '@mwashburn160/api-core';
 import { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
-const log = createLogger('SSEManager');
+const logger = createLogger('SSEManager');
 
 /**
  * Event types for SSE logging
@@ -94,19 +94,19 @@ export class SSEManager {
 
     // Check client limit
     if (existing.length >= this.maxClientsPerRequest) {
-      log.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
+      logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
       return false;
     }
 
     // Create timeout for this client
     const clientId = uuid();
     const timeout = setTimeout(() => {
-      log.debug(`Client ${clientId} timed out for request ${requestId}`);
+      logger.debug(`Client ${clientId} timed out for request ${requestId}`);
       this.removeClient(requestId, clientId);
       try {
         res.end();
       } catch (err) {
-        log.debug('Response already closed on timeout', { requestId, clientId, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Response already closed on timeout', { requestId, clientId, error: err instanceof Error ? err.message : String(err) });
       }
     }, this.clientTimeoutMs);
 
@@ -124,7 +124,7 @@ export class SSEManager {
     });
 
     res.on('error', (err) => {
-      log.error(`SSE client error for request ${requestId}:`, err);
+      logger.error(`SSE client error for request ${requestId}:`, err);
       clearTimeout(timeout);
       this.removeClient(requestId, clientId);
     });
@@ -132,7 +132,7 @@ export class SSEManager {
     existing.push(client);
     this.clients.set(requestId, existing);
 
-    log.debug(`Client ${clientId} connected for request ${requestId} (total: ${existing.length})`);
+    logger.debug(`Client ${clientId} connected for request ${requestId} (total: ${existing.length})`);
     return true;
   }
 
@@ -153,7 +153,7 @@ export class SSEManager {
 
     if (remaining.length === 0) {
       this.clients.delete(requestId);
-      log.debug(`All clients disconnected for request ${requestId}`);
+      logger.debug(`All clients disconnected for request ${requestId}`);
     } else {
       this.clients.set(requestId, remaining);
     }
@@ -184,7 +184,7 @@ export class SSEManager {
         client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
         sentCount++;
       } catch (error) {
-        log.error(`Failed to send to client ${client.id}:`, error);
+        logger.error(`Failed to send to client ${client.id}:`, error);
         this.removeClient(requestId, client.id);
       }
     }
@@ -227,12 +227,12 @@ export class SSEManager {
       try {
         client.res.end();
       } catch (err) {
-        log.debug('Response already closed on request close', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Response already closed on request close', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
     this.clients.delete(requestId);
-    log.debug(`Closed all clients for request ${requestId}`);
+    logger.debug(`Closed all clients for request ${requestId}`);
   }
 
   /**
@@ -321,29 +321,40 @@ export class SSEManager {
   }
 
   /**
-   * Clean up stale connections
+   * Clean up stale connections using single-pass partition.
+   * O(R × C) instead of O(R × C²), and avoids mutation-during-iteration.
    */
   private cleanup(): void {
     const now = Date.now();
     let cleaned = 0;
 
     for (const [requestId, clients] of this.clients.entries()) {
+      const stale: SSEClient[] = [];
+      const active: SSEClient[] = [];
+
       for (const client of clients) {
-        const age = now - client.connectedAt;
-        if (age > this.clientTimeoutMs) {
-          this.removeClient(requestId, client.id);
-          try {
-            client.res.end();
-          } catch (err) {
-            log.debug('Response already closed during cleanup', { requestId, clientId: client.id, error: err instanceof Error ? err.message : String(err) });
-          }
-          cleaned++;
+        if (now - client.connectedAt > this.clientTimeoutMs) {
+          stale.push(client);
+        } else {
+          active.push(client);
         }
+      }
+
+      for (const client of stale) {
+        clearTimeout(client.timeout);
+        try { client.res.end(); } catch { /* already closed */ }
+        cleaned++;
+      }
+
+      if (active.length === 0) {
+        this.clients.delete(requestId);
+      } else if (stale.length > 0) {
+        this.clients.set(requestId, active);
       }
     }
 
     if (cleaned > 0) {
-      log.info(`Cleaned up ${cleaned} stale SSE connections`);
+      logger.info(`Cleaned up ${cleaned} stale SSE connections`);
     }
   }
 
@@ -360,6 +371,6 @@ export class SSEManager {
       this.closeRequest(requestId, 'Server shutting down');
     }
 
-    log.info('SSE Manager shut down');
+    logger.info('SSE Manager shut down');
   }
 }

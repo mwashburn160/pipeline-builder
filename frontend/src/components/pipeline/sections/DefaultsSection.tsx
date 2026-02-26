@@ -4,17 +4,32 @@ import SecurityGroupEditor from '../editors/SecurityGroupEditor';
 import MetadataEditor from '../editors/MetadataEditor';
 import CollapsibleSection from '../editors/CollapsibleSection';
 
+/** Props for {@link DefaultsSection}. */
 interface DefaultsSectionProps {
+  /** Current pipeline defaults state (enabled flag, network, security groups, metadata). */
   defaults: FormBuilderState['defaults'];
+  /** Callback when the "enabled" checkbox toggles. */
   onEnabledChange: (enabled: boolean) => void;
+  /** Callback when the network type selector changes. */
   onNetworkTypeChange: (type: FormBuilderState['defaults']['networkType']) => void;
+  /** Callback when any network configuration field changes. */
   onNetworkChange: (network: FormNetworkConfig) => void;
+  /** Callback when the security group type selector changes. */
   onSGTypeChange: (type: FormBuilderState['defaults']['securityGroupType']) => void;
+  /** Callback when any security group configuration field changes. */
   onSGChange: (sg: FormSecurityGroupConfig) => void;
+  /** Callback when the defaults metadata entries change. */
   onMetadataChange: (metadata: MetadataEntry[]) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
 }
 
+/**
+ * Collapsible section for configuring pipeline-level CodeBuild defaults.
+ *
+ * When enabled, exposes sub-sections for network configuration, security groups,
+ * and metadata that apply as defaults to all pipeline steps.
+ */
 export default function DefaultsSection({
   defaults,
   onEnabledChange, onNetworkTypeChange, onNetworkChange,

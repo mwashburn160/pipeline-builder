@@ -9,7 +9,8 @@
  */
 
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
-import { createProtectedRoute, SSEManager, QuotaService } from '@mwashburn160/api-server';
+import { createProtectedRoute } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
@@ -23,14 +24,13 @@ const logger = createLogger('create-pipeline');
  * so it applies its own middleware chain rather than sharing with read routes.
  */
 export function createCreatePipelineRoutes(
-  sseManager: SSEManager,
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
 
   router.post(
     '/',
-    ...createProtectedRoute(sseManager, quotaService, 'pipelines'),
+    ...createProtectedRoute(quotaService, 'pipelines'),
     async (req: Request, res: Response) => {
       const ctx = req.context!;
 

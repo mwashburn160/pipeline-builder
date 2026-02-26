@@ -1,12 +1,18 @@
 import { type LucideIcon } from 'lucide-react';
 
+/** Props for the EmptyState component. */
 interface EmptyStateProps {
+  /** Lucide icon displayed in the circular background */
   icon: LucideIcon;
+  /** Heading text below the icon */
   title: string;
+  /** Descriptive text explaining why the state is empty */
   description: string;
+  /** Optional call-to-action element (e.g. a button to create the first item) */
   action?: React.ReactNode;
 }
 
+/** Centered placeholder shown when a list or section has no data. */
 export function EmptyState({ icon: Icon, title, description, action }: EmptyStateProps) {
   return (
     <div className="text-center py-16">

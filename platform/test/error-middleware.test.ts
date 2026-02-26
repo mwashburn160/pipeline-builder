@@ -16,7 +16,7 @@ jest.mock('@mwashburn160/api-core', () => ({
 }));
 
 import { sendError } from '@mwashburn160/api-core';
-import { notFoundHandler, errorHandler } from '../src/middleware/error.middleware';
+import { notFoundHandler, errorHandler } from '../src/middleware/error';
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 

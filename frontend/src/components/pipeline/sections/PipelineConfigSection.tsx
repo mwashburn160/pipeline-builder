@@ -1,22 +1,43 @@
 import { ReactNode } from 'react';
 import { FormField } from '@/components/ui/FormField';
 
+/** Props for {@link PipelineConfigSection}. */
 interface PipelineConfigSectionProps {
+  /** Project identifier value. */
   project: string;
+  /** Organization identifier value. */
   organization: string;
+  /** Pipeline name value (auto-generated or manually overridden). */
   pipelineName: string;
+  /** Optional description text (only shown when onDescriptionChange is provided). */
   description?: string;
+  /** Optional comma-separated keywords (only shown when onKeywordsChange is provided). */
   keywords?: string;
+  /** Callback when the project field changes. */
   onProjectChange: (val: string) => void;
+  /** Callback when the organization field changes. */
   onOrganizationChange: (val: string) => void;
+  /** Callback when the pipeline name field changes. */
   onPipelineNameChange: (val: string) => void;
+  /** Callback when the description field changes (presence also controls field visibility). */
   onDescriptionChange?: (val: string) => void;
+  /** Callback when the keywords field changes (presence also controls field visibility). */
   onKeywordsChange?: (val: string) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation errors keyed by field name (e.g. 'project', 'organization'). */
   errors?: Record<string, string>;
+  /** Additional content rendered below the core fields (e.g. global metadata, defaults, role). */
   children?: ReactNode;
 }
 
+/**
+ * Section for the core pipeline identity fields: project, organization,
+ * pipeline name, and optionally description and keywords.
+ *
+ * The pipeline name field auto-generates a placeholder from organization + project.
+ * Accepts children for rendering additional sub-sections within this configuration block.
+ */
 export default function PipelineConfigSection({
   project, organization, pipelineName, description, keywords,
   onProjectChange, onOrganizationChange, onPipelineNameChange, onDescriptionChange, onKeywordsChange,

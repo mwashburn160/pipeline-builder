@@ -11,7 +11,7 @@ import { z, ZodSchema } from 'zod';
 import { config } from '../config';
 import { Organization } from '../models';
 import { emailSchema } from './validation';
-import type { UserDocument } from '../models/user.model';
+import type { UserDocument } from '../models/user';
 
 const logger = createLogger('AuthUtils');
 
@@ -19,9 +19,7 @@ const logger = createLogger('AuthUtils');
 // Validation Schemas
 // ============================================================================
 
-/**
- * Registration schema
- */
+/** Registration request body schema. */
 export const registerSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
   email: emailSchema,
@@ -30,17 +28,13 @@ export const registerSchema = z.object({
   planId: z.string().optional(),
 });
 
-/**
- * Login schema
- */
+/** Login request body schema (identifier can be username or email). */
 export const loginSchema = z.object({
   identifier: z.string().min(1, 'Username or email is required'),
   password: z.string().min(1, 'Password is required'),
 });
 
-/**
- * Refresh token schema
- */
+/** Token refresh request body schema. */
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
@@ -83,6 +77,7 @@ export function validateBody<T>(
 // Token Generation
 // ============================================================================
 
+/** JWT access token payload shape. */
 export interface TokenPayload {
   type: 'access';
   sub: string;
@@ -93,6 +88,7 @@ export interface TokenPayload {
   tokenVersion?: number;
 }
 
+/** Shape returned by {@link issueTokens}. */
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;

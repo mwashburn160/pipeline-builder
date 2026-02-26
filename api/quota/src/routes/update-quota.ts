@@ -235,4 +235,5 @@ router.post(
   },
 );
 
+/** Write-side quota router (mounted at /quotas). */
 export default router;

@@ -23,7 +23,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes, logRoutes } from './routes';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, pluginRoutes, pipelineRoutes, logRoutes, configRoutes } from './routes';
 
 const logger = createLogger('platform-api');
 
@@ -169,6 +169,7 @@ app.use('/invitation', invitationRoutes);
 app.use('/plugin', pluginRoutes);
 app.use('/pipeline', pipelineRoutes);
 app.use('/logs', logRoutes);
+app.use('/config', configRoutes);
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);

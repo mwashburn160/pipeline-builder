@@ -1,18 +1,34 @@
+/**
+ * Route-level authentication guard hook.
+ * Redirects unauthenticated users to the login page and optionally
+ * enforces admin or system-admin role requirements.
+ */
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isSystemOrg as checkSystemOrg, isOrgAdmin } from '@/types';
 
+/** Options for configuring the auth guard's role requirements. */
 interface AuthGuardOptions {
+  /** Require the user to be an org admin or system admin. */
   requireAdmin?: boolean;
+  /** Require the user to be a system admin specifically. */
   requireSystemAdmin?: boolean;
 }
 
+/**
+ * Guards a page route by checking authentication and role requirements.
+ * Redirects to `/auth/login` if not authenticated, or to `/dashboard` if
+ * the user lacks the required admin privileges.
+ *
+ * @param options - Optional role requirements (admin, system admin)
+ * @returns User info, role flags, readiness state, and auth action callbacks
+ */
 export function useAuthGuard(options?: AuthGuardOptions) {
   const router = useRouter();
   const { user, isAuthenticated, isInitialized, isLoading, logout, refreshUser } = useAuth();
 
-  const isSysOrg = checkSystemOrg(user);
+  const isSystemOrg = checkSystemOrg(user);
   const isSysAdmin = isSystemAdmin(user);
   const isOrgAdminUser = isOrgAdmin(user);
   const isAdmin = isSysAdmin || isOrgAdminUser;
@@ -44,7 +60,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     user,
     isReady,
     isAuthenticated,
-    isSysOrg,
+    isSystemOrg,
     isSysAdmin,
     isOrgAdminUser,
     isAdmin,

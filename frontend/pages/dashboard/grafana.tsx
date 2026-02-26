@@ -3,6 +3,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 
+/** Grafana dashboard embed page (system admin only). Renders Grafana in a full-height iframe with an open-in-new-tab link. */
 export default function GrafanaPage() {
   const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
 

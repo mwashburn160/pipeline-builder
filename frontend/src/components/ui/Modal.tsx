@@ -1,19 +1,30 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useCallback } from 'react';
 
+/** Props for the Modal component. */
 interface ModalProps {
+  /** Modal title displayed in the header */
   title: string;
+  /** Callback when the modal is closed (via Escape, backdrop click, or close button) */
   onClose: () => void;
+  /** Tailwind max-width class for the modal panel */
   maxWidth?: string;
+  /** When true, the modal expands to 90vh with a scrollable content area */
   tall?: boolean;
   children: ReactNode;
+  /** Content rendered in a sticky footer area below the main content */
   footer?: ReactNode;
+  /** Content rendered between the header and the scrollable body (e.g. tabs) */
   subHeader?: ReactNode;
+  /** Content rendered between the scrollable body and the footer (e.g. JSON preview) */
   preFooter?: ReactNode;
+  /** Optional ref attached to the scrollable content container */
   scrollRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
- * Get all focusable elements within a container.
+ * Returns all focusable elements within a container.
+ * @param container - The DOM element to search within
+ * @returns Array of focusable HTML elements
  */
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -23,6 +34,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   );
 }
 
+/** Accessible modal dialog with focus trapping, Escape-to-close, and backdrop click dismissal. */
 export function Modal({
   title, onClose, maxWidth = 'max-w-md', tall = false,
   children, footer, subHeader, preFooter, scrollRef,

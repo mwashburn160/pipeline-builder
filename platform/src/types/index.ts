@@ -3,4 +3,4 @@
  * @description TypeScript type definitions for the platform.
  */
 
-export * from './jwt.types';
+export * from './jwt';

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
-import { createPipeline } from './commands/create-pipeline.command';
-import { deploy } from './commands/deploy.command';
-import { getPipeline } from './commands/get-pipeline.command';
-import { getPlugin } from './commands/get-plugin.command';
-import { listPipelines } from './commands/list-pipelines.command';
-import { listPlugins } from './commands/list-plugins.command';
-import { uploadPlugin } from './commands/upload-plugin.command';
-import { version } from './commands/version.command';
+import { createPipeline } from './commands/create-pipeline';
+import { deploy } from './commands/deploy';
+import { getPipeline } from './commands/get-pipeline';
+import { getPlugin } from './commands/get-plugin';
+import { listPipelines } from './commands/list-pipelines';
+import { listPlugins } from './commands/list-plugins';
+import { uploadPlugin } from './commands/upload-plugin';
+import { version } from './commands/version';
 import {
   APP_NAME,
   APP_DESCRIPTION,
@@ -18,8 +18,8 @@ import {
   generateExecutionId,
 } from './config/cli.constants';
 import { banner, miniBanner } from './utils/banner';
-import { ERROR_CODES, handleError } from './utils/error.handler';
-import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output.utils';
+import { ERROR_CODES, handleError } from './utils/error-handler';
+import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils';
 
 /**
  * CLI initialization options

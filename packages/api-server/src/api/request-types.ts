@@ -74,18 +74,3 @@ export function createRequestContext(
   };
 }
 
-// Re-export response utilities and types from api-core
-// All responses use api-core's standardized format with success flags and status codes:
-// - ApiSuccessResponse: { success: true, statusCode, data?, message? }
-// - ApiErrorResponse: { success: false, statusCode, message, code?, details?, quota? }
-// - PaginatedResponse: { success: true, statusCode, message?, data, count, limit, offset, total? }
-export {
-  sendSuccess,
-  sendError,
-  sendPaginated,
-  extractDbError,
-  type ApiSuccessResponse,
-  type ApiErrorResponse,
-  type ApiResponse,
-  type PaginatedResponse,
-} from '@mwashburn160/api-core';

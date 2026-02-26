@@ -1,8 +1,12 @@
+/** Props for the LoadingSpinner component. */
 interface LoadingSpinnerProps {
+  /** Spinner diameter: sm (16px), md (32px), or lg (48px) */
   size?: 'sm' | 'md' | 'lg';
+  /** Additional CSS classes applied to the SVG element */
   className?: string;
 }
 
+/** Animated SVG spinner used as an inline loading indicator. */
 export function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerProps) {
   const sizeClasses = {
     sm: 'h-4 w-4',
@@ -23,10 +27,13 @@ export function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerPr
   );
 }
 
+/** Props for the LoadingPage component. */
 interface LoadingPageProps {
+  /** Text displayed below the spinner; defaults to "Loading..." */
   message?: string;
 }
 
+/** Full-screen centered loading state with a large spinner and message text. */
 export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">

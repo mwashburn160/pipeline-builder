@@ -4,23 +4,28 @@ import type { ReactElement, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider } from '@/hooks/useAuth';
+import { ConfigProvider } from '@/hooks/useConfig';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import '@/styles/globals.css';
 
+/** Next.js page type extended with an optional per-page layout function. */
 export type NextPageWithLayout<P = object, IP = P> = NextPage<P, IP> & {
   getLayout?: (page: ReactElement) => ReactNode;
 };
 
+/** AppProps augmented with the per-page layout component type. */
 type AppPropsWithLayout = AppProps & {
   Component: NextPageWithLayout;
 };
 
+/** Next.js app wrapper. Provides auth, config, error boundary, and animated page transitions. */
 export default function App({ Component, pageProps }: AppPropsWithLayout) {
   const router = useRouter();
   const getLayout = Component.getLayout ?? ((page) => page);
 
   return (
     <ErrorBoundary>
+      <ConfigProvider>
       <AuthProvider>
         <AnimatePresence mode="wait">
           <motion.div
@@ -34,6 +39,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
           </motion.div>
         </AnimatePresence>
       </AuthProvider>
+      </ConfigProvider>
     </ErrorBoundary>
   );
 }

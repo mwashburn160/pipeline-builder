@@ -5,7 +5,6 @@
  * Note: Service clients are in ../services
  */
 
-export * from './response';
 export * from './token';
 export { emailService } from './email';
 export * from './validation';

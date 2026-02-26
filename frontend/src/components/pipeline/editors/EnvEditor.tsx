@@ -1,11 +1,21 @@
 import { EnvEntry } from '@/types/form-types';
 
+/** Props for {@link EnvEditor}. */
 interface EnvEditorProps {
+  /** Current list of environment variable entries. */
   value: EnvEntry[];
+  /** Callback when the list changes (add, remove, or edit an entry). */
   onChange: (val: EnvEntry[]) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
 }
 
+/**
+ * Editor for a list of environment variable key-value pairs.
+ *
+ * Renders each entry as a KEY = value row with a remove button, plus an
+ * "Add Variable" button to append new empty entries.
+ */
 export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps) {
   const handleAdd = () => onChange([...value, { key: '', value: '' }]);
   const handleRemove = (index: number) => onChange(value.filter((_, i) => i !== index));

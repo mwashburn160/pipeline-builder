@@ -31,6 +31,11 @@ const FIELD_LABELS: Record<string, string> = {
   type: 'Token Type',
 };
 
+/**
+ * Displays a JWT token with decoded payload fields, expiry status, and raw/copy toggle.
+ * @param title - Display label for the token card (e.g. "Access Token").
+ * @param token - Raw JWT string, or null if unavailable.
+ */
 function TokenCard({ title, token }: { title: string; token: string | null }) {
   const [expanded, setExpanded] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
@@ -135,6 +140,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 // Page
 // ---------------------------------------------------------------------------
 
+/** API token management page. Generates new access/refresh token pairs and displays decoded JWT details. */
 export default function TokensPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
 

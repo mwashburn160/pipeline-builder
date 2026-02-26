@@ -33,16 +33,16 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/messages', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadMessageRoutes(quotaService));
+app.use('/messages', ...createProtectedRoute(quotaService, 'apiCalls'), createReadMessageRoutes(quotaService));
 
 // -- Create routes — auth + orgId (no quota check on messages) ----------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(sseManager), createCreateMessageRoutes());
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), createCreateMessageRoutes());
 
 // -- Update routes (mark read) — auth + orgId ---------------------------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(sseManager), createUpdateMessageRoutes());
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), createUpdateMessageRoutes());
 
 // -- Delete route — auth + orgId (permission checked in handler) --------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(sseManager), createDeleteMessageRoutes());
+app.use('/messages', ...createAuthenticatedWithOrgRoute(), createDeleteMessageRoutes());
 
 logger.info('All /messages routes registered');
 

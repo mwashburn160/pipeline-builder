@@ -2,9 +2,9 @@
  * Main type definitions export
  */
 
-export * from './config.types';
-export * from './pipeline.types';
-export * from './plugin.types';
-export * from './error.types';
-export * from './api.types';
-export * from './command.types';
+export * from './config';
+export * from './pipeline';
+export * from './plugin';
+export * from './error';
+export * from './api';
+export * from './command';

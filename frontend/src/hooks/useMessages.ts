@@ -1,14 +1,18 @@
+/**
+ * Messaging hook with automatic polling for unread counts.
+ * Provides CRUD operations for messages, thread replies, and read-state management.
+ * Polls unread count every 30 seconds to keep the sidebar badge current.
+ */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import type { Message, MessageType, MessagePriority } from '@/types';
 
+/** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
   messages: Message[];
   loading: boolean;
   error: string | null;
   unreadCount: number;
-  activeTab: 'all' | 'announcements' | 'conversations';
-  setActiveTab: (tab: 'all' | 'announcements' | 'conversations') => void;
   fetchMessages: () => Promise<void>;
   fetchUnreadCount: () => Promise<void>;
   sendMessage: (data: { recipientOrgId: string; messageType: MessageType; subject: string; content: string; priority?: MessagePriority }) => Promise<Message | null>;
@@ -18,41 +22,34 @@ interface UseMessagesReturn {
   deleteMessage: (id: string) => Promise<void>;
 }
 
-const POLL_INTERVAL = 30000; // 30 seconds
+/** Polling interval for unread message count (30 seconds). */
+const POLL_INTERVAL = 30000;
 
+/**
+ * Manages message state with automatic polling for unread counts.
+ * Fetches messages on mount and polls unread count every 30 seconds.
+ *
+ * @returns Message state, action callbacks, and unread count
+ */
 export function useMessages(): UseMessagesReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activeTab, setActiveTab] = useState<'all' | 'announcements' | 'conversations'>('all');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
-      let result;
-      switch (activeTab) {
-        case 'announcements':
-          result = await api.getAnnouncements();
-          break;
-        case 'conversations':
-          result = await api.getConversations();
-          break;
-        default:
-          result = await api.getMessages();
-          break;
-      }
-
+      const result = await api.getMessages();
       setMessages(result.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch messages');
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, []);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -119,7 +116,7 @@ export function useMessages(): UseMessagesReturn {
     }
   }, []);
 
-  // Fetch messages when tab changes
+  // Fetch messages on mount
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
@@ -138,8 +135,6 @@ export function useMessages(): UseMessagesReturn {
     loading,
     error,
     unreadCount,
-    activeTab,
-    setActiveTab,
     fetchMessages,
     fetchUnreadCount,
     sendMessage,

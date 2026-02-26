@@ -374,6 +374,15 @@ class ApiClient {
   }
 
   // ============================================
+  // Config endpoints (public)
+  // ============================================
+
+  /** Get platform feature flags (public, no auth required). */
+  async getConfig() {
+    return this.request<ApiResponse<{ billingEnabled: boolean; emailEnabled: boolean; oauthEnabled: boolean }>>('/api/config');
+  }
+
+  // ============================================
   // Auth endpoints
   // ============================================
 
@@ -441,15 +450,16 @@ class ApiClient {
    * Generate a new token pair via POST /user/generate-token
    */
   async generateNewToken() {
-    const response = await this.request<{ success: boolean; statusCode: number; accessToken: string; refreshToken: string }>(
+    const response = await this.request<ApiResponse<{ accessToken: string; refreshToken: string }>>(
       '/api/user/generate-token',
       { method: 'POST' },
     );
 
-    if (response.success && response.accessToken && response.refreshToken) {
+    const tokens = response.data;
+    if (response.success && tokens?.accessToken && tokens?.refreshToken) {
       this.setTokens({
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
       });
     }
 
@@ -479,7 +489,7 @@ class ApiClient {
   }
 
   async listOrganizations() {
-    return this.request<ApiResponse<{ organizations: Organization[] }> & { organizations?: Organization[] }>('/api/organizations');
+    return this.request<ApiResponse<{ organizations: Organization[]; total: number; page: number; limit: number; totalPages: number }>>('/api/organizations');
   }
 
   async getOrganization(id: string) {
@@ -551,7 +561,7 @@ class ApiClient {
         .filter(([, v]) => v !== undefined)
         .map(([k, v]) => [k, String(v)])
     ).toString() : '';
-    return this.request<PaginatedResponse<User>>(`/api/users${query}`);
+    return this.request<ApiResponse<{ users: User[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/users${query}`);
   }
 
   async getUserById(id: string) {
@@ -677,7 +687,7 @@ class ApiClient {
 
   async listPlugins(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<PaginatedResponse<Plugin>>(`/api/plugins${query}`);
+    return this.request<ApiResponse<{ plugins: Plugin[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/plugins${query}`);
   }
 
   async getPluginById(id: string) {
@@ -723,7 +733,11 @@ class ApiClient {
       throw new ApiError(data.message || 'Upload failed', statusCode, data.code);
     }
 
-    return data as ApiResponse<{ plugin: Plugin; warning?: string }>;
+    return data as ApiResponse<{ plugin: Plugin; warning?: string }> & {
+      requestId?: string;
+      pluginName?: string;
+      imageTag?: string;
+    };
   }
 
   async updatePlugin(id: string, data: {
@@ -760,7 +774,7 @@ class ApiClient {
 
   async listPipelines(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<PaginatedResponse<Pipeline>>(`/api/pipelines${query}`);
+    return this.request<ApiResponse<{ pipelines: Pipeline[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/pipelines${query}`);
   }
 
   async getPipelineById(id: string) {
@@ -855,11 +869,13 @@ class ApiClient {
     accessModifier: 'public' | 'private';
   }) {
     return this.request<ApiResponse<{ plugin: Plugin }> & {
-      id: string;
-      name: string;
-      version: string;
-      imageTag: string;
-      fullImage: string;
+      id?: string;
+      name?: string;
+      version?: string;
+      imageTag?: string;
+      fullImage?: string;
+      requestId?: string;
+      pluginName?: string;
     }>('/api/plugin/deploy-generated', {
       method: 'POST',
       body: JSON.stringify(data),

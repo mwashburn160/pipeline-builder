@@ -11,7 +11,6 @@ import { RequestHandler } from 'express';
 import { checkQuota } from './check-quota';
 import { authenticateToken } from './middleware';
 import { requireOrgId } from './require-org-id';
-import type { SSEManager } from '../http/sse-connection-manager';
 
 /**
  * Creates a middleware chain for protected routes requiring authentication, org ID, and quota check.
@@ -21,7 +20,6 @@ import type { SSEManager } from '../http/sse-connection-manager';
  * 2. requireOrgId - Ensures request has x-org-id header
  * 3. checkQuota - Validates quota for the specified resource type
  *
- * @param sseManager - SSE manager for request context logging
  * @param quotaService - Quota service client
  * @param quotaType - Which quota to check (e.g., 'apiCalls', 'pipelines', 'plugins')
  * @returns Array of middleware handlers ready to spread into route definition
@@ -29,7 +27,7 @@ import type { SSEManager } from '../http/sse-connection-manager';
  * @example
  * ```typescript
  * router.post('/',
- *   ...createProtectedRoute(sseManager, quotaService, 'pipelines'),
+ *   ...createProtectedRoute(quotaService, 'pipelines'),
  *   async (req, res) => {
  *     // Handler implementation
  *   }
@@ -37,13 +35,12 @@ import type { SSEManager } from '../http/sse-connection-manager';
  * ```
  */
 export function createProtectedRoute(
-  sseManager: SSEManager,
   quotaService: QuotaService,
   quotaType: QuotaType,
 ): RequestHandler[] {
   return [
     authenticateToken as RequestHandler,
-    requireOrgId(sseManager) as RequestHandler,
+    requireOrgId() as RequestHandler,
     checkQuota(quotaService, quotaType) as RequestHandler,
   ];
 }
@@ -57,22 +54,21 @@ export function createProtectedRoute(
  *
  * Use this for read-only routes that don't consume quota.
  *
- * @param sseManager - SSE manager for request context logging
  * @returns Array of middleware handlers ready to spread into route definition
  *
  * @example
  * ```typescript
  * router.get('/',
- *   ...createAuthenticatedWithOrgRoute(sseManager),
+ *   ...createAuthenticatedWithOrgRoute(),
  *   async (req, res) => {
  *     // Handler implementation
  *   }
  * );
  * ```
  */
-export function createAuthenticatedWithOrgRoute(sseManager: SSEManager): RequestHandler[] {
+export function createAuthenticatedWithOrgRoute(): RequestHandler[] {
   return [
     authenticateToken as RequestHandler,
-    requireOrgId(sseManager) as RequestHandler,
+    requireOrgId() as RequestHandler,
   ];
 }

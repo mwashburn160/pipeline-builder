@@ -18,6 +18,7 @@
 import { createLogger } from '@mwashburn160/api-core';
 import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
+import { startWorker, shutdownQueue } from './queue/plugin-build-queue';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createGeneratePluginRoutes } from './routes/generate-plugin';
 import { createReadPluginRoutes } from './routes/read-plugins';
@@ -32,20 +33,27 @@ const { app, sseManager } = createApp();
 app.use(attachRequestContext(sseManager));
 
 // -- AI generation routes (MUST be before read routes to avoid /:id catching "providers"/"generate")
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createGeneratePluginRoutes(quotaService));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/plugins', ...createProtectedRoute(sseManager, quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
+app.use('/plugins', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
 
 // -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createUpdatePluginRoutes());
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createUpdatePluginRoutes());
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(sseManager), createDeletePluginRoutes());
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeletePluginRoutes());
 
 // -- Upload route — manages its own middleware (multer → auth → plugins quota)
-app.use('/plugins', createUploadPluginRoutes(sseManager, quotaService));
+app.use('/plugins', createUploadPluginRoutes(quotaService));
+
+// -- Start BullMQ worker for async Docker builds ----------------------------
+startWorker(sseManager, quotaService);
 
 logger.info('All /plugins routes registered');
 
-void runServer(app, { name: 'Plugin Service', sseManager });
+void runServer(app, {
+  name: 'Plugin Service',
+  sseManager,
+  onShutdown: () => shutdownQueue(),
+});

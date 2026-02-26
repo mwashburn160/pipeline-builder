@@ -1,4 +1,4 @@
-import { extractListResponse } from '../src/utils/output.utils';
+import { extractListResponse } from '../src/utils/output-utils';
 
 // ---------------------------------------------------------------------------
 // Tests

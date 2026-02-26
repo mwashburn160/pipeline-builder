@@ -29,10 +29,10 @@ import mongoose from 'mongoose';
 import { config } from './config';
 import { connectDatabase } from './helpers/database';
 import { seedPlans } from './helpers/seed-plans';
-import adminRoutes from './routes/admin';
-import marketplaceRoutes from './routes/marketplace';
-import planRoutes from './routes/plans';
-import subscriptionRoutes from './routes/subscriptions';
+import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions';
+import { createMarketplaceRoutes } from './routes/marketplace';
+import { createReadPlanRoutes } from './routes/read-plans';
+import { createSubscriptionRoutes } from './routes/subscriptions';
 
 const logger = createLogger('billing');
 
@@ -48,13 +48,13 @@ if (config.enabled) {
     }),
   }));
 
-  app.use('/billing', planRoutes);
-  app.use('/billing', subscriptionRoutes);
-  app.use('/billing', adminRoutes);
+  app.use('/billing', createReadPlanRoutes());
+  app.use('/billing', createSubscriptionRoutes());
+  app.use('/billing', createAdminSubscriptionRoutes());
 
   // SNS may send text/plain — add text body parser for the marketplace SNS webhook
   app.use('/billing/marketplace/sns', express.text({ type: 'text/plain' }));
-  app.use('/billing', marketplaceRoutes);
+  app.use('/billing', createMarketplaceRoutes());
 
   runServer(app, {
     name: 'Billing Service',

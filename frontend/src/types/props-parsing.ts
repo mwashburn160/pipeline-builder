@@ -1,6 +1,8 @@
 /**
- * @module props-parsing
- * @description Converts BuilderProps (API) into FormBuilderState (UI) for edit mode.
+ * Parses readonly BuilderProps (API response) into mutable FormBuilderState (UI)
+ * for populating the Pipeline Form Builder in edit mode. Each helper reverses
+ * the corresponding assembly function from props-assembly, converting typed API
+ * structures back into flat form-friendly shapes.
  */
 
 import {
@@ -21,6 +23,10 @@ import {
 
 type AnyRecord = Record<string, unknown>;
 
+/**
+ * Converts a metadata record from the API into MetadataEntry[], inferring each value's type.
+ * Returns an empty array if the input is nullish or not an object.
+ */
 function parseMetadataEntries(obj: unknown): MetadataEntry[] {
   if (!obj || typeof obj !== 'object') return [];
   const entries: MetadataEntry[] = [];
@@ -31,16 +37,17 @@ function parseMetadataEntries(obj: unknown): MetadataEntry[] {
   return entries;
 }
 
+/** Converts an environment variable record from the API into EnvEntry[]. */
 function parseEnvEntries(obj: unknown): EnvEntry[] {
   if (!obj || typeof obj !== 'object') return [];
   return Object.entries(obj as AnyRecord).map(([key, value]) => ({ key, value: String(value) }));
 }
 
+/** Converts an API plugin object into FormPluginOptions, falling back to an empty plugin. */
 function parsePluginOptions(obj: unknown): FormPluginOptions {
   if (!obj || typeof obj !== 'object') return createEmptyPlugin();
   const p = obj as AnyRecord;
   const filter = (p.filter as AnyRecord) || {};
-  const versionRange = (filter.versionRange as AnyRecord) || {};
   return {
     name: String(p.name || ''),
     alias: String(p.alias || ''),
@@ -51,16 +58,17 @@ function parsePluginOptions(obj: unknown): FormPluginOptions {
       isDefault: filter.isDefault !== undefined ? String(filter.isDefault) : '',
       isActive: filter.isActive !== undefined ? String(filter.isActive) : '',
       name: String(filter.name || ''),
-      namePattern: String(filter.namePattern || ''),
       version: String(filter.version || ''),
-      versionMin: String(versionRange.min || ''),
-      versionMax: String(versionRange.max || ''),
       imageTag: String(filter.imageTag || ''),
     },
     metadata: parseMetadataEntries(p.metadata),
   };
 }
 
+/**
+ * Converts an API network config (with `type` and `options`) into the flat
+ * FormNetworkConfig superset plus the detected networkType discriminator.
+ */
 function parseNetworkConfig(obj: unknown): { networkType: FormBuilderState['synth']['networkType']; network: FormNetworkConfig } {
   if (!obj || typeof obj !== 'object') return { networkType: 'none', network: createEmptyNetworkConfig() };
   const n = obj as AnyRecord;
@@ -83,6 +91,10 @@ function parseNetworkConfig(obj: unknown): { networkType: FormBuilderState['synt
   };
 }
 
+/**
+ * Converts an API security group config into the flat FormSecurityGroupConfig
+ * superset plus the detected sgType discriminator.
+ */
 function parseSecurityGroupConfig(obj: unknown): { sgType: FormBuilderState['defaults']['securityGroupType']; sg: FormSecurityGroupConfig } {
   if (!obj || typeof obj !== 'object') return { sgType: 'none', sg: { securityGroupIds: [], mutable: true, securityGroupName: '', vpcId: '' } };
   const s = obj as AnyRecord;
@@ -99,6 +111,10 @@ function parseSecurityGroupConfig(obj: unknown): { sgType: FormBuilderState['def
   };
 }
 
+/**
+ * Serializes an API artifact key object into the colon-delimited string format
+ * used by the form: `stageName:stageAlias:pluginName:pluginAlias:outputDirectory`.
+ */
 function artifactKeyToString(key: unknown): string {
   if (!key || typeof key !== 'object') return '';
   const k = key as AnyRecord;
@@ -107,11 +123,18 @@ function artifactKeyToString(key: unknown): string {
     .join(':');
 }
 
+/**
+ * Parses a colon-delimited artifact key string back into a structured record
+ * with named fields (stageName, stageAlias, pluginName, pluginAlias, outputDirectory).
+ * @param key - Colon-delimited string, e.g. "Build::MyPlugin::dist".
+ * @returns A record with the five artifact key fields.
+ */
 export function parseArtifactKeyString(key: string): Record<string, string> {
   const [stageName = '', stageAlias = '', pluginName = '', pluginAlias = '', outputDirectory = ''] = key.split(':');
   return { stageName, stageAlias, pluginName, pluginAlias, outputDirectory };
 }
 
+/** Converts an array of API additional input artifact objects into AdditionalInputArtifact[]. */
 function parseAdditionalInputArtifacts(obj: unknown): AdditionalInputArtifact[] {
   if (!Array.isArray(obj)) return [];
   return obj.map((entry) => ({
@@ -120,6 +143,10 @@ function parseAdditionalInputArtifacts(obj: unknown): AdditionalInputArtifact[] 
   }));
 }
 
+/**
+ * Parses an array of API step objects into FormStep[], assigning unique IDs and
+ * detecting whether install/build commands are pre or post positioned.
+ */
 function parseSteps(steps: unknown[]): FormStep[] {
   return steps.map((s) => {
     const step = s as AnyRecord;
@@ -151,7 +178,12 @@ function parseSteps(steps: unknown[]): FormStep[] {
 }
 
 /**
- * Convert BuilderProps (from API) back into FormBuilderState (for edit mode).
+ * Converts a raw BuilderProps object from the API into a fully populated FormBuilderState
+ * for the Pipeline Form Builder's edit mode. Starts from a blank initial state and
+ * overlays each section (core fields, defaults, role, synth, stages) from the API data.
+ *
+ * @param rawProps - The BuilderProps object returned by the pipeline API.
+ * @returns A complete {@link FormBuilderState} ready for form binding.
  */
 export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
   const base = createInitialFormState();

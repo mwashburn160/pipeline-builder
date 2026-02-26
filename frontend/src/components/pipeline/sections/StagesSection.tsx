@@ -5,15 +5,25 @@ import CollapsibleSection from '../editors/CollapsibleSection';
 import StepEditor from './StepEditor';
 import { computeAvailableArtifacts } from '@/lib/artifact-keys';
 
+/** Props for {@link StagesSection}. */
 interface StagesSectionProps {
+  /** Current list of pipeline stages. */
   stages: FormStage[];
+  /** Callback to add a new empty stage. */
   onAddStage: () => void;
+  /** Callback to remove a stage at the given index. */
   onRemoveStage: (index: number) => void;
+  /** Callback when a stage's name or alias changes. */
   onStageFieldChange: (index: number, field: 'stageName' | 'alias', value: string) => void;
+  /** Callback to add a new empty step to a stage. */
   onAddStep: (stageIndex: number) => void;
+  /** Callback to remove a step from a stage. */
   onRemoveStep: (stageIndex: number, stepIndex: number) => void;
+  /** Callback when a step's configuration changes. */
   onStepChange: (stageIndex: number, stepIndex: number, step: FormStep) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation errors keyed by field path (e.g. 'stages.0.stageName'). */
   errors?: Record<string, string>;
   /** Synth config for computing available artifact keys. */
   synth?: FormBuilderState['synth'];
@@ -21,6 +31,14 @@ interface StagesSectionProps {
   plugins?: Plugin[];
 }
 
+/**
+ * Section for managing pipeline stages and their steps.
+ *
+ * Renders a collapsible list of stages, each containing a name/alias form,
+ * a list of StepEditor instances, and add/remove controls. Computes available
+ * artifact keys for each step based on the synth config and preceding stages.
+ * Shown as step 3 in wizard mode.
+ */
 export default function StagesSection({
   stages, onAddStage, onRemoveStage, onStageFieldChange,
   onAddStep, onRemoveStep, onStepChange, disabled, errors = {},

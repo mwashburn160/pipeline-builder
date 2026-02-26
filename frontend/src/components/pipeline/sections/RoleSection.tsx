@@ -2,15 +2,29 @@ import { FormBuilderState } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
 
+/** Props for {@link RoleSection}. */
 interface RoleSectionProps {
+  /** Current IAM role configuration state. */
   role: FormBuilderState['role'];
+  /** Callback when the role type selector changes (none, roleArn, roleName, codeBuildDefault). */
   onTypeChange: (type: FormBuilderState['role']['type']) => void;
+  /** Callback when the role ARN or role name text field changes. */
   onFieldChange: (field: 'roleArn' | 'roleName', value: string) => void;
+  /** Callback when the mutable checkbox toggles. */
   onMutableChange: (mutable: boolean) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation errors keyed by field path (e.g. 'role.roleArn'). */
   errors?: Record<string, string>;
 }
 
+/**
+ * Collapsible section for configuring the IAM role used by the pipeline.
+ *
+ * Supports four modes: none, explicit role ARN (with mutable toggle),
+ * role by name (with mutable toggle), and CodeBuild default role
+ * (with optional custom name).
+ */
 export default function RoleSection({
   role, onTypeChange, onFieldChange, onMutableChange, disabled, errors = {},
 }: RoleSectionProps) {

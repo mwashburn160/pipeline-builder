@@ -30,15 +30,6 @@ import { z } from 'zod';
 const logger = createLogger('ai-plugin-generation');
 
 // ---------------------------------------------------------------------------
-// Re-export shared types for backward compatibility
-// ---------------------------------------------------------------------------
-
-/** @see {@link AIProviderInfo} from api-core */
-export type ProviderInfo = AIProviderInfo;
-/** @see {@link AIModelInfo} from api-core */
-export type ModelInfo = AIModelInfo;
-
-// ---------------------------------------------------------------------------
 // Service-Specific Types
 // ---------------------------------------------------------------------------
 

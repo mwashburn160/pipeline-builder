@@ -2,7 +2,7 @@
  * Tests for CrudService base class.
  *
  * Since CrudService depends on Drizzle ORM, we mock the db module and test
- * the service contract, access control, caching, and error handling.
+ * the service contract, access control, and error handling.
  */
 
 import { SQL } from 'drizzle-orm';
@@ -59,6 +59,8 @@ interface TestUpdate {
 }
 
 const mockSchema = {} as PgTable;
+const mockProjectColumn = {} as AnyColumn;
+const mockOrgColumn = {} as AnyColumn;
 
 class TestService extends CrudService<TestEntity, TestFilter, TestInsert, TestUpdate> {
   protected get schema(): PgTable {
@@ -73,6 +75,14 @@ class TestService extends CrudService<TestEntity, TestFilter, TestInsert, TestUp
     if (sortBy === 'name') return {} as AnyColumn;
     return null;
   }
+
+  protected getProjectColumn(): AnyColumn | null {
+    return mockProjectColumn;
+  }
+
+  protected getOrgColumn(): AnyColumn {
+    return mockOrgColumn;
+  }
 }
 
 // ============================================================================
@@ -85,28 +95,6 @@ describe('CrudService', () => {
   beforeEach(() => {
     service = new TestService();
     jest.clearAllMocks();
-  });
-
-  // --------------------------------------------------------------------------
-  // Cache management
-  // --------------------------------------------------------------------------
-
-  describe('cache management', () => {
-    it('should start with caching disabled', () => {
-      expect(() => service.enableCache()).not.toThrow();
-    });
-
-    it('should enable and disable cache', () => {
-      service.enableCache(30000);
-      service.disableCache();
-      expect(() => service.clearCache()).not.toThrow();
-    });
-
-    it('should clear cache without error', () => {
-      service.enableCache();
-      service.clearCache();
-      expect(() => service.clearCache()).not.toThrow();
-    });
   });
 
   // --------------------------------------------------------------------------
@@ -349,77 +337,100 @@ describe('CrudService', () => {
   });
 
   // --------------------------------------------------------------------------
-  // Cache behavior with find
+  // setDefault
   // --------------------------------------------------------------------------
 
-  describe('caching', () => {
-    it('should return cached results on second call', async () => {
-      const entities: TestEntity[] = [{
-        id: '1',
+  describe('setDefault', () => {
+    it('should set default within a transaction', async () => {
+      const updated: TestEntity = {
+        id: 'target-id',
         orgId: 'org1',
-        name: 'Cached',
-        isDefault: false,
+        name: 'Default',
+        isDefault: true,
         createdAt: new Date(),
         updatedAt: new Date(),
-        createdBy: 'u',
-        updatedBy: 'u',
-      }];
+        createdBy: 'user1',
+        updatedBy: 'user1',
+      };
 
-      mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(entities),
-        }),
+      // Mock transaction to execute the callback with a mock tx
+      mockTransaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          update: jest.fn().mockReturnValue({
+            set: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                returning: jest.fn().mockResolvedValue([updated]),
+              }),
+            }),
+          }),
+        };
+        return cb(tx);
       });
 
-      service.enableCache(60000);
-
-      // First call — hits DB
-      const result1 = await service.find({}, 'org1');
-      expect(result1).toHaveLength(1);
-      expect(mockSelect).toHaveBeenCalledTimes(1);
-
-      // Second call — should hit cache
-      const result2 = await service.find({}, 'org1');
-      expect(result2).toHaveLength(1);
-      expect(mockSelect).toHaveBeenCalledTimes(1); // Still 1 — no new DB call
+      const result = await service.setDefault('my-project', 'org1', 'target-id', 'user1');
+      expect(result).toEqual(updated);
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('should clear cache on create', async () => {
-      const entities: TestEntity[] = [{
-        id: '1',
-        orgId: 'org1',
-        name: 'X',
-        isDefault: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        createdBy: 'u',
-        updatedBy: 'u',
-      }];
+    it('should throw when entity not found', async () => {
+      mockTransaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          update: jest.fn().mockReturnValue({
+            set: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                returning: jest.fn().mockResolvedValue([]),
+              }),
+            }),
+          }),
+        };
+        return cb(tx);
+      });
 
-      mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(entities),
+      await expect(
+        service.setDefault('my-project', 'org1', 'missing-id', 'user1'),
+      ).rejects.toThrow('Entity with id missing-id not found');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // updateMany
+  // --------------------------------------------------------------------------
+
+  describe('updateMany', () => {
+    it('should update multiple entities', async () => {
+      const updated: TestEntity[] = [
+        {
+          id: '1',
+          orgId: 'org1',
+          name: 'Updated',
+          isDefault: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: 'u',
+          updatedBy: 'u',
+        },
+        {
+          id: '2',
+          orgId: 'org1',
+          name: 'Updated',
+          isDefault: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: 'u',
+          updatedBy: 'u',
+        },
+      ];
+
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue(updated),
+          }),
         }),
       });
 
-      mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([entities[0]]),
-        }),
-      });
-
-      service.enableCache(60000);
-
-      // Populate cache
-      await service.find({}, 'org1');
-      expect(mockSelect).toHaveBeenCalledTimes(1);
-
-      // Create (should clear cache)
-      await service.create({ name: 'New', orgId: 'org1' }, 'user1');
-
-      // Next find should hit DB again
-      await service.find({}, 'org1');
-      expect(mockSelect).toHaveBeenCalledTimes(2);
+      const result = await service.updateMany({ name: 'old' }, { name: 'Updated' }, 'org1', 'user1');
+      expect(result).toHaveLength(2);
     });
   });
 });

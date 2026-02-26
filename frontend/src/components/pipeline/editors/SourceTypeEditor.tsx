@@ -1,19 +1,36 @@
 import { FormBuilderState } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 
+/** Props for {@link SourceTypeEditor}. */
 interface SourceTypeEditorProps {
+  /** Currently selected source type (github, s3, or codestar). */
   sourceType: FormBuilderState['synth']['sourceType'];
+  /** S3 source configuration values. */
   s3: FormBuilderState['synth']['s3'];
+  /** GitHub source configuration values. */
   github: FormBuilderState['synth']['github'];
+  /** CodeStar source configuration values. */
   codestar: FormBuilderState['synth']['codestar'];
+  /** Callback when the source type selector changes. */
   onSourceTypeChange: (type: FormBuilderState['synth']['sourceType']) => void;
+  /** Callback when an S3 source field changes. */
   onS3Change: (field: string, value: string) => void;
+  /** Callback when a GitHub source field changes. */
   onGithubChange: (field: string, value: string) => void;
+  /** Callback when a CodeStar source field changes. */
   onCodestarChange: (field: string, value: string | boolean) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation errors keyed by field path (e.g. 'synth.github.repo'). */
   errors?: Record<string, string>;
 }
 
+/**
+ * Editor for configuring the pipeline source type and its provider-specific options.
+ *
+ * Renders a source type selector (GitHub, S3, CodeStar) and conditionally displays
+ * the relevant fields for the selected provider (repo, branch, bucket, connection ARN, etc.).
+ */
 export default function SourceTypeEditor({
   sourceType, s3, github, codestar,
   onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange,

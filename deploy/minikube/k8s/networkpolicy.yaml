@@ -131,6 +131,28 @@ spec:
 
 ---
 # =============================================================================
+# Redis — ingress from plugin
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: plugin
+      ports:
+        - port: 6379
+
+---
+# =============================================================================
 # Registry — ingress from plugin, registry-express, nginx
 # =============================================================================
 apiVersion: networking.k8s.io/v1

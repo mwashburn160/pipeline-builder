@@ -122,7 +122,7 @@ export class Workflow extends Component {
                 {
                     id: 'nx_base',
                     name: 'Set NX_BASE',
-                    run: 'if [ -f nx_base.yml ] && [ -s nx_base.yml ]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
+                    run: 'if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
                     id: 'nx_head',
@@ -247,7 +247,7 @@ export class Workflow extends Component {
                     id: 'build_complete',
                     name: 'Build complete',
                     if: '${{ success() }}',
-                    run: 'echo $(git rev-parse HEAD) > nx_base.yml && git add nx_base.yml && git commit -m "chore: updated last successfully built commit" && git push',
+                    run: 'echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
                 },
             ],
         };

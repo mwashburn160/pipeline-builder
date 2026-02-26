@@ -2,13 +2,24 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { METADATA_KEY_GROUPS, type MetadataKeyOption } from './metadata-keys';
 
+/** Props for {@link MetadataEditor}. */
 interface MetadataEditorProps {
+  /** Current list of metadata key-value-type entries. */
   value: MetadataEntry[];
+  /** Callback when the list changes (add, remove, or edit an entry). */
   onChange: (val: MetadataEntry[]) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Optional label rendered above the list. */
   label?: string;
 }
 
+/**
+ * Autocomplete combobox for metadata key input.
+ *
+ * Shows a categorized dropdown of predefined metadata keys filtered by the
+ * current input. Selecting a predefined key also sets the entry's type.
+ */
 function MetadataKeyCombobox({
   value,
   onChange,
@@ -115,6 +126,13 @@ function MetadataKeyCombobox({
   );
 }
 
+/**
+ * Editor for a list of typed metadata key-value entries.
+ *
+ * Each entry has a key (with autocomplete from predefined metadata keys),
+ * a type selector (string, number, boolean), and a value input that adapts
+ * to the selected type. Boolean entries render as a true/false dropdown.
+ */
 export default function MetadataEditor({ value, onChange, disabled, label }: MetadataEditorProps) {
   const handleAdd = () => onChange([...value, { key: '', value: '', type: 'string' }]);
   const handleRemove = (index: number) => onChange(value.filter((_, i) => i !== index));

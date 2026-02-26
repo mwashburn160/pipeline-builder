@@ -12,7 +12,7 @@ import {
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
-import { SQL, or, ilike, eq, and } from 'drizzle-orm';
+import { SQL, eq, and } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -121,32 +121,12 @@ export class PipelineService extends CrudService<
     return sortableColumns[sortBy] || null;
   }
 
-  /**
-   * Build search conditions for fuzzy matching
-   *
-   * Searches across: project, organization, pipelineName
-   *
-   * @param query - Search query string
-   * @param orgId - User's organization ID for access control
-   * @returns Array of SQL conditions
-   */
-  protected buildSearchConditions(query: string, orgId: string): SQL[] {
-    const normalizedQuery = `%${query.toLowerCase()}%`;
+  protected getProjectColumn(): AnyColumn {
+    return schema.pipeline.project;
+  }
 
-    // Search across project, organization, and pipelineName
-    const searchCondition = or(
-      ilike(schema.pipeline.project, normalizedQuery),
-      ilike(schema.pipeline.organization, normalizedQuery),
-      ilike(schema.pipeline.pipelineName, normalizedQuery),
-    )!;
-
-    // Add access control (user's org or public)
-    const accessCondition = or(
-      eq(schema.pipeline.orgId, orgId.toLowerCase()),
-      eq(schema.pipeline.accessModifier, 'public'),
-    )!;
-
-    return [searchCondition, accessCondition];
+  protected getOrgColumn(): AnyColumn {
+    return schema.pipeline.organization;
   }
 
   /**
@@ -166,14 +146,7 @@ export class PipelineService extends CrudService<
     pipelineId: string,
     userId: string,
   ): Promise<Pipeline> {
-    return this.setDefault(
-      'project',
-      'organization',
-      project,
-      organization,
-      pipelineId,
-      userId,
-    );
+    return this.setDefault(project, organization, pipelineId, userId);
   }
 
   /**

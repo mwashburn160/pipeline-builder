@@ -59,20 +59,3 @@ export function attachRequestContext(sseManager: SSEManager): RequestHandler {
     next();
   };
 }
-
-/**
- * Type guard to check if request has context attached
- *
- * @param req - Express request
- * @returns True if request has context property
- *
- * @example
- * ```typescript
- * if (hasContext(req)) {
- *   req.context.log('INFO', 'Request has context');
- * }
- * ```
- */
-export function hasContext(req: Request): req is Request & { context: RequestContext } {
-  return req.context !== undefined;
-}

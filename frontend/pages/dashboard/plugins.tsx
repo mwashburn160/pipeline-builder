@@ -14,6 +14,7 @@ import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
+/** Filter criteria for the plugin list, including text search and dropdown selections. */
 interface PluginFilters {
   name: string;
   id: string;
@@ -33,6 +34,7 @@ const initialFilters: PluginFilters = {
   access: 'all', status: 'all', default: 'all',
 };
 
+/** Plugin management dashboard page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
@@ -80,7 +82,7 @@ export default function PluginsPage() {
       if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
       if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
       const response = await api.listPlugins(params);
-      setPlugins(response.plugins || []);
+      setPlugins(response.data?.plugins || []);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load plugins');
     } finally {

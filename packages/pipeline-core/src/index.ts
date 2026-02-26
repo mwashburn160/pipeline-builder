@@ -46,7 +46,6 @@ export {
   buildMessageConditions,
   validatePluginFilter,
   validatePipelineFilter,
-  validateMessageFilter,
 
   // Query filter types
   type PluginFilter,

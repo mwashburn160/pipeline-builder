@@ -5,13 +5,19 @@ import { FormField } from '@/components/ui/FormField';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
+/** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
+  /** The plugin to edit; used as initial form state and fallback if fetch fails. */
   plugin: Plugin;
+  /** Whether the current user is a system admin (controls access-level editing). */
   isSysAdmin: boolean;
+  /** Callback to close the modal. */
   onClose: () => void;
+  /** Callback when the plugin is successfully saved. */
   onSaved: () => void;
 }
 
+/** Modal for editing plugin metadata, configuration, and access settings. */
 export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }: EditPluginModalProps) {
   const [fullPlugin, setFullPlugin] = useState<Plugin | null>(null);
   const [fetching, setFetching] = useState(true);

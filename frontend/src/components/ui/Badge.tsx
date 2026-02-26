@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 
+/** Props for the Badge component. */
 interface BadgeProps {
+  /** Badge label content */
   children: ReactNode;
+  /** Color variant controlling background and text styling */
   color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow';
 }
 
@@ -14,6 +17,7 @@ const colorStyles = {
   yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
 };
 
+/** Small colored pill badge for displaying status labels or categories. */
 export function Badge({ children, color }: BadgeProps) {
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colorStyles[color]}`}>

@@ -12,6 +12,7 @@ resources:
   # Databases
   - mongodb.yaml
   - postgres.yaml
+  - redis.yaml
 
   # API Gateway
   - nginx.yaml
@@ -70,6 +71,8 @@ images:
     newTag: "16"
   - name: mongo
     newTag: "7.0"
+  - name: redis
+    newTag: "7-alpine"
   - name: registry
     newTag: "2"
   # Admin UIs

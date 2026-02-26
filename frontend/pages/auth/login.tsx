@@ -7,6 +7,7 @@ import { LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 
+/** User login page. Accepts email/username and password, with session-expired notification support. */
 export default function LoginPage() {
   const { login, isLoading } = useAuth();
   const router = useRouter();

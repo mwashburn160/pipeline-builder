@@ -9,6 +9,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 
+/** Shape of a user record as returned by the list users API. */
 interface UserListItem {
   id: string;
   username: string;
@@ -20,6 +21,7 @@ interface UserListItem {
   createdAt?: string;
 }
 
+/** User management page (admin only). Lists, edits roles/passwords, and deletes users with search and role filtering. */
 export default function UsersPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
   const [users, setUsers] = useState<UserListItem[]>([]);
@@ -47,7 +49,7 @@ export default function UsersPage() {
         if (searchQuery) params.search = searchQuery;
         if (roleFilter !== 'all') params.role = roleFilter;
         const response = await api.listUsers(params);
-        const userList = (response.users || []) as UserListItem[];
+        const userList = (response.data?.users || []) as UserListItem[];
         setUsers(userList);
       } catch (error) {
         setError(error instanceof Error ? error.message : 'Failed to load users');

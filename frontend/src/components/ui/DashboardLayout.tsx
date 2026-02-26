@@ -4,18 +4,25 @@ import { useRouter } from 'next/router';
 import { Menu, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useConfig } from '@/hooks/useConfig';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
 import { LoadingPage } from './Loading';
 import api from '@/lib/api';
 
+/** Props for the DashboardLayout component. */
 interface DashboardLayoutProps {
+  /** Page title shown in the top bar and browser tab */
   title: string;
   children: React.ReactNode;
+  /** Extra content rendered inline next to the title */
   titleExtra?: React.ReactNode;
+  /** Action buttons rendered on the right side of the top bar */
   actions?: React.ReactNode;
+  /** Tailwind max-width breakpoint for the main content area */
   maxWidth?: '3xl' | '4xl' | '7xl';
+  /** Additional CSS classes applied to the main content container */
   mainClassName?: string;
 }
 
@@ -25,6 +32,10 @@ const maxWidthClasses = {
   '7xl': 'max-w-7xl',
 };
 
+/**
+ * Top-level dashboard page layout with responsive sidebar, top bar, and content area.
+ * Handles auth guarding, dark mode, unread message polling, and mobile sidebar toggle.
+ */
 export function DashboardLayout({
   title,
   children,
@@ -33,7 +44,8 @@ export function DashboardLayout({
   maxWidth = '7xl',
   mainClassName = '',
 }: DashboardLayoutProps) {
-  const { user, isReady, isSysOrg, isSysAdmin, isAdmin, logout } = useAuthGuard();
+  const { user, isReady, isSystemOrg, isSysAdmin, isAdmin, logout } = useAuthGuard();
+  const { config, isLoaded: configLoaded } = useConfig();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile } = useSidebarState();
   const router = useRouter();
@@ -54,7 +66,7 @@ export function DashboardLayout({
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 
-  if (!isReady || !user) return <LoadingPage />;
+  if (!isReady || !user || !configLoaded) return <LoadingPage />;
 
   return (
     <>
@@ -67,7 +79,8 @@ export function DashboardLayout({
           <Sidebar
             isSysAdmin={isSysAdmin}
             isAdmin={isAdmin}
-            isSystemOrg={isSysOrg}
+            isSystemOrg={isSystemOrg}
+            billingEnabled={config.billingEnabled}
             user={user}
             unreadCount={unreadCount}
             currentPath={router.pathname}
@@ -99,7 +112,8 @@ export function DashboardLayout({
                 <Sidebar
                   isSysAdmin={isSysAdmin}
                   isAdmin={isAdmin}
-                  isSystemOrg={isSysOrg}
+                  isSystemOrg={isSystemOrg}
+                  billingEnabled={config.billingEnabled}
                   user={user}
                   unreadCount={unreadCount}
                   currentPath={router.pathname}

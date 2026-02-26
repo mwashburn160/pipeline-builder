@@ -1,12 +1,26 @@
+/** Props for {@link StringArrayEditor}. */
 interface StringArrayEditorProps {
+  /** Current array of string values. */
   value: string[];
+  /** Callback when the array changes (add, remove, or edit an item). */
   onChange: (val: string[]) => void;
+  /** Placeholder text for each input field. */
   placeholder?: string;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Optional label rendered above the list. */
   label?: string;
+  /** Label for the add button (defaults to "+ Add"). */
   addLabel?: string;
 }
 
+/**
+ * Generic editor for a dynamic list of string values.
+ *
+ * Renders each string as a text input with a remove button, plus a
+ * configurable add button. Used for subnet IDs, security group IDs,
+ * availability zones, shell commands, and similar array fields.
+ */
 export default function StringArrayEditor({
   value, onChange, placeholder = '', disabled, label, addLabel = '+ Add',
 }: StringArrayEditorProps) {

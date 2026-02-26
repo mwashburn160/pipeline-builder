@@ -1,14 +1,21 @@
 import { useEffect, useRef } from 'react';
 import { LoadingSpinner } from './Loading';
 
+/** Props for the DeleteConfirmModal component. */
 interface DeleteConfirmModalProps {
+  /** Dialog heading (e.g. "Delete Pipeline") */
   title: string;
+  /** Name of the item being deleted, shown in bold in the confirmation message */
   itemName: string;
+  /** When true, buttons are disabled and a spinner is shown on the Delete button */
   loading: boolean;
+  /** Callback fired when the user confirms deletion */
   onConfirm: () => void;
+  /** Callback fired when the user cancels (via Cancel button, Escape, or backdrop click) */
   onCancel: () => void;
 }
 
+/** Destructive-action confirmation dialog with a warning message and Cancel/Delete buttons. */
 export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 

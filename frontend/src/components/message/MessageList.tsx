@@ -1,12 +1,19 @@
-import { Megaphone, MessageCircle, Clock, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { Megaphone, MessageCircle } from 'lucide-react';
 import type { Message } from '@/types';
 
+/** Props for the MessageList component. */
 interface MessageListProps {
+  /** Array of messages to display in the inbox. */
   messages: Message[];
+  /** Callback when a message row is clicked. */
   onSelect: (message: Message) => void;
+  /** ID of the currently selected message, used for highlight styling. */
   selectedId?: string;
+  /** The current user's organization ID, used to determine sender display names. */
+  currentOrgId: string;
 }
 
+/** Formats a date string as a relative time label (e.g. "5m ago", "2d ago"). */
 function formatTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -22,72 +29,90 @@ function formatTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function PriorityIcon({ priority }: { priority: string }) {
-  if (priority === 'urgent') return <AlertOctagon className="w-4 h-4 text-red-500" />;
-  if (priority === 'high') return <AlertTriangle className="w-4 h-4 text-orange-500" />;
-  return null;
+/** Returns the display name for a message row: "Announcement" or the other party's org ID. */
+function getDisplayName(msg: Message, currentOrgId: string): string {
+  if (msg.messageType === 'announcement') return 'Announcement';
+  if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) return msg.recipientOrgId;
+  return msg.orgId;
 }
 
-export function MessageList({ messages, onSelect, selectedId }: MessageListProps) {
+/** Extracts the first two characters of a name for avatar display. */
+function getAvatarLetters(name: string): string {
+  return name.slice(0, 2).toUpperCase();
+}
+
+/** Scrollable inbox list displaying message previews with unread indicators. */
+export function MessageList({ messages, onSelect, selectedId, currentOrgId }: MessageListProps) {
   if (messages.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-        <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-40" />
-        <p className="text-lg font-medium">No messages</p>
-        <p className="text-sm mt-1">Messages from the system will appear here</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 py-12">
+        <MessageCircle className="w-12 h-12 mb-3 opacity-40" />
+        <p className="text-base font-medium">No messages</p>
+        <p className="text-sm mt-1">Start a conversation or wait for a message</p>
       </div>
     );
   }
 
   return (
-    <div className="divide-y divide-gray-200 dark:divide-gray-700">
-      {messages.map((msg) => (
-        <button
-          key={msg.id}
-          onClick={() => onSelect(msg)}
-          className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
-            selectedId === msg.id ? 'bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500' : ''
-          } ${!msg.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
-              {msg.messageType === 'announcement' ? (
-                <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <Megaphone className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                </div>
+    <div className="flex-1 overflow-y-auto">
+      {messages.map((msg) => {
+        const displayName = getDisplayName(msg, currentOrgId);
+        const isAnnouncement = msg.messageType === 'announcement';
+        const isSelected = selectedId === msg.id;
+
+        return (
+          <button
+            key={msg.id}
+            onClick={() => onSelect(msg)}
+            className={`w-full text-left px-3 py-3 flex items-center gap-3 transition-colors ${
+              isSelected
+                ? 'bg-blue-50 dark:bg-blue-900/20'
+                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+            }`}
+          >
+            {/* Avatar */}
+            <div
+              className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${
+                isAnnouncement
+                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                  : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+              }`}
+            >
+              {isAnnouncement ? (
+                <Megaphone className="w-5 h-5" />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                  <MessageCircle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                </div>
+                getAvatarLetters(displayName)
               )}
             </div>
+
+            {/* Content */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                {!msg.isRead && (
-                  <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                )}
-                <span className={`text-sm truncate ${!msg.isRead ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
-                  {msg.subject}
+              <div className="flex items-center justify-between">
+                <span
+                  className={`text-sm truncate ${
+                    !msg.isRead
+                      ? 'font-semibold text-gray-900 dark:text-gray-100'
+                      : 'font-medium text-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  {displayName}
                 </span>
-                <PriorityIcon priority={msg.priority} />
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                {msg.content.slice(0, 100)}
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-gray-400 dark:text-gray-500">
-                  From: {msg.orgId}
-                </span>
-                <span className="text-xs text-gray-300 dark:text-gray-600">|</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
+                <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
                   {formatTime(msg.createdAt)}
                 </span>
               </div>
+              <div className="flex items-center justify-between mt-0.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  {msg.content.slice(0, 60)}
+                </p>
+                {!msg.isRead && (
+                  <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ml-2" />
+                )}
+              </div>
             </div>
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }

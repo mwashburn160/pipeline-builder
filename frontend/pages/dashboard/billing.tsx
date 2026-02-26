@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { Check, AlertCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useConfig } from '@/hooks/useConfig';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Toast } from '@/components/ui/Toast';
@@ -30,11 +31,21 @@ const PLAN_COLORS: Record<string, { border: string; badge: string; bg: string }>
   },
 };
 
+/**
+ * Formats a price in cents as a dollar string.
+ * @param cents - Price in cents (0 returns "Free").
+ * @returns Formatted price string, e.g. "$9.99".
+ */
 function formatPrice(cents: number): string {
   if (cents === 0) return 'Free';
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * Formats an ISO date string as a human-readable date.
+ * @param iso - ISO 8601 date string.
+ * @returns Localized date string, e.g. "February 25, 2026".
+ */
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -45,9 +56,12 @@ function formatDate(iso: string): string {
 // Page
 // ---------------------------------------------------------------------------
 
+/** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isSysOrg } = useAuthGuard();
+  const { user, isReady, isSystemOrg, isSysAdmin } = useAuthGuard();
+  const { config } = useConfig();
+  const canChangePlan = isSysAdmin;
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -56,12 +70,12 @@ export default function BillingPage() {
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // System org does not have billing — redirect to dashboard
+  // System org or billing disabled — redirect to dashboard
   useEffect(() => {
-    if (isReady && isSysOrg) {
+    if (isReady && (isSystemOrg || !config.billingEnabled)) {
       router.replace('/dashboard');
     }
-  }, [isReady, isSysOrg, router]);
+  }, [isReady, isSystemOrg, config.billingEnabled, router]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -146,7 +160,7 @@ export default function BillingPage() {
     }
   };
 
-  if (!isReady || loading || isSysOrg) return <LoadingPage />;
+  if (!isReady || loading || isSystemOrg || !config.billingEnabled) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Billing">
@@ -181,26 +195,28 @@ export default function BillingPage() {
                 <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(subscription.currentPeriodEnd)}</p>
               </div>
             </div>
-            <div className="mt-4 flex gap-3">
-              {subscription.cancelAtPeriodEnd ? (
-                <button
-                  onClick={handleReactivate}
-                  disabled={actionLoading}
-                  className="btn btn-primary text-sm"
-                >
-                  {actionLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
-                  Reactivate Subscription
-                </button>
-              ) : subscription.planId !== 'developer' ? (
-                <button
-                  onClick={handleCancel}
-                  disabled={actionLoading}
-                  className="btn btn-secondary text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
-                >
-                  Cancel Subscription
-                </button>
-              ) : null}
-            </div>
+            {canChangePlan && (
+              <div className="mt-4 flex gap-3">
+                {subscription.cancelAtPeriodEnd ? (
+                  <button
+                    onClick={handleReactivate}
+                    disabled={actionLoading}
+                    className="btn btn-primary text-sm"
+                  >
+                    {actionLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+                    Reactivate Subscription
+                  </button>
+                ) : subscription.planId !== 'developer' ? (
+                  <button
+                    onClick={handleCancel}
+                    disabled={actionLoading}
+                    className="btn btn-secondary text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                  >
+                    Cancel Subscription
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
 
@@ -281,9 +297,9 @@ export default function BillingPage() {
 
                 <button
                   onClick={() => handleSubscribe(plan.id)}
-                  disabled={isCurrent || actionLoading}
+                  disabled={isCurrent || actionLoading || !canChangePlan}
                   className={`w-full py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                    isCurrent
+                    isCurrent || !canChangePlan
                       ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                       : 'btn btn-primary justify-center'
                   }`}
@@ -302,6 +318,12 @@ export default function BillingPage() {
             );
           })}
         </div>
+
+        {!canChangePlan && (
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+            Contact a system administrator to change your plan.
+          </p>
+        )}
       </div>
 
       {toast && (

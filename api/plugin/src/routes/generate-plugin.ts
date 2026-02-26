@@ -18,7 +18,6 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
-  extractDbError,
   ErrorCode,
   createLogger,
   isSystemAdmin,
@@ -33,11 +32,11 @@ import {
 } from '@mwashburn160/api-core';
 import { checkQuota } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
-import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
-import { eq } from 'drizzle-orm';
+import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
-import { buildAndPush } from '../helpers/docker-build';
+
+import { getQueue } from '../queue/plugin-build-queue';
 import { getAvailableProviders, generatePluginConfig } from '../services/ai-plugin-generation-service';
 
 const logger = createLogger('generate-plugin');
@@ -150,13 +149,8 @@ export function createGeneratePluginRoutes(
     }) as import('express').RequestHandler,
     checkQuota(quotaService, 'plugins') as import('express').RequestHandler,
     async (req: Request, res: Response) => {
-      // Docker builds can take several minutes
-      res.setTimeout(10 * 60 * 1000);
-
       const ctx = req.context!;
       const config = Config.get();
-
-      let tempDir: string | undefined;
 
       try {
         if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
@@ -184,42 +178,34 @@ export function createGeneratePluginRoutes(
           accessModifier,
         });
 
-        // Create temp directory and write Dockerfile
-        tempDir = path.join(process.cwd(), 'tmp', uuid());
+        // Create temp directory and write Dockerfile (worker will clean up)
+        const tempDir = path.join(process.cwd(), 'tmp', uuid());
         fs.mkdirSync(tempDir, { recursive: true });
         fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
 
-        // Build & push Docker image
-        const { fullImage } = buildAndPush({
-          contextDir: tempDir,
-          dockerfile: 'Dockerfile',
-          imageTag,
-          registry: config.registry,
-        });
-
-        ctx.log('INFO', 'Image pushed', { fullImage });
-
-        // Persist to database (same pattern as upload-plugin.ts)
-        const result = await db.transaction(async (tx) => {
-          await tx
-            .update(schema.plugin)
-            .set({
-              isDefault: false,
-              updatedAt: new Date(),
-              updatedBy: ctx.identity.userId || 'system',
-            })
-            .where(eq(schema.plugin.name, name));
-
-          const [inserted] = await tx
-            .insert(schema.plugin)
-            .values({
+        // Queue build job (returns immediately)
+        const buildQueue = getQueue();
+        await buildQueue.add(
+          `deploy-generated-${name}-${imageTag}`,
+          {
+            requestId: ctx.requestId,
+            orgId,
+            userId: ctx.identity.userId || 'system',
+            authToken: req.headers.authorization || '',
+            buildRequest: {
+              contextDir: tempDir,
+              dockerfile: 'Dockerfile',
+              imageTag,
+              registry: config.registry,
+            },
+            pluginRecord: {
               orgId,
               name,
               description: description || null,
               version,
               metadata: {},
-              pluginType: (pluginType || 'CodeBuildStep') as PluginType,
-              computeType: (computeType || 'MEDIUM') as ComputeType,
+              pluginType: pluginType || 'CodeBuildStep',
+              computeType: computeType || 'MEDIUM',
               primaryOutputDirectory: primaryOutputDirectory || null,
               dockerfile,
               env: env || {},
@@ -227,40 +213,23 @@ export function createGeneratePluginRoutes(
               installCommands: installCommands || [],
               commands,
               imageTag,
-              accessModifier: accessModifier as AccessModifier,
-              isDefault: true,
-              isActive: true,
-              createdBy: ctx.identity.userId || 'system',
-            })
-            .returning();
+              accessModifier,
+            },
+          },
+        );
 
-          return inserted;
+        ctx.log('INFO', 'Build queued', {
+          pluginName: name,
+          imageTag,
         });
 
-        void quotaService.increment(orgId, 'plugins', req.headers.authorization || '');
-
-        ctx.log('COMPLETED', 'AI-generated plugin deployed', {
-          id: result.id,
-          name: result.name,
-          version: result.version,
-          imageTag: result.imageTag,
-        });
-
-        return res.status(201).json({
+        return res.status(202).json({
           success: true,
-          statusCode: 201,
-          id: result.id,
-          name: result.name,
-          version: result.version,
-          imageTag: result.imageTag,
-          fullImage,
-          accessModifier: result.accessModifier,
-          isDefault: result.isDefault,
-          isActive: result.isActive,
-          createdBy: result.createdBy,
-          message: accessModifier === 'public'
-            ? 'AI-generated plugin deployed successfully (accessible to all organizations)'
-            : `AI-generated plugin deployed successfully (accessible to ${orgId} only)`,
+          statusCode: 202,
+          message: 'Plugin build queued',
+          requestId: ctx.requestId,
+          pluginName: name,
+          imageTag,
         });
       } catch (error) {
         if (res.headersSent) {
@@ -268,15 +237,9 @@ export function createGeneratePluginRoutes(
           return;
         }
 
-        const message = errorMessage(error);
-        const dbDetails = extractDbError(error);
-        logger.error('AI plugin deployment failed', { requestId: ctx.requestId, error: message, orgId: ctx.identity.orgId, ...dbDetails });
+        logger.error('AI plugin deployment failed', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
 
-        return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
-      } finally {
-        if (tempDir && fs.existsSync(tempDir)) {
-          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (error) { logger.debug('Temp dir cleanup failed', { path: tempDir, error: String(error) }); }
-        }
+        return sendInternalError(res, 'Plugin deployment failed');
       }
     },
   );

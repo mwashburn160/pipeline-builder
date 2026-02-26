@@ -1,5 +1,5 @@
 import { CrudService, schema, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
-import { SQL, eq, and, or, ilike } from 'drizzle-orm';
+import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -37,32 +37,12 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     return sortableColumns[sortBy] || null;
   }
 
-  protected buildSearchConditions(query: string, orgId: string): SQL[] {
-    const normalizedQuery = `%${query.toLowerCase()}%`;
+  protected getProjectColumn(): AnyColumn | null {
+    return null; // Messages are org-scoped, not project-scoped
+  }
 
-    const searchCondition = or(
-      ilike(schema.message.subject, normalizedQuery),
-      ilike(schema.message.content, normalizedQuery),
-    )!;
-
-    const normalizedOrgId = orgId.toLowerCase();
-
-    // Access control for search
-    let accessCondition: SQL;
-    if (normalizedOrgId === 'system') {
-      accessCondition = eq(schema.message.isActive, true);
-    } else {
-      accessCondition = and(
-        or(
-          eq(schema.message.orgId, normalizedOrgId),
-          eq(schema.message.recipientOrgId, normalizedOrgId),
-          eq(schema.message.recipientOrgId, '*'),
-        )!,
-        eq(schema.message.isActive, true),
-      )!;
-    }
-
-    return [searchCondition, accessCondition];
+  protected getOrgColumn(): AnyColumn {
+    return schema.message.orgId;
   }
 
   /**

@@ -5,30 +5,40 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { UserPlus, CheckCircle, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useConfig } from '@/hooks/useConfig';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import type { Plan } from '@/types';
 import api from '@/lib/api';
 
+/** Border color class per plan tier. */
 const PLAN_COLORS: Record<string, string> = {
   developer: 'border-green-500',
   pro: 'border-blue-500',
   unlimited: 'border-purple-500',
 };
 
+/** Badge color classes per plan tier. */
 const PLAN_BADGE_COLORS: Record<string, string> = {
   developer: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   pro: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   unlimited: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
 };
 
+/**
+ * Formats a price in cents as a monthly dollar string.
+ * @param cents - Price in cents (0 returns "Free").
+ * @returns Formatted price string, e.g. "$9.99/mo".
+ */
 function formatPrice(cents: number): string {
   if (cents === 0) return 'Free';
   return `$${(cents / 100).toFixed(2)}/mo`;
 }
 
+/** User registration page. Collects credentials, optional organization name, and billing plan selection. */
 export default function RegisterPage() {
   const router = useRouter();
   const { register, isLoading } = useAuth();
+  const { config } = useConfig();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +50,7 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
+    if (!config.billingEnabled) return;
     api.getPlans().then((res) => {
       if (res.success && res.data?.plans) {
         setPlans(res.data.plans);
@@ -47,7 +58,7 @@ export default function RegisterPage() {
     }).catch(() => {
       // Plans will fall back to empty — user can still register on default plan
     });
-  }, []);
+  }, [config.billingEnabled]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -79,7 +90,7 @@ export default function RegisterPage() {
     }
 
     try {
-      await register(username, email, password, organizationName || undefined, selectedPlan);
+      await register(username, email, password, organizationName || undefined, config.billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
       setTimeout(() => router.push('/auth/login'), 2000);
     } catch (error) {

@@ -1,13 +1,20 @@
 import type { ReactNode } from 'react';
 
+/** Props for the FormField component. */
 interface FormFieldProps {
+  /** Label text displayed above the input */
   label: string;
+  /** Validation error message shown below the input in red */
   error?: string;
+  /** Helper text shown below the input when there is no error */
   hint?: string;
+  /** Additional CSS classes for the wrapper div */
   className?: string;
+  /** The form control (input, select, textarea, etc.) */
   children: ReactNode;
 }
 
+/** Form field wrapper that renders a label, the input control, and an error or hint message. */
 export function FormField({ label, error, hint, className, children }: FormFieldProps) {
   return (
     <div className={className}>

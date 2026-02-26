@@ -1,16 +1,29 @@
 import { FormSecurityGroupConfig } from '@/types/form-types';
 import StringArrayEditor from './StringArrayEditor';
 
+/** How the security group is specified. */
 type SecurityGroupType = 'none' | 'securityGroupIds' | 'securityGroupLookup';
 
+/** Props for {@link SecurityGroupEditor}. */
 interface SecurityGroupEditorProps {
+  /** Currently selected security group configuration strategy. */
   securityGroupType: SecurityGroupType;
+  /** Current security group configuration values. */
   securityGroup: FormSecurityGroupConfig;
+  /** Callback when the security group type selector changes. */
   onTypeChange: (type: SecurityGroupType) => void;
+  /** Callback when any security group configuration field changes. */
   onSecurityGroupChange: (sg: FormSecurityGroupConfig) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
 }
 
+/**
+ * Editor for security group configuration used by the pipeline defaults section.
+ *
+ * Supports two modes: explicit security group IDs (with mutable toggle) and
+ * security group lookup by name and VPC ID.
+ */
 export default function SecurityGroupEditor({
   securityGroupType, securityGroup, onTypeChange, onSecurityGroupChange, disabled,
 }: SecurityGroupEditorProps) {

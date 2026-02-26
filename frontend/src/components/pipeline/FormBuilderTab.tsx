@@ -14,27 +14,52 @@ import MetadataEditor from './editors/MetadataEditor';
 import WizardStepper from './WizardStepper';
 import { WIZARD_STEPS, validateStep, getStepStatuses } from '@/lib/wizard-validation';
 
+/** Methods exposed to parent modals via React ref. */
 export interface FormBuilderTabRef {
+  /** Validates and assembles the current form state into BuilderProps, or null on validation failure. */
   getProps: () => BuilderProps | null;
+  /** Assembles BuilderProps for preview without strict validation. */
   getPropsPreview: () => BuilderProps | null;
+  /** Returns the current description field value. */
   getDescription: () => string;
+  /** Returns the current keywords field value (comma-separated string). */
   getKeywords: () => string;
+  /** Validates the current wizard step; returns true if the user can advance. */
   canProceed: () => boolean;
+  /** Navigates to a specific wizard step by index. */
   goToStep: (step: number) => void;
 }
 
+/** Props for {@link FormBuilderTab}. */
 interface FormBuilderTabProps {
+  /** Whether all form inputs should be disabled. */
   disabled?: boolean;
+  /** Pre-existing BuilderProps to populate the form (used in edit mode). */
   initialProps?: BuilderProps;
+  /** Initial description text (used in edit mode). */
   initialDescription?: string;
+  /** Initial keywords as comma-separated string (used in edit mode). */
   initialKeywords?: string;
+  /** Whether to show description/keywords fields (hidden when parent provides them). */
   showDescriptionKeywords?: boolean;
+  /** When true, renders one section at a time with stepper navigation. */
   wizardMode?: boolean;
+  /** Zero-based index of the active wizard step. */
   currentStep?: number;
+  /** Callback when the active wizard step changes. */
   onStepChange?: (step: number) => void;
+  /** Slot for rendering access/status controls injected by the parent modal. */
   accessStatusSlot?: ReactNode;
 }
 
+/**
+ * Visual form builder for pipeline configuration.
+ *
+ * Supports two layout modes: a flat vertical layout (all sections visible) and
+ * a wizard mode (one step at a time with stepper navigation). Manages form state
+ * via useFormBuilderState reducer and exposes imperative methods through a ref
+ * for the parent modal to retrieve assembled BuilderProps.
+ */
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
   ({ disabled, initialProps, initialDescription, initialKeywords, showDescriptionKeywords = true, wizardMode = false, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
     const initialStateRef = useRef<FormBuilderState | undefined>(

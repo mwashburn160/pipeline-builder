@@ -3,13 +3,14 @@
  * @description Express route handlers for all API endpoints.
  */
 
-export { default as authRoutes } from './auth.routes';
-export { default as oauthRoutes } from './oauth.routes';
-export { default as userRoutes } from './user.routes';
-export { default as usersRoutes } from './users.routes';
-export { default as organizationRoutes } from './organization.routes';
-export { default as organizationsRoutes } from './organizations.routes';
-export { default as invitationRoutes } from './invitation.routes';
-export { default as pluginRoutes } from './plugin.routes';
-export { default as pipelineRoutes } from './pipeline.routes';
-export { default as logRoutes } from './log.routes';
+export { default as authRoutes } from './auth';
+export { default as oauthRoutes } from './oauth';
+export { default as userRoutes } from './user';
+export { default as usersRoutes } from './users';
+export { default as organizationRoutes } from './organization';
+export { default as organizationsRoutes } from './organizations';
+export { default as invitationRoutes } from './invitation';
+export { default as pluginRoutes } from './plugin';
+export { default as pipelineRoutes } from './pipeline';
+export { default as logRoutes } from './log';
+export { default as configRoutes } from './config';

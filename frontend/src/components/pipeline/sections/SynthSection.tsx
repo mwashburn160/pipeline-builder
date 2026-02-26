@@ -5,20 +5,39 @@ import NetworkConfigEditor from '../editors/NetworkConfigEditor';
 import MetadataEditor from '../editors/MetadataEditor';
 import CollapsibleSection from '../editors/CollapsibleSection';
 
+/** Props for {@link SynthSection}. */
 interface SynthSectionProps {
+  /** Current synth configuration state (source, plugin, metadata, network). */
   synth: FormBuilderState['synth'];
+  /** Callback when the source type selector changes. */
   onSourceTypeChange: (type: FormBuilderState['synth']['sourceType']) => void;
+  /** Callback when an S3 source field changes. */
   onS3Change: (field: string, value: string) => void;
+  /** Callback when a GitHub source field changes. */
   onGithubChange: (field: string, value: string) => void;
+  /** Callback when a CodeStar source field changes. */
   onCodestarChange: (field: string, value: string | boolean) => void;
+  /** Callback when the synth plugin configuration changes. */
   onPluginChange: (plugin: FormPluginOptions) => void;
+  /** Callback when the synth metadata entries change. */
   onMetadataChange: (metadata: MetadataEntry[]) => void;
+  /** Callback when the synth network type selector changes. */
   onNetworkTypeChange: (type: FormBuilderState['synth']['networkType']) => void;
+  /** Callback when any synth network configuration field changes. */
   onNetworkChange: (network: FormNetworkConfig) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Validation errors keyed by field path. */
   errors?: Record<string, string>;
 }
 
+/**
+ * Section for configuring the CDK synth step of the pipeline.
+ *
+ * Combines the source type editor (GitHub/S3/CodeStar), plugin options editor,
+ * and collapsible sub-sections for synth-level metadata and network configuration.
+ * This section is shown as step 2 in wizard mode.
+ */
 export default function SynthSection({
   synth,
   onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange,

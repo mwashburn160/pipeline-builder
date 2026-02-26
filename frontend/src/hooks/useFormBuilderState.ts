@@ -1,3 +1,8 @@
+/**
+ * Pipeline form builder state management hook.
+ * Uses a useReducer-based architecture to manage the complex, deeply-nested
+ * form state for pipeline creation (core fields, defaults, role, synth config, stages/steps).
+ */
 import { useReducer, useCallback, useState } from 'react';
 import {
   FormBuilderState,
@@ -15,6 +20,7 @@ import { assembleBuilderProps as assembleProps } from '@/types/props-converter';
 
 // ─── Action Types ──────────────────────────────────────────────
 
+/** Discriminated union of all actions supported by the form reducer. */
 type Action =
   | { type: 'SET_CORE'; field: 'project' | 'organization' | 'pipelineName'; value: string }
   | { type: 'SET_DESCRIPTION'; value: string }
@@ -53,6 +59,7 @@ type Action =
 
 // ─── Reducer ───────────────────────────────────────────────────
 
+/** Pure reducer handling all pipeline form state transitions. */
 function formReducer(state: FormBuilderState, action: Action): FormBuilderState {
   switch (action.type) {
     case 'SET_CORE': {
@@ -161,6 +168,14 @@ function formReducer(state: FormBuilderState, action: Action): FormBuilderState 
 
 // ─── Hook ──────────────────────────────────────────────────────
 
+/**
+ * Manages the full pipeline form builder state via useReducer.
+ * Provides dispatch for granular updates, validation, and assembly of
+ * the final BuilderProps payload for API submission.
+ *
+ * @param initialState - Optional pre-populated form state (e.g. when editing an existing pipeline)
+ * @returns Form state, dispatch, validation errors, assembly helpers, and reset callback
+ */
 export function useFormBuilderState(initialState?: FormBuilderState) {
   const [state, dispatch] = useReducer(
     formReducer,

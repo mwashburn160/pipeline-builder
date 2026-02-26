@@ -31,7 +31,7 @@ jest.mock('../src/models', () => ({
   },
 }));
 
-import { isOrgMember, authorize } from '../src/middleware/auth.middleware';
+import { isOrgMember, requireRole } from '../src/middleware/auth';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,9 +125,9 @@ describe('auth middleware', () => {
     });
   });
 
-  describe('authorize', () => {
+  describe('requireRole', () => {
     it('should allow user with matching role', () => {
-      const middleware = authorize('admin');
+      const middleware = requireRole('admin');
       const req = { user: { role: 'admin' } } as any;
       const res = mockRes();
       const next = mockNext();
@@ -137,7 +137,7 @@ describe('auth middleware', () => {
     });
 
     it('should allow when role is in list', () => {
-      const middleware = authorize('user', 'admin');
+      const middleware = requireRole('user', 'admin');
       const req = { user: { role: 'user' } } as any;
       const res = mockRes();
       const next = mockNext();
@@ -147,7 +147,7 @@ describe('auth middleware', () => {
     });
 
     it('should deny when role is not in list', () => {
-      const middleware = authorize('admin');
+      const middleware = requireRole('admin');
       const req = { user: { role: 'user' } } as any;
       const res = mockRes();
       const next = mockNext();
@@ -158,7 +158,7 @@ describe('auth middleware', () => {
     });
 
     it('should deny when no user present', () => {
-      const middleware = authorize('admin');
+      const middleware = requireRole('admin');
       const req = {} as any;
       const res = mockRes();
       const next = mockNext();

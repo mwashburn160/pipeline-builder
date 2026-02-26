@@ -1,6 +1,8 @@
 /**
- * @module props-assembly
- * @description Converts FormBuilderState (UI) into BuilderProps (API) for create/update.
+ * Assembles mutable FormBuilderState (UI) into readonly BuilderProps (API)
+ * for pipeline create/update requests. Each helper converts one section of
+ * the form state, filtering out empty/default values so the API payload
+ * contains only explicitly configured fields.
  */
 
 import type { BuilderProps } from '@/types';
@@ -16,6 +18,10 @@ import {
 import { validateFormState } from './props-validation';
 import { parseArtifactKeyString } from './props-parsing';
 
+/**
+ * Converts MetadataEntry[] into a typed record, coercing values based on each entry's type.
+ * Entries with blank keys are filtered out. Returns undefined if no entries remain.
+ */
 function assembleMetadata(entries: MetadataEntry[]): Record<string, string | boolean | number> | undefined {
   const filtered = entries.filter((e) => e.key.trim());
   if (filtered.length === 0) return undefined;
@@ -30,6 +36,13 @@ function assembleMetadata(entries: MetadataEntry[]): Record<string, string | boo
   return result;
 }
 
+/**
+ * Converts the form's network fields into the API's typed network config object.
+ * Only includes fields relevant to the selected networkType variant.
+ * @param networkType - The selected variant: 'none', 'subnetIds', 'vpcId', or 'vpcLookup'.
+ * @param network - The superset form network config.
+ * @returns The assembled network config, or undefined if networkType is 'none'.
+ */
 function assembleNetworkConfig(
   networkType: string,
   network: FormNetworkConfig,
@@ -90,6 +103,12 @@ function assembleNetworkConfig(
   }
 }
 
+/**
+ * Converts the form's security group fields into the API's typed security group config.
+ * @param sgType - The selected variant: 'none', 'securityGroupIds', or 'securityGroupLookup'.
+ * @param sg - The superset form security group config.
+ * @returns The assembled security group config, or undefined if sgType is 'none'.
+ */
 function assembleSecurityGroupConfig(
   sgType: string,
   sg: FormSecurityGroupConfig,
@@ -105,6 +124,10 @@ function assembleSecurityGroupConfig(
   }
 }
 
+/**
+ * Converts a FormPluginFilter into an API filter object, coercing boolean string fields.
+ * Returns undefined if all filter fields are empty.
+ */
 function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<string, unknown> | undefined {
   const result: Record<string, unknown> = {};
   if (filter.id) result.id = filter.id;
@@ -113,18 +136,15 @@ function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<strin
   if (filter.isDefault) result.isDefault = filter.isDefault === 'true';
   if (filter.isActive) result.isActive = filter.isActive === 'true';
   if (filter.name) result.name = filter.name;
-  if (filter.namePattern) result.namePattern = filter.namePattern;
   if (filter.version) result.version = filter.version;
-  if (filter.versionMin || filter.versionMax) {
-    result.versionRange = {
-      ...(filter.versionMin && { min: filter.versionMin }),
-      ...(filter.versionMax && { max: filter.versionMax }),
-    };
-  }
   if (filter.imageTag) result.imageTag = filter.imageTag;
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+/**
+ * Assembles a FormPluginOptions into the API plugin object, including filter and metadata
+ * only when they contain non-empty values.
+ */
 function assemblePluginOptions(plugin: FormPluginOptions): Record<string, unknown> {
   const result: Record<string, unknown> = { name: plugin.name };
   if (plugin.alias) result.alias = plugin.alias;
@@ -135,6 +155,10 @@ function assemblePluginOptions(plugin: FormPluginOptions): Record<string, unknow
   return result;
 }
 
+/**
+ * Converts EnvEntry[] into a string-to-string record for a step's environment variables.
+ * Entries with blank keys are filtered out. Returns undefined if no entries remain.
+ */
 function assembleEnv(entries: EnvEntry[]): Record<string, string> | undefined {
   const filtered = entries.filter((e) => e.key.trim());
   if (filtered.length === 0) return undefined;
@@ -144,8 +168,14 @@ function assembleEnv(entries: EnvEntry[]): Record<string, string> | undefined {
 }
 
 /**
- * Assemble a FormBuilderState into BuilderProps.
- * Returns null if validation fails.
+ * Assembles a complete FormBuilderState into a BuilderProps payload for the API.
+ * Validates the form state first (unless skipped) and returns field-level errors
+ * if validation fails.
+ *
+ * @param state - The current form builder state to assemble.
+ * @param options.skipValidation - When true, bypass validation (useful for draft saves).
+ * @returns `props` containing the assembled BuilderProps (or null on validation failure)
+ *          and `errors` mapping field paths to error messages.
  */
 export function assembleBuilderProps(
   state: FormBuilderState,

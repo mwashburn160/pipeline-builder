@@ -9,6 +9,7 @@ import { pct, fmtNum, barColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import api from '@/lib/api';
 
+/** Dashboard home page. Shows a welcome banner, CLI install instructions, quota usage summary, and account info. */
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
   const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);

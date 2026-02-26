@@ -1,15 +1,7 @@
-/**
- * @module editors/ArtifactKeyCombobox
- * @description Autocomplete combobox for artifact key selection.
- *
- * Allows users to either type a free-text artifact key or select from
- * a dropdown of available artifact keys computed from the current
- * pipeline form state. Follows the same pattern as {@link MetadataKeyCombobox}.
- */
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { type ArtifactKeyOption, groupArtifactOptions } from '@/lib/artifact-keys';
 
+/** Props for {@link ArtifactKeyCombobox}. */
 interface ArtifactKeyComboboxProps {
   /** Current artifact key value. */
   value: string;
@@ -23,6 +15,13 @@ interface ArtifactKeyComboboxProps {
   placeholder?: string;
 }
 
+/**
+ * Autocomplete combobox for selecting an artifact key.
+ *
+ * Allows users to either type a free-text artifact key or select from a
+ * categorized dropdown of available artifact keys computed from the current
+ * pipeline form state (synth output + preceding stages/steps).
+ */
 export default function ArtifactKeyCombobox({
   value,
   onChange,

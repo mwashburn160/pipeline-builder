@@ -4,7 +4,7 @@ import { Pool, PoolConfig, PoolClient } from 'pg';
 import { schema } from './drizzle-schema';
 import { ConnectionRetryStrategy } from './retry-strategy';
 
-const log = createLogger('Database');
+const logger = createLogger('Database');
 
 /**
  * Get database configuration from environment variables
@@ -131,11 +131,11 @@ export class Connection {
       this.db = drizzle(this.pool, { schema });
 
       if (this.options.enableLogging) {
-        log.info('Database connection initialized successfully');
+        logger.info('Database connection initialized successfully');
         this.logConnectionConfig(poolConfig);
       }
     } catch (error) {
-      log.error('Failed to initialize database connection:', error);
+      logger.error('Failed to initialize database connection:', error);
       throw new Error('Database initialization failed');
     }
   }
@@ -179,12 +179,12 @@ export class Connection {
       client.release();
 
       if (this.options.enableLogging) {
-        log.info('Database connection test successful');
+        logger.info('Database connection test successful');
       }
 
       return result.rows.length > 0;
     } catch (error) {
-      log.error('Database connection test failed:', error);
+      logger.error('Database connection test failed:', error);
       return false;
     }
   }
@@ -259,7 +259,7 @@ export class Connection {
    */
   public async close(timeout: number = 5000): Promise<void> {
     if (this.isShuttingDown) {
-      log.warn('Connection is already shutting down');
+      logger.warn('Connection is already shutting down');
       return;
     }
 
@@ -267,9 +267,9 @@ export class Connection {
 
     try {
       if (this.options.enableLogging) {
-        log.info('Closing database connection pool...');
+        logger.info('Closing database connection pool...');
         const stats = this.getStats();
-        log.info(`Pool stats - Total: ${stats.totalCount}, Idle: ${stats.idleCount}, Waiting: ${stats.waitingCount}`);
+        logger.info(`Pool stats - Total: ${stats.totalCount}, Idle: ${stats.idleCount}, Waiting: ${stats.waitingCount}`);
       }
 
       // Set a timeout for graceful shutdown
@@ -281,10 +281,10 @@ export class Connection {
       await Promise.race([closePromise, timeoutPromise]);
 
       if (this.options.enableLogging) {
-        log.info('Database connection closed successfully');
+        logger.info('Database connection closed successfully');
       }
     } catch (error) {
-      log.error('Error closing database connection:', error);
+      logger.error('Error closing database connection:', error);
       throw error;
     } finally {
       this.isShuttingDown = false;
@@ -305,11 +305,11 @@ export class Connection {
    */
   private setupEventHandlers(): void {
     this.pool.on('error', (err) => {
-      log.error('Unexpected error on idle client:', err);
+      logger.error('Unexpected error on idle client:', err);
 
       if (this.options.enableAutoRetry && this.retryStrategy.getAttempts() < this.options.maxRetries) {
         void this.retryStrategy.handleConnectionError(err, () => this.testConnection()).catch((retryErr) => {
-          log.error('Connection retry error:', retryErr);
+          logger.error('Connection retry error:', retryErr);
         });
       }
     });
@@ -318,7 +318,7 @@ export class Connection {
       this.retryStrategy.reset(); // Reset on successful connection
 
       if (this.options.enableLogging) {
-        log.debug('New database connection established');
+        logger.debug('New database connection established');
       }
     });
 
@@ -328,7 +328,7 @@ export class Connection {
 
     this.pool.on('remove', () => {
       if (this.options.enableLogging) {
-        log.debug('Client removed from pool');
+        logger.debug('Client removed from pool');
       }
     });
   }
@@ -337,7 +337,7 @@ export class Connection {
    * Logs connection configuration (sanitized)
    */
   private logConnectionConfig(config: PoolConfig): void {
-    log.info('Database Configuration:', {
+    logger.info('Database Configuration:', {
       host: `${config.host}:${config.port}`,
       database: config.database,
       user: config.user,

@@ -1,0 +1,328 @@
+/**
+ * Tests for routes/read-plugins.
+ *
+ * Extracts route handlers from the router and tests them directly
+ * with mock req/res objects — no HTTP server needed.
+ */
+
+// ---------------------------------------------------------------------------
+// Mocks — must be defined before imports
+// ---------------------------------------------------------------------------
+
+const mockFindPaginated = jest.fn();
+const mockFind = jest.fn();
+const mockFindById = jest.fn();
+
+jest.mock('../src/services/plugin-service', () => ({
+  pluginService: {
+    findPaginated: mockFindPaginated,
+    find: mockFind,
+    findById: mockFindById,
+  },
+}));
+
+jest.mock('../src/helpers/plugin-helpers', () => ({
+  validateFilter: jest.fn(() => ({ ok: true, value: {} })),
+  normalizePlugin: jest.fn((p: any) => p),
+  sendPluginNotFound: jest.fn((res: any) => {
+    res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
+    return res;
+  }),
+}));
+
+jest.mock('@mwashburn160/api-core', () => ({
+  getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
+  ErrorCode: {
+    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
+    INTERNAL_ERROR: 'INTERNAL_ERROR',
+  },
+  isSystemAdmin: jest.fn(() => false),
+  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  sendBadRequest: jest.fn((res: any, msg: string) => {
+    res.status(400).json({ success: false, statusCode: 400, message: msg });
+    return res;
+  }),
+  sendInternalError: jest.fn((res: any, msg: string) => {
+    res.status(500).json({ success: false, statusCode: 500, message: msg });
+    return res;
+  }),
+  parsePaginationParams: jest.fn(() => ({
+    limit: 25,
+    offset: 0,
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  })),
+}));
+
+jest.mock('@mwashburn160/api-server', () => ({}));
+
+jest.mock('@mwashburn160/pipeline-core', () => ({
+  schema: { plugin: {} },
+}));
+
+jest.mock('drizzle-orm', () => ({
+  SQL: class {},
+  or: jest.fn(),
+  ilike: jest.fn(),
+  eq: jest.fn(),
+}));
+
+jest.mock('drizzle-orm/column', () => ({}));
+jest.mock('drizzle-orm/pg-core', () => ({}));
+
+import { isSystemAdmin, sendBadRequest } from '@mwashburn160/api-core';
+import { validateFilter } from '../src/helpers/plugin-helpers';
+import { createReadPluginRoutes } from '../src/routes/read-plugins';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const mockQuotaService = {
+  increment: jest.fn().mockResolvedValue(undefined),
+  check: jest.fn(),
+  getUsage: jest.fn(),
+} as any;
+
+const router = createReadPluginRoutes(mockQuotaService);
+
+function getHandler(method: string, path: string) {
+  const layer = (router as any).stack.find(
+    (l: any) => l.route?.path === path && l.route?.methods[method],
+  );
+  if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
+  return layer.route.stack[0].handle;
+}
+
+function mockReq(overrides: Record<string, unknown> = {}): any {
+  return {
+    params: {},
+    query: {},
+    headers: { authorization: 'Bearer tok' },
+    context: {
+      identity: { orgId: 'ORG-1' },
+      log: jest.fn(),
+    },
+    ...overrides,
+  };
+}
+
+function mockRes(): any {
+  const res: any = {};
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('GET /plugins (list)', () => {
+  const handler = getHandler('get', '/');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns paginated plugins', async () => {
+    const plugins = [
+      { id: '1', name: 'lint', accessModifier: 'private' },
+      { id: '2', name: 'build', accessModifier: 'private' },
+    ];
+    mockFindPaginated.mockResolvedValue({
+      data: plugins,
+      total: 2,
+      limit: 25,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      statusCode: 200,
+      plugins: expect.arrayContaining([
+        expect.objectContaining({ id: '1' }),
+        expect.objectContaining({ id: '2' }),
+      ]),
+      pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+    }));
+  });
+
+  it('forces accessModifier=private for non-system-admins', async () => {
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      expect.objectContaining({ accessModifier: 'private' }),
+      'org-1',
+      expect.any(Object),
+    );
+  });
+
+  it('does not force accessModifier for system admins', async () => {
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      expect.not.objectContaining({ accessModifier: 'private' }),
+      'org-1',
+      expect.any(Object),
+    );
+  });
+
+  it('returns 400 when orgId is missing', async () => {
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Organization ID is required');
+  });
+
+  it('returns 400 on invalid filter', async () => {
+    (validateFilter as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Invalid filter' });
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Invalid filter');
+  });
+
+  it('returns 500 on service error', async () => {
+    mockFindPaginated.mockRejectedValue(new Error('Connection reset'));
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('increments quota after successful response', async () => {
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockQuotaService.increment).toHaveBeenCalledWith('org-1', 'apiCalls', 'Bearer tok');
+  });
+});
+
+describe('GET /plugins/find', () => {
+  const handler = getHandler('get', '/find');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns the first matching plugin', async () => {
+    const plugin = { id: '1', name: 'lint' };
+    mockFind.mockResolvedValue([plugin]);
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      plugin: expect.objectContaining({ id: '1' }),
+    }));
+  });
+
+  it('returns 404 when no plugin found', async () => {
+    mockFind.mockResolvedValue([]);
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('returns 400 when orgId is missing', async () => {
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Organization ID is required');
+  });
+});
+
+describe('GET /plugins/:id', () => {
+  const handler = getHandler('get', '/:id');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns a plugin by ID', async () => {
+    const plugin = { id: 'uuid-1', name: 'lint', accessModifier: 'private' };
+    mockFindById.mockResolvedValue(plugin);
+
+    const req = mockReq({ params: { id: 'uuid-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      plugin: expect.objectContaining({ id: 'uuid-1' }),
+    }));
+  });
+
+  it('returns 404 when plugin not found', async () => {
+    mockFindById.mockResolvedValue(null);
+
+    const req = mockReq({ params: { id: 'nonexistent' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('returns 404 when non-admin accesses public plugin', async () => {
+    const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
+    mockFindById.mockResolvedValue(plugin);
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+
+    const req = mockReq({ params: { id: 'uuid-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('allows system admin to view public plugin', async () => {
+    const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
+    mockFindById.mockResolvedValue(plugin);
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+
+    const req = mockReq({ params: { id: 'uuid-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns 400 when ID param is missing', async () => {
+    const req = mockReq({ params: {} });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Plugin ID is required.', 'MISSING_REQUIRED_FIELD');
+  });
+
+  it('returns 500 on service error', async () => {
+    mockFindById.mockRejectedValue(new Error('Timeout'));
+
+    const req = mockReq({ params: { id: 'uuid-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});

@@ -2,16 +2,29 @@ import { useState, useImperativeHandle, useRef, forwardRef } from 'react';
 import { Upload } from 'lucide-react';
 import { BuilderProps } from '@/types';
 
+/** Methods exposed to the parent modal via ref. */
 export interface UploadConfigTabRef {
+  /** Parses the uploaded/pasted JSON and returns BuilderProps, or null on validation failure. */
   getProps: () => Promise<BuilderProps | null>;
+  /** Returns the description extracted from the uploaded JSON wrapper, if present. */
   getDescription: () => string;
+  /** Returns keywords extracted from the uploaded JSON wrapper as a comma-separated string. */
   getKeywords: () => string;
 }
 
+/** Props for {@link UploadConfigTab}. */
 interface UploadConfigTabProps {
+  /** Whether the tab inputs should be disabled. */
   disabled?: boolean;
 }
 
+/**
+ * Tab for uploading or pasting a pipeline configuration as JSON.
+ *
+ * Accepts either a JSON file upload or raw JSON pasted into a textarea.
+ * Supports both the full pipeline wrapper format (with props/description/keywords)
+ * and standalone BuilderProps format.
+ */
 const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
   ({ disabled }, ref) => {
     const [propsInput, setPropsInput] = useState('');

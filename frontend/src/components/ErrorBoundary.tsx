@@ -1,17 +1,26 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
+/** Props for the ErrorBoundary component. */
 interface Props {
+  /** Child components to render when no error is present */
   children: ReactNode;
+  /** Custom UI to display instead of the default error screen */
   fallback?: ReactNode;
+  /** Callback invoked when an error is caught, useful for error reporting */
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
+/** Internal state for the ErrorBoundary. */
 interface State {
   hasError: boolean;
   error: Error | null;
 }
 
+/**
+ * React error boundary that catches rendering errors in its subtree.
+ * Displays a default error screen with a retry button, or a custom fallback if provided.
+ */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);

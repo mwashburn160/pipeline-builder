@@ -23,15 +23,25 @@ import type { User } from '@/types';
 // Navigation data
 // ---------------------------------------------------------------------------
 
+/** A single navigation link in the sidebar. */
 interface NavItem {
+  /** Display label for the link */
   title: string;
+  /** Route path the link navigates to */
   href: string;
+  /** Lucide icon rendered beside the label */
   icon: LucideIcon;
+  /** Only visible to organization admins and above */
   adminOnly?: boolean;
+  /** Only visible to system admins */
   systemAdminOnly?: boolean;
+  /** Hidden when the user belongs to the system organization */
   hideForSystemOrg?: boolean;
+  /** Hidden when billing is not enabled */
+  hideWhenBillingDisabled?: boolean;
 }
 
+/** A labeled group of navigation items. */
 interface NavSection {
   label: string;
   items: NavItem[];
@@ -70,7 +80,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Account',
     items: [
       { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, hideForSystemOrg: true },
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, hideForSystemOrg: true, hideWhenBillingDisabled: true },
       { title: 'Settings', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
     ],
@@ -81,22 +91,36 @@ const NAV_SECTIONS: NavSection[] = [
 // Component
 // ---------------------------------------------------------------------------
 
+/** Props for the Sidebar component. */
 interface SidebarProps {
+  /** Whether the current user is a system-level admin */
   isSysAdmin: boolean;
+  /** Whether the current user is an organization admin or above */
   isAdmin: boolean;
+  /** Whether the user belongs to the system organization */
   isSystemOrg: boolean;
+  /** Whether billing features are enabled in the platform config */
+  billingEnabled: boolean;
+  /** The currently authenticated user */
   user: User;
+  /** Number of unread messages shown as a badge on the Messages link */
   unreadCount: number;
+  /** Current router pathname used to highlight the active nav item */
   currentPath: string;
+  /** Whether dark mode is currently active */
   isDark: boolean;
+  /** Callback to toggle dark mode */
   onToggleDark: () => void;
+  /** Callback to log the user out */
   onLogout: () => void;
 }
 
+/** Navigation sidebar with role-based link visibility, dark mode toggle, and user info footer. */
 export function Sidebar({
   isSysAdmin,
   isAdmin,
   isSystemOrg,
+  billingEnabled,
   user,
   unreadCount,
   currentPath,
@@ -114,6 +138,7 @@ export function Sidebar({
     if (item.systemAdminOnly && !isSysAdmin) return false;
     if (item.adminOnly && !isAdmin) return false;
     if (item.hideForSystemOrg && isSystemOrg) return false;
+    if (item.hideWhenBillingDisabled && !billingEnabled) return false;
     return true;
   };
 

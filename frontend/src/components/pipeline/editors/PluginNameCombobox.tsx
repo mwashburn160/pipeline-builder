@@ -2,15 +2,29 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Plugin } from '@/types';
 import { usePlugins, groupPlugins } from '@/hooks/usePlugins';
 
+/** Props for {@link PluginNameCombobox}. */
 interface PluginNameComboboxProps {
+  /** Current plugin name value. */
   value: string;
+  /** Called when the text input value changes (typed or cleared). */
   onChange: (name: string) => void;
+  /** Called when a plugin is selected from the dropdown, providing the full Plugin record. */
   onSelectPlugin: (plugin: Plugin) => void;
+  /** Whether the input is disabled. */
   disabled?: boolean;
+  /** Label text shown above the input. */
   label?: string;
+  /** Validation error message displayed below the input. */
   error?: string;
 }
 
+/**
+ * Autocomplete combobox for selecting a plugin by name.
+ *
+ * Fetches the plugin list lazily on first focus, then displays a categorized
+ * dropdown filtered by the current input. Selecting a plugin fires both onChange
+ * (with the name string) and onSelectPlugin (with the full Plugin record).
+ */
 export default function PluginNameCombobox({
   value, onChange, onSelectPlugin, disabled, label = 'Plugin', error,
 }: PluginNameComboboxProps) {

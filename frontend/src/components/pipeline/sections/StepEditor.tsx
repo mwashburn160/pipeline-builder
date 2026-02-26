@@ -9,16 +9,30 @@ import EnvEditor from '../editors/EnvEditor';
 import ArtifactKeyCombobox from '../editors/ArtifactKeyCombobox';
 import { type ArtifactKeyOption } from '@/lib/artifact-keys';
 
+/** Props for {@link StepEditor}. */
 export interface StepEditorProps {
+  /** Current step configuration state. */
   step: FormStep;
+  /** Callback with the updated step whenever any field changes. */
   onChange: (step: FormStep) => void;
+  /** Whether all inputs should be disabled. */
   disabled?: boolean;
+  /** Dot-separated path prefix for error lookup (e.g. 'stages.0.steps.1'). */
   errorPrefix: string;
+  /** Validation errors keyed by full field path. */
   errors?: Record<string, string>;
   /** Available artifact keys for autocomplete (from synth + preceding stages/steps). */
   availableArtifacts?: ArtifactKeyOption[];
 }
 
+/**
+ * Editor for an individual pipeline step within a stage.
+ *
+ * Renders collapsible sub-sections for position (pre/post), plugin options,
+ * metadata, network, install commands, build commands, environment variables,
+ * and input artifact configuration. Supports artifact key autocomplete from
+ * the synth output and preceding steps.
+ */
 export default function StepEditor({
   step, onChange, disabled, errorPrefix, errors = {}, availableArtifacts = [],
 }: StepEditorProps) {

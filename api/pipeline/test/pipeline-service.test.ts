@@ -127,7 +127,7 @@ describe('PipelineService', () => {
       const result = await service.setDefaultForProject('proj', 'org', 'pipeline-1', 'user-1');
 
       expect(mockSetDefault).toHaveBeenCalledWith(
-        'project', 'organization', 'proj', 'org', 'pipeline-1', 'user-1',
+        'proj', 'org', 'pipeline-1', 'user-1',
       );
       expect(result).toEqual(updated);
     });
@@ -173,10 +173,4 @@ describe('PipelineService', () => {
     });
   });
 
-  describe('buildSearchConditions', () => {
-    it('should return search and access control conditions', () => {
-      const conditions = (service as any).buildSearchConditions('test', 'org-1');
-      expect(conditions).toHaveLength(2);
-    });
-  });
 });

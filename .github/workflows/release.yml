@@ -58,7 +58,7 @@ jobs:
         run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX_BASE
         id: nx_base
-        run: if [ -f nx_base.yml ] && [ -s nx_base.yml ]; then echo NX_BASE=$(cat nx_base.yml) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
+        run: if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
       - name: Set NX_HEAD
         id: nx_head
         run: echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
@@ -164,7 +164,7 @@ jobs:
       - name: Build complete
         id: build_complete
         if: ${{ success() }}
-        run: 'echo $(git rev-parse HEAD) > nx_base.yml && git add nx_base.yml && git commit -m "chore: updated last successfully built commit" && git push'
+        run: 'echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push'
   publish:
     name: publish image
     needs:

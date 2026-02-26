@@ -1,17 +1,32 @@
 import { Check } from 'lucide-react';
 
+/** Describes a single step in the wizard. */
 export interface WizardStep {
+  /** Full label displayed on larger screens. */
   label: string;
+  /** Abbreviated label displayed on small screens (falls back to label). */
   shortLabel?: string;
 }
 
+/** Props for {@link WizardStepper}. */
 interface WizardStepperProps {
+  /** Ordered list of wizard step definitions. */
   steps: readonly WizardStep[];
+  /** Zero-based index of the currently active step. */
   currentStep: number;
+  /** Callback when the user clicks a step circle (only fires for clickable steps). */
   onStepClick?: (index: number) => void;
+  /** Validation status for each step, keyed by step index. */
   stepStatus?: Record<number, 'valid' | 'error' | 'untouched'>;
 }
 
+/**
+ * Horizontal step indicator for the pipeline creation/edit wizard.
+ *
+ * Renders numbered circles connected by lines, with color-coded status
+ * (current, valid, error, untouched). Completed valid steps show a checkmark.
+ * Steps can be clicked to navigate back to previously visited steps.
+ */
 export default function WizardStepper({ steps, currentStep, onStepClick, stepStatus = {} }: WizardStepperProps) {
   return (
     <nav className="flex items-center justify-center" aria-label="Wizard progress">

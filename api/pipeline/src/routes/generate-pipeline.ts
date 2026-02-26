@@ -20,7 +20,7 @@ import {
   validateBody,
   AIGenerateBodySchema,
 } from '@mwashburn160/api-core';
-import { createAuthenticatedWithOrgRoute, SSEManager } from '@mwashburn160/api-server';
+import { createAuthenticatedWithOrgRoute } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
@@ -64,10 +64,9 @@ async function getAvailablePlugins(orgId: string) {
 /**
  * Create and register AI pipeline generation routes.
  *
- * @param sseManager - SSE connection manager for request context
  * @returns Express Router with AI generation endpoints
  */
-export function createGeneratePipelineRoutes(sseManager: SSEManager): Router {
+export function createGeneratePipelineRoutes(): Router {
   const router: Router = Router();
 
   // -- GET /providers — list configured AI providers --------------------------
@@ -77,7 +76,7 @@ export function createGeneratePipelineRoutes(sseManager: SSEManager): Router {
    */
   router.get(
     '/providers',
-    ...createAuthenticatedWithOrgRoute(sseManager),
+    ...createAuthenticatedWithOrgRoute(),
     (_req: Request, res: Response) => {
       const providers = getAvailableProviders();
       return res.status(200).json({
@@ -97,7 +96,7 @@ export function createGeneratePipelineRoutes(sseManager: SSEManager): Router {
    */
   router.post(
     '/generate',
-    ...createAuthenticatedWithOrgRoute(sseManager),
+    ...createAuthenticatedWithOrgRoute(),
     async (req: Request, res: Response) => {
       const ctx = req.context!;
 

@@ -1,8 +1,12 @@
+/** Props for the MessageBadge component. */
 interface MessageBadgeProps {
+  /** Number of unread messages to display; badge is hidden when zero or negative. */
   count: number;
+  /** Additional CSS classes to apply to the badge element. */
   className?: string;
 }
 
+/** Red pill badge displaying the unread message count, capped at "99+". */
 export function MessageBadge({ count, className = '' }: MessageBadgeProps) {
   if (count <= 0) return null;
 

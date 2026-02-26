@@ -11,6 +11,7 @@
 
 import {
   authenticateToken,
+  isSystemAdmin,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -33,305 +34,335 @@ import { getPaymentProvider } from '../providers/provider-factory';
 import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas';
 
 const logger = createLogger('billing-subscriptions');
-const router: Router = Router();
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
-// ---------------------------------------------------------------------------
-// GET /billing/subscriptions — get current org subscription
-// ---------------------------------------------------------------------------
+/** Only system administrators can create, change, cancel, or reactivate subscriptions. */
+function requireSysAdmin(req: Request, res: Response, next: () => void): void {
+  if (!isSystemAdmin(req)) {
+    return sendError(
+      res, 403,
+      'Only system administrators can modify subscriptions.',
+      ErrorCode.INSUFFICIENT_PERMISSIONS,
+    );
+  }
+  next();
+}
 
-router.get(
-  '/subscriptions',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
+/**
+ * Create the subscription management router (authenticated).
+ *
+ * Registers:
+ * - GET  /subscriptions                -- get current org subscription
+ * - POST /subscriptions                -- create a new subscription (admin)
+ * - PUT  /subscriptions/:id            -- change plan or interval (admin)
+ * - POST /subscriptions/:id/cancel     -- cancel at period end (admin)
+ * - POST /subscriptions/:id/reactivate -- undo pending cancellation (admin)
+ * @returns Express Router
+ */
+export function createSubscriptionRoutes(): Router {
+  const router: Router = Router();
 
-    try {
-      const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
+  // ---------------------------------------------------------------------------
+  // GET /billing/subscriptions — get current org subscription
+  // ---------------------------------------------------------------------------
 
-      if (!subscription) {
-        return sendSuccess(res, 200, { subscription: null });
+  router.get(
+    '/subscriptions',
+    authenticateToken(AUTH_OPTS) as RequestHandler,
+    async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId;
+      if (!orgId) {
+        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
       }
 
-      const plan = await Plan.findById(subscription.planId).lean();
+      try {
+        const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
 
-      return sendSuccess(res, 200, {
-        subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId),
-      });
-    } catch (error) {
-      logger.error('Failed to get subscription', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to get subscription', ErrorCode.INTERNAL_ERROR);
-    }
-  },
-);
+        if (!subscription) {
+          return sendSuccess(res, 200, { subscription: null });
+        }
 
-// ---------------------------------------------------------------------------
-// POST /billing/subscriptions — create a new subscription
-// ---------------------------------------------------------------------------
+        const plan = await Plan.findById(subscription.planId).lean();
 
-router.post(
-  '/subscriptions',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
+        return sendSuccess(res, 200, {
+          subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId),
+        });
+      } catch (error) {
+        logger.error('Failed to get subscription', { error: errorMessage(error), orgId });
+        return sendError(res, 500, 'Failed to get subscription', ErrorCode.INTERNAL_ERROR);
+      }
+    },
+  );
 
-    const validation = validateBody(req, SubscriptionCreateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { planId, interval } = validation.value;
+  // ---------------------------------------------------------------------------
+  // POST /billing/subscriptions — create a new subscription
+  // ---------------------------------------------------------------------------
 
-    try {
-      // Verify plan exists
-      const plan = await Plan.findOne({ _id: planId, isActive: true });
-      if (!plan) {
-        return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+  router.post(
+    '/subscriptions',
+    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireSysAdmin as RequestHandler,
+    async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId;
+      if (!orgId) {
+        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
       }
 
-      // Check for existing active subscription
-      const existing = await Subscription.findOne({ orgId, status: 'active' });
-      if (existing) {
-        return sendError(
-          res, 409,
-          'Organization already has an active subscription. Use PUT to change plans.',
-          ErrorCode.DUPLICATE_ENTRY,
-        );
+      const validation = validateBody(req, SubscriptionCreateSchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       }
+      const { planId, interval } = validation.value;
 
-      // Call payment provider
-      const provider = getPaymentProvider();
-      const customerId = await provider.createCustomer(orgId, '');
-      const externalResult = await provider.createSubscription(customerId, planId, interval);
-
-      // Create subscription
-      const now = new Date();
-      const subscription = await Subscription.create({
-        orgId,
-        planId,
-        status: 'active',
-        interval,
-        currentPeriodStart: now,
-        currentPeriodEnd: calculatePeriodEnd(now, interval),
-        cancelAtPeriodEnd: false,
-        externalId: externalResult.externalId,
-        externalCustomerId: externalResult.externalCustomerId,
-      });
-
-      // Sync tier to quota service
-      const authHeader = req.headers.authorization || '';
-      await syncTierToQuotaService(orgId, plan.tier, authHeader);
-
-      // Log billing event
-      await createBillingEvent(orgId, 'subscription_created', {
-        planId, interval, tier: plan.tier,
-      }, subscription._id.toString());
-
-      logger.info('Subscription created', { orgId, planId, interval });
-
-      return sendSuccess(res, 201, {
-        subscription: buildSubscriptionResponse(subscription, plan.name),
-      });
-    } catch (error) {
-      logger.error('Failed to create subscription', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to create subscription', ErrorCode.INTERNAL_ERROR);
-    }
-  },
-);
-
-// ---------------------------------------------------------------------------
-// PUT /billing/subscriptions/:id — change plan or interval
-// ---------------------------------------------------------------------------
-
-router.put(
-  '/subscriptions/:id',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
-
-    const subscriptionId = getParam(req.params, 'id');
-    const validation = validateBody(req, SubscriptionUpdateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { planId, interval } = validation.value;
-
-    if (!planId && !interval) {
-      return sendError(res, 400, 'At least planId or interval is required', ErrorCode.VALIDATION_ERROR);
-    }
-
-    try {
-      const subscription = await Subscription.findOne({
-        _id: subscriptionId, orgId, status: 'active',
-      });
-
-      if (!subscription) {
-        return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
-      }
-
-      // If changing plan, verify new plan exists
-      let plan;
-      if (planId && planId !== subscription.planId) {
-        plan = await Plan.findOne({ _id: planId, isActive: true });
+      try {
+        // Verify plan exists
+        const plan = await Plan.findOne({ _id: planId, isActive: true });
         if (!plan) {
           return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
         }
-        subscription.planId = planId;
 
-        await getPaymentProvider().updateSubscription(subscription.externalId || '', planId);
+        // Check for existing active subscription
+        const existing = await Subscription.findOne({ orgId, status: 'active' });
+        if (existing) {
+          return sendError(
+            res, 409,
+            'Organization already has an active subscription. Use PUT to change plans.',
+            ErrorCode.DUPLICATE_ENTRY,
+          );
+        }
 
-        await createBillingEvent(orgId, 'plan_changed', {
-          oldPlanId: subscription.planId, newPlanId: planId,
-        }, subscriptionId);
-      }
+        // Call payment provider
+        const provider = getPaymentProvider();
+        const customerId = await provider.createCustomer(orgId, '');
+        const externalResult = await provider.createSubscription(customerId, planId, interval);
 
-      // If changing interval
-      if (interval && interval !== subscription.interval) {
-        subscription.interval = interval;
-        subscription.currentPeriodEnd = calculatePeriodEnd(
-          subscription.currentPeriodStart, interval,
-        );
+        // Create subscription
+        const now = new Date();
+        const subscription = await Subscription.create({
+          orgId,
+          planId,
+          status: 'active',
+          interval,
+          currentPeriodStart: now,
+          currentPeriodEnd: calculatePeriodEnd(now, interval),
+          cancelAtPeriodEnd: false,
+          externalId: externalResult.externalId,
+          externalCustomerId: externalResult.externalCustomerId,
+        });
 
-        await createBillingEvent(orgId, 'interval_changed', {
-          oldInterval: subscription.interval, newInterval: interval,
-        }, subscriptionId);
-      }
-
-      await subscription.save();
-
-      // Sync tier if plan changed
-      if (plan) {
+        // Sync tier to quota service
         const authHeader = req.headers.authorization || '';
         await syncTierToQuotaService(orgId, plan.tier, authHeader);
+
+        // Log billing event
+        await createBillingEvent(orgId, 'subscription_created', {
+          planId, interval, tier: plan.tier,
+        }, subscription._id.toString());
+
+        logger.info('Subscription created', { orgId, planId, interval });
+
+        return sendSuccess(res, 201, {
+          subscription: buildSubscriptionResponse(subscription, plan.name),
+        });
+      } catch (error) {
+        logger.error('Failed to create subscription', { error: errorMessage(error), orgId });
+        return sendError(res, 500, 'Failed to create subscription', ErrorCode.INTERNAL_ERROR);
+      }
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // PUT /billing/subscriptions/:id — change plan or interval
+  // ---------------------------------------------------------------------------
+
+  router.put(
+    '/subscriptions/:id',
+    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireSysAdmin as RequestHandler,
+    async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId;
+      if (!orgId) {
+        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
       }
 
-      logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
+      const subscriptionId = getParam(req.params, 'id');
+      const validation = validateBody(req, SubscriptionUpdateSchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+      }
+      const { planId, interval } = validation.value;
 
-      return sendSuccess(res, 200, {
-        subscription: buildSubscriptionResponse(subscription),
-      });
-    } catch (error) {
-      logger.error('Failed to update subscription', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to update subscription', ErrorCode.INTERNAL_ERROR);
-    }
-  },
-);
-
-// ---------------------------------------------------------------------------
-// POST /billing/subscriptions/:id/cancel — cancel at period end
-// ---------------------------------------------------------------------------
-
-router.post(
-  '/subscriptions/:id/cancel',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
-
-    const subscriptionId = getParam(req.params, 'id');
-
-    try {
-      const subscription = await Subscription.findOne({
-        _id: subscriptionId, orgId, status: 'active',
-      });
-
-      if (!subscription) {
-        return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
+      if (!planId && !interval) {
+        return sendError(res, 400, 'At least planId or interval is required', ErrorCode.VALIDATION_ERROR);
       }
 
-      subscription.cancelAtPeriodEnd = true;
-      await subscription.save();
+      try {
+        const subscription = await Subscription.findOne({
+          _id: subscriptionId, orgId, status: 'active',
+        });
 
-      await getPaymentProvider().cancelSubscription(subscription.externalId || '');
+        if (!subscription) {
+          return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
+        }
 
-      await createBillingEvent(orgId, 'subscription_canceled', {
-        planId: subscription.planId,
-        cancelAtPeriodEnd: true,
-        periodEnd: subscription.currentPeriodEnd.toISOString(),
-      }, subscriptionId);
+        // If changing plan, verify new plan exists
+        let plan;
+        if (planId && planId !== subscription.planId) {
+          plan = await Plan.findOne({ _id: planId, isActive: true });
+          if (!plan) {
+            return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+          }
+          subscription.planId = planId;
 
-      logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
+          await getPaymentProvider().updateSubscription(subscription.externalId || '', planId);
 
-      return sendSuccess(res, 200, {
-        message: 'Subscription will be canceled at the end of the current billing period.',
-        subscription: {
-          id: subscription._id.toString(),
-          status: subscription.status,
+          await createBillingEvent(orgId, 'plan_changed', {
+            oldPlanId: subscription.planId, newPlanId: planId,
+          }, subscriptionId);
+        }
+
+        // If changing interval
+        if (interval && interval !== subscription.interval) {
+          subscription.interval = interval;
+          subscription.currentPeriodEnd = calculatePeriodEnd(
+            subscription.currentPeriodStart, interval,
+          );
+
+          await createBillingEvent(orgId, 'interval_changed', {
+            oldInterval: subscription.interval, newInterval: interval,
+          }, subscriptionId);
+        }
+
+        await subscription.save();
+
+        // Sync tier if plan changed
+        if (plan) {
+          const authHeader = req.headers.authorization || '';
+          await syncTierToQuotaService(orgId, plan.tier, authHeader);
+        }
+
+        logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
+
+        return sendSuccess(res, 200, {
+          subscription: buildSubscriptionResponse(subscription),
+        });
+      } catch (error) {
+        logger.error('Failed to update subscription', { error: errorMessage(error), orgId });
+        return sendError(res, 500, 'Failed to update subscription', ErrorCode.INTERNAL_ERROR);
+      }
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /billing/subscriptions/:id/cancel — cancel at period end
+  // ---------------------------------------------------------------------------
+
+  router.post(
+    '/subscriptions/:id/cancel',
+    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireSysAdmin as RequestHandler,
+    async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId;
+      if (!orgId) {
+        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      }
+
+      const subscriptionId = getParam(req.params, 'id');
+
+      try {
+        const subscription = await Subscription.findOne({
+          _id: subscriptionId, orgId, status: 'active',
+        });
+
+        if (!subscription) {
+          return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
+        }
+
+        subscription.cancelAtPeriodEnd = true;
+        await subscription.save();
+
+        await getPaymentProvider().cancelSubscription(subscription.externalId || '');
+
+        await createBillingEvent(orgId, 'subscription_canceled', {
+          planId: subscription.planId,
           cancelAtPeriodEnd: true,
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-        },
-      });
-    } catch (error) {
-      logger.error('Failed to cancel subscription', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to cancel subscription', ErrorCode.INTERNAL_ERROR);
-    }
-  },
-);
+          periodEnd: subscription.currentPeriodEnd.toISOString(),
+        }, subscriptionId);
 
-// ---------------------------------------------------------------------------
-// POST /billing/subscriptions/:id/reactivate — undo cancellation
-// ---------------------------------------------------------------------------
+        logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
 
-router.post(
-  '/subscriptions/:id/reactivate',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
+        return sendSuccess(res, 200, {
+          message: 'Subscription will be canceled at the end of the current billing period.',
+          subscription: {
+            id: subscription._id.toString(),
+            status: subscription.status,
+            cancelAtPeriodEnd: true,
+            currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+          },
+        });
+      } catch (error) {
+        logger.error('Failed to cancel subscription', { error: errorMessage(error), orgId });
+        return sendError(res, 500, 'Failed to cancel subscription', ErrorCode.INTERNAL_ERROR);
+      }
+    },
+  );
 
-    const subscriptionId = getParam(req.params, 'id');
+  // ---------------------------------------------------------------------------
+  // POST /billing/subscriptions/:id/reactivate — undo cancellation
+  // ---------------------------------------------------------------------------
 
-    try {
-      const subscription = await Subscription.findOne({
-        _id: subscriptionId, orgId, status: 'active', cancelAtPeriodEnd: true,
-      });
-
-      if (!subscription) {
-        return sendError(
-          res, 404,
-          'No canceled subscription found to reactivate',
-          ErrorCode.NOT_FOUND,
-        );
+  router.post(
+    '/subscriptions/:id/reactivate',
+    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireSysAdmin as RequestHandler,
+    async (req: Request, res: Response) => {
+      const orgId = req.user?.organizationId;
+      if (!orgId) {
+        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
       }
 
-      subscription.cancelAtPeriodEnd = false;
-      await subscription.save();
+      const subscriptionId = getParam(req.params, 'id');
 
-      await getPaymentProvider().reactivateSubscription(subscription.externalId || '');
+      try {
+        const subscription = await Subscription.findOne({
+          _id: subscriptionId, orgId, status: 'active', cancelAtPeriodEnd: true,
+        });
 
-      await createBillingEvent(orgId, 'subscription_reactivated', {
-        planId: subscription.planId,
-      }, subscriptionId);
+        if (!subscription) {
+          return sendError(
+            res, 404,
+            'No canceled subscription found to reactivate',
+            ErrorCode.NOT_FOUND,
+          );
+        }
 
-      logger.info('Subscription reactivated', { orgId, subscriptionId });
+        subscription.cancelAtPeriodEnd = false;
+        await subscription.save();
 
-      return sendSuccess(res, 200, {
-        message: 'Subscription has been reactivated.',
-        subscription: {
-          id: subscription._id.toString(),
-          status: subscription.status,
-          cancelAtPeriodEnd: false,
-          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-        },
-      });
-    } catch (error) {
-      logger.error('Failed to reactivate subscription', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to reactivate subscription', ErrorCode.INTERNAL_ERROR);
-    }
-  },
-);
+        await getPaymentProvider().reactivateSubscription(subscription.externalId || '');
 
-export default router;
+        await createBillingEvent(orgId, 'subscription_reactivated', {
+          planId: subscription.planId,
+        }, subscriptionId);
+
+        logger.info('Subscription reactivated', { orgId, subscriptionId });
+
+        return sendSuccess(res, 200, {
+          message: 'Subscription has been reactivated.',
+          subscription: {
+            id: subscription._id.toString(),
+            status: subscription.status,
+            cancelAtPeriodEnd: false,
+            currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+          },
+        });
+      } catch (error) {
+        logger.error('Failed to reactivate subscription', { error: errorMessage(error), orgId });
+        return sendError(res, 500, 'Failed to reactivate subscription', ErrorCode.INTERNAL_ERROR);
+      }
+    },
+  );
+
+  return router;
+}

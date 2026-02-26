@@ -6,7 +6,7 @@ jest.mock('yaml');
 
 import * as fs from 'fs';
 import * as yaml from 'yaml';
-import { getConfig, getToken, hasToken } from '../src/utils/config.loader';
+import { getConfig, getToken, hasToken } from '../src/utils/config-loader';
 
 // ---------------------------------------------------------------------------
 // Environment helpers

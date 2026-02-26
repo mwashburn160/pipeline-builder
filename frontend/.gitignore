@@ -34,4 +34,5 @@ yarn.lock
 .next
 .vscode
 dist
+!/.npmrc
 /.next/

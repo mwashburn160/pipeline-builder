@@ -1,5 +1,16 @@
+/**
+ * Dark mode toggle hook with localStorage persistence.
+ * On mount, reads the stored theme preference from localStorage.
+ * Falls back to the OS-level `prefers-color-scheme` media query if no preference is stored.
+ */
 import { useState, useEffect } from 'react';
 
+/**
+ * Manages dark mode state and toggles the `dark` class on `<html>`.
+ * Persists the user's preference to localStorage under the "theme" key.
+ *
+ * @returns Current dark mode state and a toggle callback
+ */
 export function useDarkMode() {
   const [isDark, setIsDark] = useState(false);
 

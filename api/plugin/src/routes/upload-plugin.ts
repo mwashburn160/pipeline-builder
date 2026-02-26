@@ -12,15 +12,15 @@
 
 import * as fs from 'fs';
 
-import { extractDbError, ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { authenticateToken, checkQuota, requireOrgId } from '@mwashburn160/api-server';
-import type { SSEManager, QuotaService } from '@mwashburn160/api-server';
-import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
-import { eq } from 'drizzle-orm';
+import type { QuotaService } from '@mwashburn160/api-server';
+import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
-import { buildAndPush } from '../helpers/docker-build';
+
 import { parsePluginZip, ValidationError } from '../helpers/manifest';
+import { getQueue } from '../queue/plugin-build-queue';
 
 const logger = createLogger('upload-plugin');
 
@@ -46,7 +46,6 @@ const upload = multer({
  * then `plugins` quota check).
  */
 export function createUploadPluginRoutes(
-  sseManager: SSEManager,
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
@@ -55,7 +54,7 @@ export function createUploadPluginRoutes(
     '/',
     upload.single('plugin') as RequestHandler,
     authenticateToken as RequestHandler,
-    requireOrgId(sseManager) as RequestHandler,
+    requireOrgId() as RequestHandler,
     // Admin check BEFORE quota — non-admins should be rejected without consuming quota
     ((req: Request, res: Response, next: () => void) => {
       if (!isSystemAdmin(req)) {
@@ -65,14 +64,10 @@ export function createUploadPluginRoutes(
     }) as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
-      // Docker builds can take several minutes — override the default 30s timeout
-      res.setTimeout(10 * 60 * 1000); // 10 minutes
-
       const ctx = req.context!;
       const config = Config.get();
 
       let zipPath: string | undefined;
-      let extractDir: string | undefined;
 
       try {
         if (!req.file) {
@@ -96,44 +91,35 @@ export function createUploadPluginRoutes(
 
         // -- Parse & validate ZIP ---------------------------------------------
         const plugin = parsePluginZip(zipPath);
-        extractDir = plugin.extractDir;
 
         ctx.log('INFO', 'Manifest validated', {
           pluginName: plugin.manifest.name,
           version: plugin.manifest.version,
         });
 
-        // -- Build & push Docker image ----------------------------------------
-        const { fullImage } = buildAndPush({
-          contextDir: plugin.extractDir,
-          dockerfile: plugin.dockerfile,
-          imageTag: plugin.imageTag,
-          registry: config.registry,
-        });
-
-        ctx.log('INFO', 'Image pushed', { fullImage });
-
-        // -- Persist to database ----------------------------------------------
-        const result = await db.transaction(async (tx) => {
-          await tx
-            .update(schema.plugin)
-            .set({
-              isDefault: false,
-              updatedAt: new Date(),
-              updatedBy: ctx.identity.userId || 'system',
-            })
-            .where(eq(schema.plugin.name, plugin.manifest.name));
-
-          const [inserted] = await tx
-            .insert(schema.plugin)
-            .values({
+        // -- Queue build job (returns immediately) ----------------------------
+        const buildQueue = getQueue();
+        await buildQueue.add(
+          `upload-${plugin.manifest.name}-${plugin.imageTag}`,
+          {
+            requestId: ctx.requestId,
+            orgId,
+            userId: ctx.identity.userId || 'system',
+            authToken: req.headers.authorization || '',
+            buildRequest: {
+              contextDir: plugin.extractDir,
+              dockerfile: plugin.dockerfile,
+              imageTag: plugin.imageTag,
+              registry: config.registry,
+            },
+            pluginRecord: {
               orgId,
               name: plugin.manifest.name,
               description: plugin.manifest.description || null,
-              version: plugin.manifest.version,
-              metadata: plugin.manifest.metadata || {},
-              pluginType: (plugin.manifest.pluginType || 'CodeBuildStep') as PluginType,
-              computeType: (plugin.manifest.computeType || 'SMALL') as ComputeType,
+              version: plugin.manifest.version || '0.0.0',
+              metadata: (plugin.manifest.metadata || {}) as Record<string, string | number | boolean>,
+              pluginType: plugin.manifest.pluginType || 'CodeBuildStep',
+              computeType: plugin.manifest.computeType || 'SMALL',
               primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
@@ -141,44 +127,33 @@ export function createUploadPluginRoutes(
               installCommands: plugin.manifest.installCommands || [],
               commands: plugin.manifest.commands,
               imageTag: plugin.imageTag,
-              accessModifier: accessModifier as AccessModifier,
-              isDefault: true,
-              isActive: true,
-              createdBy: ctx.identity.userId || 'system',
-            })
-            .returning();
+              accessModifier,
+            },
+          },
+        );
 
-          return inserted;
+        ctx.log('INFO', 'Build queued', {
+          pluginName: plugin.manifest.name,
+          imageTag: plugin.imageTag,
         });
 
-        void quotaService.increment(orgId, 'plugins', req.headers.authorization || '');
+        // Clean up the uploaded zip (extract dir is cleaned up by the worker)
+        if (zipPath && fs.existsSync(zipPath)) {
+          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
+          zipPath = undefined;
+        }
 
-        ctx.log('COMPLETED', 'Plugin deployed', {
-          id: result.id,
-          name: result.name,
-          version: result.version,
-          imageTag: result.imageTag,
-        });
-
-        return res.status(201).json({
+        return res.status(202).json({
           success: true,
-          statusCode: 201,
-          id: result.id,
-          name: result.name,
-          version: result.version,
-          imageTag: result.imageTag,
-          fullImage,
-          accessModifier: result.accessModifier,
-          isDefault: result.isDefault,
-          isActive: result.isActive,
-          createdBy: result.createdBy,
-          message: accessModifier === 'public'
-            ? 'Public plugin deployed successfully (accessible to all organizations)'
-            : `Private plugin deployed successfully (accessible to ${orgId} only)`,
+          statusCode: 202,
+          message: 'Plugin build queued',
+          requestId: ctx.requestId,
+          pluginName: plugin.manifest.name,
+          imageTag: plugin.imageTag,
         });
       } catch (error) {
         if (res.headersSent) {
-          logger.error('Deployment failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
+          logger.error('Upload failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
           return;
         }
 
@@ -186,17 +161,13 @@ export function createUploadPluginRoutes(
           return sendBadRequest(res, error.message);
         }
 
-        const message = errorMessage(error);
-        const dbDetails = extractDbError(error);
-        logger.error('Deployment failed', { requestId: ctx.requestId, error: message, orgId: ctx.identity.orgId, ...dbDetails });
+        logger.error('Upload failed', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
 
-        return sendInternalError(res, 'Plugin deployment failed', { details: message, ...dbDetails });
+        return sendInternalError(res, 'Plugin upload failed');
       } finally {
+        // Clean up zip if not already removed (error path)
         if (zipPath && fs.existsSync(zipPath)) {
-          try { fs.unlinkSync(zipPath); } catch (error) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(error) }); }
-        }
-        if (extractDir && fs.existsSync(extractDir)) {
-          try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (error) { logger.debug('Temp dir cleanup failed', { path: extractDir, error: String(error) }); }
+          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
         }
       }
     },

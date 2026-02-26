@@ -9,6 +9,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 import { Organization } from '@/types';
 
+/** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -23,7 +24,7 @@ export default function OrganizationsPage() {
       try {
         setIsLoading(true);
         const response = await api.listOrganizations();
-        const orgList = response.organizations || [];
+        const orgList = response.data?.organizations || [];
         setOrganizations(orgList);
       } catch (error) {
         setError(error instanceof Error ? error.message : 'Failed to load organizations');

@@ -13,7 +13,6 @@ jest.mock('@mwashburn160/api-core', () => ({
     }
     return result;
   }),
-  createOrderByResolver: jest.fn(() => jest.fn()),
   sendEntityNotFound: jest.fn((res: any, entity: string) => {
     res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
     return res;

@@ -14,6 +14,7 @@ import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 
+/** Filter criteria for the pipeline list, including text search and dropdown selections. */
 interface PipelineFilters {
   name: string;
   id: string;
@@ -30,6 +31,7 @@ const initialFilters: PipelineFilters = {
   access: 'all', status: 'all', default: 'all',
 };
 
+/** Pipeline management dashboard page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -80,7 +82,7 @@ export default function PipelinesPage() {
       if (debouncedOrganization.trim()) params.organization = debouncedOrganization.trim();
       if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
       const response = await api.listPipelines(params);
-      setPipelines(response.pipelines || []);
+      setPipelines(response.data?.pipelines || []);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load pipelines');
     } finally {
