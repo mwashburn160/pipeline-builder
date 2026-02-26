@@ -5,6 +5,7 @@
 
 import { Request, Response, Router } from 'express';
 import { HealthCheckResponse } from '../types/common';
+import { sendSuccess, sendError } from '../utils/response';
 
 const startTime = Date.now();
 
@@ -63,18 +64,18 @@ export function createHealthCheck(options: HealthCheckOptions) {
 
         if (hasDisconnected) {
           response.status = 'unhealthy';
-          res.status(503).json(response);
+          sendError(res, 503, 'Service unhealthy', undefined, response);
           return;
         }
       } catch (error) {
         response.status = 'unhealthy';
         response.dependencies = { check: 'disconnected' };
-        res.status(503).json(response);
+        sendError(res, 503, 'Service unhealthy', undefined, response);
         return;
       }
     }
 
-    res.status(200).json(response);
+    sendSuccess(res, 200, response);
   };
 }
 

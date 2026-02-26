@@ -7,7 +7,7 @@
  * GET /pipelines/:id    — get a pipeline by UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, parsePaginationParams } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendSuccess, parsePaginationParams } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
@@ -59,9 +59,7 @@ export function createReadPipelineRoutes(
       ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, total: result.total });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
+      return sendSuccess(res, 200, {
         pipelines: result.data.map(normalizePipeline),
         pagination: {
           total: result.total,
@@ -101,7 +99,7 @@ export function createReadPipelineRoutes(
       ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
+      return sendSuccess(res, 200, { pipeline: normalizePipeline(result) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to find pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -132,7 +130,7 @@ export function createReadPipelineRoutes(
       ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(result) });
+      return sendSuccess(res, 200, { pipeline: normalizePipeline(result) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to get pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

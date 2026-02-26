@@ -5,7 +5,7 @@
  * PUT /plugins/:id — update a plugin by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import {
   normalizePlugin,
@@ -88,7 +88,7 @@ export function createUpdatePluginRoutes(): Router {
 
       ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 
-      return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(updated) });
+      return sendSuccess(res, 200, { plugin: normalizePlugin(updated) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to update plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

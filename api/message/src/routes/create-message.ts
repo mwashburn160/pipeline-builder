@@ -10,6 +10,7 @@ import {
   sendError,
   sendBadRequest,
   sendInternalError,
+  sendSuccess,
   errorMessage,
   ErrorCode,
   getParam,
@@ -83,12 +84,7 @@ export function createCreateMessageRoutes(): Router {
 
       ctx.log('COMPLETED', 'Message created', { id: message.id, messageType });
 
-      return res.status(201).json({
-        success: true,
-        statusCode: 201,
-        data: message,
-        message: 'Message created successfully',
-      });
+      return sendSuccess(res, 201, message, 'Message created successfully');
     } catch (error) {
       ctx.log('ERROR', 'Failed to create message', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -161,12 +157,7 @@ export function createCreateMessageRoutes(): Router {
 
       ctx.log('COMPLETED', 'Reply created', { id: reply.id, threadId: id });
 
-      return res.status(201).json({
-        success: true,
-        statusCode: 201,
-        data: reply,
-        message: 'Reply sent successfully',
-      });
+      return sendSuccess(res, 201, reply, 'Reply sent successfully');
     } catch (error) {
       ctx.log('ERROR', 'Failed to reply to thread', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

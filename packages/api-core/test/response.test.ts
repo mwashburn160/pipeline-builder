@@ -103,7 +103,7 @@ describe('sendQuotaExceeded', () => {
     expect(res.statusCode).toBe(429);
     expect(res.body.success).toBe(false);
     expect(res.body.code).toBe(ErrorCode.QUOTA_EXCEEDED);
-    expect(res.body.quota).toEqual(quota);
+    expect(res.body.details).toEqual({ quota });
     expect(res.headers['X-Quota-Limit']).toBe(100);
     expect(res.headers['X-Quota-Used']).toBe(100);
     expect(res.headers['X-Quota-Remaining']).toBe(0);

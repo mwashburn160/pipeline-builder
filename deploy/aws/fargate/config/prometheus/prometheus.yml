@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Application Services
+  - job_name: 'platform'
+    static_configs:
+      - targets: ['platform.pipeline-builder.local:3000']
+        labels:
+          service: platform
+
+  - job_name: 'pipeline'
+    static_configs:
+      - targets: ['pipeline.pipeline-builder.local:3000']
+        labels:
+          service: pipeline
+
+  - job_name: 'plugin'
+    static_configs:
+      - targets: ['plugin.pipeline-builder.local:3000']
+        labels:
+          service: plugin
+
+  - job_name: 'quota'
+    static_configs:
+      - targets: ['quota.pipeline-builder.local:3000']
+        labels:
+          service: quota
+
+  - job_name: 'billing'
+    static_configs:
+      - targets: ['billing.pipeline-builder.local:3000']
+        labels:
+          service: billing
+
+  - job_name: 'message'
+    static_configs:
+      - targets: ['message.pipeline-builder.local:3000']
+        labels:
+          service: message
+
+  # Nginx Gateway
+  - job_name: 'nginx'
+    scheme: http
+    static_configs:
+      - targets: ['nginx.pipeline-builder.local:8080']
+        labels:
+          service: nginx
+
+  # Observability
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki.pipeline-builder.local:3100']
+        labels:
+          service: loki
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: prometheus

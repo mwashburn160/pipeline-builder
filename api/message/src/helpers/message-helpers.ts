@@ -34,11 +34,11 @@ export function validateFilter(req: Request): ValidationResult<ValidatedMessageF
 // ---------------------------------------------------------------------------
 
 /** Send a 404 "message not found" response. */
-export function sendMessageNotFound(res: Response): Response {
-  return sendEntityNotFound(res, 'Message');
+export function sendMessageNotFound(res: Response): void {
+  sendEntityNotFound(res, 'Message');
 }
 
 /** Send a 404 "thread not found" response. */
-export function sendThreadNotFound(res: Response): Response {
-  return sendEntityNotFound(res, 'Thread');
+export function sendThreadNotFound(res: Response): void {
+  sendEntityNotFound(res, 'Thread');
 }

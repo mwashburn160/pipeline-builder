@@ -733,11 +733,11 @@ class ApiClient {
       throw new ApiError(data.message || 'Upload failed', statusCode, data.code);
     }
 
-    return data as ApiResponse<{ plugin: Plugin; warning?: string }> & {
+    return data as ApiResponse<{
       requestId?: string;
       pluginName?: string;
       imageTag?: string;
-    };
+    }>;
   }
 
   async updatePlugin(id: string, data: {
@@ -868,15 +868,11 @@ class ApiClient {
     dockerfile: string;
     accessModifier: 'public' | 'private';
   }) {
-    return this.request<ApiResponse<{ plugin: Plugin }> & {
-      id?: string;
-      name?: string;
-      version?: string;
-      imageTag?: string;
-      fullImage?: string;
+    return this.request<ApiResponse<{
       requestId?: string;
       pluginName?: string;
-    }>('/api/plugin/deploy-generated', {
+      imageTag?: string;
+    }>>('/api/plugin/deploy-generated', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -948,17 +944,17 @@ class ApiClient {
     const query = params ? '?' + new URLSearchParams(
       Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
     ).toString() : '';
-    return this.request<ApiResponse<Message[]> & { pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>(`/api/messages${query}`);
+    return this.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${query}`);
   }
 
   /** List announcements only */
   async getAnnouncements() {
-    return this.request<ApiResponse<Message[]>>('/api/messages/announcements');
+    return this.request<ApiResponse<{ messages: Message[] }>>('/api/messages/announcements');
   }
 
   /** List conversations only */
   async getConversations() {
-    return this.request<ApiResponse<Message[]>>('/api/messages/conversations');
+    return this.request<ApiResponse<{ messages: Message[] }>>('/api/messages/conversations');
   }
 
   /** Get unread message count */
@@ -968,12 +964,12 @@ class ApiClient {
 
   /** Get a single message by ID */
   async getMessage(id: string) {
-    return this.request<ApiResponse<Message>>(`/api/messages/${id}`);
+    return this.request<ApiResponse<{ message: Message }>>(`/api/messages/${id}`);
   }
 
   /** Get all messages in a thread */
   async getThread(id: string) {
-    return this.request<ApiResponse<Message[]>>(`/api/messages/${id}/thread`);
+    return this.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`);
   }
 
   /** Send a new message (announcement or conversation) */
@@ -1000,7 +996,7 @@ class ApiClient {
 
   /** Mark a message as read */
   async markMessageAsRead(id: string) {
-    return this.request<ApiResponse<Message>>(`/api/messages/${id}/read`, {
+    return this.request<ApiResponse<{ message: Message }>>(`/api/messages/${id}/read`, {
       method: 'PUT',
     });
   }

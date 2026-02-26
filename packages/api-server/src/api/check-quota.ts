@@ -5,7 +5,7 @@
  * Must be used after `authenticateToken` and `requireOrgId`.
  */
 
-import { ErrorCode, createLogger, getIdentity } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, getIdentity, sendError } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaService, HttpRequest } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 
@@ -47,18 +47,13 @@ export function checkQuota(
           used: quotaStatus.used,
         });
 
-        res.status(429).json({
-          success: false,
-          statusCode: 429,
-          message: `${QUOTA_LABELS[quotaType]} quota exceeded. Please contact your administrator to increase your quota.`,
-          code: ErrorCode.QUOTA_EXCEEDED,
-          quota: {
-            type: quotaType,
-            limit: quotaStatus.limit,
-            used: quotaStatus.used,
-            remaining: quotaStatus.remaining,
-          },
-        });
+        sendError(
+          res,
+          429,
+          `${QUOTA_LABELS[quotaType]} quota exceeded. Please contact your administrator to increase your quota.`,
+          ErrorCode.QUOTA_EXCEEDED,
+          { quota: { type: quotaType, limit: quotaStatus.limit, used: quotaStatus.used, remaining: quotaStatus.remaining } },
+        );
         return;
       }
 

@@ -5,7 +5,7 @@
  * Must be used after `attachRequestContext`.
  */
 
-import { ErrorCode } from '@mwashburn160/api-core';
+import { ErrorCode, sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 
 /**
@@ -26,12 +26,7 @@ export function requireOrgId() {
 
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');
-      res.status(400).json({
-        success: false,
-        statusCode: 400,
-        message: 'Organization ID is required. Please provide x-org-id header.',
-        code: ErrorCode.VALIDATION_ERROR,
-      });
+      sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.VALIDATION_ERROR);
       return;
     }
 

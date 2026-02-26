@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { ErrorCode } from '../types/error-codes';
+import { sendError } from '../utils/response';
 
 /**
  * Generic record normalizer - ensures array fields are always arrays
@@ -27,12 +28,7 @@ export function normalizeArrayFields<T extends Record<string, unknown>>(
  * @param entityName - Name of the entity type (e.g., "Pipeline", "Plugin")
  * @returns Express response
  */
-export function sendEntityNotFound(res: Response, entityName: string): Response {
-  return res.status(404).json({
-    success: false,
-    statusCode: 404,
-    message: `${entityName} not found.`,
-    code: ErrorCode.NOT_FOUND,
-  });
+export function sendEntityNotFound(res: Response, entityName: string): void {
+  sendError(res, 404, `${entityName} not found.`, ErrorCode.NOT_FOUND);
 }
 

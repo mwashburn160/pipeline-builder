@@ -10,7 +10,7 @@
  *   - Regular users: can delete private plugins only
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import { sendPluginNotFound } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
@@ -52,7 +52,7 @@ export function createDeletePluginRoutes(): Router {
 
       ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name });
 
-      return res.status(200).json({ success: true, statusCode: 200, message: 'Plugin deleted.' });
+      return sendSuccess(res, 200, undefined, 'Plugin deleted.');
     } catch (error) {
       ctx.log('ERROR', 'Failed to delete plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

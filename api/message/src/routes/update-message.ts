@@ -1,6 +1,7 @@
 import {
   sendBadRequest,
   sendInternalError,
+  sendSuccess,
   errorMessage,
   ErrorCode,
   getParam,
@@ -38,12 +39,7 @@ export function createUpdateMessageRoutes(): Router {
 
       ctx.log('COMPLETED', 'Message marked as read', { id });
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: message,
-        message: 'Message marked as read',
-      });
+      return sendSuccess(res, 200, { message }, 'Message marked as read');
     } catch (error) {
       ctx.log('ERROR', 'Failed to mark message as read', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -68,12 +64,7 @@ export function createUpdateMessageRoutes(): Router {
 
       ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: updatedMessages.length + 1 });
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: { updated: updatedMessages.length + 1 },
-        message: 'Thread marked as read',
-      });
+      return sendSuccess(res, 200, { updated: updatedMessages.length + 1 }, 'Thread marked as read');
     } catch (error) {
       ctx.log('ERROR', 'Failed to mark thread as read', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

@@ -124,13 +124,13 @@ export function sendQuotaExceeded(
     res.setHeader('X-Quota-Reset', resetAt);
   }
 
-  res.status(429).json({
-    success: false,
-    statusCode: 429,
-    message: `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
-    code: ErrorCode.QUOTA_EXCEEDED,
-    quota,
-  });
+  sendError(
+    res,
+    429,
+    `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
+    ErrorCode.QUOTA_EXCEEDED,
+    { quota },
+  );
 }
 
 /**

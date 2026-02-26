@@ -4,10 +4,7 @@ import { validateFilter, sendMessageNotFound, sendThreadNotFound } from '../src/
 // Mock api-core
 // ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
-  sendEntityNotFound: jest.fn((res: any, entity: string) => {
-    res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
-    return res;
-  }),
+  sendEntityNotFound: jest.fn(),
   validateQuery: jest.fn((_req: any, _schema: any) => ({ ok: true, value: {} })),
   MessageFilterSchema: {},
 }));

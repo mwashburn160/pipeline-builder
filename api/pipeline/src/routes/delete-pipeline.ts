@@ -10,7 +10,7 @@
  *   - Regular users: can delete private pipelines only
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import { sendPipelineNotFound } from '../helpers/pipeline-helpers';
 import { pipelineService } from '../services/pipeline-service';
@@ -52,7 +52,7 @@ export function createDeletePipelineRoutes(): Router {
 
       ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
 
-      return res.status(200).json({ success: true, statusCode: 200, message: 'Pipeline deleted.' });
+      return sendSuccess(res, 200, undefined, 'Pipeline deleted.');
     } catch (error) {
       ctx.log('ERROR', 'Failed to delete pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

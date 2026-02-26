@@ -26,7 +26,6 @@ jest.mock('../src/helpers/plugin-helpers', () => ({
   normalizePlugin: jest.fn((p: any) => p),
   sendPluginNotFound: jest.fn((res: any) => {
     res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
-    return res;
   }),
 }));
 
@@ -38,13 +37,17 @@ jest.mock('@mwashburn160/api-core', () => ({
   },
   isSystemAdmin: jest.fn(() => false),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
-  sendBadRequest: jest.fn((res: any, msg: string) => {
-    res.status(400).json({ success: false, statusCode: 400, message: msg });
-    return res;
+  sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
+    const response: any = { success: true, statusCode };
+    if (data !== undefined) response.data = data;
+    if (message) response.message = message;
+    res.status(statusCode).json(response);
+  }),
+  sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
+    res.status(400).json({ success: false, statusCode: 400, message: msg, code });
   }),
   sendInternalError: jest.fn((res: any, msg: string) => {
     res.status(500).json({ success: false, statusCode: 500, message: msg });
-    return res;
   }),
   parsePaginationParams: jest.fn(() => ({
     limit: 25,
@@ -144,11 +147,13 @@ describe('GET /plugins (list)', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       statusCode: 200,
-      plugins: expect.arrayContaining([
-        expect.objectContaining({ id: '1' }),
-        expect.objectContaining({ id: '2' }),
-      ]),
-      pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+      data: expect.objectContaining({
+        plugins: expect.arrayContaining([
+          expect.objectContaining({ id: '1' }),
+          expect.objectContaining({ id: '2' }),
+        ]),
+        pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+      }),
     }));
   });
 
@@ -231,7 +236,9 @@ describe('GET /plugins/find', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      plugin: expect.objectContaining({ id: '1' }),
+      data: expect.objectContaining({
+        plugin: expect.objectContaining({ id: '1' }),
+      }),
     }));
   });
 
@@ -270,7 +277,9 @@ describe('GET /plugins/:id', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      plugin: expect.objectContaining({ id: 'uuid-1' }),
+      data: expect.objectContaining({
+        plugin: expect.objectContaining({ id: 'uuid-1' }),
+      }),
     }));
   });
 

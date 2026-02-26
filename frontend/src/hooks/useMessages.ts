@@ -43,7 +43,7 @@ export function useMessages(): UseMessagesReturn {
       setLoading(true);
       setError(null);
       const result = await api.getMessages();
-      setMessages(result.data || []);
+      setMessages(result.data?.messages || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch messages');
     } finally {

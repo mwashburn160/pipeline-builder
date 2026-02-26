@@ -1,6 +1,7 @@
 import {
   sendBadRequest,
   sendInternalError,
+  sendSuccess,
   errorMessage,
   ErrorCode,
   parsePaginationParams,
@@ -54,10 +55,8 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       ctx.log('COMPLETED', 'Messages fetched', { count: rootMessages.length });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: rootMessages,
+      return sendSuccess(res, 200, {
+        messages: rootMessages,
         pagination: {
           total: rootMessages.length,
           limit: result.limit,
@@ -83,11 +82,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       ctx.log('COMPLETED', 'Announcements fetched', { count: announcements.length });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: announcements,
-      });
+      return sendSuccess(res, 200, { messages: announcements });
     } catch (error) {
       ctx.log('ERROR', 'Failed to fetch announcements', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -106,11 +101,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       ctx.log('COMPLETED', 'Conversations fetched', { count: conversations.length });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: conversations,
-      });
+      return sendSuccess(res, 200, { messages: conversations });
     } catch (error) {
       ctx.log('ERROR', 'Failed to fetch conversations', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -125,11 +116,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     try {
       const count = await messageService.getUnreadCount(orgId);
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: { count },
-      });
+      return sendSuccess(res, 200, { count });
     } catch (error) {
       ctx.log('ERROR', 'Failed to get unread count', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -152,11 +139,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: message,
-      });
+      return sendSuccess(res, 200, { message });
     } catch (error) {
       ctx.log('ERROR', 'Failed to get message', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -191,11 +174,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       ctx.log('COMPLETED', 'Thread fetched', { count: thread.length });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: thread,
-      });
+      return sendSuccess(res, 200, { messages: thread });
     } catch (error) {
       ctx.log('ERROR', 'Failed to fetch thread', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

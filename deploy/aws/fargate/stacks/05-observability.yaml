@@ -1,0 +1,526 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder Observability Services - Prometheus, Loki, and Grafana
+  deployed on ECS Fargate with EFS persistent storage and Cloud Map discovery.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix for resource naming and export references
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name for the application (used for Grafana root URL)
+
+Resources:
+
+  # ===========================================================================
+  # Prometheus
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - Task Definition
+  # ---------------------------------------------------------------------------
+
+  PrometheusTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-prometheus"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: config-volume
+        - Name: prometheus-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-PrometheusAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: config-init
+          Image: amazon/aws-cli:latest
+          Essential: false
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub
+              - "aws s3 cp s3://${ConfigBucket}/prometheus/prometheus.yml /shared-config/prometheus.yml"
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          Environment:
+            - Name: CONFIG_BUCKET
+              Value:
+                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PrometheusLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: config-init
+
+        - Name: prometheus
+          Image: prom/prometheus:v3.2.1
+          Essential: true
+          DependsOn:
+            - ContainerName: config-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 9090
+              Protocol: tcp
+          Command:
+            - "--config.file=/shared-config/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=7d"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+              ReadOnly: true
+            - ContainerPath: /prometheus
+              SourceVolume: prometheus-data
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:9090/-/healthy || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PrometheusLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: prometheus
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-prometheus-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - ECS Service
+  # ---------------------------------------------------------------------------
+
+  PrometheusService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-prometheus"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PrometheusTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PrometheusDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-prometheus-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  PrometheusDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: prometheus
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Loki
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Loki - Task Definition
+  # ---------------------------------------------------------------------------
+
+  LokiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-loki"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: config-volume
+        - Name: loki-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-LokiAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: config-init
+          Image: amazon/aws-cli:latest
+          Essential: false
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub
+              - "aws s3 cp s3://${ConfigBucket}/loki/loki-config.yml /shared-config/loki-config.yml"
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          Environment:
+            - Name: CONFIG_BUCKET
+              Value:
+                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-LokiLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: config-init
+
+        - Name: loki
+          Image: grafana/loki:3.4.2
+          Essential: true
+          DependsOn:
+            - ContainerName: config-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 3100
+              Protocol: tcp
+          Command:
+            - "-config.file=/shared-config/loki-config.yml"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+              ReadOnly: true
+            - ContainerPath: /loki
+              SourceVolume: loki-data
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:3100/ready || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-LokiLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: loki
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-loki-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Loki - ECS Service
+  # ---------------------------------------------------------------------------
+
+  LokiService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-loki"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref LokiTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt LokiDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-loki-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Loki - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  LokiDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: loki
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Grafana
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Grafana - Task Definition
+  # ---------------------------------------------------------------------------
+
+  GrafanaTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-grafana"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: config-volume
+        - Name: grafana-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-GrafanaAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: config-init
+          Image: amazon/aws-cli:latest
+          Essential: false
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub
+              - >-
+                mkdir -p /shared-config/provisioning/datasources /shared-config/provisioning/dashboards /shared-config/dashboards &&
+                aws s3 cp s3://${ConfigBucket}/grafana/prometheus.yml /shared-config/provisioning/datasources/prometheus.yml &&
+                aws s3 cp s3://${ConfigBucket}/grafana/loki.yml /shared-config/provisioning/datasources/loki.yml &&
+                aws s3 cp s3://${ConfigBucket}/grafana/dashboards.yml /shared-config/provisioning/dashboards/dashboards.yml &&
+                aws s3 cp s3://${ConfigBucket}/grafana/api-metrics.json /shared-config/dashboards/api-metrics.json &&
+                aws s3 cp s3://${ConfigBucket}/grafana/service-logs.json /shared-config/dashboards/service-logs.json
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          Environment:
+            - Name: CONFIG_BUCKET
+              Value:
+                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-GrafanaLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: config-init
+
+        - Name: grafana
+          Image: grafana/grafana:11.5.2
+          Essential: true
+          DependsOn:
+            - ContainerName: config-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: GF_SERVER_ROOT_URL
+              Value: !Sub "https://${DomainName}/grafana/"
+            - Name: GF_SERVER_SERVE_FROM_SUB_PATH
+              Value: "true"
+            - Name: GF_SECURITY_ADMIN_USER
+              Value: admin
+            - Name: GF_PATHS_PROVISIONING
+              Value: /shared-config/provisioning
+            - Name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              Value: /shared-config/dashboards/api-metrics.json
+            - Name: GF_AUTH_PROXY_ENABLED
+              Value: "true"
+            - Name: GF_AUTH_PROXY_HEADER_NAME
+              Value: X-WEBAUTH-USER
+            - Name: GF_AUTH_PROXY_HEADER_PROPERTY
+              Value: username
+            - Name: GF_AUTH_PROXY_AUTO_SIGN_UP
+              Value: "true"
+          Secrets:
+            - Name: GF_SECURITY_ADMIN_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:GRAFANA_ADMIN_PASSWORD::"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+              ReadOnly: true
+            - ContainerPath: /var/lib/grafana
+              SourceVolume: grafana-data
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:3000/api/health || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-GrafanaLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: grafana
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-grafana-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Grafana - ECS Service
+  # ---------------------------------------------------------------------------
+
+  GrafanaService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-grafana"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref GrafanaTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt GrafanaDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-grafana-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Grafana - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  GrafanaDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: grafana
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+Outputs:
+
+  # Prometheus
+  PrometheusServiceArn:
+    Description: Prometheus ECS Service ARN
+    Value: !Ref PrometheusService
+    Export:
+      Name: !Sub "${StackPrefix}-PrometheusServiceArn"
+
+  PrometheusDiscoveryArn:
+    Description: Prometheus Service Discovery ARN
+    Value: !GetAtt PrometheusDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PrometheusDiscoveryArn"
+
+  # Loki
+  LokiServiceArn:
+    Description: Loki ECS Service ARN
+    Value: !Ref LokiService
+    Export:
+      Name: !Sub "${StackPrefix}-LokiServiceArn"
+
+  LokiDiscoveryArn:
+    Description: Loki Service Discovery ARN
+    Value: !GetAtt LokiDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-LokiDiscoveryArn"
+
+  # Grafana
+  GrafanaServiceArn:
+    Description: Grafana ECS Service ARN
+    Value: !Ref GrafanaService
+    Export:
+      Name: !Sub "${StackPrefix}-GrafanaServiceArn"
+
+  GrafanaDiscoveryArn:
+    Description: Grafana Service Discovery ARN
+    Value: !GetAtt GrafanaDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-GrafanaDiscoveryArn"

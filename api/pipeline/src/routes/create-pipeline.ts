@@ -8,7 +8,7 @@
  * project/organization to non-default before inserting the new one.
  */
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
 import { createProtectedRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
@@ -77,23 +77,23 @@ export function createCreatePipelineRoutes(
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 
-        return res.status(201).json({
-          success: true,
-          statusCode: 201,
-          id: result.id,
-          project: result.project,
-          organization: result.organization,
-          pipelineName: result.pipelineName,
-          accessModifier: result.accessModifier,
-          isDefault: result.isDefault,
-          isActive: result.isActive,
-          createdAt: result.createdAt,
-          createdBy: result.createdBy,
-          message:
-            accessModifier === 'public'
-              ? 'Public pipeline created successfully (accessible to all organizations)'
-              : `Private pipeline created successfully (accessible to ${orgId} only)`,
-        });
+        const message = accessModifier === 'public'
+          ? 'Public pipeline created successfully (accessible to all organizations)'
+          : `Private pipeline created successfully (accessible to ${orgId} only)`;
+
+        return sendSuccess(res, 201, {
+          pipeline: {
+            id: result.id,
+            project: result.project,
+            organization: result.organization,
+            pipelineName: result.pipelineName,
+            accessModifier: result.accessModifier,
+            isDefault: result.isDefault,
+            isActive: result.isActive,
+            createdAt: result.createdAt,
+            createdBy: result.createdBy,
+          },
+        }, message);
       } catch (error) {
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);

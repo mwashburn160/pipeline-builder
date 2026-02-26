@@ -1,0 +1,467 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder Database Services - PostgreSQL, MongoDB, and Redis
+  deployed on ECS Fargate with EFS persistent storage and Cloud Map discovery.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix for resource naming and export references
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name for the application (used for tagging)
+
+Resources:
+
+  # ===========================================================================
+  # PostgreSQL
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Task Definition
+  # ---------------------------------------------------------------------------
+
+  PostgresTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-postgres"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "1024"
+      Memory: "2048"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: postgres-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-PostgresAccessPointArn"
+              IAM: ENABLED
+        - Name: init-scripts
+      ContainerDefinitions:
+        - Name: postgres
+          Image: postgres:16
+          Essential: true
+          DependsOn:
+            - ContainerName: postgres-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 5432
+              Protocol: tcp
+          Environment:
+            - Name: POSTGRES_USER
+              Value: postgres
+            - Name: POSTGRES_DB
+              Value: pipeline_builder
+          Secrets:
+            - Name: POSTGRES_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:POSTGRES_PASSWORD::"
+          MountPoints:
+            - SourceVolume: postgres-data
+              ContainerPath: /var/lib/postgresql/data
+              ReadOnly: false
+            - SourceVolume: init-scripts
+              ContainerPath: /docker-entrypoint-initdb.d
+              ReadOnly: true
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - pg_isready -U postgres -d pipeline_builder
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PostgresLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: postgres
+        - Name: postgres-init
+          Image: amazon/aws-cli:latest
+          Essential: false
+          Command:
+            - s3
+            - cp
+            - !Sub
+              - "s3://${ConfigBucket}/postgres/init.sql"
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+            - /docker-entrypoint-initdb.d/init.sql
+          MountPoints:
+            - SourceVolume: init-scripts
+              ContainerPath: /docker-entrypoint-initdb.d
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PostgresLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: postgres-init
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-postgres-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - ECS Service
+  # ---------------------------------------------------------------------------
+
+  PostgresService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-postgres"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PostgresTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-DatabaseSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PostgresDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-postgres-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  PostgresDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: postgres
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # MongoDB
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # MongoDB - Task Definition
+  # ---------------------------------------------------------------------------
+
+  MongoTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-mongodb"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "1024"
+      Memory: "2048"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: mongodb-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-MongodbAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: mongodb
+          Image: mongo:7.0
+          Essential: true
+          PortMappings:
+            - ContainerPort: 27017
+              Protocol: tcp
+          Command:
+            - mongod
+            - "--replSet"
+            - rs0
+            - "--bind_ip_all"
+          Environment:
+            - Name: MONGO_INITDB_ROOT_USERNAME
+              Value: admin
+            - Name: MONGO_INITDB_DATABASE
+              Value: platform
+          Secrets:
+            - Name: MONGO_INITDB_ROOT_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGO_INITDB_ROOT_PASSWORD::"
+          MountPoints:
+            - SourceVolume: mongodb-data
+              ContainerPath: /data/db
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD
+              - mongosh
+              - "--eval"
+              - "db.adminCommand('ping')"
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-MongodbLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: mongodb
+
+        - Name: mongo-init
+          Image: mongo:7.0
+          Essential: false
+          DependsOn:
+            - ContainerName: mongodb
+              Condition: HEALTHY
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub >-
+              sleep 10 &&
+              mongosh --host localhost:27017
+              -u $MONGO_INITDB_ROOT_USERNAME
+              -p $MONGO_INITDB_ROOT_PASSWORD
+              --authenticationDatabase admin
+              --eval 'try { rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]}) } catch(e) { if (e.codeName === "AlreadyInitialized") { print("Already initialized"); } else { throw e; } }'
+              && echo 'Replica set initialized'
+          Environment:
+            - Name: MONGO_INITDB_ROOT_USERNAME
+              Value: admin
+          Secrets:
+            - Name: MONGO_INITDB_ROOT_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGO_INITDB_ROOT_PASSWORD::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-MongodbLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: mongo-init
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-mongodb-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # MongoDB - ECS Service
+  # ---------------------------------------------------------------------------
+
+  MongoService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-mongodb"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref MongoTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-DatabaseSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt MongoDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-mongodb-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # MongoDB - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  MongoDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: mongodb
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Redis
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Redis - Task Definition
+  # ---------------------------------------------------------------------------
+
+  RedisTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-redis"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: redis
+          Image: redis:7-alpine
+          Essential: true
+          PortMappings:
+            - ContainerPort: 6379
+              Protocol: tcp
+          Command:
+            - redis-server
+            - "--maxmemory"
+            - 128mb
+            - "--maxmemory-policy"
+            - noeviction
+          HealthCheck:
+            Command:
+              - CMD
+              - redis-cli
+              - ping
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 10
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-RedisLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: redis
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-redis-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Redis - ECS Service
+  # ---------------------------------------------------------------------------
+
+  RedisService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-redis"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref RedisTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-DatabaseSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt RedisDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-redis-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Redis - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  RedisDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: redis
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+Outputs:
+
+  # PostgreSQL
+  PostgresServiceArn:
+    Description: PostgreSQL ECS Service ARN
+    Value: !Ref PostgresService
+    Export:
+      Name: !Sub "${StackPrefix}-PostgresServiceArn"
+
+  PostgresDiscoveryArn:
+    Description: PostgreSQL Service Discovery ARN
+    Value: !GetAtt PostgresDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PostgresDiscoveryArn"
+
+  # MongoDB
+  MongoServiceArn:
+    Description: MongoDB ECS Service ARN
+    Value: !Ref MongoService
+    Export:
+      Name: !Sub "${StackPrefix}-MongoServiceArn"
+
+  MongoDiscoveryArn:
+    Description: MongoDB Service Discovery ARN
+    Value: !GetAtt MongoDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-MongoDiscoveryArn"
+
+  # Redis
+  RedisServiceArn:
+    Description: Redis ECS Service ARN
+    Value: !Ref RedisService
+    Export:
+      Name: !Sub "${StackPrefix}-RedisServiceArn"
+
+  RedisDiscoveryArn:
+    Description: Redis Service Discovery ARN
+    Value: !GetAtt RedisDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-RedisDiscoveryArn"

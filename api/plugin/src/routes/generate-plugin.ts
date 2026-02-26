@@ -26,6 +26,7 @@ import {
   sendBadRequest,
   sendInternalError,
   sendError,
+  sendSuccess,
   validateBody,
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
@@ -59,11 +60,7 @@ export function createGeneratePluginRoutes(
    */
   router.get('/providers', (_req: Request, res: Response) => {
     const providers = getAvailableProviders();
-    return res.status(200).json({
-      success: true,
-      statusCode: 200,
-      data: { providers },
-    });
+    return sendSuccess(res, 200, { providers });
   });
 
   // -- POST /generate — generate plugin config from natural language ----------
@@ -100,13 +97,9 @@ export function createGeneratePluginRoutes(
 
       ctx.log('COMPLETED', 'AI plugin generation completed');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: {
-          config: result.config,
-          dockerfile: result.dockerfile,
-        },
+      return sendSuccess(res, 200, {
+        config: result.config,
+        dockerfile: result.dockerfile,
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -223,14 +216,11 @@ export function createGeneratePluginRoutes(
           imageTag,
         });
 
-        return res.status(202).json({
-          success: true,
-          statusCode: 202,
-          message: 'Plugin build queued',
+        return sendSuccess(res, 202, {
           requestId: ctx.requestId,
           pluginName: name,
           imageTag,
-        });
+        }, 'Plugin build queued');
       } catch (error) {
         if (res.headersSent) {
           logger.error('Deployment failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });

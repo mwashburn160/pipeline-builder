@@ -595,6 +595,29 @@ kubectl apply -k deploy/minikube/k8s/
 
 Includes all services, databases, and observability (Prometheus, Loki, Grafana) via Kustomize.
 
+### AWS Deployment
+
+Two production-ready AWS deployment options are available. Both use Let's Encrypt for TLS.
+
+| Option | Description | Best for |
+|--------|-------------|----------|
+| **[EC2 (Minikube)](docs/aws-deployment.md#option-1-ec2-minikube)** | Single hardened EC2 instance running Minikube | Dev/staging, small teams, cost-focused |
+| **[Fargate](docs/aws-deployment.md#option-2-fargate)** | Serverless containers on ECS Fargate with ALB | Production, high availability, scaling |
+
+```bash
+# EC2: Single CloudFormation stack
+cd deploy/aws/ec2
+aws cloudformation deploy --stack-name pipeline-builder --template-file template.yaml \
+  --parameter-overrides DomainName=pipeline.example.com HostedZoneId=Z123 KeyPairName=my-key GhcrToken=ghp_xxx \
+  --capabilities CAPABILITY_IAM
+
+# Fargate: 6 CloudFormation stacks
+cd deploy/aws/fargate
+bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx
+```
+
+See the full [AWS Deployment Guide](docs/aws-deployment.md) for architecture details, prerequisites, and troubleshooting.
+
 ---
 
 ## Package Structure
@@ -617,8 +640,11 @@ pipeline-builder/
 ├── frontend/                # Next.js dashboard
 ├── deploy/
 │   ├── local/               # Docker Compose
-│   └── minikube/            # Kubernetes manifests
-└── docs/                    # API reference, metadata keys
+│   ├── minikube/            # Kubernetes manifests
+│   └── aws/
+│       ├── ec2/             # EC2 + Minikube (CloudFormation)
+│       └── fargate/         # ECS Fargate (6 CloudFormation stacks)
+└── docs/                    # API reference, metadata keys, AWS deployment guide
 ```
 
 **Build order** (Nx handles this automatically):
@@ -672,6 +698,10 @@ pnpm build && pnpm test
 ## Metadata Keys
 
 Pipeline Builder provides 50+ strongly-typed metadata keys for CodePipeline, CodeBuild, and network configuration. See [docs/metadata-keys.md](docs/metadata-keys.md) for the full reference.
+
+## AWS Deployment
+
+Production deployment to AWS via EC2 or Fargate with Let's Encrypt TLS: [docs/aws-deployment.md](docs/aws-deployment.md).
 
 ## Environment Variables
 

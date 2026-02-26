@@ -1,0 +1,661 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder - ECS Cluster Infrastructure.
+  Creates the ECS cluster, IAM roles, security groups, and CloudWatch log groups
+  required by all Fargate services.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix used for cross-stack exports and resource naming.
+
+  DomainName:
+    Type: String
+    Description: Domain name used for resource tagging.
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # ECS Cluster
+  # ---------------------------------------------------------------------------
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: pipeline-builder
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # IAM Roles
+  # ---------------------------------------------------------------------------
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${StackPrefix}-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: TaskExecutionInlinePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SecretsManagerAccess
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*"
+              - Sid: CloudWatchLogsAccess
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pipeline-builder/*:*"
+              - Sid: ECRPublicAccess
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${StackPrefix}-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TaskInlinePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3ConfigBucketAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !ImportValue
+                      Fn::Sub: "${StackPrefix}-ConfigBucketArn"
+                  - !Sub
+                    - "${BucketArn}/*"
+                    - BucketArn: !ImportValue
+                        Fn::Sub: "${StackPrefix}-ConfigBucketArn"
+              - Sid: EFSAccess
+                Effect: Allow
+                Action:
+                  - elasticfilesystem:ClientMount
+                  - elasticfilesystem:ClientWrite
+                  - elasticfilesystem:ClientRootAccess
+                Resource:
+                  - !Sub
+                    - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${FileSystemId}"
+                    - FileSystemId: !ImportValue
+                        Fn::Sub: "${StackPrefix}-EFSFileSystemId"
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Security Groups
+  # ---------------------------------------------------------------------------
+  NginxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Nginx reverse proxy containers
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${StackPrefix}-ALBSecurityGroupId"
+          Description: Allow traffic from ALB on port 8080
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-nginx-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for application service containers
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow traffic from Nginx on port 3000
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-app-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  AppSecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      SourceSecurityGroupId: !Ref AppSecurityGroup
+      Description: Allow service-to-service calls (quota/billing) on port 3000
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for database containers (PostgreSQL, MongoDB, Redis)
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow PostgreSQL traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow MongoDB traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow Redis traffic from app containers
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-database-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  ObservabilitySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for observability containers (Prometheus, Loki, Grafana)
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow Prometheus traffic from Nginx
+        - IpProtocol: tcp
+          FromPort: 9090
+          ToPort: 9090
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow Prometheus traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 3100
+          ToPort: 3100
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow Loki traffic from Nginx
+        - IpProtocol: tcp
+          FromPort: 3100
+          ToPort: 3100
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow Loki traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow Grafana traffic from Nginx
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-observability-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  ObservabilitySecurityGroupSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ObservabilitySecurityGroup
+      IpProtocol: tcp
+      FromPort: 3100
+      ToPort: 3100
+      SourceSecurityGroupId: !Ref ObservabilitySecurityGroup
+      Description: Allow Fluent Bit to Loki traffic within observability group
+
+  RegistrySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for container registry
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow registry traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow registry traffic from Nginx
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-registry-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  AdminSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for admin tool containers (PgAdmin, Mongo Express)
+      VpcId: !ImportValue
+        Fn::Sub: "${StackPrefix}-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow PgAdmin traffic from Nginx
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          SourceSecurityGroupId: !Ref NginxSecurityGroup
+          Description: Allow Mongo Express traffic from Nginx
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-admin-sg"
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # CloudWatch Log Groups
+  # ---------------------------------------------------------------------------
+  NginxLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/nginx
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PlatformLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/platform
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/pipeline
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PluginLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/plugin
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  QuotaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/quota
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  BillingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/billing
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  MessageLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/message
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/frontend
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PostgresLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/postgres
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  MongodbLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/mongodb
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  RedisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/redis
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PrometheusLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/prometheus
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  LokiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/loki
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  GrafanaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/grafana
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  FluentBitLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/fluent-bit
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  RegistryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/registry
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  PgadminLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/pgadmin
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  MongoExpressLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/mongo-express
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+# =============================================================================
+# Outputs
+# =============================================================================
+Outputs:
+  # ECS Cluster
+  ECSClusterArn:
+    Description: ARN of the ECS cluster
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-ECSClusterArn"
+
+  ECSClusterName:
+    Description: Name of the ECS cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${StackPrefix}-ECSClusterName"
+
+  # IAM Roles
+  TaskExecutionRoleArn:
+    Description: ARN of the ECS task execution role
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+
+  TaskRoleArn:
+    Description: ARN of the ECS task role
+    Value: !GetAtt TaskRole.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-TaskRoleArn"
+
+  # Security Groups
+  NginxSecurityGroupId:
+    Description: Security group ID for Nginx containers
+    Value: !Ref NginxSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-NginxSecurityGroupId"
+
+  AppSecurityGroupId:
+    Description: Security group ID for application containers
+    Value: !Ref AppSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-AppSecurityGroupId"
+
+  DatabaseSecurityGroupId:
+    Description: Security group ID for database containers
+    Value: !Ref DatabaseSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-DatabaseSecurityGroupId"
+
+  ObservabilitySecurityGroupId:
+    Description: Security group ID for observability containers
+    Value: !Ref ObservabilitySecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+
+  RegistrySecurityGroupId:
+    Description: Security group ID for registry containers
+    Value: !Ref RegistrySecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-RegistrySecurityGroupId"
+
+  AdminSecurityGroupId:
+    Description: Security group ID for admin tool containers
+    Value: !Ref AdminSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-AdminSecurityGroupId"
+
+  # Log Groups
+  NginxLogGroupName:
+    Description: CloudWatch log group for Nginx
+    Value: !Ref NginxLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-NginxLogGroupName"
+
+  PlatformLogGroupName:
+    Description: CloudWatch log group for Platform service
+    Value: !Ref PlatformLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PlatformLogGroupName"
+
+  PipelineLogGroupName:
+    Description: CloudWatch log group for Pipeline service
+    Value: !Ref PipelineLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PipelineLogGroupName"
+
+  PluginLogGroupName:
+    Description: CloudWatch log group for Plugin service
+    Value: !Ref PluginLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PluginLogGroupName"
+
+  QuotaLogGroupName:
+    Description: CloudWatch log group for Quota service
+    Value: !Ref QuotaLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-QuotaLogGroupName"
+
+  BillingLogGroupName:
+    Description: CloudWatch log group for Billing service
+    Value: !Ref BillingLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-BillingLogGroupName"
+
+  MessageLogGroupName:
+    Description: CloudWatch log group for Message service
+    Value: !Ref MessageLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-MessageLogGroupName"
+
+  FrontendLogGroupName:
+    Description: CloudWatch log group for Frontend
+    Value: !Ref FrontendLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-FrontendLogGroupName"
+
+  PostgresLogGroupName:
+    Description: CloudWatch log group for PostgreSQL
+    Value: !Ref PostgresLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PostgresLogGroupName"
+
+  MongodbLogGroupName:
+    Description: CloudWatch log group for MongoDB
+    Value: !Ref MongodbLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-MongodbLogGroupName"
+
+  RedisLogGroupName:
+    Description: CloudWatch log group for Redis
+    Value: !Ref RedisLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-RedisLogGroupName"
+
+  PrometheusLogGroupName:
+    Description: CloudWatch log group for Prometheus
+    Value: !Ref PrometheusLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PrometheusLogGroupName"
+
+  LokiLogGroupName:
+    Description: CloudWatch log group for Loki
+    Value: !Ref LokiLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-LokiLogGroupName"
+
+  GrafanaLogGroupName:
+    Description: CloudWatch log group for Grafana
+    Value: !Ref GrafanaLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-GrafanaLogGroupName"
+
+  FluentBitLogGroupName:
+    Description: CloudWatch log group for Fluent Bit
+    Value: !Ref FluentBitLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-FluentBitLogGroupName"
+
+  RegistryLogGroupName:
+    Description: CloudWatch log group for Registry
+    Value: !Ref RegistryLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryLogGroupName"
+
+  PgadminLogGroupName:
+    Description: CloudWatch log group for PgAdmin
+    Value: !Ref PgadminLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-PgadminLogGroupName"
+
+  MongoExpressLogGroupName:
+    Description: CloudWatch log group for Mongo Express
+    Value: !Ref MongoExpressLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-MongoExpressLogGroupName"

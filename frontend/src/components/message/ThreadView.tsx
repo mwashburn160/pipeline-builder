@@ -51,7 +51,7 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
     try {
       setLoading(true);
       const result = await api.getThread(rootMessage.id);
-      setThread(result.data || []);
+      setThread(result.data?.messages || []);
     } catch {
       setThread([rootMessage]);
     } finally {

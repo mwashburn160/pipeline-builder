@@ -17,6 +17,7 @@ import {
   errorMessage,
   sendBadRequest,
   sendInternalError,
+  sendSuccess,
   validateBody,
   AIGenerateBodySchema,
 } from '@mwashburn160/api-core';
@@ -79,11 +80,7 @@ export function createGeneratePipelineRoutes(): Router {
     ...createAuthenticatedWithOrgRoute(),
     (_req: Request, res: Response) => {
       const providers = getAvailableProviders();
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: { providers },
-      });
+      return sendSuccess(res, 200, { providers });
     },
   );
 
@@ -128,14 +125,10 @@ export function createGeneratePipelineRoutes(): Router {
 
         ctx.log('COMPLETED', 'AI pipeline generation completed');
 
-        return res.status(200).json({
-          success: true,
-          statusCode: 200,
-          data: {
-            props: result.props,
-            description: result.description,
-            keywords: result.keywords,
-          },
+        return sendSuccess(res, 200, {
+          props: result.props,
+          description: result.description,
+          keywords: result.keywords,
         });
       } catch (error) {
         const message = errorMessage(error);

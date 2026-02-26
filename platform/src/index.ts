@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import net from 'net';
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger, sendSuccess, sendError } from '@mwashburn160/api-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -130,13 +130,19 @@ app.get('/health', async (_req: Request, res: Response) => {
     const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
     const isHealthy = dbStatus === 'connected';
 
-    res.status(isHealthy ? 200 : 503).json({
+    const healthData = {
       status: isHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
       database: dbStatus,
-    });
+    };
+
+    if (isHealthy) {
+      sendSuccess(res, 200, healthData);
+    } else {
+      sendError(res, 503, 'Service unhealthy', undefined, healthData);
+    }
   } catch (error) {
-    res.status(503).json({
+    sendError(res, 503, 'Service unhealthy', undefined, {
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : 'Unknown error',

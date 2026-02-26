@@ -48,6 +48,6 @@ export function validateFilter(req: Request): ValidationResult<ValidatedPipeline
 // ---------------------------------------------------------------------------
 
 /** Send a 404 "pipeline not found" response. */
-export function sendPipelineNotFound(res: Response): Response {
-  return sendEntityNotFound(res, 'Pipeline');
+export function sendPipelineNotFound(res: Response): void {
+  sendEntityNotFound(res, 'Pipeline');
 }

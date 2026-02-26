@@ -7,7 +7,7 @@
  * GET /plugins/:id    — get a plugin by UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, parsePaginationParams } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendSuccess, parsePaginationParams } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
@@ -59,9 +59,7 @@ export function createReadPluginRoutes(
       ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, total: result.total });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
+      return sendSuccess(res, 200, {
         plugins: result.data.map(normalizePlugin),
         pagination: {
           total: result.total,
@@ -101,7 +99,7 @@ export function createReadPluginRoutes(
       ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
+      return sendSuccess(res, 200, { plugin: normalizePlugin(result) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to find plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));
@@ -132,7 +130,7 @@ export function createReadPluginRoutes(
       ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
-      return res.status(200).json({ success: true, statusCode: 200, plugin: normalizePlugin(result) });
+      return sendSuccess(res, 200, { plugin: normalizePlugin(result) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to get plugin', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

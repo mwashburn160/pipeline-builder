@@ -12,7 +12,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { authenticateToken, checkQuota, requireOrgId } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config } from '@mwashburn160/pipeline-core';
@@ -143,14 +143,11 @@ export function createUploadPluginRoutes(
           zipPath = undefined;
         }
 
-        return res.status(202).json({
-          success: true,
-          statusCode: 202,
-          message: 'Plugin build queued',
+        return sendSuccess(res, 202, {
           requestId: ctx.requestId,
           pluginName: plugin.manifest.name,
           imageTag: plugin.imageTag,
-        });
+        }, 'Plugin build queued');
       } catch (error) {
         if (res.headersSent) {
           logger.error('Upload failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });

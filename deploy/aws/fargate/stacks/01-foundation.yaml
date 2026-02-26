@@ -1,0 +1,686 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder Foundation Infrastructure - VPC, ALB, EFS, DNS, S3, and Service Discovery
+  for Fargate-based deployment.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix for resource naming and export references
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name for the application (e.g. app.example.com)
+    AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9\-]*(\.[a-zA-Z0-9][a-zA-Z0-9\-]*)+$
+    ConstraintDescription: Must be a valid fully qualified domain name
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route53 hosted zone ID for the domain
+
+  CertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate (Let's Encrypt cert imported to ACM)
+    AllowedPattern: ^arn:aws:acm:[a-z0-9\-]+:\d{12}:certificate\/[a-f0-9\-]+$
+    ConstraintDescription: Must be a valid ACM certificate ARN
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # Networking - VPC
+  # ---------------------------------------------------------------------------
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-vpc"
+
+  # ---------------------------------------------------------------------------
+  # Networking - Subnets
+  # ---------------------------------------------------------------------------
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-public-subnet-1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-public-subnet-2"
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-private-subnet-1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-private-subnet-2"
+
+  # ---------------------------------------------------------------------------
+  # Networking - Internet Gateway
+  # ---------------------------------------------------------------------------
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ---------------------------------------------------------------------------
+  # Networking - NAT Gateway
+  # ---------------------------------------------------------------------------
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-nat-eip"
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-nat-gw"
+
+  # ---------------------------------------------------------------------------
+  # Networking - Public Route Table
+  # ---------------------------------------------------------------------------
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ---------------------------------------------------------------------------
+  # Networking - Private Route Table
+  # ---------------------------------------------------------------------------
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-private-rt"
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ---------------------------------------------------------------------------
+  # Load Balancer - Security Group
+  # ---------------------------------------------------------------------------
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the Application Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP from anywhere
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS from anywhere
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-alb-sg"
+
+  # ---------------------------------------------------------------------------
+  # Load Balancer - ALB
+  # ---------------------------------------------------------------------------
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${StackPrefix}-alb"
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-alb"
+
+  # ---------------------------------------------------------------------------
+  # Load Balancer - Target Group
+  # ---------------------------------------------------------------------------
+
+  NginxTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${StackPrefix}-nginx-tg"
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-nginx-tg"
+
+  # ---------------------------------------------------------------------------
+  # Load Balancer - Listeners
+  # ---------------------------------------------------------------------------
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NginxTargetGroup
+
+  # ---------------------------------------------------------------------------
+  # DNS - Route53
+  # ---------------------------------------------------------------------------
+
+  Route53RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: true
+
+  # ---------------------------------------------------------------------------
+  # Storage - EFS File System
+  # ---------------------------------------------------------------------------
+
+  EFSFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs"
+
+  # ---------------------------------------------------------------------------
+  # Storage - EFS Security Group
+  # ---------------------------------------------------------------------------
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EFS mount targets
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          CidrIp: 10.0.10.0/24
+          Description: Allow NFS from PrivateSubnet1
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          CidrIp: 10.0.11.0/24
+          Description: Allow NFS from PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-sg"
+
+  # ---------------------------------------------------------------------------
+  # Storage - EFS Mount Targets
+  # ---------------------------------------------------------------------------
+
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref EFSSecurityGroup
+
+  # ---------------------------------------------------------------------------
+  # Storage - EFS Access Points
+  # ---------------------------------------------------------------------------
+
+  PostgresAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "999"
+        Gid: "999"
+      RootDirectory:
+        Path: /data/postgres
+        CreationInfo:
+          OwnerUid: "999"
+          OwnerGid: "999"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-postgres"
+
+  MongodbAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "999"
+        Gid: "999"
+      RootDirectory:
+        Path: /data/mongodb
+        CreationInfo:
+          OwnerUid: "999"
+          OwnerGid: "999"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-mongodb"
+
+  RegistryAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "1000"
+        Gid: "1000"
+      RootDirectory:
+        Path: /data/registry
+        CreationInfo:
+          OwnerUid: "1000"
+          OwnerGid: "1000"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-registry"
+
+  PrometheusAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "65534"
+        Gid: "65534"
+      RootDirectory:
+        Path: /data/prometheus
+        CreationInfo:
+          OwnerUid: "65534"
+          OwnerGid: "65534"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-prometheus"
+
+  LokiAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "10001"
+        Gid: "10001"
+      RootDirectory:
+        Path: /data/loki
+        CreationInfo:
+          OwnerUid: "10001"
+          OwnerGid: "10001"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-loki"
+
+  GrafanaAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "472"
+        Gid: "472"
+      RootDirectory:
+        Path: /data/grafana
+        CreationInfo:
+          OwnerUid: "472"
+          OwnerGid: "472"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-grafana"
+
+  PgadminAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "5050"
+        Gid: "5050"
+      RootDirectory:
+        Path: /data/pgadmin
+        CreationInfo:
+          OwnerUid: "5050"
+          OwnerGid: "5050"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-pgadmin"
+
+  # ---------------------------------------------------------------------------
+  # Config Storage - S3 Bucket
+  # ---------------------------------------------------------------------------
+
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-config"
+
+  # ---------------------------------------------------------------------------
+  # Service Discovery - Cloud Map
+  # ---------------------------------------------------------------------------
+
+  CloudMapNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: pipeline-builder.local
+      Vpc: !Ref VPC
+      Description: Private DNS namespace for Pipeline Builder service discovery
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+Outputs:
+
+  # Networking
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${StackPrefix}-VpcId"
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub "${StackPrefix}-PublicSubnet1Id"
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub "${StackPrefix}-PublicSubnet2Id"
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub "${StackPrefix}-PrivateSubnet1Id"
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub "${StackPrefix}-PrivateSubnet2Id"
+
+  # Load Balancer
+  ALBArn:
+    Description: ALB ARN
+    Value: !Ref ALB
+    Export:
+      Name: !Sub "${StackPrefix}-ALBArn"
+
+  ALBDnsName:
+    Description: ALB DNS Name
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub "${StackPrefix}-ALBDnsName"
+
+  ALBListenerArn:
+    Description: HTTPS Listener ARN
+    Value: !Ref HTTPSListener
+    Export:
+      Name: !Sub "${StackPrefix}-ALBListenerArn"
+
+  NginxTargetGroupArn:
+    Description: Nginx Target Group ARN
+    Value: !Ref NginxTargetGroup
+    Export:
+      Name: !Sub "${StackPrefix}-NginxTargetGroupArn"
+
+  # EFS
+  EFSFileSystemId:
+    Description: EFS File System ID
+    Value: !Ref EFSFileSystem
+    Export:
+      Name: !Sub "${StackPrefix}-EFSFileSystemId"
+
+  PostgresAccessPointArn:
+    Description: EFS Access Point ARN for PostgreSQL
+    Value: !GetAtt PostgresAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PostgresAccessPointArn"
+
+  MongodbAccessPointArn:
+    Description: EFS Access Point ARN for MongoDB
+    Value: !GetAtt MongodbAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-MongodbAccessPointArn"
+
+  RegistryAccessPointArn:
+    Description: EFS Access Point ARN for Registry
+    Value: !GetAtt RegistryAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryAccessPointArn"
+
+  PrometheusAccessPointArn:
+    Description: EFS Access Point ARN for Prometheus
+    Value: !GetAtt PrometheusAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PrometheusAccessPointArn"
+
+  LokiAccessPointArn:
+    Description: EFS Access Point ARN for Loki
+    Value: !GetAtt LokiAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-LokiAccessPointArn"
+
+  GrafanaAccessPointArn:
+    Description: EFS Access Point ARN for Grafana
+    Value: !GetAtt GrafanaAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-GrafanaAccessPointArn"
+
+  PgadminAccessPointArn:
+    Description: EFS Access Point ARN for pgAdmin
+    Value: !GetAtt PgadminAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PgadminAccessPointArn"
+
+  # S3
+  ConfigBucketName:
+    Description: S3 Config Bucket Name
+    Value: !Ref ConfigBucket
+    Export:
+      Name: !Sub "${StackPrefix}-ConfigBucketName"
+
+  ConfigBucketArn:
+    Description: S3 Config Bucket ARN
+    Value: !GetAtt ConfigBucket.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-ConfigBucketArn"
+
+  # Service Discovery
+  CloudMapNamespaceId:
+    Description: Cloud Map Namespace ID
+    Value: !GetAtt CloudMapNamespace.Id
+    Export:
+      Name: !Sub "${StackPrefix}-CloudMapNamespaceId"
+
+  CloudMapNamespaceArn:
+    Description: Cloud Map Namespace ARN
+    Value: !GetAtt CloudMapNamespace.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-CloudMapNamespaceArn"
+
+  # Security Groups
+  ALBSecurityGroupId:
+    Description: ALB Security Group ID
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-ALBSecurityGroupId"
+
+  EFSSecurityGroupId:
+    Description: EFS Security Group ID
+    Value: !Ref EFSSecurityGroup
+    Export:
+      Name: !Sub "${StackPrefix}-EFSSecurityGroupId"
+
+  # Domain
+  DomainName:
+    Description: Application domain name
+    Value: !Ref DomainName
+    Export:
+      Name: !Sub "${StackPrefix}-DomainName"

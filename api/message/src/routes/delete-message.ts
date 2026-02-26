@@ -2,6 +2,7 @@ import {
   sendError,
   sendBadRequest,
   sendInternalError,
+  sendSuccess,
   errorMessage,
   ErrorCode,
   isSystemAdmin,
@@ -51,11 +52,7 @@ export function createDeleteMessageRoutes(): Router {
 
       ctx.log('COMPLETED', 'Message deleted', { id });
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        message: 'Message deleted successfully',
-      });
+      return sendSuccess(res, 200, undefined, 'Message deleted successfully');
     } catch (error) {
       ctx.log('ERROR', 'Failed to delete message', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

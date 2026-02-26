@@ -5,7 +5,7 @@
  * PUT /pipelines/:id — update a pipeline by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, validateBody, PipelineUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineUpdateSchema, pickDefined } from '@mwashburn160/api-core';
 import { BuilderProps } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import {
@@ -82,7 +82,7 @@ export function createUpdatePipelineRoutes(): Router {
 
       ctx.log('COMPLETED', 'Updated pipeline', { id: updated.id, name: updated.pipelineName });
 
-      return res.status(200).json({ success: true, statusCode: 200, pipeline: normalizePipeline(updated) });
+      return sendSuccess(res, 200, { pipeline: normalizePipeline(updated) });
     } catch (error) {
       ctx.log('ERROR', 'Failed to update pipeline', { error: errorMessage(error) });
       return sendInternalError(res, errorMessage(error));

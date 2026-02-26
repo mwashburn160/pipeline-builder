@@ -69,9 +69,9 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
     try {
       const response = await api.uploadPlugin(file, access);
 
-      if (response.statusCode === 202 && response.requestId) {
+      if (response.statusCode === 202 && response.data?.requestId) {
         // Build queued — start listening for SSE events
-        setRequestId(response.requestId);
+        setRequestId(response.data.requestId);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else if (response.success) {

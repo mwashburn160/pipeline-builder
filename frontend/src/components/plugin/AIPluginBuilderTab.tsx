@@ -122,9 +122,9 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         accessModifier: access,
       });
 
-      if (response.statusCode === 202 && response.requestId) {
+      if (response.statusCode === 202 && response.data?.requestId) {
         // Build queued — start listening for SSE events
-        setRequestId(response.requestId);
+        setRequestId(response.data.requestId);
       } else if (response.success) {
         // Fallback: synchronous response
         setSuccess(`Plugin "${generatedConfig.name}" deployed successfully!`);

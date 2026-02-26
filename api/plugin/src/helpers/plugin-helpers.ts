@@ -48,6 +48,6 @@ export function validateFilter(req: Request): ValidationResult<ValidatedPluginFi
 // ---------------------------------------------------------------------------
 
 /** Send a 404 "plugin not found" response. */
-export function sendPluginNotFound(res: Response): Response {
-  return sendEntityNotFound(res, 'Plugin');
+export function sendPluginNotFound(res: Response): void {
+  sendEntityNotFound(res, 'Plugin');
 }

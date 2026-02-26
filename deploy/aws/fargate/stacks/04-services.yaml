@@ -1,0 +1,1290 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder - Application Services.
+  Deploys all Fargate services: Nginx reverse proxy, Platform, Pipeline, Plugin,
+  Quota, Billing, Message, and Frontend on ECS with Cloud Map service discovery.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix used for cross-stack exports and resource naming.
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name for the application (e.g. app.example.com)
+    AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9\-]*(\.[a-zA-Z0-9][a-zA-Z0-9\-]*)+$
+    ConstraintDescription: Must be a valid fully qualified domain name
+
+  PlatformImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/platform:latest
+    Description: Docker image for the Platform service
+
+  PipelineImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/pipeline:latest
+    Description: Docker image for the Pipeline service
+
+  PluginImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/plugin:latest
+    Description: Docker image for the Plugin service
+
+  QuotaImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/quota:latest
+    Description: Docker image for the Quota service
+
+  BillingImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/billing:latest
+    Description: Docker image for the Billing service
+
+  MessageImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/message:latest
+    Description: Docker image for the Message service
+
+  FrontendImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/frontend:latest
+    Description: Docker image for the Frontend service
+
+Resources:
+
+  # ===========================================================================
+  # Nginx Reverse Proxy
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Task Definition
+  # ---------------------------------------------------------------------------
+  NginxTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-nginx"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: nginx
+          Image: nginx:1.27
+          Essential: true
+          EntryPoint:
+            - /bin/sh
+            - -c
+          Command:
+            - !Sub
+              - |
+                apt-get update && apt-get install -y awscli nginx-module-njs &&
+                aws s3 cp s3://${ConfigBucket}/nginx/nginx.conf /etc/nginx/nginx.conf &&
+                mkdir -p /etc/nginx/njs &&
+                aws s3 cp s3://${ConfigBucket}/nginx/jwt.js /etc/nginx/njs/jwt.js &&
+                aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /etc/nginx/njs/metrics.js &&
+                nginx -g 'daemon off;'
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: CONFIG_BUCKET
+              Value:
+                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:8080/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=nginx
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Service
+  # ---------------------------------------------------------------------------
+  NginxService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-nginx"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref NginxTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-NginxSecurityGroupId"
+          AssignPublicIp: DISABLED
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${StackPrefix}-NginxTargetGroupArn"
+          ContainerName: nginx
+          ContainerPort: 8080
+      ServiceRegistries:
+        - RegistryArn: !GetAtt NginxDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  NginxDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: nginx
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Platform Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Platform - Task Definition
+  # ---------------------------------------------------------------------------
+  PlatformTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-platform"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: platform
+          Image: !Ref PlatformImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: platform
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+            - Name: MONGODB_URI
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=platform
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PlatformLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Platform - Service
+  # ---------------------------------------------------------------------------
+  PlatformService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-platform"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PlatformTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PlatformDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Platform - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  PlatformDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: platform
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Pipeline Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Pipeline - Task Definition
+  # ---------------------------------------------------------------------------
+  PipelineTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-pipeline"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pipeline
+          Image: !Ref PipelineImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: pipeline
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=pipeline
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PipelineLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Pipeline - Service
+  # ---------------------------------------------------------------------------
+  PipelineService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-pipeline"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PipelineTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PipelineDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Pipeline - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  PipelineDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pipeline
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Plugin Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Plugin - Task Definition
+  # ---------------------------------------------------------------------------
+  PluginTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-plugin"
+      Cpu: "1024"
+      Memory: "2048"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: plugin
+          Image: !Ref PluginImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: plugin
+            - Name: IMAGE_REGISTRY_HOST
+              Value: registry.pipeline-builder.local
+            - Name: IMAGE_REGISTRY_PORT
+              Value: "5000"
+            - Name: PLUGIN_BUILD_CONCURRENCY
+              Value: "1"
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+            - Name: IMAGE_REGISTRY_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_USER::"
+            - Name: IMAGE_REGISTRY_TOKEN
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_TOKEN::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=plugin
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PluginLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Plugin - Service
+  # ---------------------------------------------------------------------------
+  PluginService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-plugin"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PluginTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PluginDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Plugin - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  PluginDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: plugin
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Quota Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Quota - Task Definition
+  # ---------------------------------------------------------------------------
+  QuotaTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-quota"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: quota
+          Image: !Ref QuotaImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: quota
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+            - Name: MONGODB_URI
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=quota
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-QuotaLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Quota - Service
+  # ---------------------------------------------------------------------------
+  QuotaService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-quota"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref QuotaTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt QuotaDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Quota - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  QuotaDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: quota
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Billing Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Billing - Task Definition
+  # ---------------------------------------------------------------------------
+  BillingTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-billing"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: billing
+          Image: !Ref BillingImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: billing
+            - Name: BILLING_ENABLED
+              Value: "false"
+            - Name: BILLING_PROVIDER
+              Value: stub
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+            - Name: MONGODB_URI
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=billing
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-BillingLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Billing - Service
+  # ---------------------------------------------------------------------------
+  BillingService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-billing"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref BillingTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt BillingDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Billing - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  BillingDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: billing
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Message Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Message - Task Definition
+  # ---------------------------------------------------------------------------
+  MessageTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-message"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: message
+          Image: !Ref MessageImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: REDIS_HOST
+              Value: redis.pipeline-builder.local
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: BILLING_SERVICE_HOST
+              Value: billing.pipeline-builder.local
+            - Name: BILLING_SERVICE_PORT
+              Value: "3000"
+            - Name: LOKI_URL
+              Value: http://loki.pipeline-builder.local:3100
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_FRONTEND_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: message
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=message
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-MessageLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Message - Service
+  # ---------------------------------------------------------------------------
+  MessageService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-message"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref MessageTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt MessageDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Message - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  MessageDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: message
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Frontend Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Task Definition
+  # ---------------------------------------------------------------------------
+  FrontendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-frontend"
+      Cpu: "256"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: frontend
+          Image: !Ref FrontendImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: pipeline-builder/ghcr-auth
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: NEXT_PUBLIC_API_URL
+              Value: !Sub "https://${DomainName}"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=frontend
+              Line_Format: json
+        - Name: log-router
+          Image: amazon/aws-for-fluent-bit:latest
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-FrontendLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Service
+  # ---------------------------------------------------------------------------
+  FrontendService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-frontend"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref FrontendTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FrontendDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  FrontendDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: frontend
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+# =============================================================================
+# Outputs
+# =============================================================================
+Outputs:
+
+  # Nginx
+  NginxServiceArn:
+    Description: ARN of the Nginx ECS service
+    Value: !Ref NginxService
+    Export:
+      Name: !Sub "${StackPrefix}-NginxServiceArn"
+
+  NginxTaskDefinitionArn:
+    Description: ARN of the Nginx task definition
+    Value: !Ref NginxTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-NginxTaskDefinitionArn"
+
+  # Platform
+  PlatformServiceArn:
+    Description: ARN of the Platform ECS service
+    Value: !Ref PlatformService
+    Export:
+      Name: !Sub "${StackPrefix}-PlatformServiceArn"
+
+  PlatformTaskDefinitionArn:
+    Description: ARN of the Platform task definition
+    Value: !Ref PlatformTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-PlatformTaskDefinitionArn"
+
+  # Pipeline
+  PipelineServiceArn:
+    Description: ARN of the Pipeline ECS service
+    Value: !Ref PipelineService
+    Export:
+      Name: !Sub "${StackPrefix}-PipelineServiceArn"
+
+  PipelineTaskDefinitionArn:
+    Description: ARN of the Pipeline task definition
+    Value: !Ref PipelineTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-PipelineTaskDefinitionArn"
+
+  # Plugin
+  PluginServiceArn:
+    Description: ARN of the Plugin ECS service
+    Value: !Ref PluginService
+    Export:
+      Name: !Sub "${StackPrefix}-PluginServiceArn"
+
+  PluginTaskDefinitionArn:
+    Description: ARN of the Plugin task definition
+    Value: !Ref PluginTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-PluginTaskDefinitionArn"
+
+  # Quota
+  QuotaServiceArn:
+    Description: ARN of the Quota ECS service
+    Value: !Ref QuotaService
+    Export:
+      Name: !Sub "${StackPrefix}-QuotaServiceArn"
+
+  QuotaTaskDefinitionArn:
+    Description: ARN of the Quota task definition
+    Value: !Ref QuotaTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-QuotaTaskDefinitionArn"
+
+  # Billing
+  BillingServiceArn:
+    Description: ARN of the Billing ECS service
+    Value: !Ref BillingService
+    Export:
+      Name: !Sub "${StackPrefix}-BillingServiceArn"
+
+  BillingTaskDefinitionArn:
+    Description: ARN of the Billing task definition
+    Value: !Ref BillingTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-BillingTaskDefinitionArn"
+
+  # Message
+  MessageServiceArn:
+    Description: ARN of the Message ECS service
+    Value: !Ref MessageService
+    Export:
+      Name: !Sub "${StackPrefix}-MessageServiceArn"
+
+  MessageTaskDefinitionArn:
+    Description: ARN of the Message task definition
+    Value: !Ref MessageTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-MessageTaskDefinitionArn"
+
+  # Frontend
+  FrontendServiceArn:
+    Description: ARN of the Frontend ECS service
+    Value: !Ref FrontendService
+    Export:
+      Name: !Sub "${StackPrefix}-FrontendServiceArn"
+
+  FrontendTaskDefinitionArn:
+    Description: ARN of the Frontend task definition
+    Value: !Ref FrontendTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-FrontendTaskDefinitionArn"

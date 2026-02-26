@@ -1,0 +1,525 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pipeline Builder Admin and Infrastructure Services - Docker Registry, PgAdmin,
+  Mongo Express, and Registry UI deployed on ECS Fargate with Cloud Map discovery.
+
+Parameters:
+  StackPrefix:
+    Type: String
+    Default: pb
+    Description: Prefix for resource naming and export references
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name for the application (used for tagging)
+
+Resources:
+
+  # ===========================================================================
+  # Docker Registry
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Docker Registry - Task Definition
+  # ---------------------------------------------------------------------------
+
+  RegistryTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-registry"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: registry-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-RegistryAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: registry
+          Image: registry:2
+          Essential: true
+          PortMappings:
+            - ContainerPort: 5000
+              Protocol: tcp
+          Environment:
+            - Name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              Value: /var/lib/registry
+          Secrets:
+            - Name: REGISTRY_HTTP_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_TOKEN::"
+          MountPoints:
+            - SourceVolume: registry-data
+              ContainerPath: /var/lib/registry
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:5000/v2/ || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-RegistryLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: registry
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-registry-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Docker Registry - ECS Service
+  # ---------------------------------------------------------------------------
+
+  RegistryService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-registry"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref RegistryTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-RegistrySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt RegistryDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-registry-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Docker Registry - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  RegistryDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: registry
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # PgAdmin
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PgAdmin - Task Definition
+  # ---------------------------------------------------------------------------
+
+  PgadminTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-pgadmin"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: pgadmin-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-PgadminAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: pgadmin
+          Image: dpage/pgadmin4:8
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: SCRIPT_NAME
+              Value: /pgadmin
+          Secrets:
+            - Name: PGADMIN_DEFAULT_EMAIL
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:PGADMIN_DEFAULT_EMAIL::"
+            - Name: PGADMIN_DEFAULT_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:PGADMIN_DEFAULT_PASSWORD::"
+          MountPoints:
+            - SourceVolume: pgadmin-data
+              ContainerPath: /var/lib/pgadmin
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:80/pgadmin/misc/ping || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PgadminLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: pgadmin
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-pgadmin-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # PgAdmin - ECS Service
+  # ---------------------------------------------------------------------------
+
+  PgadminService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-pgadmin"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PgadminTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AdminSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PgadminDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-pgadmin-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # PgAdmin - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  PgadminDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pgadmin
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Mongo Express
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Mongo Express - Task Definition
+  # ---------------------------------------------------------------------------
+
+  MongoExpressTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-mongo-express"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: mongo-express
+          Image: mongo-express:1.0
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8081
+              Protocol: tcp
+          Environment:
+            - Name: ME_CONFIG_SITE_BASEURL
+              Value: /mongo-express
+            - Name: ME_CONFIG_MONGODB_ENABLE_ADMIN
+              Value: "true"
+          Secrets:
+            - Name: ME_CONFIG_BASICAUTH_USERNAME
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_BASICAUTH_USERNAME::"
+            - Name: ME_CONFIG_BASICAUTH_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_BASICAUTH_PASSWORD::"
+            - Name: ME_CONFIG_MONGODB_ADMINUSERNAME
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_MONGODB_ADMINUSERNAME::"
+            - Name: ME_CONFIG_MONGODB_ADMINPASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_MONGODB_ADMINPASSWORD::"
+            - Name: ME_CONFIG_MONGODB_URL
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:8081/mongo-express/ || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-MongoExpressLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: mongo-express
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-mongo-express-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Mongo Express - ECS Service
+  # ---------------------------------------------------------------------------
+
+  MongoExpressService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-mongo-express"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref MongoExpressTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AdminSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt MongoExpressDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-mongo-express-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Mongo Express - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  MongoExpressDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: mongo-express
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Registry UI (Joxit)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Registry UI - Task Definition
+  # ---------------------------------------------------------------------------
+
+  RegistryUITaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-registry-ui"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: registry-ui
+          Image: joxit/docker-registry-ui:2
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: REGISTRY_TITLE
+              Value: Pipeline Builder Registry
+            - Name: NGINX_PROXY_PASS_URL
+              Value: http://registry.pipeline-builder.local:5000
+            - Name: SINGLE_REGISTRY
+              Value: "true"
+            - Name: DELETE_IMAGES
+              Value: "true"
+            - Name: SHOW_CONTENT_DIGEST
+              Value: "true"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:80/ || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-RegistryLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: registry-ui
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-registry-ui-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Registry UI - ECS Service
+  # ---------------------------------------------------------------------------
+
+  RegistryUIService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-registry-ui"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref RegistryUITaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AdminSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt RegistryUIDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-registry-ui-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # Registry UI - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  RegistryUIDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: registry-express
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+Outputs:
+
+  # Docker Registry
+  RegistryServiceArn:
+    Description: Docker Registry ECS Service ARN
+    Value: !Ref RegistryService
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryServiceArn"
+
+  RegistryDiscoveryArn:
+    Description: Docker Registry Service Discovery ARN
+    Value: !GetAtt RegistryDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryDiscoveryArn"
+
+  # PgAdmin
+  PgadminServiceArn:
+    Description: PgAdmin ECS Service ARN
+    Value: !Ref PgadminService
+    Export:
+      Name: !Sub "${StackPrefix}-PgadminServiceArn"
+
+  PgadminDiscoveryArn:
+    Description: PgAdmin Service Discovery ARN
+    Value: !GetAtt PgadminDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-PgadminDiscoveryArn"
+
+  # Mongo Express
+  MongoExpressServiceArn:
+    Description: Mongo Express ECS Service ARN
+    Value: !Ref MongoExpressService
+    Export:
+      Name: !Sub "${StackPrefix}-MongoExpressServiceArn"
+
+  MongoExpressDiscoveryArn:
+    Description: Mongo Express Service Discovery ARN
+    Value: !GetAtt MongoExpressDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-MongoExpressDiscoveryArn"
+
+  # Registry UI
+  RegistryUIServiceArn:
+    Description: Registry UI ECS Service ARN
+    Value: !Ref RegistryUIService
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryUIServiceArn"
+
+  RegistryUIDiscoveryArn:
+    Description: Registry UI Service Discovery ARN
+    Value: !GetAtt RegistryUIDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-RegistryUIDiscoveryArn"

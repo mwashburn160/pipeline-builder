@@ -1,3 +1,4 @@
+import { sendSuccess, sendError } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
@@ -145,13 +146,19 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
         const connection = getConnection();
         const isHealthy = await connection.testConnection();
 
-        res.status(isHealthy ? 200 : 503).json({
+        const healthData = {
           status: isHealthy ? 'healthy' : 'unhealthy',
           timestamp: new Date().toISOString(),
           database: isHealthy ? 'connected' : 'disconnected',
-        });
+        };
+
+        if (isHealthy) {
+          sendSuccess(res, 200, healthData);
+        } else {
+          sendError(res, 503, 'Service unhealthy', undefined, healthData);
+        }
       } catch (error) {
-        res.status(503).json({
+        sendError(res, 503, 'Service unhealthy', undefined, {
           status: 'unhealthy',
           timestamp: new Date().toISOString(),
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -179,11 +186,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setTimeout(timeoutMs, () => {
       if (!res.headersSent) {
-        res.status(503).json({
-          success: false,
-          statusCode: 503,
-          message: 'Request timeout',
-        });
+        sendError(res, 503, 'Request timeout');
       }
     });
     next();
