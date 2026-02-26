@@ -52,16 +52,16 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.25.7';
+let apiCoreVersion = '1.25.8';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.26.7';
+let pipelineDataVersion = '1.26.8';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.26.7';
+let pipelineCoreVersion = '1.26.8';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = 'workspace:*';
+let apiServerVersion = '1.24.8';
 
 // =============================================================================
 // Root Project Configuration
@@ -738,8 +738,13 @@ quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 /**
  * Billing service (billing)
  *
- * Manages subscription plans, billing lifecycle, and AWS Marketplace integration:
+ * Manages subscription plans, billing lifecycle, and AWS Marketplace integration.
  *
+ * **Disabled by default** (BILLING_ENABLED=false in .env). When disabled, billing
+ * routes return 503 and the platform service skips subscription creation. Enable
+ * by setting BILLING_ENABLED=true and configuring the billing provider.
+ *
+ * Routes:
  * - GET /billing/plans - List available plans
  * - GET /billing/subscriptions - Get current subscription
  * - POST /billing/subscriptions - Create subscription
