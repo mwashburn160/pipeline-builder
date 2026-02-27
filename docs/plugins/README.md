@@ -308,11 +308,14 @@ Replace `{orgId}` with your actual organization ID or use a wildcard for multi-o
 
 Every plugin follows the same three-file layout:
 
-```
-my-plugin/
-├── Dockerfile       # Build environment definition
-├── manifest.yaml    # Plugin metadata, commands, env vars
-└── plugin.zip       # Packaged artifact (Dockerfile + manifest)
+```mermaid
+graph LR
+    ROOT["my-plugin/"]
+    ROOT --- A["Dockerfile — Build environment definition"]
+    ROOT --- B["manifest.yaml — Plugin metadata, commands, env vars"]
+    ROOT --- C["plugin.zip — Packaged artifact"]
+
+    style ROOT fill:#4A90D9,color:#fff
 ```
 
 The `manifest.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:

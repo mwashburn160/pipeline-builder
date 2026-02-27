@@ -33,6 +33,16 @@ export function loadServerConfig(): ServerConfig {
     },
     trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
     platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
+    httpClient: {
+      timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000'),
+      maxRetries: parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2'),
+      retryDelayMs: parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200'),
+    },
+    sse: {
+      maxClientsPerRequest: parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10'),
+      clientTimeoutMs: parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000'),
+      cleanupIntervalMs: parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000'),
+    },
   };
 }
 

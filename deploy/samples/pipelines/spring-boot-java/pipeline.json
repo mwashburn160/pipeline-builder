@@ -1,0 +1,253 @@
+{
+  "project": "spring-boot",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for spring-projects/spring-boot - an opinionated Java framework for building production-ready applications. Includes code quality analysis, multi-JDK testing, security scanning, and Maven artifact publishing.",
+  "keywords": [
+    "java",
+    "spring",
+    "spring-boot",
+    "maven",
+    "gradle",
+    "enterprise",
+    "backend"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "spring-boot",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "spring-projects/spring-boot",
+          "branch": "main",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "JAVA_VERSION": "17"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Quality",
+        "steps": [
+          {
+            "plugin": {
+              "name": "checkstyle",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "CHECKSTYLE_CONFIG": "src/checkstyle/checkstyle.xml"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "./gradlew checkstyleMain checkstyleTest"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "spotbugs",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "./gradlew spotbugsMain"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Build-Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "java-corretto",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "corretto-17",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "GRADLE_OPTS": "-Xmx4g -XX:MaxMetaspaceSize=512m",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 45,
+            "commands": [
+              "./gradlew build -x checkstyleMain -x checkstyleTest --no-daemon --parallel"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "java-corretto",
+              "alias": "java21-compat",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "corretto-21",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "21",
+                "GRADLE_OPTS": "-Xmx4g"
+              }
+            },
+            "position": "post",
+            "timeout": 45,
+            "failureBehavior": "warn",
+            "commands": [
+              "./gradlew build -x checkstyleMain -x checkstyleTest --no-daemon --parallel"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Coverage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "jacoco",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "COVERAGE_THRESHOLD": "70"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "./gradlew jacocoTestReport",
+              "./gradlew jacocoTestCoverageVerification"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "SAST",
+        "steps": [
+          {
+            "plugin": {
+              "name": "sonarcloud",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "SONAR_PROJECT_KEY": "spring-projects_spring-boot"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "./gradlew sonarqube -Dsonar.projectKey=spring-projects_spring-boot"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "owasp-dependency-check",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "FAIL_ON_CVSS": "7"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "./gradlew dependencyCheckAnalyze"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Publish",
+        "steps": [
+          {
+            "plugin": {
+              "name": "maven-publish",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "MAVEN_REPO": "https://repo.spring.io/release"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "./gradlew publish"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "gradle-build-scan",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "ignore",
+            "commands": [
+              "./gradlew --scan"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

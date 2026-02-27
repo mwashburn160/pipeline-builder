@@ -11,15 +11,15 @@ import { createLogger } from '../utils/logger';
 const logger = createLogger('http-client');
 
 /**
- * Default request timeout in milliseconds.
+ * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT`).
  */
-const DEFAULT_TIMEOUT = 5000;
+const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000');
 
 /**
- * Default retry configuration.
+ * Default retry configuration (env: `HTTP_CLIENT_MAX_RETRIES`, `HTTP_CLIENT_RETRY_DELAY_MS`).
  */
-const DEFAULT_MAX_RETRIES = 2;
-const DEFAULT_RETRY_DELAY_MS = 200;
+const DEFAULT_MAX_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2');
+const DEFAULT_RETRY_DELAY_MS = parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200');
 
 /**
  * HTTP request options.

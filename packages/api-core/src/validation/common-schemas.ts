@@ -21,8 +21,10 @@ export const SortOrderSchema = z.enum(['asc', 'desc']);
 /**
  * Pagination parameters schema
  */
+const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000');
+
 export const PaginationSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
   sortBy: z.string().optional(),
   sortOrder: SortOrderSchema.optional(),

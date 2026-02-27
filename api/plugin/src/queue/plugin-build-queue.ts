@@ -23,11 +23,11 @@ import type { RegistryInfo } from '../helpers/docker-build';
 
 const logger = createLogger('plugin-build-queue');
 
-/** Retention period for completed jobs (1 hour in seconds). */
-const COMPLETED_JOB_RETENTION_SECS = 3_600;
+/** Retention period for completed jobs in seconds (env: `PLUGIN_BUILD_COMPLETED_RETENTION_SECS`). */
+const COMPLETED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600');
 
-/** Retention period for failed jobs (24 hours in seconds). */
-const FAILED_JOB_RETENTION_SECS = 86_400;
+/** Retention period for failed jobs in seconds (env: `PLUGIN_BUILD_FAILED_RETENTION_SECS`). */
+const FAILED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400');
 
 // ---------------------------------------------------------------------------
 // Job data types
@@ -79,7 +79,7 @@ export interface PluginBuildJobData {
 // Queue name & singleton state
 // ---------------------------------------------------------------------------
 
-const QUEUE_NAME = 'plugin-build';
+const QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';
 
 let connection: IORedis | null = null;
 let queue: Queue<PluginBuildJobData> | null = null;
@@ -126,8 +126,8 @@ export function getQueue(): Queue<PluginBuildJobData> {
     queue = new Queue<PluginBuildJobData>(QUEUE_NAME, {
       connection: getConnection(),
       defaultJobOptions: {
-        attempts: 2,
-        backoff: { type: 'exponential', delay: 5000 },
+        attempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2'),
+        backoff: { type: 'exponential', delay: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000') },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
         removeOnFail: { age: FAILED_JOB_RETENTION_SECS },
       },
@@ -150,7 +150,7 @@ export function isWorkerReady(): boolean {
  * Wait for the BullMQ worker to connect to Redis.
  * Resolves when ready, rejects after timeout.
  */
-export function waitForWorkerReady(timeoutMs = 10000): Promise<void> {
+export function waitForWorkerReady(timeoutMs = parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000')): Promise<void> {
   return new Promise((resolve, reject) => {
     if (isWorkerReady()) {
       resolve();

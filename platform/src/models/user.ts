@@ -33,6 +33,7 @@ export interface UserDocument extends Document {
   isEmailVerified: boolean;
   tokenVersion: number;
   refreshToken?: string;
+  featureOverrides?: Map<string, boolean>;
   oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
   invalidateAllSessions(): Promise<UserDocument>;
@@ -92,6 +93,11 @@ const userSchema = new Schema<UserDocument>(
     refreshToken: {
       type: String,
       select: false,
+    },
+    featureOverrides: {
+      type: Map,
+      of: Boolean,
+      default: new Map(),
     },
     oauth: {
       google: oauthProviderSchema,

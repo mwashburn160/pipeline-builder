@@ -1,0 +1,267 @@
+{
+  "project": "react",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for facebook/react - a declarative, component-based JavaScript library for building user interfaces. Includes linting, unit testing, build verification, security scanning, and artifact packaging.",
+  "keywords": [
+    "react",
+    "javascript",
+    "typescript",
+    "frontend",
+    "ui",
+    "meta",
+    "nodejs"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "react",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "facebook/react",
+          "branch": "main",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "NODE_VERSION": "20"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Lint",
+        "steps": [
+          {
+            "plugin": {
+              "name": "eslint",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "ESLINT_CONFIG": ".eslintrc.js",
+                "NODE_VERSION": "20"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn lint"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "prettier",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn prettier --check ."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Unit-Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "jest",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20",
+                "JEST_CONFIG": "scripts/jest/config.source.js"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn test --ci --maxWorkers=4"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "jest-coverage",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20",
+                "COVERAGE_THRESHOLD": "80"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn test --ci --coverage"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Build",
+        "steps": [
+          {
+            "plugin": {
+              "name": "nodejs-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20",
+                "BUILD_SCRIPT": "build"
+              }
+            },
+            "position": "pre",
+            "timeout": 20,
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn build"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "typescript-check",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn tsc --noEmit"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "steps": [
+          {
+            "plugin": {
+              "name": "snyk",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "SNYK_SEVERITY_THRESHOLD": "high"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "npm install -g snyk",
+              "snyk test --severity-threshold=high"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {}
+            },
+            "position": "pre",
+            "commands": [
+              "git secrets --scan"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "npm-audit",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "AUDIT_LEVEL": "high"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "yarn audit --level high"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Package",
+        "steps": [
+          {
+            "plugin": {
+              "name": "npm-publish",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "NODE_VERSION": "20",
+                "NPM_REGISTRY": "https://registry.npmjs.org"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "yarn install --frozen-lockfile",
+              "yarn build",
+              "npm publish --access public"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

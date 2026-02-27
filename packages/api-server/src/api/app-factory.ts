@@ -208,9 +208,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.use(limiter);
   }
 
-  // Express request timeout (distinct from CoreConstants.HANDLER_TIMEOUT_MS which is for Lambda)
-  const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || String(DEFAULT_REQUEST_TIMEOUT_MS), 10);
+  // Express request timeout (env: HANDLER_TIMEOUT_MS, default: 30s)
+  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000', 10);
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setTimeout(timeoutMs, () => {
       if (!res.headersSent) {

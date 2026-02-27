@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plugin } from '@/types';
 import api from '@/lib/api';
+import { CACHE_TTL_MS } from '@/lib/constants';
 
 /**
  * Module-level cache for plugin data, shared across all usePlugins instances.
@@ -14,8 +15,6 @@ import api from '@/lib/api';
 let cachedPlugins: Plugin[] | null = null;
 /** Timestamp (epoch ms) of the last successful plugin fetch. */
 let cacheTimestamp = 0;
-/** Cache time-to-live: 5 minutes. */
-const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Invalidates the module-level plugin cache.

@@ -113,7 +113,7 @@ export class PipelineConfiguration {
     }
 
     // Validate pipeline name length (AWS max 100 characters)
-    const MAX_PIPELINE_NAME_LENGTH = 100;
+    const MAX_PIPELINE_NAME_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100');
     const pipelineName = props.pipelineName
       ?? `${replaceNonAlphanumeric(props.organization ?? '', '_').toLowerCase()}-${replaceNonAlphanumeric(props.project ?? '', '_').toLowerCase()}-pipeline`;
     if (pipelineName.length > MAX_PIPELINE_NAME_LENGTH) {

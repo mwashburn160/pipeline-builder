@@ -11,6 +11,19 @@
 import { QUOTA_TIERS } from '@mwashburn160/api-core';
 import { Algorithm } from 'jsonwebtoken';
 
+const isDev = (process.env.NODE_ENV || 'development') === 'development';
+
+/**
+ * Require an environment variable in production, allow a dev-only fallback.
+ * @internal
+ */
+function requireSecret(envVar: string, name: string): string {
+  const value = process.env[envVar];
+  if (value) return value;
+  if (isDev) return 'dev-only-insecure-secret';
+  throw new Error(`${name} (${envVar}) is required in production. Generate with: openssl rand -base64 32`);
+}
+
 /**
  * Parse quota limit from environment variable.
  * Supports 'unlimited' string or numeric values.
@@ -60,18 +73,23 @@ export const config = {
   auth: {
     passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8'),
     jwt: {
-      secret: process.env.JWT_SECRET || 'no-secret',
+      secret: requireSecret('JWT_SECRET', 'JWT secret'),
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
     },
     refreshToken: {
-      secret: process.env.REFRESH_TOKEN_SECRET || 'no-secret',
+      secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
+    },
+    cookie: {
+      sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'strict' | 'none',
     },
   },
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
+    // MONGODB_URI must be set via environment; no credentials in source code.
+    // Example: mongodb://mongo:<password>@mongodb:27017/platform?replicaSet=rs0&authSource=admin
+    uri: process.env.MONGODB_URI || (isDev ? 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin' : ''),
   },
   email: {
     enabled: process.env.EMAIL_ENABLED === 'true',
@@ -99,10 +117,14 @@ export const config = {
     /** Base URL for OAuth callback redirects (e.g. https://yourdomain.com) */
     callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
     stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000'),
+    cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000'),
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',
       enabled: !!process.env.OAUTH_GOOGLE_CLIENT_ID,
+      authorizeUrl: process.env.GOOGLE_AUTHORIZE_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
+      userinfoUrl: process.env.GOOGLE_USERINFO_URL || 'https://www.googleapis.com/oauth2/v2/userinfo',
     },
   },
   services: {
@@ -170,6 +192,15 @@ export const config = {
   loki: {
     url: process.env.LOKI_URL || 'http://loki:3100',
     timeout: parseInt(process.env.LOKI_TIMEOUT || '10000'),
+  },
+  logs: {
+    defaultLimit: parseInt(process.env.LOG_DEFAULT_LIMIT || '100'),
+    maxLimit: parseInt(process.env.LOG_MAX_LIMIT || '1000'),
+    defaultLookbackMs: parseInt(process.env.LOG_DEFAULT_LOOKBACK_MS || '3600000'),
+  },
+  pagination: {
+    defaultLimit: parseInt(process.env.PLATFORM_LIST_DEFAULT || '20'),
+    maxLimit: parseInt(process.env.PLATFORM_LIST_MAX || '100'),
   },
 } as const;
 

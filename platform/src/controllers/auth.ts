@@ -151,7 +151,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const tokens = await issueTokens(user);
 
     res.cookie('grafana_token', tokens.accessToken, {
-      httpOnly: true, sameSite: 'lax', path: '/', maxAge: tokens.expiresIn * 1000,
+      httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
     });
     sendSuccess(res, 200, tokens);
   } catch (error) {
@@ -202,7 +202,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     const tokens = await issueTokens(user);
 
     res.cookie('grafana_token', tokens.accessToken, {
-      httpOnly: true, sameSite: 'lax', path: '/', maxAge: tokens.expiresIn * 1000,
+      httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
     });
     sendSuccess(res, 200, tokens);
   } catch (error) {

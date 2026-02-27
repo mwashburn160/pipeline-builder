@@ -16,6 +16,7 @@ import { FormField } from '@/components/ui/FormField';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
+import { AI_MAX_PROMPT_LENGTH } from '@/lib/constants';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -245,11 +246,11 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           rows={4}
           className="input text-sm"
           disabled={disabled || isWorking}
-          maxLength={5000}
+          maxLength={AI_MAX_PROMPT_LENGTH}
         />
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {prompt.length}/5000 characters
+            {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
           </p>
           <button
             onClick={handleGenerate}
