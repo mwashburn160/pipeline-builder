@@ -11,7 +11,7 @@ const auth = [{ bearerAuth: [] }];
 addRegistration(() => {
   registry.registerPath({
     method: 'get',
-    path: '/plugin',
+    path: '/plugins',
     summary: 'List plugins',
     description: 'List plugins with pagination, filtering, and sorting.',
     tags,
@@ -21,7 +21,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/plugin/find',
+    path: '/plugins/find',
     summary: 'Find a single plugin',
     description: 'Find a single plugin matching the query filters.',
     tags,
@@ -31,7 +31,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/plugin/{id}',
+    path: '/plugins/{id}',
     summary: 'Get plugin by ID',
     tags,
     security: auth,
@@ -40,7 +40,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/plugin',
+    path: '/plugins',
     summary: 'Upload a plugin',
     description: 'Upload a plugin ZIP file with manifest. Builds Docker image and saves to database.',
     tags,
@@ -50,7 +50,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'put',
-    path: '/plugin/{id}',
+    path: '/plugins/{id}',
     summary: 'Update a plugin',
     tags,
     security: auth,
@@ -59,7 +59,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'delete',
-    path: '/plugin/{id}',
+    path: '/plugins/{id}',
     summary: 'Delete a plugin',
     description: 'Soft-delete a plugin by setting isActive to false.',
     tags,
@@ -69,7 +69,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/plugin/providers',
+    path: '/plugins/providers',
     summary: 'List AI providers',
     description: 'List AI providers configured for plugin generation.',
     tags,
@@ -79,7 +79,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/plugin/generate',
+    path: '/plugins/generate',
     summary: 'Generate plugin via AI',
     description: 'Generate a plugin configuration and Dockerfile from a natural language prompt.',
     tags,
@@ -89,7 +89,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/plugin/generate/stream',
+    path: '/plugins/generate/stream',
     summary: 'Stream plugin generation via AI',
     description: 'Generate plugin configuration from a natural language prompt. Streams partial results as SSE events.',
     tags,
@@ -99,7 +99,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/plugin/deploy-generated',
+    path: '/plugins/deploy-generated',
     summary: 'Deploy AI-generated plugin',
     description: 'Build Docker image from AI-generated Dockerfile and save plugin to database. Requires admin.',
     tags,

@@ -18,37 +18,37 @@ Parameters:
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:latest
+    Default: ghcr.io/mwashburn160/platform:1.22.13
     Description: Docker image for the Platform service
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:latest
+    Default: ghcr.io/mwashburn160/pipeline:1.21.13
     Description: Docker image for the Pipeline service
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:latest
+    Default: ghcr.io/mwashburn160/plugin:1.21.13
     Description: Docker image for the Plugin service
 
   QuotaImage:
     Type: String
-    Default: ghcr.io/mwashburn160/quota:latest
+    Default: ghcr.io/mwashburn160/quota:1.20.13
     Description: Docker image for the Quota service
 
   BillingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/billing:latest
+    Default: ghcr.io/mwashburn160/billing:1.5.13
     Description: Docker image for the Billing service
 
   MessageImage:
     Type: String
-    Default: ghcr.io/mwashburn160/message:latest
+    Default: ghcr.io/mwashburn160/message:1.3.13
     Description: Docker image for the Message service
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:latest
+    Default: ghcr.io/mwashburn160/frontend:1.23.13
     Description: Docker image for the Frontend service
 
 Resources:

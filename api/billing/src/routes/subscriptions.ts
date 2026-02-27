@@ -213,24 +213,26 @@ export function createSubscriptionRoutes(): Router {
           if (!plan) {
             return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
           }
+          const oldPlanId = subscription.planId;
           subscription.planId = planId;
 
           await getPaymentProvider().updateSubscription(subscription.externalId || '', planId);
 
           await createBillingEvent(orgId, 'plan_changed', {
-            oldPlanId: subscription.planId, newPlanId: planId,
+            oldPlanId, newPlanId: planId,
           }, subscriptionId);
         }
 
         // If changing interval
         if (interval && interval !== subscription.interval) {
+          const oldInterval = subscription.interval;
           subscription.interval = interval;
           subscription.currentPeriodEnd = calculatePeriodEnd(
             subscription.currentPeriodStart, interval,
           );
 
           await createBillingEvent(orgId, 'interval_changed', {
-            oldInterval: subscription.interval, newInterval: interval,
+            oldInterval, newInterval: interval,
           }, subscriptionId);
         }
 

@@ -263,6 +263,8 @@ export abstract class CrudService<
           isActive: false,
           updatedAt: new Date(),
           updatedBy: userId || 'system',
+          deletedAt: new Date(),
+          deletedBy: userId || 'system',
         } as any)
         .where(and(...conditions))
         .returning() as unknown as TEntity[];

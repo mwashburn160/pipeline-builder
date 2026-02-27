@@ -22,7 +22,7 @@ import {
   validateBody,
 } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
-import { buildSubscriptionResponse, syncTierToQuotaService } from '../helpers/billing-helpers';
+import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { BillingEvent } from '../models/billing-event';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
@@ -110,20 +110,37 @@ export function createAdminSubscriptionRoutes(): Router {
           return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
         }
 
+        const orgId = subscription.orgId;
+
         if (planId) {
           const plan = await Plan.findOne({ _id: planId, isActive: true });
           if (!plan) {
             return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
           }
+          const oldPlanId = subscription.planId;
           subscription.planId = planId;
 
           // Sync tier
           const authHeader = req.headers.authorization || '';
-          await syncTierToQuotaService(subscription.orgId, plan.tier, authHeader);
+          await syncTierToQuotaService(orgId, plan.tier, authHeader);
+          await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
         }
 
-        if (status) subscription.status = status;
-        if (interval) subscription.interval = interval;
+        if (status && status !== subscription.status) {
+          subscription.status = status;
+          await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId);
+        } else if (status) {
+          subscription.status = status;
+        }
+
+        if (interval && interval !== subscription.interval) {
+          const oldInterval = subscription.interval;
+          subscription.interval = interval;
+          await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId);
+        } else if (interval) {
+          subscription.interval = interval;
+        }
+
         if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
 
         await subscription.save();

@@ -11,7 +11,7 @@ const auth = [{ bearerAuth: [] }];
 addRegistration(() => {
   registry.registerPath({
     method: 'get',
-    path: '/quota',
+    path: '/quotas',
     summary: 'Get own quotas',
     description: 'Get quota usage and limits for the current organization (from JWT).',
     tags,
@@ -21,7 +21,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/quota/all',
+    path: '/quotas/all',
     summary: 'Get all org quotas',
     description: 'Get quotas for all organizations. System admin only.',
     tags,
@@ -31,7 +31,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/quota/{orgId}',
+    path: '/quotas/{orgId}',
     summary: 'Get org quotas',
     description: 'Get quota usage and limits for a specific organization.',
     tags,
@@ -41,7 +41,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/quota/{orgId}/{quotaType}',
+    path: '/quotas/{orgId}/{quotaType}',
     summary: 'Get specific quota',
     description: 'Get a specific quota type for an organization.',
     tags,
@@ -51,7 +51,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'put',
-    path: '/quota/{orgId}',
+    path: '/quotas/{orgId}',
     summary: 'Update org quotas',
     description: 'Update quota limits for an organization. System admin only.',
     tags,
@@ -61,7 +61,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/quota/{orgId}/reset',
+    path: '/quotas/{orgId}/reset',
     summary: 'Reset quota usage',
     description: 'Reset usage counters for an organization. Admin only.',
     tags,

@@ -7,22 +7,12 @@ import type { QuotaTier } from '@mwashburn160/api-core';
 import { createLogger, createSafeClient } from '@mwashburn160/api-core';
 import { config } from '../config';
 import { BillingEvent } from '../models/billing-event';
+import type { BillingEventType } from '../models/billing-event';
 
 const logger = createLogger('billing-helpers');
 
 /** Billing interval type. */
 export type BillingInterval = 'monthly' | 'annual';
-
-/** Billing event type. */
-export type BillingEventType =
-  | 'subscription_created'
-  | 'subscription_updated'
-  | 'subscription_canceled'
-  | 'subscription_reactivated'
-  | 'plan_changed'
-  | 'interval_changed'
-  | 'payment_succeeded'
-  | 'payment_failed';
 
 /**
  * Calculate the end date for a billing period.
