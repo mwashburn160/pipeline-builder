@@ -7,7 +7,6 @@ import { join } from 'path';
 import { createLogger } from '@mwashburn160/api-core';
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
-import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -133,13 +132,8 @@ export class PluginLookup extends Construct {
       },
     });
 
-    fn.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-        resources: ['*'],
-      }),
-    );
+    // CDK's NodejsFunction auto-creates a scoped CloudWatch Logs policy
+    // for the function's log group — no explicit broad `Resource: '*'` grant needed.
 
     return fn;
   }
