@@ -1,3 +1,13 @@
+## 1.28.0 (2026-02-27)
+
+### 🚀 Features
+
+- rebuild ([c0ecc1c7](https://github.com/mwashburn160/pipeline-builder/commit/c0ecc1c7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.27.0 (2026-02-27)
 
 ### 🚀 Features

@@ -1,3 +1,20 @@
+## 1.23.0 (2026-02-27)
+
+### 🚀 Features
+
+- rebuild ([c0ecc1c7](https://github.com/mwashburn160/pipeline-builder/commit/c0ecc1c7))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.29.0
+- Updated @mwashburn160/api-server to 1.27.0
+- Updated @mwashburn160/api-core to 1.28.0
+- Updated @mwashburn160/ai-core to 1.2.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.22.0 (2026-02-27)
 
 ### 🚀 Features
