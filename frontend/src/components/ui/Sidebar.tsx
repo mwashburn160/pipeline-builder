@@ -12,6 +12,7 @@ import {
   CreditCard,
   Settings,
   KeyRound,
+  Mail,
   Sun,
   Moon,
   LogOut,
@@ -73,6 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Team',
     items: [
       { title: 'Users', href: '/dashboard/users', icon: Users, adminOnly: true },
+      { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
       { title: 'Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
     ],
   },

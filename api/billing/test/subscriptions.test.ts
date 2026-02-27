@@ -345,6 +345,40 @@ describe('PUT /subscriptions/:id', () => {
 
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Plan not found', 'NOT_FOUND');
   });
+
+  it('captures correct old planId in billing event', async () => {
+    const sub = makeSubscription({ planId: 'developer' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'plan_changed',
+      { oldPlanId: 'developer', newPlanId: 'enterprise' },
+      'sub-1',
+    );
+  });
+
+  it('captures correct old interval in billing event', async () => {
+    const sub = makeSubscription({ interval: 'monthly' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'interval_changed',
+      { oldInterval: 'monthly', newInterval: 'annual' },
+      'sub-1',
+    );
+  });
 });
 
 describe('POST /subscriptions/:id/cancel', () => {

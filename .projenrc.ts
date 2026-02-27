@@ -52,19 +52,19 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.26.12';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.27.12';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.27.12';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.25.12';
+let apiServerVersion = 'workspace:*';
 
 /** @mwashburn160/ai-core package version */
-let aiCoreVersion = '1.0.5';
+let aiCoreVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration

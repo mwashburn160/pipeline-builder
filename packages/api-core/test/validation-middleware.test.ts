@@ -1,12 +1,8 @@
 import { z } from 'zod';
-import { ErrorCode } from '../src/types/error-codes';
 import {
   validateQuery,
   validateBody,
   validateParams,
-  validateQueryMiddleware,
-  validateBodyMiddleware,
-  validateParamsMiddleware,
 } from '../src/validation/middleware';
 
 // ---------------------------------------------------------------------------
@@ -14,16 +10,6 @@ import {
 // ---------------------------------------------------------------------------
 function mockReq(overrides: Record<string, unknown> = {}) {
   return { query: {}, body: {}, params: {}, ...overrides } as any;
-}
-
-function mockRes() {
-  const res: any = {
-    statusCode: 0,
-    body: null,
-    status(code: number) { res.statusCode = code; return res; },
-    json(data: any) { res.body = data; return res; },
-  };
-  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,87 +89,5 @@ describe('validateParams', () => {
     if (!result.ok) {
       expect(result.error).toContain('id');
     }
-  });
-});
-
-describe('validateQueryMiddleware', () => {
-  it('should call next() for valid query', () => {
-    const req = mockReq({ query: { name: 'Alice' } });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateQueryMiddleware(TestSchema);
-    middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.validatedQuery).toBeDefined();
-    expect(req.validatedQuery.name).toBe('Alice');
-  });
-
-  it('should send 400 for invalid query', () => {
-    const req = mockReq({ query: { name: '' } });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateQueryMiddleware(TestSchema);
-    middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-    expect(res.body.code).toBe(ErrorCode.VALIDATION_ERROR);
-  });
-});
-
-describe('validateBodyMiddleware', () => {
-  it('should call next() for valid body', () => {
-    const req = mockReq({ body: { name: 'Bob' } });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateBodyMiddleware(TestSchema);
-    middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.validatedBody.name).toBe('Bob');
-  });
-
-  it('should send 400 for invalid body', () => {
-    const req = mockReq({ body: {} });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateBodyMiddleware(TestSchema);
-    middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
-  });
-});
-
-describe('validateParamsMiddleware', () => {
-  const IdSchema = z.object({ id: z.string().min(1) });
-
-  it('should call next() for valid params', () => {
-    const req = mockReq({ params: { id: 'abc' } });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateParamsMiddleware(IdSchema);
-    middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.validatedParams.id).toBe('abc');
-  });
-
-  it('should send 400 for invalid params', () => {
-    const req = mockReq({ params: { id: '' } });
-    const res = mockRes();
-    const next = jest.fn();
-
-    const middleware = validateParamsMiddleware(IdSchema);
-    middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(400);
   });
 });

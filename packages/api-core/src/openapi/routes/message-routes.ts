@@ -11,7 +11,7 @@ const auth = [{ bearerAuth: [] }];
 addRegistration(() => {
   registry.registerPath({
     method: 'get',
-    path: '/message',
+    path: '/messages',
     summary: 'List inbox messages',
     description: 'List root messages (inbox) with optional filtering by type and pagination.',
     tags,
@@ -21,7 +21,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/message/announcements',
+    path: '/messages/announcements',
     summary: 'List announcements',
     description: 'List announcement messages only.',
     tags,
@@ -31,7 +31,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/message/conversations',
+    path: '/messages/conversations',
     summary: 'List conversations',
     description: 'List conversation messages only.',
     tags,
@@ -41,7 +41,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/message/unread/count',
+    path: '/messages/unread/count',
     summary: 'Get unread count',
     description: 'Get the number of unread messages for the current organization.',
     tags,
@@ -51,7 +51,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/message/{id}',
+    path: '/messages/{id}',
     summary: 'Get message by ID',
     tags,
     security: auth,
@@ -60,7 +60,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'get',
-    path: '/message/{id}/thread',
+    path: '/messages/{id}/thread',
     summary: 'Get message thread',
     description: 'Get all messages in a thread including the root message and replies.',
     tags,
@@ -70,7 +70,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/message',
+    path: '/messages',
     summary: 'Create a message',
     description: 'Create a new announcement or conversation message.',
     tags,
@@ -80,7 +80,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'post',
-    path: '/message/{id}/reply',
+    path: '/messages/{id}/reply',
     summary: 'Reply to a message',
     description: 'Create a reply in an existing message thread.',
     tags,
@@ -90,7 +90,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'put',
-    path: '/message/{id}/read',
+    path: '/messages/{id}/read',
     summary: 'Mark message as read',
     tags,
     security: auth,
@@ -99,7 +99,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'put',
-    path: '/message/{id}/thread/read',
+    path: '/messages/{id}/thread/read',
     summary: 'Mark thread as read',
     description: 'Mark all messages in a thread as read.',
     tags,
@@ -109,7 +109,7 @@ addRegistration(() => {
 
   registry.registerPath({
     method: 'delete',
-    path: '/message/{id}',
+    path: '/messages/{id}',
     summary: 'Delete a message',
     description: 'Soft-delete a message.',
     tags,

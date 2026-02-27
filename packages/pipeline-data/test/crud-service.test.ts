@@ -317,9 +317,13 @@ describe('CrudService', () => {
       const result = await service.delete('test-id', 'org1', 'user1');
       expect(result).toEqual(deleted);
 
-      // Verify soft-delete sets isActive: false
+      // Verify soft-delete sets all expected fields
       const setCall = setMock.mock.calls[0][0];
       expect(setCall.isActive).toBe(false);
+      expect(setCall.deletedAt).toBeInstanceOf(Date);
+      expect(setCall.deletedBy).toBe('user1');
+      expect(setCall.updatedAt).toBeInstanceOf(Date);
+      expect(setCall.updatedBy).toBe('user1');
     });
 
     it('should return null when entity not found', async () => {
@@ -431,6 +435,137 @@ describe('CrudService', () => {
 
       const result = await service.updateMany({ name: 'old' }, { name: 'Updated' }, 'org1', 'user1');
       expect(result).toHaveLength(2);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // findPaginated
+  // --------------------------------------------------------------------------
+
+  describe('findPaginated', () => {
+    const entity: TestEntity = {
+      id: '1',
+      orgId: 'org1',
+      name: 'A',
+      isDefault: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'u',
+      updatedBy: 'u',
+    };
+
+    function mockSelectChain(countResult: number, dataResult: TestEntity[]) {
+      // First call is for count, second is for data
+      const dataQuery = {
+        limit: jest.fn().mockReturnValue({
+          offset: jest.fn().mockResolvedValue(dataResult),
+        }),
+        orderBy: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            offset: jest.fn().mockResolvedValue(dataResult),
+          }),
+        }),
+      };
+      mockSelect
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockResolvedValue([{ count: countResult }]),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue(dataQuery),
+          }),
+        });
+    }
+
+    it('should return paginated results with defaults', async () => {
+      mockSelectChain(2, [entity, { ...entity, id: '2', name: 'B' }]);
+
+      const result = await service.findPaginated({}, 'org1');
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(result.limit).toBe(50);
+      expect(result.offset).toBe(0);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('should return empty results', async () => {
+      mockSelectChain(0, []);
+
+      const result = await service.findPaginated({}, 'org1');
+      expect(result.data).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('should clamp limit to minimum of 1', async () => {
+      mockSelectChain(1, [entity]);
+
+      const result = await service.findPaginated({}, 'org1', { limit: 0 });
+      expect(result.limit).toBe(1);
+    });
+
+    it('should clamp limit to maximum of 1000', async () => {
+      mockSelectChain(1, [entity]);
+
+      const result = await service.findPaginated({}, 'org1', { limit: 5000 });
+      expect(result.limit).toBe(1000);
+    });
+
+    it('should calculate hasMore correctly', async () => {
+      mockSelectChain(10, [entity]);
+
+      const result = await service.findPaginated({}, 'org1', { limit: 1, offset: 0 });
+      expect(result.hasMore).toBe(true);
+    });
+
+    it('should propagate database errors', async () => {
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockRejectedValue(new Error('DB error')),
+        }),
+      });
+
+      await expect(service.findPaginated({}, 'org1')).rejects.toThrow('DB error');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // count
+  // --------------------------------------------------------------------------
+
+  describe('count', () => {
+    it('should return count of matching entities', async () => {
+      mockSelect.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue([{ count: 5 }]),
+        }),
+      });
+
+      const result = await service.count({}, 'org1');
+      expect(result).toBe(5);
+    });
+
+    it('should return 0 when no entities match', async () => {
+      mockSelect.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue([{ count: 0 }]),
+        }),
+      });
+
+      const result = await service.count({ name: 'nonexistent' }, 'org1');
+      expect(result).toBe(0);
+    });
+
+    it('should propagate database errors', async () => {
+      mockSelect.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockRejectedValue(new Error('DB error')),
+        }),
+      });
+
+      await expect(service.count({}, 'org1')).rejects.toThrow('DB error');
     });
   });
 });

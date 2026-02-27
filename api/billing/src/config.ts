@@ -20,10 +20,6 @@ export interface AppConfig {
   mongodb: {
     uri: string;
   };
-  rateLimit: {
-    windowMs: number;
-    max: number;
-  };
   quotaService: {
     host: string;
     port: number;
@@ -43,10 +39,6 @@ export const config: AppConfig = {
   billingProvider: (process.env.BILLING_PROVIDER || 'stub') as BillingProviderType,
   mongodb: {
     uri: process.env.MONGODB_URI || '',
-  },
-  rateLimit: {
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
-    max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
   },
   quotaService: {
     host: process.env.QUOTA_SERVICE_HOST || 'quota',

@@ -8,7 +8,6 @@
  * generated, not at import time.
  */
 
-import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
 
 import { registry, addRegistration } from './registry';
@@ -66,9 +65,6 @@ export const PaginatedResponseSchema = z.object({
 });
 
 addRegistration(() => {
-  // Extend Zod with .openapi() — must be called before any .openapi() usage
-  extendZodWithOpenApi(z);
-
   // Common schemas
   registry.register('AccessModifier', AccessModifierSchema.openapi({
     description: 'Resource visibility: "public" (visible to all) or "private" (organization only)',

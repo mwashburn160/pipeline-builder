@@ -3,6 +3,8 @@
  * @description Common Zod schemas shared across all APIs
  */
 
+// Must run before any z.* schema creation — Zod 4 requires eager extension
+import '../openapi/extend-zod';
 import { z } from 'zod';
 
 /**
