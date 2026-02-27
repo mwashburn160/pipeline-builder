@@ -1,3 +1,13 @@
+## 1.27.0 (2026-02-27)
+
+### 🚀 Features
+
+- rebuild ([9860e2bf](https://github.com/mwashburn160/pipeline-builder/commit/9860e2bf))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.26.13 (2026-02-27)
 
 ### 🩹 Fixes
