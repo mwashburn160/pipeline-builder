@@ -1,0 +1,74 @@
+name: jfrog-push
+description: Push container images to JFrog Artifactory Docker registry with JFrog CLI authentication using AWS CDK CodeBuildStep
+keywords:
+  - jfrog
+  - artifactory
+  - container
+  - registry
+  - push
+  - docker
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: JFROG_TOKEN
+    required: true
+    description: "JFrog access token"
+primaryOutputDirectory: registry-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - jf --version
+  # Authenticate with JFrog Artifactory
+  - |
+    if [ -n "${JFROG_TOKEN}" ] && [ -n "${JFROG_URL}" ]; then
+      echo "Configuring JFrog CLI..."
+      jf c add --url="${JFROG_URL}" --access-token="${JFROG_TOKEN}" --interactive=false
+      echo "Logging into JFrog Docker registry..."
+      jf docker login "${JFROG_URL}" --access-token="${JFROG_TOKEN}"
+    else
+      echo "WARNING: JFROG_TOKEN and JFROG_URL must both be set for JFrog authentication"
+    fi
+commands:
+  - mkdir -p registry-output
+  - |
+    if [ -z "${IMAGE_NAME}" ]; then
+      echo "ERROR: IMAGE_NAME must be set"
+      exit 1
+    fi
+    if [ -z "${JFROG_URL}" ]; then
+      echo "ERROR: JFROG_URL must be set (e.g., https://mycompany.jfrog.io)"
+      exit 1
+    fi
+    if [ -z "${JFROG_REPO}" ]; then
+      echo "ERROR: JFROG_REPO must be set (e.g., docker-local)"
+      exit 1
+    fi
+    # Extract hostname from JFROG_URL for image tagging
+    JFROG_HOST=$(echo "${JFROG_URL}" | sed 's|https\?://||' | sed 's|/$||')
+    FULL_IMAGE="${JFROG_HOST}/${JFROG_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      "${DOCKER_CONTEXT}"
+    # Save image metadata
+    docker inspect "${FULL_IMAGE}" > registry-output/image-metadata.json
+    echo "${FULL_IMAGE}" > registry-output/image-name.txt
+  # Push image to JFrog Artifactory
+  - |
+    FULL_IMAGE=$(cat registry-output/image-name.txt)
+    echo "Pushing image: ${FULL_IMAGE}"
+    jf docker push "${FULL_IMAGE}" || true
+    echo "Image push attempted: ${FULL_IMAGE}"
+  - "echo \"JFrog push complete.\""
+env:
+  JFROG_URL: ""
+  JFROG_REPO: ""
+  IMAGE_NAME: ""
+  IMAGE_TAG: latest
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."

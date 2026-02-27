@@ -1,3 +1,8 @@
+/**
+ * @module services/message-service
+ * @description Service layer for managing internal messages, threads, read tracking, and unread counts between organizations and the system org.
+ */
+
 import { CrudService, schema, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -46,7 +51,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
-   * Get all messages in a thread (including the root message)
+   * Get all reply messages in a thread (excludes the root message).
+   *
+   * @param threadId - ID of the root message
+   * @param orgId - Organization ID for access control
+   * @returns Array of reply messages in the thread
    */
   async findThreadMessages(threadId: string, orgId: string): Promise<Message[]> {
     return this.find(
@@ -57,41 +66,59 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   /**
    * Get inbox: root messages (threadId is null) where org is sender or recipient.
-   * Returns only root messages sorted by most recent.
+   *
+   * @param orgId - Organization ID for access control
+   * @param messageType - Optional filter for announcement or conversation
+   * @returns Array of root messages sorted by most recent
    */
   async findInbox(orgId: string, messageType?: 'announcement' | 'conversation'): Promise<Message[]> {
     const filter: Partial<MessageFilter> = {
       isActive: true,
+      threadId: null, // SQL-level IS NULL — root messages only
       ...(messageType ? { messageType } : {}),
     };
-    // Find all matching messages, then filter to root messages (threadId is null)
-    const messages = await this.find(filter, orgId);
-    return messages.filter(m => m.threadId === null);
+    return this.find(filter, orgId);
   }
 
   /**
-   * Get announcements visible to an org
+   * Get announcements visible to an org.
+   *
+   * @param orgId - Organization ID for access control
+   * @returns Array of announcement root messages
    */
   async findAnnouncements(orgId: string): Promise<Message[]> {
     return this.findInbox(orgId, 'announcement');
   }
 
   /**
-   * Get conversations for an org
+   * Get conversations for an org.
+   *
+   * @param orgId - Organization ID for access control
+   * @returns Array of conversation root messages
    */
   async findConversations(orgId: string): Promise<Message[]> {
     return this.findInbox(orgId, 'conversation');
   }
 
   /**
-   * Mark a single message as read
+   * Mark a single message as read.
+   *
+   * @param id - Message ID
+   * @param orgId - Organization ID for access control
+   * @param userId - User performing the action (for updatedBy)
+   * @returns Updated message, or null if not found
    */
   async markAsRead(id: string, orgId: string, userId: string): Promise<Message | null> {
     return this.update(id, { isRead: true } as Partial<MessageUpdate>, orgId, userId);
   }
 
   /**
-   * Mark all messages in a thread as read for the given org
+   * Mark all unread messages in a thread as read for the given org.
+   *
+   * @param threadId - Root message ID of the thread
+   * @param orgId - Organization ID for access control
+   * @param userId - User performing the action (for updatedBy)
+   * @returns Array of updated messages
    */
   async markThreadAsRead(threadId: string, orgId: string, userId: string): Promise<Message[]> {
     return this.updateMany(
@@ -103,7 +130,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
-   * Get count of unread messages for an org
+   * Get count of unread messages for an org.
+   *
+   * @param orgId - Organization ID for access control
+   * @returns Number of unread active messages
    */
   async getUnreadCount(orgId: string): Promise<number> {
     const filter: Partial<MessageFilter> = {

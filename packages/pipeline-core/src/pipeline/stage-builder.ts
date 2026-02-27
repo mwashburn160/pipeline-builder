@@ -1,3 +1,8 @@
+/**
+ * @module pipeline/stage-builder
+ * @description Builds and attaches pipeline stages (pre/post waves) with plugin-resolved CodeBuild steps to a CDK CodePipeline.
+ */
+
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
@@ -29,6 +34,9 @@ export interface StageBuilderProps {
 
   /** Artifact manager for resolving input artifact keys to FileSets */
   readonly artifactManager?: ArtifactManager;
+
+  /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
+  readonly orgId?: string;
 }
 
 /**
@@ -62,6 +70,7 @@ export class StageBuilder {
   private readonly globalMetadata: MetaDataType;
   private readonly defaultComputeType?: CdkComputeType;
   private readonly artifactManager?: ArtifactManager;
+  private readonly orgId?: string;
 
   constructor(props: StageBuilderProps) {
     this.scope = props.scope;
@@ -70,6 +79,7 @@ export class StageBuilder {
     this.globalMetadata = props.globalMetadata;
     this.defaultComputeType = props.defaultComputeType;
     this.artifactManager = props.artifactManager;
+    this.orgId = props.orgId;
   }
 
   /**
@@ -140,7 +150,9 @@ export class StageBuilder {
       preCommands: stepConfig.preCommands,
       postCommands: stepConfig.postCommands,
       env: stepConfig.env,
-      timeout: stepConfig.timeout,
+      timeout: stepConfig.timeout ?? plugin.timeout ?? undefined,
+      failureBehavior: stepConfig.failureBehavior ?? (plugin.failureBehavior as 'fail' | 'warn' | 'ignore' | undefined) ?? undefined,
+      orgId: this.orgId,
     });
   }
 

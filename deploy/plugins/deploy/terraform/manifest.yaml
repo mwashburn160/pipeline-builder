@@ -1,0 +1,89 @@
+name: terraform
+description: Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (tfsec) using AWS CDK CodeBuildStep
+keywords:
+  - terraform
+  - infrastructure
+  - iac
+  - deploy
+  - aws
+  - tflint
+  - tfsec
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 45
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: tf-output
+dockerfile: Dockerfile
+installCommands:
+  # Terraform version selection
+  - |
+    tfenv use ${TF_VERSION} 2>/dev/null || tfenv install ${TF_VERSION} && tfenv use ${TF_VERSION}
+  - terraform version
+  - tflint --version
+  - tfsec --version
+  - aws --version
+commands:
+  - mkdir -p tf-output
+  # Initialize Terraform
+  - |
+    cd ${TF_WORKING_DIR}
+    BACKEND_ARG=""
+    if [ -n "${TF_BACKEND_CONFIG}" ] && [ -f "${TF_BACKEND_CONFIG}" ]; then
+      BACKEND_ARG="-backend-config=${TF_BACKEND_CONFIG}"
+    fi
+    echo "Initializing Terraform..."
+    terraform init ${BACKEND_ARG} -input=false
+  # Lint and security scan
+  - |
+    cd ${TF_WORKING_DIR}
+    echo "Running TFLint..."
+    tflint --init 2>/dev/null || true
+    tflint --format=json > ${OLDPWD}/tf-output/tflint-results.json 2>&1 || true
+    echo "Running tfsec..."
+    tfsec . --format=json > ${OLDPWD}/tf-output/tfsec-results.json 2>&1 || true
+  # Plan or Apply
+  - |
+    cd ${TF_WORKING_DIR}
+    VAR_FILE_ARG=""
+    if [ -n "${TF_VAR_FILE}" ] && [ -f "${TF_VAR_FILE}" ]; then
+      VAR_FILE_ARG="-var-file=${TF_VAR_FILE}"
+    fi
+    case "${TF_ACTION}" in
+      plan)
+        echo "Running Terraform plan..."
+        terraform plan ${VAR_FILE_ARG} -input=false -out=${OLDPWD}/tf-output/tfplan
+        terraform show -json ${OLDPWD}/tf-output/tfplan > ${OLDPWD}/tf-output/tfplan.json
+        ;;
+      apply)
+        if [ "${TF_AUTO_APPROVE}" = "true" ]; then
+          echo "Running Terraform apply (auto-approved)..."
+          terraform apply ${VAR_FILE_ARG} -input=false -auto-approve
+        else
+          echo "Running Terraform plan (apply requires TF_AUTO_APPROVE=true)..."
+          terraform plan ${VAR_FILE_ARG} -input=false -out=${OLDPWD}/tf-output/tfplan
+        fi
+        ;;
+      destroy)
+        if [ "${TF_AUTO_APPROVE}" = "true" ]; then
+          echo "Running Terraform destroy (auto-approved)..."
+          terraform destroy ${VAR_FILE_ARG} -input=false -auto-approve
+        else
+          echo "ERROR: Destroy requires TF_AUTO_APPROVE=true"
+          exit 1
+        fi
+        ;;
+      *)
+        echo "ERROR: Unknown TF_ACTION '${TF_ACTION}'. Supported: plan, apply, destroy"
+        exit 1
+        ;;
+    esac
+  - "echo \"Terraform ${TF_ACTION} complete. Output available in tf-output/\""
+env:
+  TF_VERSION: "1.10.3"
+  TF_WORKING_DIR: "."
+  TF_ACTION: plan
+  TF_VAR_FILE: ""
+  TF_BACKEND_CONFIG: ""
+  TF_AUTO_APPROVE: "false"

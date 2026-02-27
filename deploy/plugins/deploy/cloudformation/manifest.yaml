@@ -1,0 +1,105 @@
+name: cloudformation
+description: AWS CloudFormation infrastructure provisioning plugin with template validation (cfn-lint), stack deployment, and change set management using AWS CDK CodeBuildStep
+keywords:
+  - cloudformation
+  - aws
+  - infrastructure
+  - iac
+  - deploy
+  - cfn-lint
+  - stack
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 45
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: cfn-output
+dockerfile: Dockerfile
+installCommands:
+  - aws --version
+  - cfn-lint --version
+  - rain --version
+commands:
+  - mkdir -p cfn-output
+  # Validate template
+  - |
+    if [ -z "${CFN_TEMPLATE}" ]; then
+      # Auto-detect CloudFormation templates
+      CFN_TEMPLATE=$(find . -maxdepth 2 -name "*.yaml" -o -name "*.yml" -o -name "*.json" \
+        | xargs grep -l "AWSTemplateFormatVersion\|Transform.*AWS::Serverless" 2>/dev/null | head -1)
+      if [ -z "${CFN_TEMPLATE}" ]; then
+        echo "ERROR: No CloudFormation template found. Set CFN_TEMPLATE=path/to/template.yaml"
+        exit 1
+      fi
+      echo "Auto-detected template: ${CFN_TEMPLATE}"
+    fi
+    echo "Linting template: ${CFN_TEMPLATE}"
+    cfn-lint ${CFN_TEMPLATE} --format json > cfn-output/cfn-lint-results.json 2>&1 || true
+    cfn-lint ${CFN_TEMPLATE} || true
+  # Validate with AWS API
+  - |
+    echo "Validating template with AWS CloudFormation..."
+    aws cloudformation validate-template \
+      --template-body file://${CFN_TEMPLATE} \
+      --region ${CFN_REGION} \
+      > cfn-output/validate-result.json 2>&1 || true
+  # Deploy action
+  - |
+    case "${CFN_ACTION}" in
+      validate)
+        echo "Validation complete (deploy skipped)"
+        ;;
+      deploy)
+        if [ -z "${CFN_STACK_NAME}" ]; then
+          echo "ERROR: CFN_STACK_NAME must be set for deploy action"
+          exit 1
+        fi
+        PARAMS_ARG=""
+        if [ -n "${CFN_PARAMETERS}" ]; then
+          PARAMS_ARG="--parameter-overrides ${CFN_PARAMETERS}"
+        fi
+        IFS=',' read -ra CAPS <<< "${CFN_CAPABILITIES}"
+        CAPS_ARG=""
+        for cap in "${CAPS[@]}"; do
+          CAPS_ARG="${CAPS_ARG} ${cap}"
+        done
+        echo "Deploying stack: ${CFN_STACK_NAME}"
+        aws cloudformation deploy \
+          --template-file ${CFN_TEMPLATE} \
+          --stack-name ${CFN_STACK_NAME} \
+          --capabilities ${CAPS_ARG} \
+          ${PARAMS_ARG} \
+          --region ${CFN_REGION} \
+          --no-fail-on-empty-changeset
+        aws cloudformation describe-stacks \
+          --stack-name ${CFN_STACK_NAME} \
+          --region ${CFN_REGION} \
+          > cfn-output/stack-outputs.json
+        ;;
+      delete)
+        if [ -z "${CFN_STACK_NAME}" ]; then
+          echo "ERROR: CFN_STACK_NAME must be set for delete action"
+          exit 1
+        fi
+        echo "Deleting stack: ${CFN_STACK_NAME}"
+        aws cloudformation delete-stack \
+          --stack-name ${CFN_STACK_NAME} \
+          --region ${CFN_REGION}
+        aws cloudformation wait stack-delete-complete \
+          --stack-name ${CFN_STACK_NAME} \
+          --region ${CFN_REGION}
+        ;;
+      *)
+        echo "ERROR: Unknown CFN_ACTION '${CFN_ACTION}'. Supported: validate, deploy, delete"
+        exit 1
+        ;;
+    esac
+  - "echo \"CloudFormation ${CFN_ACTION} complete. Output available in cfn-output/\""
+env:
+  CFN_TEMPLATE: ""
+  CFN_STACK_NAME: ""
+  CFN_ACTION: validate
+  CFN_PARAMETERS: ""
+  CFN_CAPABILITIES: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+  CFN_REGION: us-east-1

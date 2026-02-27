@@ -5,29 +5,8 @@
  * Centralises filter validation and standardised error responses.
  */
 
-import {
-  sendEntityNotFound,
-  validateQuery,
-  MessageFilterSchema,
-  type ValidatedMessageFilter,
-  type ValidationResult,
-} from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
-
-// ---------------------------------------------------------------------------
-// Filter validation (Zod-based)
-// ---------------------------------------------------------------------------
-
-/**
- * Validate message filter params from query string using Zod schema.
- * Provides runtime type-safe validation with automatic type coercion.
- *
- * @param req - Express request with query parameters
- * @returns Validation result with parsed filter or error message
- */
-export function validateFilter(req: Request): ValidationResult<ValidatedMessageFilter> {
-  return validateQuery(req, MessageFilterSchema);
-}
+import { sendEntityNotFound } from '@mwashburn160/api-core';
+import { Response } from 'express';
 
 // ---------------------------------------------------------------------------
 // Error helpers

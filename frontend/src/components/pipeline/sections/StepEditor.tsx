@@ -66,6 +66,32 @@ export default function StepEditor({
         </select>
       </FormField>
 
+      <div className="grid grid-cols-2 gap-4">
+        <FormField label="Timeout (minutes)" hint="Overrides plugin default">
+          <input
+            type="number"
+            value={step.timeout}
+            onChange={(e) => onChange({ ...step, timeout: e.target.value })}
+            disabled={disabled}
+            className="input"
+            placeholder="Plugin default"
+            min={1}
+          />
+        </FormField>
+        <FormField label="Failure Behavior" hint="Overrides plugin default">
+          <select
+            value={step.failureBehavior}
+            onChange={(e) => onChange({ ...step, failureBehavior: e.target.value as 'fail' | 'warn' | 'ignore' })}
+            disabled={disabled}
+            className="input"
+          >
+            <option value="fail">Fail (stop pipeline)</option>
+            <option value="warn">Warn (log warning, continue)</option>
+            <option value="ignore">Ignore (silently continue)</option>
+          </select>
+        </FormField>
+      </div>
+
       <PluginOptionsEditor
         value={step.plugin}
         onChange={updatePlugin}

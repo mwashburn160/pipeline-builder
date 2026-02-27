@@ -5,6 +5,7 @@ packages:
   - packages/pipeline-data
   - packages/pipeline-core
   - packages/api-server
+  - packages/ai-core
   - packages/pipeline-manager
   - platform
   - frontend

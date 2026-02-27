@@ -1,4 +1,8 @@
-import { Duration } from 'aws-cdk-lib';
+/**
+ * @module config/app-config
+ * @description Provides the centralized application configuration class and core constants used across the pipeline builder.
+ */
+
 import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config';
 import type { AppConfig } from './config-types';
@@ -24,11 +28,6 @@ import {
  */
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;
-
-  // Security best practices
-  static readonly MIN_PASSWORD_LENGTH = parseInt(process.env.MIN_PASSWORD_LENGTH || '12');
-  static readonly MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || '5');
-  static readonly ACCOUNT_LOCKOUT_DURATION = Duration.minutes(15);
 
   // Supported JWT algorithms
   static readonly ALLOWED_JWT_ALGORITHMS: Algorithm[] = ['HS256', 'RS256', 'ES256'];

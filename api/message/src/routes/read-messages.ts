@@ -1,3 +1,8 @@
+/**
+ * @module routes/read-messages
+ * @description Express routes for reading messages, including inbox listing, announcements, conversations, unread counts, and thread retrieval.
+ */
+
 import {
   sendBadRequest,
   sendInternalError,
@@ -6,7 +11,10 @@ import {
   ErrorCode,
   parsePaginationParams,
   getParam,
+  validateQuery,
+  MessageFilterSchema,
 } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import type { MessageFilter } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
@@ -29,18 +37,26 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages — List inbox (root messages)
   router.get('/', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
 
     try {
       const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
-      const messageType = req.query.messageType as string | undefined;
+
+      // Validate query params with Zod schema
+      const validation = validateQuery(req, MessageFilterSchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+      }
+      const { messageType, priority } = validation.value;
 
       ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType });
 
       const filter: Partial<MessageFilter> = {
         isActive: true,
-        ...(messageType === 'announcement' || messageType === 'conversation' ? { messageType } : {}),
+        threadId: null, // SQL-level IS NULL — root messages only
+        ...(messageType && { messageType }),
+        ...(priority && { priority }),
       };
 
       const result = await messageService.findPaginated(
@@ -49,16 +65,13 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
         { limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc' },
       );
 
-      // Filter to root messages only (threadId is null)
-      const rootMessages = result.data.filter(m => m.threadId === null);
-
-      ctx.log('COMPLETED', 'Messages fetched', { count: rootMessages.length });
+      ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });
       void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
 
       return sendSuccess(res, 200, {
-        messages: rootMessages,
+        messages: result.data,
         pagination: {
-          total: rootMessages.length,
+          total: result.total,
           limit: result.limit,
           offset: result.offset,
           hasMore: result.hasMore,
@@ -72,7 +85,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages/announcements — List announcements
   router.get('/announcements', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
 
     try {
@@ -91,7 +104,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages/conversations — List conversations
   router.get('/conversations', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
 
     try {
@@ -110,11 +123,15 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages/unread/count — Get unread count
   router.get('/unread/count', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
 
     try {
+      ctx.log('INFO', 'Fetching unread count', { orgId });
+
       const count = await messageService.getUnreadCount(orgId);
+
+      ctx.log('COMPLETED', 'Unread count fetched', { count });
 
       return sendSuccess(res, 200, { count });
     } catch (error) {
@@ -125,7 +142,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages/:id — Get single message
   router.get('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const id = getParam(req.params, 'id');
 
@@ -148,7 +165,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
   // GET /messages/:id/thread — Get thread messages
   router.get('/:id/thread', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const id = getParam(req.params, 'id');
 

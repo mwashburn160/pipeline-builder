@@ -1,0 +1,70 @@
+name: nodejs
+description: Node.js plugin for building and testing JavaScript/TypeScript applications using npm, Yarn, or pnpm with AWS CDK CodeBuildStep
+keywords:
+  - nodejs
+  - javascript
+  - typescript
+  - npm
+  - yarn
+  - pnpm
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm install ${NODE_VERSION}
+    nvm use ${NODE_VERSION}
+  - node --version
+  # Auto-detect or use explicit package manager, then install dependencies
+  - |
+    PKG="${PACKAGE_MANAGER}"
+    if [ "${PKG}" = "auto" ]; then
+      if [ -f pnpm-lock.yaml ]; then
+        PKG="pnpm"
+      elif [ -f yarn.lock ]; then
+        PKG="yarn"
+      else
+        PKG="npm"
+      fi
+    fi
+    echo "Package manager: ${PKG}"
+    case "${PKG}" in
+      npm)
+        if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        ;;
+      yarn)
+        npm install -g yarn
+        yarn install --frozen-lockfile
+        ;;
+      pnpm)
+        npm install -g pnpm
+        pnpm install --frozen-lockfile
+        ;;
+      *)
+        echo "ERROR: Unknown PACKAGE_MANAGER '${PKG}'. Supported: auto, npm, yarn, pnpm"
+        exit 1
+        ;;
+    esac
+commands:
+  - |
+    PKG="${PACKAGE_MANAGER}"
+    if [ "${PKG}" = "auto" ]; then
+      if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
+      elif [ -f yarn.lock ]; then PKG="yarn"
+      else PKG="npm"; fi
+    fi
+    case "${PKG}" in
+      npm)  npm run build && npm test ;;
+      yarn) yarn build && yarn test ;;
+      pnpm) pnpm build && pnpm test ;;
+    esac
+env:
+  NODE_VERSION: "20"
+  PACKAGE_MANAGER: auto

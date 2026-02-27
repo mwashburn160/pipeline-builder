@@ -1,0 +1,111 @@
+name: datadog
+description: Datadog deployment tracking plugin for sending deploy events and markers to Datadog APM for observability and release correlation using AWS CDK CodeBuildStep
+keywords:
+  - datadog
+  - monitoring
+  - deploy
+  - apm
+  - metrics
+  - observability
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+secrets:
+  - name: DD_API_KEY
+    required: true
+    description: "Datadog API key"
+primaryOutputDirectory: datadog-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${DD_API_KEY}" ]; then
+      echo "WARNING: DD_API_KEY not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p datadog-output
+  - |
+    if [ -z "${DD_API_KEY}" ]; then
+      echo "ERROR: DD_API_KEY must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    TIMESTAMP=$(date +%s)
+    SERVICE="${DD_SERVICE:-default-service}"
+    VERSION="${DD_VERSION:-unknown}"
+    SITE="${DD_SITE:-datadoghq.com}"
+    ENV_NAME="${DD_ENV:-production}"
+    # Send deployment event to Datadog
+    echo "Sending deployment event to Datadog (${SITE})..."
+    EVENT_PAYLOAD=$(jq -n \
+      --arg title "Deployment: ${SERVICE} v${VERSION}" \
+      --arg text "Deployed ${SERVICE} version ${VERSION} to ${ENV_NAME}" \
+      --argjson date_happened "${TIMESTAMP}" \
+      --arg host "${SERVICE}" \
+      --arg aggregation_key "deploy-${SERVICE}" \
+      --arg source_type_name "pipeline" \
+      --arg env "${ENV_NAME}" \
+      --arg service "${SERVICE}" \
+      --arg version "${VERSION}" \
+      '{
+        "title": $title,
+        "text": $text,
+        "date_happened": $date_happened,
+        "host": $host,
+        "aggregation_key": $aggregation_key,
+        "source_type_name": $source_type_name,
+        "tags": [
+          ("env:" + $env),
+          ("service:" + $service),
+          ("version:" + $version),
+          "source:pipeline"
+        ]
+      }')
+    echo "${EVENT_PAYLOAD}" | jq '.' | tee datadog-output/event-payload.json
+    HTTP_STATUS=$(curl -s -o datadog-output/event-response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "DD-API-KEY: ${DD_API_KEY}" \
+      -d "${EVENT_PAYLOAD}" \
+      "https://api.${SITE}/api/v1/events") || true
+    if [ "${HTTP_STATUS}" = "202" ]; then
+      echo "Deployment event sent successfully"
+    else
+      echo "WARNING: Datadog events API returned HTTP ${HTTP_STATUS}"
+      cat datadog-output/event-response.txt
+    fi
+    # Send deploy marker as a metric point
+    echo "Sending deploy marker metric..."
+    METRIC_PAYLOAD=$(jq -n \
+      --arg service "${SERVICE}" \
+      --arg env "${ENV_NAME}" \
+      --arg version "${VERSION}" \
+      --argjson timestamp "${TIMESTAMP}" \
+      '{
+        "series": [{
+          "metric": "pipeline.deploy",
+          "type": 3,
+          "points": [{"timestamp": $timestamp, "value": 1}],
+          "tags": [
+            ("env:" + $env),
+            ("service:" + $service),
+            ("version:" + $version)
+          ]
+        }]
+      }')
+    echo "${METRIC_PAYLOAD}" | jq '.' | tee datadog-output/metric-payload.json
+    curl -s -o datadog-output/metric-response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "DD-API-KEY: ${DD_API_KEY}" \
+      -d "${METRIC_PAYLOAD}" \
+      "https://api.${SITE}/api/v2/series" || true
+    echo "Deploy marker metric sent"
+  - "echo \"Datadog deploy tracking complete. Output saved in datadog-output/\""
+env:
+  DD_SITE: datadoghq.com
+  DD_SERVICE: ""
+  DD_ENV: production
+  DD_VERSION: ""

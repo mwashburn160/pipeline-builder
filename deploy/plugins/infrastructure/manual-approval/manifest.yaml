@@ -1,0 +1,19 @@
+name: manual-approval
+description: Native CDK pipeline approval gate that pauses execution and waits for manual confirmation via the AWS CodePipeline console
+keywords:
+  - approval
+  - gate
+  - manual
+  - pipeline
+  - infrastructure
+version: 1.0.0
+pluginType: ManualApprovalStep
+computeType: SMALL
+timeout: 0
+failureBehavior: fail
+primaryOutputDirectory: null
+secrets: []
+installCommands: []
+commands: []
+env:
+  APPROVAL_COMMENT: "Pipeline requires manual approval before proceeding"

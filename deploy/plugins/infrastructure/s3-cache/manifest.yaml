@@ -1,0 +1,124 @@
+name: s3-cache
+description: Build cache restore and save plugin using S3 for faster pipeline runs with zstd compression support via AWS CDK CodeBuildStep
+keywords:
+  - cache
+  - s3
+  - build
+  - performance
+  - infrastructure
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+primaryOutputDirectory: cache-output
+dockerfile: Dockerfile
+secrets: []
+installCommands:
+  - aws --version
+  - tar --version
+  - zstd --version 2>&1 || true
+commands:
+  - mkdir -p cache-output
+  # Validate required parameters
+  - |
+    if [ -z "${CACHE_BUCKET}" ]; then
+      echo "ERROR: CACHE_BUCKET must be set"
+      exit 1
+    fi
+    # Resolve cache key (handle env var substitution)
+    RESOLVED_KEY="${CACHE_KEY:-${CODEBUILD_BUILD_ID:-default}}"
+    echo "Cache bucket: ${CACHE_BUCKET}"
+    echo "Cache key: ${RESOLVED_KEY}"
+    echo "Cache paths: ${CACHE_PATHS}"
+    echo "Cache action: ${CACHE_ACTION}"
+    echo "Compression: ${CACHE_COMPRESSION}"
+  # Define compression extension
+  - |
+    case "${CACHE_COMPRESSION}" in
+      zstd) CACHE_EXT="tar.zst" ;;
+      gzip) CACHE_EXT="tar.gz" ;;
+      none) CACHE_EXT="tar" ;;
+      *) echo "WARNING: Unknown compression '${CACHE_COMPRESSION}', defaulting to zstd"; CACHE_EXT="tar.zst" ;;
+    esac
+    echo "${CACHE_EXT}" > cache-output/cache-ext.txt
+  # Execute cache action
+  - |
+    RESOLVED_KEY="${CACHE_KEY:-${CODEBUILD_BUILD_ID:-default}}"
+    CACHE_EXT=$(cat cache-output/cache-ext.txt)
+    S3_PATH="s3://${CACHE_BUCKET}/${RESOLVED_KEY}.${CACHE_EXT}"
+
+    restore_cache() {
+      echo "Restoring cache from ${S3_PATH}..."
+      if aws s3 cp "${S3_PATH}" /tmp/cache-archive.${CACHE_EXT} 2>/dev/null; then
+        echo "Cache found. Extracting..."
+        case "${CACHE_COMPRESSION}" in
+          zstd) tar --zstd -xf /tmp/cache-archive.${CACHE_EXT} -C / ;;
+          gzip) tar -xzf /tmp/cache-archive.${CACHE_EXT} -C / ;;
+          none) tar -xf /tmp/cache-archive.${CACHE_EXT} -C / ;;
+        esac
+        rm -f /tmp/cache-archive.${CACHE_EXT}
+        echo "Cache restored successfully."
+        echo "RESTORED" > cache-output/cache-status.txt
+      else
+        echo "No cache found at ${S3_PATH}. Continuing without cache."
+        echo "MISS" > cache-output/cache-status.txt
+      fi
+    }
+
+    save_cache() {
+      echo "Saving cache to ${S3_PATH}..."
+      # Build list of existing paths to cache
+      IFS=',' read -ra PATHS <<< "${CACHE_PATHS}"
+      EXISTING_PATHS=""
+      for p in "${PATHS[@]}"; do
+        p=$(echo "$p" | xargs)  # trim whitespace
+        if [ -e "$p" ]; then
+          EXISTING_PATHS="${EXISTING_PATHS} ${p}"
+        else
+          echo "WARNING: Cache path '${p}' does not exist, skipping."
+        fi
+      done
+
+      if [ -z "${EXISTING_PATHS}" ]; then
+        echo "No cache paths found to save. Skipping."
+        echo "EMPTY" > cache-output/cache-status.txt
+        return 0
+      fi
+
+      echo "Caching paths: ${EXISTING_PATHS}"
+      case "${CACHE_COMPRESSION}" in
+        zstd) tar --zstd -cf /tmp/cache-archive.${CACHE_EXT} ${EXISTING_PATHS} ;;
+        gzip) tar -czf /tmp/cache-archive.${CACHE_EXT} ${EXISTING_PATHS} ;;
+        none) tar -cf /tmp/cache-archive.${CACHE_EXT} ${EXISTING_PATHS} ;;
+      esac
+
+      aws s3 cp /tmp/cache-archive.${CACHE_EXT} "${S3_PATH}"
+      rm -f /tmp/cache-archive.${CACHE_EXT}
+      echo "Cache saved successfully."
+      echo "SAVED" > cache-output/cache-status.txt
+    }
+
+    case "${CACHE_ACTION}" in
+      restore)
+        restore_cache
+        ;;
+      save)
+        save_cache
+        ;;
+      auto)
+        echo "Auto mode: restoring cache first, save will happen in post-build..."
+        restore_cache
+        ;;
+      *)
+        echo "ERROR: Unknown CACHE_ACTION '${CACHE_ACTION}'. Supported: restore, save, auto"
+        exit 1
+        ;;
+    esac
+  - "echo \"S3 cache ${CACHE_ACTION} complete. Status available in cache-output/\""
+env:
+  CACHE_BUCKET: ""
+  CACHE_KEY: "${CODEBUILD_BUILD_ID}"
+  CACHE_PATHS: "node_modules,.cache"
+  CACHE_ACTION: auto
+  CACHE_COMPRESSION: zstd

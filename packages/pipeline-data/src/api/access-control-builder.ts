@@ -1,4 +1,10 @@
+/**
+ * @module api/access-control-builder
+ * @description Provides access control query building utilities for constructing multi-tenant SQL conditions based on organization ownership and public/private visibility.
+ */
+
 import { eq, or, sql, SQL } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm/column';
 
 const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -44,11 +50,11 @@ export function normalizeStringFilter(value: unknown): string {
  * Schema table interface for access control queries
  */
 export interface AccessControlSchema {
-  id: any;
-  orgId: any;
-  accessModifier: any;
-  isDefault: any;
-  isActive: any;
+  id: AnyColumn;
+  orgId: AnyColumn;
+  accessModifier: AnyColumn;
+  isDefault: AnyColumn;
+  isActive: AnyColumn;
 }
 
 /**

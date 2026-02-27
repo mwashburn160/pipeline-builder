@@ -112,6 +112,10 @@ export interface FormStep {
   /** Colon-delimited artifact key referencing another step's output. */
   inputArtifact: string;
   additionalInputArtifacts: AdditionalInputArtifact[];
+  /** Build timeout in minutes (overrides plugin default). */
+  timeout: string;
+  /** Failure behavior (overrides plugin default). */
+  failureBehavior: 'fail' | 'warn' | 'ignore';
 }
 
 /** A named pipeline stage containing one or more build steps. */
@@ -173,6 +177,12 @@ export interface FormBuilderState {
     metadata: MetadataEntry[];
     networkType: 'none' | 'subnetIds' | 'vpcId' | 'vpcLookup';
     network: FormNetworkConfig;
+    /** Custom install commands injected before/after the synth plugin's install commands. */
+    installCommands: CommandGroup;
+    /** Custom build commands injected before/after the synth plugin's build commands. */
+    buildCommands: CommandGroup;
+    /** Environment variables passed to the synth step. */
+    env: EnvEntry[];
   };
 
   // Stages
@@ -240,6 +250,8 @@ export function createEmptyStep(): FormStep {
     position: 'pre',
     inputArtifact: '',
     additionalInputArtifacts: [],
+    timeout: '',
+    failureBehavior: 'fail',
   };
 }
 
@@ -292,6 +304,9 @@ export function createInitialFormState(): FormBuilderState {
       metadata: [],
       networkType: 'none',
       network: createEmptyNetworkConfig(),
+      installCommands: { position: 'pre', commands: [] },
+      buildCommands: { position: 'pre', commands: [] },
+      env: [],
     },
     stages: [],
   };

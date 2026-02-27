@@ -1,0 +1,27 @@
+name: rust
+description: Rust plugin for building and testing Rust applications using Cargo with AWS CDK CodeBuildStep
+keywords:
+  - rust
+  - cargo
+  - rustup
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Rust version selection
+  - rustup default ${RUST_VERSION}
+  - rustc --version
+  # Fetch dependencies
+  - if [ -f Cargo.toml ]; then cargo fetch; fi
+commands:
+  - cargo build --release
+  - cargo test --release
+  - cargo clippy -- -D warnings
+  - cargo fmt -- --check
+env:
+  RUST_VERSION: stable

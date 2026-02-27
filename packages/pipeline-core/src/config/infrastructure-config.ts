@@ -1,3 +1,8 @@
+/**
+ * @module config/infrastructure-config
+ * @description Loads Docker registry, plugin build, and AWS infrastructure configuration from environment variables.
+ */
+
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -5,7 +10,16 @@ import type { AWSConfig, PluginBuildConfig, RegistryConfig } from './config-type
 import { getComputeType } from '../core/pipeline-helpers';
 
 /**
- * Load Docker registry configuration from environment variables
+ * Load Docker registry configuration from environment variables.
+ *
+ * Environment variables:
+ * - `IMAGE_REGISTRY_HOST` — Registry hostname (default: `'registry'`)
+ * - `IMAGE_REGISTRY_PORT` — Registry port (default: `5000`)
+ * - `IMAGE_REGISTRY_USER` — Registry username (default: `'admin'`)
+ * - `IMAGE_REGISTRY_TOKEN` — Registry auth token (default: `'password'`)
+ * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
+ *
+ * @returns Registry configuration
  */
 export function loadRegistryConfig(): RegistryConfig {
   return {
@@ -18,7 +32,12 @@ export function loadRegistryConfig(): RegistryConfig {
 }
 
 /**
- * Load plugin build configuration from environment variables
+ * Load plugin build configuration from environment variables.
+ *
+ * Environment variables:
+ * - `PLUGIN_BUILD_CONCURRENCY` — Max concurrent Docker plugin builds (default: `1`)
+ *
+ * @returns Plugin build configuration
  */
 export function loadPluginBuildConfig(): PluginBuildConfig {
   return {
@@ -27,7 +46,19 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
 }
 
 /**
- * Load AWS infrastructure configuration from environment variables
+ * Load AWS infrastructure configuration from environment variables.
+ *
+ * Environment variables:
+ * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs22.x'`; supports nodejs18.x, nodejs20.x)
+ * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
+ * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `128`)
+ * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
+ * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
+ * - `LOG_RETENTION` — Log retention in days (default: `1`)
+ * - `LOG_REMOVAL_POLICY` — `'RETAIN'` or destroy (default: DESTROY)
+ * - `CODEBUILD_COMPUTE_TYPE` — CodeBuild compute type (default: `'SMALL'`)
+ *
+ * @returns AWS infrastructure configuration
  */
 export function loadAWSConfig(): AWSConfig {
   return {
@@ -53,7 +84,10 @@ export function loadAWSConfig(): AWSConfig {
 }
 
 /**
- * Parse Lambda runtime from string
+ * Parse Lambda runtime string into a CDK Runtime enum value.
+ *
+ * @param runtime - Runtime string (e.g. `'nodejs22.x'`)
+ * @returns CDK Runtime enum; falls back to NODEJS_22_X for unknown values
  */
 function parseRuntime(runtime: string): Runtime {
   const runtimeMap: Record<string, Runtime> = {
@@ -65,7 +99,10 @@ function parseRuntime(runtime: string): Runtime {
 }
 
 /**
- * Parse log retention from days
+ * Parse log retention days string into a CDK RetentionDays enum value.
+ *
+ * @param days - Retention period in days as a string (e.g. `'30'`)
+ * @returns CDK RetentionDays enum; falls back to ONE_DAY for unknown values
  */
 function parseRetention(days: string): RetentionDays {
   const retentionMap: Record<string, RetentionDays> = {

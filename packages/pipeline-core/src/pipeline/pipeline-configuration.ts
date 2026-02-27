@@ -1,3 +1,8 @@
+/**
+ * @module pipeline/pipeline-configuration
+ * @description Validates, sanitizes, and processes pipeline builder props into a structured configuration with merged metadata ready for CDK synthesis.
+ */
+
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types';
@@ -141,7 +146,10 @@ export class PipelineConfiguration {
   }
 
   /**
-   * Extracts S3 source options with defaults applied
+   * Extracts S3 source options with defaults applied.
+   *
+   * @returns S3 options with `objectKey` defaulting to `'source.zip'` and `trigger` defaulting to `NONE`
+   * @throws {Error} If the configured source type is not `s3`
    */
   getS3Options(): Required<Pick<S3Options, 'bucketName' | 'objectKey' | 'trigger'>> & Omit<S3Options, 'bucketName' | 'objectKey' | 'trigger'> {
     const source = this.source;
@@ -157,7 +165,10 @@ export class PipelineConfiguration {
   }
 
   /**
-   * Extracts GitHub source options with defaults applied
+   * Extracts GitHub source options with defaults applied.
+   *
+   * @returns GitHub options with `branch` defaulting to `'main'` and `trigger` defaulting to `NONE`
+   * @throws {Error} If the configured source type is not `github`
    */
   getGitHubOptions(): Required<Pick<GitHubOptions, 'repo' | 'branch' | 'trigger'>> & Omit<GitHubOptions, 'repo' | 'branch' | 'trigger'> {
     const source = this.source;
@@ -173,7 +184,10 @@ export class PipelineConfiguration {
   }
 
   /**
-   * Extracts CodeStar source options with defaults applied
+   * Extracts CodeStar source options with defaults applied.
+   *
+   * @returns CodeStar options with `branch` defaulting to `'main'`, `trigger` defaulting to `NONE`, and `codeBuildCloneOutput` defaulting to `false`
+   * @throws {Error} If the configured source type is not `codestar`
    */
   getCodeStarOptions(): Required<Pick<CodeStarOptions, 'repo' | 'branch' | 'trigger' | 'codeBuildCloneOutput' | 'connectionArn'>> {
     const source = this.source;

@@ -6,6 +6,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
   normalizePlugin,
@@ -23,7 +24,7 @@ export function createUpdatePluginRoutes(): Router {
   const router: Router = Router();
 
   router.put('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -70,6 +71,10 @@ export function createUpdatePluginRoutes(): Router {
           commands: body.commands,
           isActive: body.isActive,
           isDefault: body.isDefault,
+          buildArgs: body.buildArgs,
+          timeout: body.timeout,
+          failureBehavior: body.failureBehavior,
+          secrets: body.secrets,
         }),
         // Access modifier requires special handling (admin-only public)
         ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),

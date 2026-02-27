@@ -13,7 +13,7 @@
 
 import crypto from 'crypto';
 import net from 'net';
-import { createLogger, sendSuccess, sendError } from '@mwashburn160/api-core';
+import { createLogger, createHealthRouter } from '@mwashburn160/api-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -117,38 +117,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(limiter);
 
-/**
- * Health check endpoint for load balancers and orchestration.
- * Returns database connection status.
- *
- * @route GET /health
- * @returns {Object} 200 - Service healthy with DB connected
- * @returns {Object} 503 - Service unhealthy (DB disconnected or error)
- */
-app.get('/health', async (_req: Request, res: Response) => {
-  try {
-    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-    const isHealthy = dbStatus === 'connected';
-
-    const healthData = {
-      status: isHealthy ? 'healthy' : 'unhealthy',
-      timestamp: new Date().toISOString(),
-      database: dbStatus,
-    };
-
-    if (isHealthy) {
-      sendSuccess(res, 200, healthData);
-    } else {
-      sendError(res, 503, 'Service unhealthy', undefined, healthData);
-    }
-  } catch (error) {
-    sendError(res, 503, 'Service unhealthy', undefined, {
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
+/** Health check endpoint — uses shared createHealthRouter from api-core */
+app.use(createHealthRouter({
+  serviceName: 'platform',
+  checkDependencies: async () => ({
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  }),
+}));
 
 /**
  * Prometheus metrics endpoint for monitoring and observability.

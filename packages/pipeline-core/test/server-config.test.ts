@@ -1,0 +1,263 @@
+jest.mock('@mwashburn160/api-core', () => ({
+  createLogger: () => ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  }),
+}));
+
+import {
+  loadServerConfig,
+  loadAuthConfig,
+  loadRateLimitConfig,
+  validateServerConfig,
+  validateAuthConfig,
+} from '../src/config/server-config';
+
+describe('loadServerConfig', () => {
+  const savedEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it('returns correct defaults', () => {
+    delete process.env.PORT;
+    delete process.env.CORS_ORIGIN;
+    delete process.env.CORS_CREDENTIALS;
+    delete process.env.TRUST_PROXY;
+    delete process.env.PLATFORM_BASE_URL;
+
+    const config = loadServerConfig();
+
+    expect(config.port).toBe(3000);
+    expect(config.cors.credentials).toBe(true);
+    expect(config.trustProxy).toBe(1);
+    expect(config.platformUrl).toBe('https://localhost:8443');
+  });
+
+  it('parses CORS_ORIGIN as comma-separated list', () => {
+    process.env.CORS_ORIGIN = 'https://a.com, https://b.com, https://c.com';
+
+    const config = loadServerConfig();
+
+    expect(config.cors.origin).toEqual(['https://a.com', 'https://b.com', 'https://c.com']);
+  });
+
+  it('disables credentials when CORS_CREDENTIALS=false', () => {
+    process.env.CORS_CREDENTIALS = 'false';
+
+    const config = loadServerConfig();
+
+    expect(config.cors.credentials).toBe(false);
+  });
+
+  it('overrides port and trust proxy from env', () => {
+    process.env.PORT = '8080';
+    process.env.TRUST_PROXY = '2';
+
+    const config = loadServerConfig();
+
+    expect(config.port).toBe(8080);
+    expect(config.trustProxy).toBe(2);
+  });
+});
+
+describe('loadAuthConfig', () => {
+  const savedEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it('returns empty secret when JWT_SECRET is missing', () => {
+    delete process.env.JWT_SECRET;
+    process.env.REFRESH_TOKEN_SECRET = 'refresh-secret';
+
+    const config = loadAuthConfig();
+    expect(config.jwt.secret).toBe('');
+  });
+
+  it('returns empty secret when REFRESH_TOKEN_SECRET is missing', () => {
+    process.env.JWT_SECRET = 'jwt-secret';
+    delete process.env.REFRESH_TOKEN_SECRET;
+
+    const config = loadAuthConfig();
+    expect(config.refreshToken.secret).toBe('');
+  });
+
+  it('returns correct values from env', () => {
+    process.env.JWT_SECRET = 'my-jwt-secret';
+    process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
+    process.env.JWT_EXPIRES_IN = '3600';
+    process.env.JWT_ALGORITHM = 'HS384';
+    process.env.JWT_SALT_ROUNDS = '14';
+    process.env.REFRESH_TOKEN_EXPIRES_IN = '86400';
+
+    const config = loadAuthConfig();
+
+    expect(config.jwt.secret).toBe('my-jwt-secret');
+    expect(config.jwt.expiresIn).toBe(3600);
+    expect(config.jwt.algorithm).toBe('HS384');
+    expect(config.jwt.saltRounds).toBe(14);
+    expect(config.refreshToken.secret).toBe('my-refresh-secret');
+    expect(config.refreshToken.expiresIn).toBe(86400);
+  });
+
+  it('uses defaults when optional env vars are not set', () => {
+    process.env.JWT_SECRET = 'my-jwt-secret';
+    process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
+    delete process.env.JWT_EXPIRES_IN;
+    delete process.env.JWT_ALGORITHM;
+    delete process.env.JWT_SALT_ROUNDS;
+    delete process.env.REFRESH_TOKEN_EXPIRES_IN;
+
+    const config = loadAuthConfig();
+
+    expect(config.jwt.expiresIn).toBe(7200);
+    expect(config.jwt.algorithm).toBe('HS256');
+    expect(config.jwt.saltRounds).toBe(12);
+    expect(config.refreshToken.expiresIn).toBe(2592000);
+  });
+});
+
+describe('loadRateLimitConfig', () => {
+  const savedEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it('returns correct defaults', () => {
+    delete process.env.LIMITER_MAX;
+    delete process.env.LIMITER_WINDOWMS;
+
+    const config = loadRateLimitConfig();
+
+    expect(config.max).toBe(100);
+    expect(config.windowMs).toBe(900000);
+    expect(config.legacyHeaders).toBe(false);
+    expect(config.standardHeaders).toBe(true);
+  });
+
+  it('overrides from env', () => {
+    process.env.LIMITER_MAX = '50';
+    process.env.LIMITER_WINDOWMS = '60000';
+
+    const config = loadRateLimitConfig();
+
+    expect(config.max).toBe(50);
+    expect(config.windowMs).toBe(60000);
+  });
+});
+
+describe('validateServerConfig', () => {
+  it('does not throw for valid config', () => {
+    expect(() =>
+      validateServerConfig({
+        port: 3000,
+        cors: { credentials: true, origin: ['https://example.com'] },
+        trustProxy: 1,
+        platformUrl: 'https://example.com',
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not throw on wildcard CORS (only warns)', () => {
+    expect(() =>
+      validateServerConfig({
+        port: 3000,
+        cors: { credentials: true, origin: '*' },
+        trustProxy: 1,
+        platformUrl: 'https://example.com',
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not throw on non-HTTPS platform URL (only warns)', () => {
+    expect(() =>
+      validateServerConfig({
+        port: 3000,
+        cors: { credentials: true, origin: ['https://example.com'] },
+        trustProxy: 1,
+        platformUrl: 'http://example.com',
+      }),
+    ).not.toThrow();
+  });
+
+  it('allows http://localhost without warning', () => {
+    expect(() =>
+      validateServerConfig({
+        port: 3000,
+        cors: { credentials: true, origin: ['http://localhost:3000'] },
+        trustProxy: 1,
+        platformUrl: 'http://localhost:8443',
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('validateAuthConfig', () => {
+  const validConfig = {
+    jwt: {
+      secret: 'xK9mQ7vLpR2nW8jF4hT6bY0cA3eG5iUo',
+      expiresIn: 3600,
+      algorithm: 'HS256' as const,
+      saltRounds: 12,
+    },
+    refreshToken: {
+      secret: 'zN1dS8wM4qJ7rX0fV3kL6yP9tB2uH5gE',
+      expiresIn: 2592000,
+    },
+  };
+
+  it('does not throw for valid config', () => {
+    expect(() => validateAuthConfig(validConfig)).not.toThrow();
+  });
+
+  it('throws for insecure JWT secret', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, secret: 'default-insecure-secret-that-is-long' },
+      }),
+    ).toThrow('Auth configuration validation failed');
+  });
+
+  it('throws for short JWT secret (< 32 chars)', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, secret: 'tooshort' },
+      }),
+    ).toThrow('at least 32 characters');
+  });
+
+  it('throws for short refresh token secret (< 32 chars)', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        refreshToken: { ...validConfig.refreshToken, secret: 'tooshort' },
+      }),
+    ).toThrow('at least 32 characters');
+  });
+
+  it('throws for disallowed algorithm', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, algorithm: 'none' as any },
+      }),
+    ).toThrow('not in the allowed list');
+  });
+
+  it('does not throw when JWT expiration > 2h (only warns)', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 86400 },
+      }),
+    ).not.toThrow();
+  });
+});

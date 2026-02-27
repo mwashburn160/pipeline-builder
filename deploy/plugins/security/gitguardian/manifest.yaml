@@ -1,0 +1,63 @@
+name: gitguardian
+description: GitGuardian enterprise secret detection plugin for scanning code repositories for hardcoded credentials and API keys using AWS CDK CodeBuildStep
+keywords:
+  - gitguardian
+  - secrets
+  - credentials
+  - security
+  - enterprise
+  - ggshield
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: GITGUARDIAN_API_KEY
+    required: true
+    description: "GitGuardian API key"
+primaryOutputDirectory: gitguardian-reports
+dockerfile: Dockerfile
+installCommands:
+  - ggshield --version
+  - |
+    if [ -z "${GITGUARDIAN_API_KEY}" ]; then
+      echo "WARNING: GITGUARDIAN_API_KEY must be injected via CodeBuild secrets"
+    fi
+commands:
+  - mkdir -p gitguardian-reports
+  - |
+    EXIT_ZERO_ARG=""
+    if [ "${GG_EXIT_ZERO}" = "true" ]; then
+      EXIT_ZERO_ARG="--exit-zero"
+    fi
+    case "${GG_SCAN_TYPE}" in
+      path)
+        echo "Running GitGuardian path scan..."
+        ggshield secret scan path . \
+          --json \
+          --output gitguardian-reports/ggshield-results.json \
+          ${EXIT_ZERO_ARG} \
+          || true
+        ;;
+      repo)
+        echo "Running GitGuardian repo scan..."
+        ggshield secret scan repo . \
+          --json \
+          --output gitguardian-reports/ggshield-results.json \
+          ${EXIT_ZERO_ARG} \
+          || true
+        ;;
+      ci)
+        echo "Running GitGuardian CI scan..."
+        ggshield secret scan ci \
+          --json \
+          --output gitguardian-reports/ggshield-results.json \
+          ${EXIT_ZERO_ARG} \
+          || true
+        ;;
+    esac
+  - "echo \"GitGuardian scan complete. Reports available in gitguardian-reports/\""
+env:
+  GG_SCAN_TYPE: path
+  GG_EXIT_ZERO: "false"

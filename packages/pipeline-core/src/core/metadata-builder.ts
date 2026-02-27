@@ -1,11 +1,12 @@
+/**
+ * @module core/metadata-builder
+ * @description Extracts and maps pipeline metadata key-value pairs into typed CDK construct props for ShellStep, CodeBuildStep, and CodePipeline.
+ */
+
 import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
 import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
+import { CDK_METADATA_PREFIX } from './pipeline-types';
 import type { MetaDataType } from './pipeline-types';
-
-/**
- * Prefix for all generated metadata keys.
- */
-const CUSTOM_TAG_PREFIX = 'aws:cdk:';
 
 /**
  * Type-safe namespace constants for metadata configuration.
@@ -15,9 +16,6 @@ const NAMESPACE = {
   CODE_BUILD_STEP: 'pipelines:codebuildstep',
   BUILD_ENVIRONMENT: 'codebuild:buildenvironment',
   CODE_PIPELINE: 'pipelines:codepipeline',
-  NETWORK: 'ec2:network',
-  ROLE: 'iam:role',
-  SECURITY_GROUP: 'ec2:securitygroup',
 } as const;
 type Namespace = (typeof NAMESPACE)[keyof typeof NAMESPACE];
 
@@ -56,24 +54,12 @@ const NAMESPACE_KEY_MAP: Record<Namespace, NamespaceKeyConfig> = {
     booleanKeys: ['crossAccountKeys', 'dockerEnabledForSelfMutation', 'dockerEnabledForSynth', 'enableKeyRotation', 'publishAssetsInParallel', 'reuseCrossRegionSupportStacks', 'selfMutation', 'useChangeSets', 'usePipelineRoleForActions'],
     passthroughKeys: ['artifactBucket', 'assetPublishingCodeBuildDefaults', 'cdkAssetsCliVersion', 'cliVersion', 'codeBuildDefaults', 'codePipeline', 'crossRegionReplicationBuckets', 'dockerCredentials', 'pipelineName', 'pipelineType', 'role', 'selfMutationCodeBuildDefaults', 'synth', 'synthCodeBuildDefaults'],
   },
-  [NAMESPACE.NETWORK]: {
-    booleanKeys: [],
-    passthroughKeys: ['type', 'vpcId', 'subnetIds', 'subnetType', 'availabilityZones', 'subnetGroupName', 'securityGroupIds', 'tags', 'vpcName', 'region'],
-  },
-  [NAMESPACE.ROLE]: {
-    booleanKeys: ['mutable'],
-    passthroughKeys: ['type', 'roleArn', 'roleName'],
-  },
-  [NAMESPACE.SECURITY_GROUP]: {
-    booleanKeys: ['mutable'],
-    passthroughKeys: ['type', 'securityGroupIds', 'securityGroupName', 'vpcId'],
-  },
 };
 
 const EMPTY_KEY_CONFIG: NamespaceKeyConfig = { booleanKeys: [], passthroughKeys: [] };
 
 function getCustomKey(prefix: string, key: string): string {
-  return `${CUSTOM_TAG_PREFIX}${prefix}:${key}`.toLowerCase();
+  return `${CDK_METADATA_PREFIX}${prefix}:${key}`.toLowerCase();
 }
 
 function isTrue(value: unknown): boolean {

@@ -1,0 +1,358 @@
+# Plugin Catalog
+
+Pipeline Builder ships with **73 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+
+---
+
+## Categories
+
+| Category | Plugins | Description | Doc |
+|----------|---------|-------------|-----|
+| Language | 12 | Build, test, and compile across major languages | [language.md](language.md) |
+| Security | 14 | SAST, DAST, SCA, secret detection, container scanning, license compliance | [security.md](security.md) |
+| Quality | 9 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
+| Monitoring | 3 | APM, observability, release tracking (Datadog, New Relic, Sentry) | [monitoring.md](monitoring.md) |
+| Artifact & Registry | 11 | Package publishing and container image push | [artifact.md](artifact.md) |
+| Deploy | 9 | Cloud provisioning, K8s, database migration, mobile builds | [deploy.md](deploy.md) |
+| Infrastructure | 5 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
+| Testing | 3 | API contract, load/performance, and smoke testing | [testing.md](testing.md) |
+| Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, etc.) | [notification.md](notification.md) |
+| AI | 2 | AI-powered Dockerfile generation (local + cloud) | [ai.md](ai.md) |
+
+---
+
+## CI/CD Pipeline Coverage
+
+The diagram below shows which plugins map to each stage of a typical CI/CD pipeline.
+
+```mermaid
+flowchart LR
+    Source --> Lint/Format
+    Lint/Format --> Build
+    Build --> Test[Unit Test]
+    Test --> Coverage
+    Coverage --> SAST
+    SAST --> SCA
+    SCA --> DAST
+
+    Source --> SecretScan[Secret Scan]
+    SecretScan --> ContainerScan[Container Scan]
+    ContainerScan --> Package
+    Package --> Deploy
+    Deploy --> Integration[Integration Test]
+    Integration --> Smoke[Smoke Test]
+    Smoke --> Notify
+
+    subgraph "Lint / Format"
+        direction TB
+        eslint
+        prettier
+        checkstyle
+        shellcheck
+    end
+
+    subgraph "Build / Compile"
+        direction TB
+        java
+        python
+        nodejs
+        go
+        dotnet
+        rust
+        ruby
+        cpp
+    end
+
+    subgraph "Coverage Reporting"
+        direction TB
+        codecov
+        coveralls
+        codacy
+        codeclimate
+        coverage-report
+    end
+
+    subgraph "SAST / SCA"
+        direction TB
+        snyk
+        sonarcloud
+        trivy
+        checkmarx
+        veracode
+        fortify
+        prisma-cloud
+        mend
+        gitguardian_sast[gitguardian]
+    end
+
+    subgraph "DAST"
+        direction TB
+        owasp-zap
+    end
+
+    subgraph "SCA"
+        direction TB
+        dependency-check
+    end
+
+    subgraph "Secret Detection"
+        direction TB
+        git-secrets
+        gitguardian_sec[gitguardian]
+    end
+
+    subgraph "Container / License"
+        direction TB
+        docker-lint
+        license-checker
+    end
+
+    subgraph "Artifact & Registry"
+        direction TB
+        docker-build
+        ghcr-push
+        gar-push
+        acr-push
+        jfrog-push
+        npm-publish
+        pypi-publish
+        maven-publish
+        nuget-publish
+        cargo-publish
+        gem-publish
+    end
+
+    subgraph "Deploy / Provision"
+        direction TB
+        terraform
+        cloudformation
+        gcloud-deploy
+        azure-deploy
+        kubectl-deploy
+        helm-deploy
+        cdk-deploy
+        cdk-deploy-multi-region
+        flyway
+        liquibase
+        fastlane
+    end
+
+    subgraph "Integration & Smoke"
+        direction TB
+        postman
+        k6
+        health-check
+    end
+
+    subgraph "Monitoring"
+        direction TB
+        datadog
+        newrelic
+        sentry-release
+    end
+
+    subgraph "Notifications"
+        direction TB
+        slack-notify
+        teams-notify
+        pagerduty-notify
+        opsgenie-notify
+        discord-notify
+    end
+```
+
+---
+
+## Requirements
+
+- **All plugins run as AWS CodeBuild steps** (`CodeBuildStep` in `CodePipeline`). The Pipeline Builder CDK construct wires each plugin into the pipeline as an isolated build action.
+- **Each plugin consists of three files**: a `Dockerfile` that defines the build environment, a `manifest.yaml` that declares metadata and commands, and a `plugin.zip` that packages both for upload.
+- **Plugins requiring tokens or API keys inject them at runtime** via CodeBuild environment secrets (backed by AWS Secrets Manager or SSM Parameter Store). Secrets are **never** baked into the Dockerfile via `ENV` or `ARG` instructions.
+
+Refer to the [Secrets Reference](#secrets-reference) table below for a complete list of vendor plugins and their required secrets.
+
+---
+
+## Secrets Reference
+
+The following table lists every plugin that requires external tokens or credentials. All secrets are injected at runtime through CodeBuild environment variables and should be stored in AWS Secrets Manager.
+
+| Plugin | Category | Required Secrets | Source |
+|--------|----------|-----------------|--------|
+| snyk | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
+| sonarcloud | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
+| dependency-check | security | `NVD_API_KEY` (optional) | [nvd.nist.gov](https://nvd.nist.gov) |
+| owasp-zap | security | None (scans target URL) | - |
+| veracode | security | `VERACODE_API_ID`, `VERACODE_API_KEY` | [veracode.com](https://veracode.com) |
+| checkmarx | security | `CX_CLIENT_SECRET` | [checkmarx.com](https://checkmarx.com) |
+| prisma-cloud | security | `PRISMA_ACCESS_KEY`, `PRISMA_SECRET_KEY` | [paloaltonetworks.com](https://www.paloaltonetworks.com) |
+| mend | security | `MEND_API_KEY`, `MEND_ORG_TOKEN` | [mend.io](https://www.mend.io) |
+| gitguardian | security | `GITGUARDIAN_API_KEY` | [gitguardian.com](https://www.gitguardian.com) |
+| fortify | security | `FOD_CLIENT_ID`, `FOD_CLIENT_SECRET` or `FORTIFY_SSC_TOKEN` | [microfocus.com](https://www.microfocus.com) |
+| codecov | quality | `CODECOV_TOKEN` | [codecov.io](https://codecov.io) |
+| coveralls | quality | `COVERALLS_REPO_TOKEN` | [coveralls.io](https://coveralls.io) |
+| codacy | quality | `CODACY_PROJECT_TOKEN` | [codacy.com](https://www.codacy.com) |
+| codeclimate | quality | `CC_TEST_REPORTER_ID` | [codeclimate.com](https://codeclimate.com) |
+| datadog | monitoring | `DD_API_KEY` | [datadoghq.com](https://www.datadoghq.com) |
+| newrelic | monitoring | `NEW_RELIC_API_KEY` | [newrelic.com](https://newrelic.com) |
+| sentry-release | monitoring | `SENTRY_AUTH_TOKEN` | [sentry.io](https://sentry.io) |
+| docker-build | artifact | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | - |
+| ghcr-push | artifact | `GITHUB_TOKEN` | [github.com](https://github.com) |
+| gar-push | artifact | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
+| acr-push | artifact | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
+| jfrog-push | artifact | `JFROG_TOKEN` | [jfrog.com](https://jfrog.com) |
+| npm-publish | artifact | `NPM_TOKEN` | [npmjs.com](https://www.npmjs.com) |
+| pypi-publish | artifact | `TWINE_USERNAME`, `TWINE_PASSWORD` | [pypi.org](https://pypi.org) |
+| maven-publish | artifact | `OSSRH_USERNAME`, `OSSRH_PASSWORD`, `GPG_PASSPHRASE` | [central.sonatype.com](https://central.sonatype.com) |
+| nuget-publish | artifact | `NUGET_API_KEY` | [nuget.org](https://www.nuget.org) |
+| cargo-publish | artifact | `CARGO_REGISTRY_TOKEN` | [crates.io](https://crates.io) |
+| gem-publish | artifact | `GEM_HOST_API_KEY` | [rubygems.org](https://rubygems.org) |
+| gcloud-deploy | deploy | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
+| azure-deploy | deploy | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
+| kubectl-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
+| helm-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
+| flyway | deploy | `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD` | [flywaydb.org](https://flywaydb.org) |
+| liquibase | deploy | `LIQUIBASE_COMMAND_URL`, `LIQUIBASE_COMMAND_USERNAME`, `LIQUIBASE_COMMAND_PASSWORD` | [liquibase.com](https://www.liquibase.com) |
+| fastlane | deploy | `APPLE_ID`, `APP_STORE_CONNECT_API_KEY` or `MATCH_PASSWORD` | [fastlane.tools](https://fastlane.tools) |
+| slack-notify | notification | `SLACK_WEBHOOK_URL` | [api.slack.com](https://api.slack.com) |
+| teams-notify | notification | `TEAMS_WEBHOOK_URL` | [learn.microsoft.com](https://learn.microsoft.com) |
+| pagerduty-notify | notification | `PAGERDUTY_ROUTING_KEY` | [pagerduty.com](https://www.pagerduty.com) |
+| opsgenie-notify | notification | `OPSGENIE_API_KEY` | [opsgenie.com](https://www.atlassian.com/software/opsgenie) |
+| discord-notify | notification | `DISCORD_WEBHOOK_URL` | [discord.com](https://discord.com) |
+| dockerfile-multi-provider | ai | `AI_API_KEY` (varies by provider) | - |
+
+---
+
+## How Secrets Work
+
+Plugin secrets are resolved at **pipeline synth time** through AWS Secrets Manager. Each organization stores secrets in their own AWS account using a naming convention. The pipeline builder never stores secret values — it only references them by name.
+
+### Naming Convention
+
+```
+pipeline-builder/{orgId}/{secretName}
+```
+
+For example, if your organization ID is `acme-corp` and a plugin requires `SNYK_TOKEN`, create this secret in AWS Secrets Manager:
+
+```
+pipeline-builder/acme-corp/SNYK_TOKEN
+```
+
+### Setup Steps
+
+1. **Check which secrets a plugin requires** — look at the `secrets` field in the plugin's manifest or the [Secrets Reference](#secrets-reference) table above.
+
+2. **Create secrets in AWS Secrets Manager** in your AWS account:
+   ```bash
+   aws secretsmanager create-secret \
+     --name "pipeline-builder/my-org-id/SNYK_TOKEN" \
+     --secret-string "your-token-value"
+   ```
+
+3. **Deploy your pipeline** — the pipeline builder automatically injects each declared secret as a `SECRETS_MANAGER`-type environment variable in the CodeBuild step. No additional configuration is needed in the pipeline definition.
+
+### How It Works at Build Time
+
+When a pipeline is synthesized, the builder:
+
+1. Reads the plugin's `secrets` array from the database
+2. For each secret, generates a CodeBuild environment variable with `type: SECRETS_MANAGER` and `value: pipeline-builder/{orgId}/{secretName}`
+3. At build time, AWS CodeBuild resolves the secret name from Secrets Manager and injects the plaintext value into the build environment
+
+```yaml
+# What the plugin manifest declares:
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk API token for vulnerability scanning"
+
+# What CodeBuild receives (generated automatically):
+environmentVariables:
+  SNYK_TOKEN:
+    value: pipeline-builder/acme-corp/SNYK_TOKEN
+    type: SECRETS_MANAGER
+```
+
+### Required vs Optional Secrets
+
+- **`required: true`** — The secret must exist in Secrets Manager before the pipeline runs. CodeBuild will fail if it can't resolve the secret.
+- **`required: false`** — The secret is still injected if it exists, but the plugin should handle the case where it's missing (e.g., skip an optional integration).
+
+### Multi-Organization Isolation
+
+Each organization's secrets are scoped by their `orgId` in the naming convention. This means:
+
+- Organization `acme-corp` stores secrets under `pipeline-builder/acme-corp/*`
+- Organization `globex` stores secrets under `pipeline-builder/globex/*`
+- Two orgs using the same plugin (e.g., Snyk) each manage their own `SNYK_TOKEN` independently
+- Secrets never cross organizational boundaries
+
+### IAM Permissions
+
+The CodeBuild service role must have permission to read secrets matching the naming pattern. Add this policy to your CodeBuild role:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "secretsmanager:GetSecretValue",
+  "Resource": "arn:aws:secretsmanager:*:*:secret:pipeline-builder/{orgId}/*"
+}
+```
+
+Replace `{orgId}` with your actual organization ID or use a wildcard for multi-org setups.
+
+---
+
+## Plugin Structure
+
+Every plugin follows the same three-file layout:
+
+```
+my-plugin/
+├── Dockerfile       # Build environment definition
+├── manifest.yaml    # Plugin metadata, commands, env vars
+└── plugin.zip       # Packaged artifact (Dockerfile + manifest)
+```
+
+The `manifest.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:
+
+```yaml
+name: my-plugin
+description: ...
+keywords: [...]
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL | MEDIUM | LARGE
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: MY_TOKEN
+    required: true
+    description: "API token for the service"
+primaryOutputDirectory: output-dir
+dockerfile: Dockerfile
+installCommands:
+  - ...
+commands:
+  - ...
+env:
+  KEY: value
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique plugin identifier used in pipeline definitions |
+| `description` | Human-readable summary shown in the plugin catalog |
+| `keywords` | Tags for search and categorization |
+| `version` | Semantic version of the plugin |
+| `pluginType` | Must be `CodeBuildStep` (the only supported type) |
+| `computeType` | CodeBuild instance size: `SMALL` (3 GB / 2 vCPU), `MEDIUM` (7 GB / 4 vCPU), or `LARGE` (15 GB / 8 vCPU) |
+| `timeout` | Maximum execution time in minutes |
+| `failureBehavior` | What happens on failure: `fail` (stop pipeline), `warn` (continue with warning), `ignore` |
+| `secrets` | List of required secrets with `name`, `required` (boolean), and `description` |
+| `primaryOutputDirectory` | Directory where build artifacts are written |
+| `dockerfile` | Path to the Dockerfile relative to the plugin root |
+| `installCommands` | Commands run during the install phase (dependency setup) |
+| `commands` | Commands run during the build phase (the actual work) |
+| `env` | Default environment variables (non-secret values only) |

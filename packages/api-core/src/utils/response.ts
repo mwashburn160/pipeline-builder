@@ -249,8 +249,8 @@ export function sendBadRequest(
   res: Response,
   message: string,
   code: ErrorCode | string = ErrorCode.VALIDATION_ERROR,
-): Response {
-  return res.status(400).json({ success: false, statusCode: 400, message, code });
+): void {
+  sendError(res, 400, message, code);
 }
 
 /** Send a 500 internal error response. */
@@ -258,8 +258,8 @@ export function sendInternalError(
   res: Response,
   message: string,
   details?: Record<string, unknown>,
-): Response {
-  return res.status(500).json({ success: false, statusCode: 500, message, code: ErrorCode.INTERNAL_ERROR, ...details });
+): void {
+  sendError(res, 500, message, ErrorCode.INTERNAL_ERROR, details);
 }
 
 // ---------------------------------------------------------------------------

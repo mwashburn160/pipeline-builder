@@ -1,0 +1,25 @@
+name: go
+description: Go plugin for building and testing Go applications with AWS CDK CodeBuildStep
+keywords:
+  - go
+  - golang
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Go version selection
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  # Download dependencies
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - go build ./...
+  - go test -v -race -coverprofile=coverage.out ./...
+  - go vet ./...
+env:
+  GO_VERSION: "1.22.10"

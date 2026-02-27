@@ -1,0 +1,119 @@
+name: docker-build
+description: Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds and caching using AWS CDK CodeBuildStep
+keywords:
+  - docker
+  - build
+  - push
+  - ecr
+  - dockerhub
+  - container
+  - image
+  - artifact
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: DOCKER_USERNAME
+    required: false
+    description: "Docker registry username"
+  - name: DOCKER_PASSWORD
+    required: false
+    description: "Docker registry password"
+primaryOutputDirectory: docker-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - aws --version
+  # Registry login
+  - |
+    case "${REGISTRY_TYPE}" in
+      ecr)
+        echo "Logging into Amazon ECR..."
+        if [ -n "${ECR_REGISTRY}" ]; then
+          aws ecr get-login-password --region ${AWS_REGION:-us-east-1} \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+        else
+          echo "WARNING: ECR_REGISTRY not set. Set ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com"
+        fi
+        ;;
+      dockerhub)
+        echo "Logging into DockerHub..."
+        if [ -n "${DOCKER_USERNAME}" ] && [ -n "${DOCKER_PASSWORD}" ]; then
+          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin
+        else
+          echo "WARNING: DOCKER_USERNAME/DOCKER_PASSWORD not set"
+        fi
+        ;;
+      custom)
+        echo "Logging into custom registry..."
+        if [ -n "${REGISTRY_URL}" ] && [ -n "${REGISTRY_USERNAME}" ] && [ -n "${REGISTRY_PASSWORD}" ]; then
+          echo "${REGISTRY_PASSWORD}" | docker login --username "${REGISTRY_USERNAME}" --password-stdin "${REGISTRY_URL}"
+        else
+          echo "WARNING: REGISTRY_URL/REGISTRY_USERNAME/REGISTRY_PASSWORD not set"
+        fi
+        ;;
+      none)
+        echo "Skipping registry login (build-only mode)"
+        ;;
+    esac
+commands:
+  - mkdir -p docker-output
+  - |
+    # Build args
+    BUILD_ARGS=""
+    if [ -n "${DOCKER_BUILD_ARGS}" ]; then
+      for arg in ${DOCKER_BUILD_ARGS}; do
+        BUILD_ARGS="${BUILD_ARGS} --build-arg ${arg}"
+      done
+    fi
+    # Target stage
+    TARGET_ARG=""
+    if [ -n "${DOCKER_TARGET}" ]; then
+      TARGET_ARG="--target ${DOCKER_TARGET}"
+    fi
+    # Cache
+    CACHE_ARG=""
+    if [ -n "${DOCKER_CACHE_FROM}" ]; then
+      CACHE_ARG="--cache-from ${DOCKER_CACHE_FROM}"
+    fi
+    # Determine image name
+    if [ -n "${IMAGE_NAME}" ]; then
+      FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+    else
+      echo "ERROR: IMAGE_NAME must be set (e.g., my-app or 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app)"
+      exit 1
+    fi
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      ${BUILD_ARGS} \
+      ${TARGET_ARG} \
+      ${CACHE_ARG} \
+      "${DOCKER_CONTEXT}"
+    # Save image metadata
+    docker inspect "${FULL_IMAGE}" > docker-output/image-metadata.json
+    echo "${FULL_IMAGE}" > docker-output/image-name.txt
+  # Push image (unless REGISTRY_TYPE=none)
+  - |
+    FULL_IMAGE=$(cat docker-output/image-name.txt)
+    if [ "${REGISTRY_TYPE}" != "none" ]; then
+      echo "Pushing image: ${FULL_IMAGE}"
+      docker push "${FULL_IMAGE}"
+      echo "Image pushed successfully"
+    else
+      echo "Skipping push (REGISTRY_TYPE=none)"
+    fi
+  - "echo \"Docker build complete. Output available in docker-output/\""
+env:
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."
+  DOCKER_BUILD_ARGS: ""
+  DOCKER_TARGET: ""
+  DOCKER_CACHE_FROM: ""
+  REGISTRY_TYPE: ecr
+  IMAGE_NAME: ""
+  IMAGE_TAG: latest

@@ -11,6 +11,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import { sendPipelineNotFound } from '../helpers/pipeline-helpers';
 import { pipelineService } from '../services/pipeline-service';
@@ -25,7 +26,7 @@ export function createDeletePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.delete('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

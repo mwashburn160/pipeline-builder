@@ -1,3 +1,8 @@
+/**
+ * @module handlers/plugin-lookup-handler
+ * @description Lambda handler for the plugin lookup custom resource that fetches plugin definitions from the platform API during CloudFormation deployment.
+ */
+
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { AxiosInstance, AxiosError } from 'axios';

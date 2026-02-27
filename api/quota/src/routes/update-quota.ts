@@ -21,19 +21,12 @@ import {
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import { ZodError } from 'zod';
-import { config } from '../config';
 import {
   AUTH_OPTS,
-  VALID_QUOTA_TYPES,
-  QUOTA_TIERS,
-  getNextResetDate,
-  buildOrgQuotaResponse,
-  applyQuotaLimits,
   sendOrgNotFound,
 } from '../helpers/quota-helpers';
-import type { QuotaTier } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
-import { Organization } from '../models/organization';
+import { quotaService, OrgNotFoundError } from '../services/quota-service';
 import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
 
 const logger = createLogger('quota-write');
@@ -59,24 +52,10 @@ router.put(
     }
 
     try {
-      const org = await Organization.findById(targetOrgId);
-      if (!org) return sendOrgNotFound(res);
-
-      if (body.name !== undefined) org.name = body.name;
-      if (body.slug !== undefined) org.slug = body.slug;
-
-      if (body.tier !== undefined) {
-        const tier = body.tier as QuotaTier;
-        org.tier = tier;
-        applyQuotaLimits(org, QUOTA_TIERS[tier].limits);
-      }
-      if (body.quotas) applyQuotaLimits(org, body.quotas);
-
-      await org.save();
-
-      logger.info('Quota updated', { orgId: targetOrgId });
-      return sendSuccess(res, 200, { quota: buildOrgQuotaResponse(org) }, 'Updated successfully');
+      const result = await quotaService.update(targetOrgId, body);
+      return sendSuccess(res, 200, { quota: result }, 'Updated successfully');
     } catch (error) {
+      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
       logger.error('Quota update failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to update quota', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }
@@ -105,27 +84,14 @@ router.post(
     const { quotaType } = body;
 
     try {
-      const org = await Organization.findById(targetOrgId);
-      if (!org) return sendOrgNotFound(res);
-
-      const resetDate = getNextResetDate(config.quota.resetDays);
-      const freshUsage = { used: 0, resetAt: resetDate };
-
-      if (quotaType) {
-        org.usage[quotaType as QuotaType] = freshUsage;
-      } else {
-        for (const k of VALID_QUOTA_TYPES) org.usage[k] = { ...freshUsage };
-      }
-
-      await org.save();
-
-      logger.info('Quota usage reset', { orgId: targetOrgId, quotaType: quotaType || 'all' });
+      const result = await quotaService.resetUsage(targetOrgId, quotaType);
       return sendSuccess(
         res, 200,
-        { quota: buildOrgQuotaResponse(org) },
+        { quota: result },
         quotaType ? `${quotaType} usage reset successfully` : 'All quota usage reset successfully',
       );
     } catch (error) {
+      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
       logger.error('Quota reset failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to reset quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }
@@ -155,80 +121,25 @@ router.post(
 
     try {
       const typedType = quotaType as QuotaType;
-      const usagePath = `usage.${typedType}`;
+      const result = await quotaService.incrementUsage(targetOrgId, typedType, amount, isSystemOrg(req));
 
-      // System org is exempt from quota enforcement — increment without limit check
-      if (isSystemOrg(req)) {
-        const org = await Organization.findOneAndUpdate(
-          { _id: targetOrgId },
-          { $inc: { [`${usagePath}.used`]: amount } },
-          { returnDocument: 'after' },
-        );
-        if (!org) return sendOrgNotFound(res);
-
-        const limit = org.quotas[typedType];
-        return sendSuccess(res, 200, {
-          quota: {
-            type: quotaType,
-            limit,
-            used: org.usage[typedType].used,
-            remaining: limit === -1 ? -1 : Math.max(0, limit - org.usage[typedType].used),
-            resetAt: org.usage[typedType].resetAt,
-          },
-        }, 'Usage incremented successfully');
-      }
-
-      // Auto-reset expired periods atomically before incrementing
-      await Organization.updateOne(
-        { _id: targetOrgId, [`${usagePath}.resetAt`]: { $lte: new Date() } },
-        { $set: { [`${usagePath}.used`]: 0, [`${usagePath}.resetAt`]: getNextResetDate(config.quota.resetDays) } },
-      );
-
-      // Atomic increment with limit check in a single query.
-      // The filter ensures we only increment when quota is unlimited (-1) or has remaining capacity.
-      const org = await Organization.findOneAndUpdate(
-        {
-          _id: targetOrgId,
-          $or: [
-            { [`quotas.${typedType}`]: -1 },
-            { $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${typedType}`] } },
-          ],
-        },
-        { $inc: { [`${usagePath}.used`]: amount } },
-        { returnDocument: 'after' },
-      );
-
-      if (!org) {
-        // Either org doesn't exist or quota would be exceeded — distinguish the two
-        const existingOrg = await Organization.findById(targetOrgId);
-        if (!existingOrg) return sendOrgNotFound(res);
-
-        const limit = existingOrg.quotas[typedType];
-        const currentUsed = existingOrg.usage[typedType].used;
+      if (result.exceeded) {
         return sendQuotaExceeded(
           res,
           quotaType,
           {
-            type: typedType,
-            limit,
-            used: currentUsed,
-            remaining: Math.max(0, limit - currentUsed),
+            type: result.quota.type,
+            limit: result.quota.limit,
+            used: result.quota.used,
+            remaining: result.quota.remaining,
           },
-          existingOrg.usage[typedType].resetAt.toISOString(),
+          result.quota.resetAt,
         );
       }
 
-      const limit = org.quotas[typedType];
-      return sendSuccess(res, 200, {
-        quota: {
-          type: quotaType,
-          limit,
-          used: org.usage[typedType].used,
-          remaining: limit === -1 ? -1 : Math.max(0, limit - org.usage[typedType].used),
-          resetAt: org.usage[typedType].resetAt,
-        },
-      }, 'Usage incremented successfully');
+      return sendSuccess(res, 200, { quota: result.quota }, 'Usage incremented successfully');
     } catch (error) {
+      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
       logger.error('Quota increment failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to increment quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }

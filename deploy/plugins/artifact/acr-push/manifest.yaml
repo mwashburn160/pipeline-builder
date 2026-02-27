@@ -1,0 +1,80 @@
+name: acr-push
+description: Push container images to Azure Container Registry with Azure CLI service principal authentication using AWS CDK CodeBuildStep
+keywords:
+  - azure
+  - acr
+  - container
+  - registry
+  - push
+  - docker
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: AZURE_CLIENT_ID
+    required: true
+    description: "Azure service principal client ID"
+  - name: AZURE_CLIENT_SECRET
+    required: true
+    description: "Azure service principal client secret"
+  - name: AZURE_TENANT_ID
+    required: true
+    description: "Azure tenant ID"
+primaryOutputDirectory: registry-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - az --version
+  # Authenticate with Azure Container Registry
+  - |
+    if [ -n "${AZURE_CLIENT_ID}" ] && [ -n "${AZURE_CLIENT_SECRET}" ] && [ -n "${AZURE_TENANT_ID}" ]; then
+      echo "Logging into Azure with service principal..."
+      az login --service-principal \
+        --username "${AZURE_CLIENT_ID}" \
+        --password "${AZURE_CLIENT_SECRET}" \
+        --tenant "${AZURE_TENANT_ID}"
+      if [ -n "${ACR_REGISTRY}" ]; then
+        echo "Logging into Azure Container Registry: ${ACR_REGISTRY}..."
+        az acr login --name "${ACR_REGISTRY}"
+      else
+        echo "WARNING: ACR_REGISTRY not set. Set ACR_REGISTRY to your registry name"
+      fi
+    else
+      echo "WARNING: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID must all be set for service principal authentication"
+    fi
+commands:
+  - mkdir -p registry-output
+  - |
+    if [ -z "${IMAGE_NAME}" ]; then
+      echo "ERROR: IMAGE_NAME must be set"
+      exit 1
+    fi
+    if [ -z "${ACR_REGISTRY}" ]; then
+      echo "ERROR: ACR_REGISTRY must be set (e.g., myregistry)"
+      exit 1
+    fi
+    FULL_IMAGE="${ACR_REGISTRY}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      "${DOCKER_CONTEXT}"
+    # Save image metadata
+    docker inspect "${FULL_IMAGE}" > registry-output/image-metadata.json
+    echo "${FULL_IMAGE}" > registry-output/image-name.txt
+  # Push image to Azure Container Registry
+  - |
+    FULL_IMAGE=$(cat registry-output/image-name.txt)
+    echo "Pushing image: ${FULL_IMAGE}"
+    docker push "${FULL_IMAGE}" || true
+    echo "Image push attempted: ${FULL_IMAGE}"
+  - "echo \"ACR push complete.\""
+env:
+  ACR_REGISTRY: ""
+  IMAGE_NAME: ""
+  IMAGE_TAG: latest
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."

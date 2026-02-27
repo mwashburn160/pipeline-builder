@@ -1,0 +1,87 @@
+name: checkmarx
+description: Checkmarx enterprise SAST and KICS infrastructure-as-code scanning plugin for detecting vulnerabilities in application code and IaC templates using AWS CDK CodeBuildStep
+keywords:
+  - checkmarx
+  - sast
+  - kics
+  - iac
+  - security
+  - enterprise
+  - compliance
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: CX_CLIENT_SECRET
+    required: true
+    description: "Checkmarx client secret"
+primaryOutputDirectory: checkmarx-reports
+dockerfile: Dockerfile
+installCommands:
+  - cx version 2>/dev/null || echo "Checkmarx CLI ready"
+  - kics version 2>/dev/null || echo "KICS ready"
+  - |
+    if [ -z "${CX_CLIENT_SECRET}" ]; then
+      echo "WARNING: CX_CLIENT_SECRET must be injected via CodeBuild secrets"
+    fi
+commands:
+  - mkdir -p checkmarx-reports
+  - |
+    case "${CX_SCAN_TYPE}" in
+      sast)
+        echo "Running Checkmarx SAST scan..."
+        cx scan create \
+          --project-name "${CX_PROJECT_NAME}" \
+          --base-uri "${CX_BASE_URI}" \
+          --tenant "${CX_TENANT}" \
+          --client-secret "${CX_CLIENT_SECRET}" \
+          -s . \
+          --scan-types sast \
+          --report-format json \
+          --output-path checkmarx-reports \
+          || true
+        ;;
+      sca)
+        echo "Running Checkmarx SCA scan..."
+        cx scan create \
+          --project-name "${CX_PROJECT_NAME}" \
+          --base-uri "${CX_BASE_URI}" \
+          --tenant "${CX_TENANT}" \
+          --client-secret "${CX_CLIENT_SECRET}" \
+          -s . \
+          --scan-types sca \
+          --report-format json \
+          --output-path checkmarx-reports \
+          || true
+        ;;
+      kics)
+        echo "Running KICS IaC scan..."
+        kics scan -p . \
+          --report-formats json,html \
+          --output-path checkmarx-reports \
+          --fail-on "${CX_SEVERITY_THRESHOLD}" \
+          || true
+        ;;
+      all)
+        echo "Running full Checkmarx scan (SAST + SCA + KICS)..."
+        cx scan create \
+          --project-name "${CX_PROJECT_NAME}" \
+          --base-uri "${CX_BASE_URI}" \
+          --tenant "${CX_TENANT}" \
+          --client-secret "${CX_CLIENT_SECRET}" \
+          -s . \
+          --scan-types sast,sca,kics \
+          --report-format json \
+          --output-path checkmarx-reports \
+          || true
+        ;;
+    esac
+  - "echo \"Checkmarx ${CX_SCAN_TYPE} scan complete. Reports available in checkmarx-reports/\""
+env:
+  CX_BASE_URI: https://ast.checkmarx.net
+  CX_TENANT: ""
+  CX_PROJECT_NAME: ""
+  CX_SCAN_TYPE: sast
+  CX_SEVERITY_THRESHOLD: high

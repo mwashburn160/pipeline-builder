@@ -1,0 +1,79 @@
+name: liquibase
+description: Liquibase database migration plugin supporting update, rollback, status, validate, and diff actions via AWS CDK CodeBuildStep
+keywords:
+  - liquibase
+  - database
+  - migration
+  - changelog
+  - schema
+  - deploy
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+primaryOutputDirectory: liquibase-output
+dockerfile: Dockerfile
+secrets:
+  - name: LIQUIBASE_USERNAME
+    required: true
+    description: "Database username for Liquibase connection"
+  - name: LIQUIBASE_PASSWORD
+    required: true
+    description: "Database password for Liquibase connection"
+installCommands:
+  - liquibase --version
+  - java --version
+commands:
+  - mkdir -p liquibase-output
+  # Validate required parameters
+  - |
+    if [ -z "${LIQUIBASE_URL}" ]; then
+      echo "ERROR: LIQUIBASE_URL must be set (e.g., jdbc:postgresql://host:5432/db)"
+      exit 1
+    fi
+  # Build Liquibase arguments
+  - |
+    LB_ARGS="--url=${LIQUIBASE_URL} --username=${LIQUIBASE_USERNAME} --password=${LIQUIBASE_PASSWORD}"
+    LB_ARGS="${LB_ARGS} --changelog-file=${LIQUIBASE_CHANGELOG_FILE}"
+    if [ -n "${LIQUIBASE_CONTEXTS}" ]; then
+      LB_ARGS="${LB_ARGS} --contexts=${LIQUIBASE_CONTEXTS}"
+    fi
+    if [ -n "${LIQUIBASE_LABELS}" ]; then
+      LB_ARGS="${LB_ARGS} --label-filter=${LIQUIBASE_LABELS}"
+    fi
+
+    case "${LIQUIBASE_ACTION}" in
+      update)
+        echo "Running Liquibase update..."
+        liquibase ${LB_ARGS} update | tee liquibase-output/update-result.txt
+        ;;
+      rollback)
+        echo "Running Liquibase rollback (count: ${ROLLBACK_COUNT})..."
+        liquibase ${LB_ARGS} rollback-count --count=${ROLLBACK_COUNT} | tee liquibase-output/rollback-result.txt
+        ;;
+      status)
+        echo "Running Liquibase status..."
+        liquibase ${LB_ARGS} status --verbose | tee liquibase-output/status-result.txt
+        ;;
+      validate)
+        echo "Running Liquibase validate..."
+        liquibase ${LB_ARGS} validate | tee liquibase-output/validate-result.txt
+        ;;
+      diff)
+        echo "Running Liquibase diff..."
+        liquibase ${LB_ARGS} diff | tee liquibase-output/diff-result.txt
+        ;;
+      *)
+        echo "ERROR: Unknown LIQUIBASE_ACTION '${LIQUIBASE_ACTION}'. Supported: update, rollback, status, validate, diff"
+        exit 1
+        ;;
+    esac
+  - "echo \"Liquibase ${LIQUIBASE_ACTION} complete. Output available in liquibase-output/\""
+env:
+  LIQUIBASE_URL: ""
+  LIQUIBASE_CHANGELOG_FILE: "changelog.xml"
+  LIQUIBASE_ACTION: update
+  LIQUIBASE_CONTEXTS: ""
+  LIQUIBASE_LABELS: ""
+  ROLLBACK_COUNT: "1"

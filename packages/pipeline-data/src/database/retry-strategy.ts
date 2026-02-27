@@ -1,3 +1,8 @@
+/**
+ * @module database/retry-strategy
+ * @description Implements an exponential backoff retry strategy for establishing reliable database connections.
+ */
+
 import { createLogger } from '@mwashburn160/api-core';
 
 const logger = createLogger('RetryStrategy');
@@ -130,7 +135,7 @@ export class ConnectionRetryStrategy {
    * @returns Delay in milliseconds
    */
   private calculateBackoff(attempt: number): number {
-    return this.config.baseDelay * attempt;
+    return this.config.baseDelay * Math.pow(2, attempt - 1);
   }
 
   /**

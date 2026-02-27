@@ -1,6 +1,11 @@
+/**
+ * @module database/drizzle-schema
+ * @description Defines the Drizzle ORM database schema including table definitions, types, and interfaces for pipelines, plugins, and messages.
+ */
+
 import { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 import { forCreation, withUpdateTimestamp, forSoftDelete } from './helpers';
 
 /**
@@ -25,6 +30,16 @@ export interface PipelineStageConfig {
   readonly stageName: string;
   readonly alias?: string;
   readonly steps: Record<string, unknown>[];
+}
+
+/**
+ * Secret requirement for a plugin.
+ * Declares named secrets the plugin expects at build time.
+ */
+export interface PluginSecret {
+  name: string;
+  required: boolean;
+  description?: string;
 }
 
 /**
@@ -88,10 +103,22 @@ export const plugin = pgTable('plugins', {
     .$type<ComputeType>()
     .default('SMALL' as ComputeType)
     .notNull(),
+  timeout: integer('timeout'),
+  failureBehavior: varchar('failure_behavior', { length: 10 })
+    .default('fail')
+    .notNull(),
+  secrets: jsonb('secrets')
+    .$type<PluginSecret[]>()
+    .default([])
+    .notNull(),
   primaryOutputDirectory: varchar('primary_output_directory', { length: 28 }),
 
   // Build configuration
   env: jsonb('env')
+    .$type<Record<string, string>>()
+    .default({})
+    .notNull(),
+  buildArgs: jsonb('build_args')
     .$type<Record<string, string>>()
     .default({})
     .notNull(),

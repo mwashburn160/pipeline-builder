@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mwashburn160/pipeline-builder/plugin-report-v1",
+  "title": "Plugin Report",
+  "description": "Standardized output format for all Pipeline Builder plugins. Each plugin writes a plugin-report.json alongside its native report files.",
+  "type": "object",
+  "required": ["plugin", "version", "status", "startedAt", "completedAt", "summary"],
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "description": "Plugin name matching the manifest name field"
+    },
+    "version": {
+      "type": "string",
+      "description": "Plugin version from manifest",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "category": {
+      "type": "string",
+      "description": "Plugin category",
+      "enum": ["language", "security", "quality", "monitoring", "artifact", "deploy", "infrastructure", "testing", "notification", "ai"]
+    },
+    "status": {
+      "type": "string",
+      "description": "Overall execution status",
+      "enum": ["success", "failure", "warning", "error"]
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when execution started"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when execution completed"
+    },
+    "durationMs": {
+      "type": "integer",
+      "description": "Execution duration in milliseconds",
+      "minimum": 0
+    },
+    "summary": {
+      "type": "object",
+      "description": "High-level summary of results",
+      "required": ["message"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Human-readable summary (e.g., 'Build succeeded', '3 vulnerabilities found')"
+        },
+        "counts": {
+          "type": "object",
+          "description": "Numeric counters relevant to the plugin type",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "examples": [
+            { "total": 150, "passed": 148, "failed": 2, "skipped": 0 },
+            { "critical": 0, "high": 1, "medium": 3, "low": 12 },
+            { "endpoints": 5, "healthy": 5, "unhealthy": 0 }
+          ]
+        },
+        "threshold": {
+          "type": "object",
+          "description": "Threshold configuration and whether it was met",
+          "properties": {
+            "metric": { "type": "string" },
+            "required": { "type": "number" },
+            "actual": { "type": "number" },
+            "met": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Individual findings, issues, or results (optional — for scan/test plugins)",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "message"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Finding identifier (CVE ID, rule ID, test name, etc.)"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"],
+            "description": "Severity level"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable description of the finding"
+          },
+          "file": {
+            "type": "string",
+            "description": "File path where the finding was detected"
+          },
+          "line": {
+            "type": "integer",
+            "description": "Line number in the file"
+          },
+          "rule": {
+            "type": "string",
+            "description": "Rule or check that triggered this finding"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Link to documentation or advisory"
+          },
+          "remediation": {
+            "type": "string",
+            "description": "Suggested fix or remediation steps"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "List of output artifact files produced by the plugin",
+      "items": {
+        "type": "object",
+        "required": ["path", "type"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path to the artifact file"
+          },
+          "type": {
+            "type": "string",
+            "description": "Artifact type",
+            "enum": ["report-json", "report-xml", "report-html", "report-sarif", "coverage-lcov", "coverage-cobertura", "image", "package", "log"]
+          },
+          "size": {
+            "type": "integer",
+            "description": "File size in bytes"
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "description": "Execution environment metadata",
+      "properties": {
+        "computeType": {
+          "type": "string",
+          "enum": ["SMALL", "MEDIUM", "LARGE"]
+        },
+        "region": { "type": "string" },
+        "buildId": { "type": "string" },
+        "pipelineName": { "type": "string" }
+      }
+    }
+  }
+}

@@ -20,18 +20,14 @@ import {
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
-import { config } from '../config';
 import {
   AUTH_OPTS,
-  buildDefaultOrgQuotaResponse,
-  buildOrgQuotaResponse,
-  computeQuotaStatus,
   isValidQuotaType,
   sendMissingOrgId,
   sendInvalidQuotaType,
 } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
-import { Organization, OrganizationDocument } from '../models/organization';
+import { quotaService } from '../services/quota-service';
 
 const logger = createLogger('quota-read');
 const router: Router = Router();
@@ -47,7 +43,13 @@ router.get(
     const orgId = req.user?.organizationId;
     if (!orgId) return sendMissingOrgId(res);
 
-    return fetchOrgQuotas(res, orgId);
+    try {
+      const quota = await quotaService.findByOrgId(orgId);
+      return sendSuccess(res, 200, { quota });
+    } catch (error) {
+      logger.error('Quota query failed', { error: errorMessage(error), orgId });
+      return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
+    }
   },
 );
 
@@ -69,13 +71,7 @@ router.get(
     }
 
     try {
-      const orgs = await Organization.find()
-        .select('name slug tier quotas usage')
-        .sort({ name: 1 })
-        .lean();
-
-      const organizations = orgs.map((org) => buildOrgQuotaResponse(org as OrganizationDocument));
-
+      const organizations = await quotaService.findAll();
       return sendSuccess(res, 200, { organizations, total: organizations.length });
     } catch (error) {
       logger.error('Failed to list all organizations', { error: errorMessage(error) });
@@ -93,7 +89,15 @@ router.get(
   authenticateToken(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
   async (req: Request, res: Response) => {
-    return fetchOrgQuotas(res, getParam(req.params, 'orgId')!);
+    const targetOrgId = getParam(req.params, 'orgId')!;
+
+    try {
+      const quota = await quotaService.findByOrgId(targetOrgId);
+      return sendSuccess(res, 200, { quota });
+    } catch (error) {
+      logger.error('Quota query failed', { error: errorMessage(error), orgId: targetOrgId });
+      return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
+    }
   },
 );
 
@@ -112,45 +116,14 @@ router.get(
     if (!quotaType || !isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
 
     try {
-      const org = await Organization.findById(targetOrgId).select('tier quotas usage').lean();
-
-      const typedType = quotaType as QuotaType;
-      const limit = org?.quotas?.[typedType] ?? config.quota.defaults[typedType];
-      const usage = org?.usage?.[typedType] ?? { used: 0, resetAt: new Date() };
-
-      return sendSuccess(res, 200, { quotaType, status: computeQuotaStatus(limit, usage) });
+      const status = await quotaService.getQuotaStatus(targetOrgId, quotaType as QuotaType);
+      return sendSuccess(res, 200, { quotaType, status });
     } catch (error) {
       logger.error('Quota status query failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
     }
   },
 );
-
-// ---------------------------------------------------------------------------
-// Shared handler
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all quota information for a single organization.
- * Returns default quotas if the org document does not exist.
- * @param res - Express response object
- * @param orgId - Organization ID to look up
- */
-async function fetchOrgQuotas(res: Response, orgId: string): Promise<void> {
-  try {
-    const org = await Organization.findById(orgId).select('tier quotas usage name slug').lean();
-
-    if (!org) {
-      sendSuccess(res, 200, { quota: buildDefaultOrgQuotaResponse(orgId) });
-      return;
-    }
-
-    sendSuccess(res, 200, { quota: buildOrgQuotaResponse(org as OrganizationDocument) });
-  } catch (error) {
-    logger.error('Quota query failed', { error: errorMessage(error), orgId });
-    sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
-  }
-}
 
 /** Read-side quota router (mounted at /quotas). */
 export default router;

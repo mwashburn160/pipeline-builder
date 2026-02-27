@@ -173,6 +173,8 @@ function parseSteps(steps: unknown[]): FormStep[] {
       position: step.position === 'post' ? 'post' : 'pre',
       inputArtifact: step.inputArtifact ? artifactKeyToString(step.inputArtifact) : '',
       additionalInputArtifacts: parseAdditionalInputArtifacts(step.additionalInputArtifacts),
+      timeout: step.timeout != null ? String(step.timeout) : '',
+      failureBehavior: (step.failureBehavior as 'fail' | 'warn' | 'ignore') || 'fail',
     };
   });
 }

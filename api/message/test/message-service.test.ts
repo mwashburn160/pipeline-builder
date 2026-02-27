@@ -87,17 +87,20 @@ describe('MessageService', () => {
   });
 
   describe('findInbox', () => {
-    it('should return only root messages (threadId is null)', async () => {
-      mockFind.mockResolvedValueOnce([
+    it('should pass threadId: null for SQL-level root message filtering', async () => {
+      const rootMessages = [
         { id: '1', threadId: null, subject: 'Root message' },
-        { id: '2', threadId: '1', subject: 'Reply' },
         { id: '3', threadId: null, subject: 'Another root' },
-      ]);
+      ];
+      mockFind.mockResolvedValueOnce(rootMessages);
 
       const result = await service.findInbox('org-1');
 
-      expect(result).toHaveLength(2);
-      expect(result.every(m => m.threadId === null)).toBe(true);
+      expect(mockFind).toHaveBeenCalledWith(
+        { isActive: true, threadId: null },
+        'org-1',
+      );
+      expect(result).toEqual(rootMessages);
     });
 
     it('should pass messageType filter when provided', async () => {
@@ -106,7 +109,7 @@ describe('MessageService', () => {
       await service.findInbox('org-1', 'announcement');
 
       expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true, messageType: 'announcement' },
+        { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
       );
     });
@@ -117,7 +120,7 @@ describe('MessageService', () => {
       await service.findInbox('org-1');
 
       expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true },
+        { isActive: true, threadId: null },
         'org-1',
       );
     });
@@ -130,7 +133,7 @@ describe('MessageService', () => {
       await service.findAnnouncements('org-1');
 
       expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true, messageType: 'announcement' },
+        { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
       );
     });
@@ -143,7 +146,7 @@ describe('MessageService', () => {
       await service.findConversations('org-1');
 
       expect(mockFind).toHaveBeenCalledWith(
-        { isActive: true, messageType: 'conversation' },
+        { isActive: true, threadId: null, messageType: 'conversation' },
         'org-1',
       );
     });

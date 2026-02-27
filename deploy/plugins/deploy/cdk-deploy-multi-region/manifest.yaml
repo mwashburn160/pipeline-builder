@@ -1,0 +1,255 @@
+name: cdk-deploy-multi-region
+description: AWS CDK multi-region deployment plugin for deploying CDK stacks across multiple AWS regions with sequential or parallel strategies and rollback-on-failure support using AWS CDK CodeBuildStep
+keywords:
+  - aws
+  - cdk
+  - deploy
+  - multi-region
+  - cloudformation
+  - typescript
+  - infrastructure
+  - iac
+  - global
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 60
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: cdk-output
+metadata:
+  aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation: true
+  aws:cdk:codebuild:buildenvironment:privileged: true
+dockerfile: Dockerfile
+installCommands:
+  - node -v && npm -v
+  - cdk --version
+  - aws --version
+  # Install project dependencies
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    fi
+  # Build TypeScript if applicable
+  - |
+    if [ -f tsconfig.json ]; then
+      echo "Building TypeScript..."
+      npm run build 2>/dev/null || npx tsc 2>/dev/null || true
+    fi
+  # Validate region configuration
+  - |
+    if [ -z "${CDK_REGIONS}" ]; then
+      echo "ERROR: CDK_REGIONS must be set (comma-separated list of AWS regions)"
+      echo "Example: CDK_REGIONS=us-east-1,us-west-2,eu-west-1"
+      exit 1
+    fi
+    echo "Target regions: ${CDK_REGIONS}"
+    echo "Deploy strategy: ${CDK_DEPLOY_STRATEGY}"
+    if [ -n "${CDK_PRIMARY_REGION}" ]; then
+      echo "Primary region: ${CDK_PRIMARY_REGION} (deployed first)"
+    fi
+commands:
+  - mkdir -p cdk-output
+  # Synthesize once (shared across all regions)
+  - |
+    STACK_ARG=""
+    if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
+    CONTEXT_ARG=""
+    if [ -n "${CDK_CONTEXT}" ]; then
+      IFS=',' read -ra CONTEXTS <<< "${CDK_CONTEXT}"
+      for ctx in "${CONTEXTS[@]}"; do
+        CONTEXT_ARG="${CONTEXT_ARG} -c ${ctx}"
+      done
+    fi
+    echo "Synthesizing CDK app..."
+    cdk synth ${STACK_ARG} ${CONTEXT_ARG} --quiet --no-notices
+    echo "Synth complete"
+  # Deploy to regions
+  - |
+    STACK_ARG=""
+    if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
+    CONTEXT_ARG=""
+    if [ -n "${CDK_CONTEXT}" ]; then
+      IFS=',' read -ra CONTEXTS <<< "${CDK_CONTEXT}"
+      for ctx in "${CONTEXTS[@]}"; do
+        CONTEXT_ARG="${CONTEXT_ARG} -c ${ctx}"
+      done
+    fi
+
+    # Build ordered region list (primary first if specified)
+    IFS=',' read -ra ALL_REGIONS <<< "${CDK_REGIONS}"
+    ORDERED_REGIONS=()
+    if [ -n "${CDK_PRIMARY_REGION}" ]; then
+      ORDERED_REGIONS+=("${CDK_PRIMARY_REGION}")
+      for r in "${ALL_REGIONS[@]}"; do
+        r=$(echo "${r}" | xargs)
+        if [ "${r}" != "${CDK_PRIMARY_REGION}" ]; then
+          ORDERED_REGIONS+=("${r}")
+        fi
+      done
+    else
+      for r in "${ALL_REGIONS[@]}"; do
+        ORDERED_REGIONS+=("$(echo "${r}" | xargs)")
+      done
+    fi
+
+    DEPLOYED_REGIONS=()
+    FAILED=false
+
+    deploy_region() {
+      local region=$1
+      echo ""
+      echo "=========================================="
+      echo "Deploying to region: ${region}"
+      echo "=========================================="
+      mkdir -p cdk-output/${region}
+
+      CDK_DEFAULT_REGION=${region} cdk deploy ${STACK_ARG} \
+        --require-approval ${CDK_REQUIRE_APPROVAL} \
+        --outputs-file cdk-output/${region}/${CDK_OUTPUTS_FILE} \
+        ${CONTEXT_ARG} \
+        --no-notices \
+        --ci \
+        2>&1 | tee cdk-output/${region}/deploy.log
+
+      return ${PIPESTATUS[0]}
+    }
+
+    rollback_regions() {
+      echo ""
+      echo "=========================================="
+      echo "ROLLBACK: Destroying stacks in deployed regions"
+      echo "=========================================="
+      for r in "${DEPLOYED_REGIONS[@]}"; do
+        echo "Rolling back region: ${r}"
+        CDK_DEFAULT_REGION=${r} cdk destroy ${STACK_ARG} \
+          --force \
+          ${CONTEXT_ARG} \
+          --no-notices \
+          2>&1 | tee cdk-output/${r}/rollback.log || true
+      done
+    }
+
+    case "${CDK_DEPLOY_STRATEGY}" in
+      sequential)
+        echo "Strategy: Sequential deployment"
+        # Deploy primary region first (if set), then remaining regions
+        if [ -n "${CDK_PRIMARY_REGION}" ]; then
+          echo "Deploying primary region first: ${CDK_PRIMARY_REGION}"
+          if deploy_region "${CDK_PRIMARY_REGION}"; then
+            DEPLOYED_REGIONS+=("${CDK_PRIMARY_REGION}")
+            echo "Primary region ${CDK_PRIMARY_REGION} deployed successfully"
+          else
+            echo "ERROR: Primary region ${CDK_PRIMARY_REGION} deployment failed"
+            FAILED=true
+          fi
+        fi
+        # Deploy remaining regions sequentially
+        if [ "${FAILED}" = "false" ]; then
+          for region in "${ORDERED_REGIONS[@]}"; do
+            # Skip primary (already deployed)
+            if [ "${region}" = "${CDK_PRIMARY_REGION}" ]; then continue; fi
+            if deploy_region "${region}"; then
+              DEPLOYED_REGIONS+=("${region}")
+              echo "Region ${region} deployed successfully"
+            else
+              echo "ERROR: Region ${region} deployment failed"
+              FAILED=true
+              if [ "${CDK_ROLLBACK_ON_FAILURE}" = "true" ]; then
+                rollback_regions
+              fi
+              break
+            fi
+          done
+        fi
+        ;;
+      parallel)
+        echo "Strategy: Parallel deployment"
+        # Deploy primary region first if specified
+        if [ -n "${CDK_PRIMARY_REGION}" ]; then
+          echo "Deploying primary region first: ${CDK_PRIMARY_REGION}"
+          if deploy_region "${CDK_PRIMARY_REGION}"; then
+            DEPLOYED_REGIONS+=("${CDK_PRIMARY_REGION}")
+          else
+            echo "ERROR: Primary region failed. Aborting parallel deployment."
+            FAILED=true
+          fi
+        fi
+        # Deploy remaining regions in parallel
+        if [ "${FAILED}" = "false" ]; then
+          REMAINING_REGIONS=()
+          for region in "${ORDERED_REGIONS[@]}"; do
+            if [ "${region}" = "${CDK_PRIMARY_REGION}" ]; then continue; fi
+            REMAINING_REGIONS+=("${region}")
+          done
+          if [ ${#REMAINING_REGIONS[@]} -gt 0 ]; then
+            echo "Deploying ${#REMAINING_REGIONS[@]} regions in parallel..."
+            PIDS=()
+            for region in "${REMAINING_REGIONS[@]}"; do
+              (deploy_region "${region}") &
+              PIDS+=($!)
+            done
+            # Wait for all parallel deployments
+            for i in "${!PIDS[@]}"; do
+              if wait ${PIDS[$i]}; then
+                DEPLOYED_REGIONS+=("${REMAINING_REGIONS[$i]}")
+              else
+                echo "ERROR: Region ${REMAINING_REGIONS[$i]} failed"
+                FAILED=true
+              fi
+            done
+            if [ "${FAILED}" = "true" ] && [ "${CDK_ROLLBACK_ON_FAILURE}" = "true" ]; then
+              rollback_regions
+            fi
+          fi
+        fi
+        ;;
+      *)
+        echo "ERROR: Unknown CDK_DEPLOY_STRATEGY '${CDK_DEPLOY_STRATEGY}'. Supported: sequential, parallel"
+        exit 1
+        ;;
+    esac
+
+    # Summary
+    echo ""
+    echo "=========================================="
+    echo "Multi-Region Deployment Summary"
+    echo "=========================================="
+    echo "Strategy: ${CDK_DEPLOY_STRATEGY}"
+    echo "Requested regions: ${CDK_REGIONS}"
+    echo "Deployed regions: ${DEPLOYED_REGIONS[*]:-none}"
+    if [ "${FAILED}" = "true" ]; then
+      echo "Status: FAILED"
+      if [ "${CDK_ROLLBACK_ON_FAILURE}" = "true" ]; then
+        echo "Rollback: Executed"
+      fi
+    else
+      echo "Status: SUCCESS"
+    fi
+
+    # Save summary
+    jq -n \
+      --arg strategy "${CDK_DEPLOY_STRATEGY}" \
+      --arg regions "${CDK_REGIONS}" \
+      --arg deployed "${DEPLOYED_REGIONS[*]}" \
+      --arg status "$([ "${FAILED}" = "true" ] && echo "FAILED" || echo "SUCCESS")" \
+      '{strategy: $strategy, requested_regions: ($regions | split(",")), deployed_regions: ($deployed | split(" ")), status: $status}' \
+      > cdk-output/deployment-summary.json
+  - "echo \"CDK multi-region deployment complete. Output available in cdk-output/\""
+env:
+  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
+  CDK_DEPLOY_ACTION: deploy
+  CDK_STACK: ""
+  CDK_REGIONS: ""
+  CDK_PRIMARY_REGION: ""
+  CDK_DEPLOY_STRATEGY: sequential
+  CDK_CONTEXT: ""
+  CDK_REQUIRE_APPROVAL: never
+  CDK_ROLLBACK_ON_FAILURE: "true"
+  CDK_OUTPUTS_FILE: cdk-outputs.json

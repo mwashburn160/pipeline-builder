@@ -1,3 +1,8 @@
+/**
+ * @module pipeline/step-types
+ * @description Defines TypeScript interfaces for pipeline step configuration including plugin options, stage options, synth options, and CodeBuild step customization.
+ */
+
 import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
@@ -107,6 +112,28 @@ export interface PluginManifest {
   readonly computeType?: ComputeType;
 
   /**
+   * Maximum execution time in minutes.
+   * Used as fallback when the pipeline step doesn't set timeout.
+   * @default 60 (AWS CodeBuild default)
+   */
+  readonly timeout?: number;
+
+  /**
+   * What happens when this step fails.
+   * - 'fail': Stop the pipeline (default)
+   * - 'warn': Log a warning and continue
+   * - 'ignore': Silently continue
+   * @default 'fail'
+   */
+  readonly failureBehavior?: 'fail' | 'warn' | 'ignore';
+
+  /**
+   * Secret requirements for this plugin.
+   * Declares named secrets the plugin expects at build time.
+   */
+  readonly secrets?: Array<{ name: string; required: boolean; description?: string }>;
+
+  /**
    * Directory containing the primary build output artifacts
    * @example 'dist'
    */
@@ -121,7 +148,7 @@ export interface PluginManifest {
    * Path to Dockerfile or Dockerfile content
    * Used to build the container environment for this plugin
    */
-  readonly dockerfile: string;
+  readonly dockerfile?: string;
 
   /**
    * Commands to run during the install phase
@@ -135,13 +162,20 @@ export interface PluginManifest {
    * These are the main commands that perform the plugin's work
    * @example ['npm test', 'npm run deploy']
    */
-  readonly commands: string[];
+  readonly commands?: string[];
 
   /**
    * Environment variables to set in the build environment
    * @example { API_URL: 'https://api.example.com', LOG_LEVEL: 'info' }
    */
   readonly env?: Record<string, string>;
+
+  /**
+   * Docker build arguments passed via --build-arg at image build time.
+   * Used to parameterize Dockerfile ARG values when building the plugin image.
+   * @example { PYTHON_VERSION: '3.12', NODE_ENV: 'production' }
+   */
+  readonly buildArgs?: Record<string, string>;
 }
 
 /**
@@ -211,6 +245,9 @@ export interface StageStepOptions extends StepCustomization {
 
   /** Additional input artifacts for this step. Each entry specifies an artifact and an optional mount directory. */
   readonly additionalInputArtifacts?: AdditionalInputArtifactConfig[];
+
+  /** Override the plugin's failure behavior for this step. */
+  readonly failureBehavior?: 'fail' | 'warn' | 'ignore';
 }
 
 /**
@@ -310,4 +347,13 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * Plugin alias for artifact key generation
    */
   readonly pluginAlias?: string;
+
+  /**
+   * Failure behavior for this step's build commands.
+   * Applied at shell level: 'fail' = default, 'warn' = log + continue, 'ignore' = || true.
+   */
+  readonly failureBehavior?: 'fail' | 'warn' | 'ignore';
+
+  /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
+  readonly orgId?: string;
 }

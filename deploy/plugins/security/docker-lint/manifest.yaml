@@ -1,0 +1,76 @@
+name: docker-lint
+description: Docker linting and container security plugin using Hadolint for Dockerfile best practices and Dockle for CIS benchmark compliance using AWS CDK CodeBuildStep
+keywords:
+  - docker
+  - dockerfile
+  - hadolint
+  - dockle
+  - lint
+  - security
+  - cis-benchmark
+  - container
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: docker-lint-reports
+dockerfile: Dockerfile
+installCommands:
+  # Hadolint version selection
+  - |
+    if [ -f /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} ]; then
+      ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
+    else
+      echo "Hadolint ${HADOLINT_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64 \
+        -o /usr/local/bin/hadolint && chmod +x /usr/local/bin/hadolint
+    fi
+  - hadolint --version
+  # Dockle version selection
+  - |
+    if [ -f /opt/dockle/versions/dockle-${DOCKLE_VERSION} ]; then
+      ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
+    else
+      echo "Dockle ${DOCKLE_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-64bit.tar.gz \
+        | tar -xz -C /tmp && mv /tmp/dockle /usr/local/bin/dockle
+    fi
+  - dockle --version
+commands:
+  - mkdir -p docker-lint-reports
+  # Hadolint — lint all Dockerfiles found in the project
+  - |
+    echo "Running Hadolint on Dockerfiles..."
+    FOUND_DOCKERFILES=false
+    for df in $(find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*"); do
+      FOUND_DOCKERFILES=true
+      echo "Linting: ${df}"
+      hadolint --format ${HADOLINT_FORMAT} \
+        --failure-threshold ${HADOLINT_SEVERITY} \
+        "${df}" > "docker-lint-reports/hadolint-$(echo ${df} | tr '/' '-' | sed 's/^.-//').json" 2>&1 || true
+    done
+    if [ "${FOUND_DOCKERFILES}" = "false" ]; then
+      echo "No Dockerfiles found to lint"
+    fi
+  # Dockle — audit a built container image (if DOCKER_IMAGE is set)
+  - |
+    if [ -n "${DOCKER_IMAGE}" ]; then
+      echo "Running Dockle on image: ${DOCKER_IMAGE}..."
+      dockle --format ${DOCKLE_FORMAT} \
+        --output docker-lint-reports/dockle-results.json \
+        "${DOCKER_IMAGE}" || true
+    else
+      echo "DOCKER_IMAGE not set — skipping Dockle container image audit"
+      echo "Set DOCKER_IMAGE=your-image:tag to enable container scanning"
+    fi
+  - "echo \"Docker lint complete. Reports available in docker-lint-reports/\""
+env:
+  HADOLINT_VERSION: "2.12.0"
+  DOCKLE_VERSION: "0.4.15"
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_IMAGE: ""
+  HADOLINT_FORMAT: json
+  DOCKLE_FORMAT: json
+  HADOLINT_SEVERITY: warning

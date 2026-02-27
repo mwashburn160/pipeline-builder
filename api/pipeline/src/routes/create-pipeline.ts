@@ -9,7 +9,7 @@
  */
 
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
-import { createProtectedRoute } from '@mwashburn160/api-server';
+import { createProtectedRoute, getContext } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
@@ -32,7 +32,7 @@ export function createCreatePipelineRoutes(
     '/',
     ...createProtectedRoute(quotaService, 'pipelines'),
     async (req: Request, res: Response) => {
-      const ctx = req.context!;
+      const ctx = getContext(req);
 
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);
@@ -48,6 +48,10 @@ export function createCreatePipelineRoutes(
         // Normalize project and organization names
         const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
         const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
+
+        if (!project.replace(/_/g, '') || !organization.replace(/_/g, '')) {
+          return sendBadRequest(res, 'Project and organization must contain alphanumeric characters', ErrorCode.VALIDATION_ERROR);
+        }
 
         // Default pipelineName if not provided
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;

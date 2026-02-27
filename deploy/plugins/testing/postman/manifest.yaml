@@ -1,0 +1,71 @@
+name: postman
+description: Postman API testing plugin using Newman CLI to run collection-based API contract tests with HTML and JUnit reporting using AWS CDK CodeBuildStep
+keywords:
+  - postman
+  - newman
+  - api
+  - testing
+  - contract
+  - integration
+  - rest
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: postman-reports
+dockerfile: Dockerfile
+installCommands:
+  - newman --version
+  - |
+    if [ -z "${COLLECTION_FILE}" ]; then
+      # Auto-detect Postman collection files
+      COLLECTION_FILE=$(find . -name "*.postman_collection.json" -not -path "*/node_modules/*" | head -1)
+      if [ -z "${COLLECTION_FILE}" ]; then
+        echo "WARNING: No Postman collection found. Set COLLECTION_FILE=path/to/collection.json"
+      else
+        echo "Auto-detected collection: ${COLLECTION_FILE}"
+      fi
+    fi
+commands:
+  - mkdir -p postman-reports
+  - |
+    if [ -z "${COLLECTION_FILE}" ]; then
+      COLLECTION_FILE=$(find . -name "*.postman_collection.json" -not -path "*/node_modules/*" | head -1)
+    fi
+    if [ -z "${COLLECTION_FILE}" ]; then
+      echo "ERROR: No Postman collection found. Set COLLECTION_FILE=path/to/collection.json"
+      exit 1
+    fi
+    ENV_ARG=""
+    if [ -n "${ENVIRONMENT_FILE}" ] && [ -f "${ENVIRONMENT_FILE}" ]; then
+      ENV_ARG="--environment ${ENVIRONMENT_FILE}"
+    fi
+    GLOBALS_ARG=""
+    if [ -n "${GLOBALS_FILE}" ] && [ -f "${GLOBALS_FILE}" ]; then
+      GLOBALS_ARG="--globals ${GLOBALS_FILE}"
+    fi
+    BAIL_ARG=""
+    if [ "${BAIL_ON_FAILURE}" = "true" ]; then
+      BAIL_ARG="--bail"
+    fi
+    echo "Running Newman with collection: ${COLLECTION_FILE}"
+    newman run "${COLLECTION_FILE}" \
+      ${ENV_ARG} \
+      ${GLOBALS_ARG} \
+      --iteration-count ${ITERATION_COUNT} \
+      --timeout-request ${NEWMAN_TIMEOUT} \
+      --reporters cli,json,htmlextra,junitfull \
+      --reporter-json-export postman-reports/newman-results.json \
+      --reporter-htmlextra-export postman-reports/newman-report.html \
+      --reporter-junitfull-export postman-reports/newman-junit.xml \
+      ${BAIL_ARG} || true
+  - "echo \"Postman tests complete. Reports available in postman-reports/\""
+env:
+  COLLECTION_FILE: ""
+  ENVIRONMENT_FILE: ""
+  GLOBALS_FILE: ""
+  ITERATION_COUNT: "1"
+  NEWMAN_TIMEOUT: "60000"
+  BAIL_ON_FAILURE: "false"

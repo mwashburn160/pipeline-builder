@@ -2,11 +2,13 @@
  * @module routes/generate-pipeline
  * @description AI-powered pipeline configuration generation.
  *
- * Provides two endpoints for the pipeline AI builder workflow:
+ * Provides three endpoints for the pipeline AI builder workflow:
  *
  * - **GET /pipelines/providers** — List available AI providers and their models.
  * - **POST /pipelines/generate** — Generate BuilderProps JSON from a natural
  *   language description using the AI SDK.
+ * - **POST /pipelines/generate/stream** — Same as above but streams partial
+ *   results as SSE events for real-time progressive output.
  *
  * Request validation uses the shared Zod schema from api-core
  * ({@link AIGenerateBodySchema}).
@@ -21,11 +23,11 @@ import {
   validateBody,
   AIGenerateBodySchema,
 } from '@mwashburn160/api-core';
-import { createAuthenticatedWithOrgRoute } from '@mwashburn160/api-server';
+import { createAuthenticatedWithOrgRoute, getContext } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router, Request, Response } from 'express';
-import { getAvailableProviders, generatePipelineConfig } from '../services/ai-generation-service';
+import { getAvailableProviders, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';
 
 const logger = createLogger('generate-pipeline');
 
@@ -95,7 +97,7 @@ export function createGeneratePipelineRoutes(): Router {
     '/generate',
     ...createAuthenticatedWithOrgRoute(),
     async (req: Request, res: Response) => {
-      const ctx = req.context!;
+      const ctx = getContext(req);
 
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
@@ -147,6 +149,105 @@ export function createGeneratePipelineRoutes(): Router {
         return sendInternalError(res, 'Failed to generate pipeline configuration', {
           details: message,
         });
+      }
+    },
+  );
+
+  // -- POST /generate/stream — stream pipeline config as SSE events ----------
+  /**
+   * Accepts a natural language prompt and streams AI-generated pipeline
+   * configuration as SSE events. Each event contains a partial JSON object
+   * that progressively builds toward the final configuration.
+   *
+   * Events: {type:"partial", data:{...}} → {type:"done", data:{props,...}} → [DONE]
+   */
+  router.post(
+    '/generate/stream',
+    ...createAuthenticatedWithOrgRoute(),
+    async (req: Request, res: Response) => {
+      const ctx = getContext(req);
+
+      const validation = validateBody(req, AIGenerateBodySchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error);
+      }
+      const { prompt, provider, model, apiKey } = validation.value;
+
+      try {
+        const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
+        ctx.log('INFO', 'AI pipeline streaming generation requested', {
+          promptLength: prompt.length,
+          provider,
+          model,
+        });
+
+        const plugins = await getAvailablePlugins(orgId);
+
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.setTimeout(0);
+        res.flushHeaders();
+
+        // Track client disconnect
+        let aborted = false;
+        req.on('close', () => { aborted = true; });
+
+        const result = streamPipelineConfig({
+          prompt: prompt.trim(),
+          plugins,
+          orgId,
+          provider,
+          model,
+          ...(apiKey ? { apiKey } : {}),
+        });
+
+        // Stream partial objects
+        for await (const partialObject of result.partialOutputStream) {
+          if (aborted) break;
+          try {
+            res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
+          } catch (serializeError) {
+            logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
+          }
+        }
+
+        if (!aborted) {
+          // Get final validated output
+          const finalOutput = await result.output;
+          if (finalOutput) {
+            const { description, keywords, ...props } = finalOutput;
+            res.write(`data: ${JSON.stringify({
+              type: 'done',
+              data: { props, description: description ?? undefined, keywords: keywords ?? undefined },
+            })}\n\n`);
+          }
+          res.write('data: [DONE]\n\n');
+        }
+
+        res.end();
+      } catch (error) {
+        const message = errorMessage(error);
+        logger.error('AI pipeline streaming generation failed', {
+          requestId: ctx.requestId,
+          error: message,
+        });
+
+        if (!res.headersSent) {
+          if (message.includes('not configured') || message.includes('API key')) {
+            return sendInternalError(res, 'AI generation is not configured for the requested provider');
+          }
+          if (message.includes('not available for provider')) {
+            return sendBadRequest(res, message);
+          }
+          return sendInternalError(res, 'Failed to stream pipeline configuration');
+        }
+
+        // Headers already sent — send error as SSE event
+        res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+        res.end();
       }
     },
   );

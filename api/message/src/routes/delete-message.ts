@@ -1,3 +1,8 @@
+/**
+ * @module routes/delete-message
+ * @description Express route for soft-deleting messages, restricted to system admins or the original message sender.
+ */
+
 import {
   sendError,
   sendBadRequest,
@@ -8,6 +13,7 @@ import {
   isSystemAdmin,
   getParam,
 } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
@@ -23,7 +29,7 @@ export function createDeleteMessageRoutes(): Router {
 
   // DELETE /messages/:id — Soft delete a message
   router.delete('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || 'unknown';
     const id = getParam(req.params, 'id');
@@ -32,7 +38,7 @@ export function createDeleteMessageRoutes(): Router {
 
     try {
       // Only admins can delete messages
-      if (!isSystemAdmin(req as any)) {
+      if (!isSystemAdmin(req)) {
         // Check if the user is the message sender (allow self-delete)
         const message = await messageService.findById(id, orgId);
         if (!message) {

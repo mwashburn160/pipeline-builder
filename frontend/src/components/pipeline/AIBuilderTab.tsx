@@ -66,19 +66,27 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
       setGenerating(true);
       setGeneratedProps(null);
       setPreviewJson(null);
+      setGeneratedDescription('');
+      setGeneratedKeywords('');
 
       try {
         const keyToUse = ai.customApiKey.trim() || undefined;
-        const response = await api.generatePipeline(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse);
-        const data = response.data;
-        if (!data?.props) {
-          setError('AI did not produce a pipeline configuration');
-          return;
+
+        for await (const event of api.streamPipelineGeneration(
+          prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
+        )) {
+          if (event.type === 'partial' && event.data) {
+            setPreviewJson(JSON.stringify(event.data, null, 2));
+          } else if (event.type === 'done' && event.data) {
+            const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
+            setGeneratedProps(data.props);
+            setPreviewJson(JSON.stringify(data.props, null, 2));
+            setGeneratedDescription(data.description || '');
+            setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
+          } else if (event.type === 'error') {
+            setError(event.message || 'Generation failed');
+          }
         }
-        setGeneratedProps(data.props as BuilderProps);
-        setPreviewJson(JSON.stringify(data.props, null, 2));
-        setGeneratedDescription(data.description || '');
-        setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Generation failed';
         setError(message);
@@ -216,9 +224,15 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="label">Generated Configuration</label>
-              <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                Ready to submit
-              </span>
+              {generating ? (
+                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                  <LoadingSpinner size="sm" /> Streaming...
+                </span>
+              ) : (
+                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                  Ready to submit
+                </span>
+              )}
             </div>
             <pre className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
               {previewJson}

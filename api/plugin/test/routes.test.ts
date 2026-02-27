@@ -57,7 +57,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   })),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({}));
+jest.mock('@mwashburn160/api-server', () => ({
+  getContext: (req: any) => req.context,
+}));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
   schema: { plugin: {} },

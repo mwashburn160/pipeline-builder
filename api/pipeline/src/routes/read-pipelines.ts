@@ -8,6 +8,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendSuccess, parsePaginationParams } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
@@ -32,7 +33,7 @@ export function createReadPipelineRoutes(
   // GET /pipelines — paginated list
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
@@ -78,7 +79,7 @@ export function createReadPipelineRoutes(
   // GET /pipelines/find — single pipeline by filter
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
@@ -110,7 +111,7 @@ export function createReadPipelineRoutes(
   // GET /pipelines/:id — single pipeline by UUID
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
     const id = getParam(req.params, 'id');

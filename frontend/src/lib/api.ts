@@ -61,6 +61,13 @@ export class ApiError extends Error {
   }
 }
 
+/** SSE event received from AI streaming endpoints. */
+export interface StreamEvent {
+  type: 'partial' | 'done' | 'error';
+  data?: unknown;
+  message?: string;
+}
+
 /**
  * API Client for communicating with the backend
  */
@@ -696,7 +703,7 @@ class ApiClient {
 
   async searchPlugins(params: Record<string, string>) {
     const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/search${query}`);
+    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/find${query}`);
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
@@ -755,6 +762,9 @@ class ApiClient {
     isDefault?: boolean;
     isActive?: boolean;
     primaryOutputDirectory?: string | null;
+    timeout?: number | null;
+    failureBehavior?: 'fail' | 'warn' | 'ignore';
+    secrets?: Array<{ name: string; required: boolean; description?: string }>;
   }) {
     return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`, {
       method: 'PUT',
@@ -783,7 +793,7 @@ class ApiClient {
 
   async searchPipelines(params: Record<string, string>) {
     const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/search${query}`);
+    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/find${query}`);
   }
 
   async createPipeline(data: CreatePipelineData) {
@@ -822,6 +832,80 @@ class ApiClient {
     return this.request<ApiResponse<{ props: BuilderProps; description?: string; keywords?: string[] }>>('/api/pipeline/generate', {
       method: 'POST',
       body: JSON.stringify({ prompt, provider, model, ...(apiKey ? { apiKey } : {}) }),
+    });
+  }
+
+  /**
+   * Stream SSE events from a POST endpoint.
+   * Yields parsed StreamEvent objects as they arrive.
+   */
+  async *streamRequest(
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): AsyncGenerator<StreamEvent> {
+    await this.ensureFreshToken();
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+    if (this.organizationId) headers['x-org-id'] = this.organizationId;
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      credentials: 'same-origin',
+    });
+
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => ({ message: 'Stream failed' }));
+      throw new ApiError(data.message || 'Stream failed', response.status, data.code);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') return;
+            try {
+              yield JSON.parse(data) as StreamEvent;
+            } catch { /* skip malformed SSE data */ }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Stream AI pipeline generation with progressive partial results.
+   */
+  async *streamPipelineGeneration(prompt: string, provider: string, model: string, apiKey?: string) {
+    yield* this.streamRequest('/api/pipeline/generate/stream', {
+      prompt, provider, model, ...(apiKey ? { apiKey } : {}),
+    });
+  }
+
+  /**
+   * Stream AI plugin generation with progressive partial results.
+   */
+  async *streamPluginGeneration(prompt: string, provider: string, model: string, apiKey?: string) {
+    yield* this.streamRequest('/api/plugin/generate/stream', {
+      prompt, provider, model, ...(apiKey ? { apiKey } : {}),
     });
   }
 

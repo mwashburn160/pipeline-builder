@@ -1,0 +1,62 @@
+name: license-checker
+description: OSS license compliance scanning plugin to detect restricted or incompatible licenses in project dependencies using AWS CDK CodeBuildStep
+keywords:
+  - license
+  - compliance
+  - oss
+  - dependency
+  - legal
+  - gpl
+  - mit
+  - apache
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: license-reports
+dockerfile: Dockerfile
+installCommands:
+  - license-checker --version || echo "license-checker ready"
+  - pip-licenses --version || echo "pip-licenses ready"
+  # Install project dependencies for accurate license scanning
+  - |
+    if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
+    if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
+    if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
+    if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+    if [ -f Pipfile.lock ]; then pip3 install pipenv && pipenv install --system; fi
+    if [ -f Gemfile.lock ]; then bundle install; fi
+commands:
+  - mkdir -p license-reports
+  # Node.js license scan
+  - |
+    if [ -f package.json ]; then
+      echo "Scanning Node.js licenses..."
+      DENY_ARG=""
+      if [ -n "${LICENSE_DENY}" ]; then
+        DENY_ARG="--failOn ${LICENSE_DENY}"
+      fi
+      license-checker --json --out license-reports/nodejs-licenses.json ${DENY_ARG} || true
+    fi
+  # Python license scan
+  - |
+    if [ -f requirements.txt ] || [ -f setup.py ] || [ -f pyproject.toml ] || [ -f Pipfile ]; then
+      echo "Scanning Python licenses..."
+      pip-licenses --format=json --output-file=license-reports/python-licenses.json || true
+      if [ -n "${LICENSE_DENY}" ]; then
+        pip-licenses --fail-on="${LICENSE_DENY}" || true
+      fi
+    fi
+  # Ruby license scan
+  - |
+    if [ -f Gemfile ]; then
+      echo "Scanning Ruby licenses..."
+      license_finder report --format=json > license-reports/ruby-licenses.json 2>/dev/null || true
+    fi
+  - "echo \"License scan complete. Reports available in license-reports/\""
+env:
+  LICENSE_DENY: ""
+  LICENSE_ALLOW: ""
+  REPORT_FORMAT: json

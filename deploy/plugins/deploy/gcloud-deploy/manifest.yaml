@@ -1,0 +1,99 @@
+name: gcloud-deploy
+description: Google Cloud Platform deployment plugin supporting App Engine, Cloud Run, GKE, and Compute Engine deployments with gcloud SDK, kubectl, and Terraform using AWS CDK CodeBuildStep
+keywords:
+  - gcp
+  - google
+  - cloud
+  - deploy
+  - gcloud
+  - infrastructure
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 45
+failureBehavior: fail
+secrets:
+  - name: GOOGLE_APPLICATION_CREDENTIALS
+    required: true
+    description: "Google Cloud service account credentials"
+primaryOutputDirectory: gcloud-output
+dockerfile: Dockerfile
+installCommands:
+  - gcloud version
+  - kubectl version --client 2>/dev/null || true
+  - terraform version
+  - |
+    if [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
+      echo "WARNING: GOOGLE_APPLICATION_CREDENTIALS not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p gcloud-output
+  - |
+    if [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
+      echo "ERROR: GOOGLE_APPLICATION_CREDENTIALS must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    if [ -z "${GCP_PROJECT}" ]; then
+      echo "ERROR: GCP_PROJECT must be set"
+      exit 1
+    fi
+    REGION="${GCP_REGION:-us-central1}"
+    # Authenticate with service account
+    echo "Authenticating with GCP..."
+    gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}" \
+      2>&1 | tee gcloud-output/auth.log
+    gcloud config set project "${GCP_PROJECT}"
+    gcloud config set compute/region "${REGION}"
+    echo "Authenticated to project: ${GCP_PROJECT}, region: ${REGION}"
+    # Deploy based on type
+    case "${DEPLOY_TYPE}" in
+      app-engine)
+        echo "Deploying to App Engine..."
+        gcloud app deploy --quiet \
+          2>&1 | tee gcloud-output/deploy.log || true
+        gcloud app describe --format=json > gcloud-output/app-info.json 2>/dev/null || true
+        ;;
+      cloud-run)
+        if [ -z "${SERVICE_NAME}" ]; then
+          echo "ERROR: SERVICE_NAME must be set for Cloud Run deployments"
+          exit 1
+        fi
+        echo "Deploying to Cloud Run: ${SERVICE_NAME}..."
+        gcloud run deploy "${SERVICE_NAME}" \
+          --region "${REGION}" \
+          --quiet \
+          2>&1 | tee gcloud-output/deploy.log || true
+        gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format=json \
+          > gcloud-output/service-info.json 2>/dev/null || true
+        ;;
+      gke)
+        if [ -z "${GKE_CLUSTER}" ]; then
+          echo "ERROR: GKE_CLUSTER must be set for GKE deployments"
+          exit 1
+        fi
+        echo "Connecting to GKE cluster: ${GKE_CLUSTER}..."
+        gcloud container clusters get-credentials "${GKE_CLUSTER}" \
+          --region "${REGION}" \
+          2>&1 | tee gcloud-output/cluster-auth.log
+        echo "Applying Kubernetes manifests..."
+        MANIFEST_PATH="${K8S_MANIFEST_PATH:-.}"
+        kubectl apply -f "${MANIFEST_PATH}" \
+          2>&1 | tee gcloud-output/deploy.log || true
+        kubectl get pods --all-namespaces -o json > gcloud-output/pods.json 2>/dev/null || true
+        ;;
+      compute)
+        echo "Managing Compute Engine resources..."
+        gcloud compute instances list --format=json \
+          > gcloud-output/instances.json 2>/dev/null || true
+        echo "Compute operations complete. Review gcloud-output/ for details."
+        ;;
+      *)
+        echo "ERROR: Unknown DEPLOY_TYPE '${DEPLOY_TYPE}'. Supported: app-engine, cloud-run, gke, compute"
+        exit 1
+        ;;
+    esac
+  - "echo \"GCP deployment complete. Output saved in gcloud-output/\""
+env:
+  GCP_PROJECT: ""
+  GCP_REGION: us-central1
+  DEPLOY_TYPE: app-engine

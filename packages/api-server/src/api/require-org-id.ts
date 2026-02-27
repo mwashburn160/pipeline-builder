@@ -7,6 +7,7 @@
 
 import { ErrorCode, sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
+import { getContext } from './get-context';
 
 /**
  * Create middleware that validates the request has an orgId in the identity headers.
@@ -22,7 +23,7 @@ import { Request, Response, NextFunction } from 'express';
  */
 export function requireOrgId() {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
 
     if (!ctx.identity.orgId) {
       ctx.log('ERROR', 'Organization ID is missing from request headers');

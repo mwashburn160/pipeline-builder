@@ -1,0 +1,94 @@
+name: snyk
+description: Snyk security scanning plugin for vulnerability detection in dependencies and code using AWS CDK with CodeBuildStep
+keywords:
+  - snyk
+  - security
+  - vulnerability
+  - sca
+  - sast
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk authentication token"
+primaryOutputDirectory: snyk-reports
+dockerfile: Dockerfile
+installCommands:
+  # Snyk CLI version selection
+  - svm install ${SNYK_VERSION} && svm use ${SNYK_VERSION}
+  - snyk --version
+  # Language runtime activation based on LANGUAGE key
+  - |
+    case "${LANGUAGE}" in
+      python)
+        echo "Activating Python ${LANGUAGE_VERSION:-3.12}..."
+        pyenv install -s ${LANGUAGE_VERSION:-3.12} && pyenv global ${LANGUAGE_VERSION:-3.12}
+        python -m pip install --upgrade pip setuptools wheel
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
+        if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
+        ;;
+      java)
+        echo "Activating Java ${LANGUAGE_VERSION:-17.0.13-tem}..."
+        source ${SDKMAN_DIR}/bin/sdkman-init.sh
+        sdk use java ${LANGUAGE_VERSION:-17.0.13-tem}
+        if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
+        if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
+        ;;
+      go)
+        echo "Activating Go ${LANGUAGE_VERSION:-1.22.10}..."
+        goenv install -s ${LANGUAGE_VERSION:-1.22.10} && goenv global ${LANGUAGE_VERSION:-1.22.10}
+        if [ -f go.mod ]; then go mod download; fi
+        ;;
+      dotnet)
+        echo "Activating .NET ${LANGUAGE_VERSION:-8.0}..."
+        if ! dotnet --list-sdks | grep -q "^${LANGUAGE_VERSION:-8.0}"; then
+          /tmp/dotnet-install.sh --channel ${LANGUAGE_VERSION:-8.0} --install-dir /opt/dotnet 2>/dev/null || true
+        fi
+        dotnet --version
+        if [ -f *.sln ] || [ -f *.csproj ]; then dotnet restore; fi
+        ;;
+      cpp)
+        echo "Activating C++ build environment..."
+        gcc --version | head -1
+        cmake --version | head -1
+        if [ -f CMakeLists.txt ]; then mkdir -p build && cd build && cmake .. && cd ..; fi
+        if [ -f Makefile ]; then make -j$(nproc); fi
+        if [ -f conanfile.txt ] || [ -f conanfile.py ]; then pip install conan && conan install .; fi
+        ;;
+      ruby)
+        echo "Activating Ruby ${LANGUAGE_VERSION:-3.3.6}..."
+        rbenv install -s ${LANGUAGE_VERSION:-3.3.6} && rbenv global ${LANGUAGE_VERSION:-3.3.6}
+        gem install bundler
+        if [ -f Gemfile.lock ]; then bundle install; fi
+        ;;
+      rust)
+        echo "Activating Rust ${LANGUAGE_VERSION:-stable}..."
+        rustup default ${LANGUAGE_VERSION:-stable}
+        rustc --version
+        if [ -f Cargo.toml ]; then cargo fetch; fi
+        ;;
+      nodejs|*)
+        echo "Using Node.js (default)..."
+        if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
+        if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
+        if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
+        ;;
+    esac
+commands:
+  - mkdir -p snyk-reports
+  - snyk auth ${SNYK_TOKEN}
+  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
+  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
+# SNYK_TOKEN must be provided at runtime via CodeBuild secrets or environment variables
+# Do NOT define SNYK_TOKEN here or in the Dockerfile
+env:
+  SNYK_VERSION: latest
+  SNYK_SEVERITY_THRESHOLD: high
+  LANGUAGE: nodejs
+  LANGUAGE_VERSION: ""

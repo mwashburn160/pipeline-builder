@@ -54,14 +54,14 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -139,14 +139,14 @@ importers:
   api/message:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -211,33 +211,18 @@ importers:
 
   api/pipeline:
     dependencies:
-      '@ai-sdk/amazon-bedrock':
-        specifier: 4.0.64
-        version: 4.0.64(zod@4.3.6)
-      '@ai-sdk/anthropic':
-        specifier: 3.0.47
-        version: 3.0.47(zod@4.3.6)
-      '@ai-sdk/google':
-        specifier: 3.0.31
-        version: 3.0.31(zod@4.3.6)
-      '@ai-sdk/openai':
-        specifier: 3.0.31
-        version: 3.0.31(zod@4.3.6)
-      '@ai-sdk/xai':
-        specifier: 3.0.59
-        version: 3.0.59(zod@4.3.6)
+      '@mwashburn160/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
-      ai:
-        specifier: 6.0.99
-        version: 6.0.99(zod@4.3.6)
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -323,36 +308,21 @@ importers:
 
   api/plugin:
     dependencies:
-      '@ai-sdk/amazon-bedrock':
-        specifier: 4.0.64
-        version: 4.0.64(zod@4.3.6)
-      '@ai-sdk/anthropic':
-        specifier: 3.0.47
-        version: 3.0.47(zod@4.3.6)
-      '@ai-sdk/google':
-        specifier: 3.0.31
-        version: 3.0.31(zod@4.3.6)
-      '@ai-sdk/openai':
-        specifier: 3.0.31
-        version: 3.0.31(zod@4.3.6)
-      '@ai-sdk/xai':
-        specifier: 3.0.59
-        version: 3.0.59(zod@4.3.6)
+      '@mwashburn160/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
-      ai:
-        specifier: 6.0.99
-        version: 6.0.99(zod@4.3.6)
       bullmq:
         specifier: 5.34.8
         version: 5.34.8
@@ -454,14 +424,14 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -539,14 +509,14 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../packages/api-core
       '@mwashburn160/api-server':
-        specifier: 1.25.6
-        version: 1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../packages/api-server
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../packages/pipeline-core
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -600,8 +570,72 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/ai-core:
+    dependencies:
+      '@ai-sdk/amazon-bedrock':
+        specifier: 4.0.64
+        version: 4.0.64(zod@4.3.6)
+      '@ai-sdk/anthropic':
+        specifier: 3.0.47
+        version: 3.0.47(zod@4.3.6)
+      '@ai-sdk/google':
+        specifier: 3.0.31
+        version: 3.0.31(zod@4.3.6)
+      '@ai-sdk/openai':
+        specifier: 3.0.31
+        version: 3.0.31(zod@4.3.6)
+      '@ai-sdk/xai':
+        specifier: 3.0.59
+        version: 3.0.59(zod@4.3.6)
+      '@mwashburn160/api-core':
+        specifier: workspace:*
+        version: link:../api-core
+      ai:
+        specifier: 6.0.99
+        version: 6.0.99(zod@4.3.6)
+    devDependencies:
+      '@stylistic/eslint-plugin':
+        specifier: ^2
+        version: 2.13.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/node':
+        specifier: 25.3.0
+        version: 25.3.0
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8
+        version: 8.54.0(@typescript-eslint/parser@8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8
+        version: 8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+      eslint:
+        specifier: ^9
+        version: 9.39.2(jiti@2.6.1)
+      eslint-import-resolver-typescript:
+        specifier: ^4.4.4
+        version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.2(jiti@2.6.1))
+      eslint-plugin-import:
+        specifier: ^2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.2(jiti@2.6.1))
+      jest:
+        specifier: ^30.2.0
+        version: 30.2.0(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.12))(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@25.3.0)(typescript@5.9.3))
+      jest-junit:
+        specifier: ^16
+        version: 16.0.0
+      ts-jest:
+        specifier: ^29.4.6
+        version: 29.4.6(@babel/core@7.29.0)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.0))(esbuild@0.25.12)(jest-util@30.2.0)(jest@30.2.0(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.12))(ts-node@10.9.2(@swc/core@1.15.11)(@types/node@25.3.0)(typescript@5.9.3)))(typescript@5.9.3)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/api-core:
     dependencies:
+      '@asteasolutions/zod-to-openapi':
+        specifier: 8.4.0
+        version: 8.4.0(zod@4.3.6)
       express:
         specifier: 5.2.1
         version: 5.2.1
@@ -661,11 +695,11 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../api-core
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../pipeline-core
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -684,6 +718,9 @@ importers:
       prom-client:
         specifier: 15.1.3
         version: 15.1.3
+      swagger-ui-express:
+        specifier: 5.0.1
+        version: 5.0.1(express@5.2.1)
       uuid:
         specifier: 13.0.0
         version: 13.0.0
@@ -709,6 +746,9 @@ importers:
       '@types/node':
         specifier: 25.3.0
         version: 25.3.0
+      '@types/swagger-ui-express':
+        specifier: 4.1.8
+        version: 4.1.8
       '@typescript-eslint/eslint-plugin':
         specifier: ^8
         version: 8.54.0(@typescript-eslint/parser@8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
@@ -740,11 +780,11 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../api-core
       '@mwashburn160/pipeline-data':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../pipeline-data
       aws-cdk-lib:
         specifier: 2.240.0
         version: 2.240.0(constructs@10.5.1)
@@ -810,8 +850,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../api-core
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -865,8 +905,8 @@ importers:
   packages/pipeline-manager:
     dependencies:
       '@mwashburn160/pipeline-core':
-        specifier: 1.27.6
-        version: 1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: workspace:*
+        version: link:../pipeline-core
       aws-cdk-lib:
         specifier: 2.240.0
         version: 2.240.0(constructs@10.5.1)
@@ -947,8 +987,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: 1.26.6
-        version: 1.26.6
+        specifier: workspace:*
+        version: link:../packages/api-core
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -1125,6 +1165,11 @@ packages:
   '@alloc/quick-lru@5.2.0':
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
+
+  '@asteasolutions/zod-to-openapi@8.4.0':
+    resolution: {integrity: sha512-Ckp971tmTw4pnv+o7iK85ldBHBKk6gxMaoNyLn3c2Th/fKoTG8G3jdYuOanpdGqwlDB0z01FOjry2d32lfTqrA==}
+    peerDependencies:
+      zod: ^4.0.0
 
   '@aws-cdk/asset-awscli-v1@2.2.263':
     resolution: {integrity: sha512-X9JvcJhYcb7PHs8R7m4zMablO5C9PGb/hYfLnxds9h/rKJu6l7MiXE/SabCibuehxPnuO/vk+sVVJiUWrccarQ==}
@@ -2556,46 +2601,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@mwashburn160/api-core@1.26.3':
-    resolution: {integrity: sha512-mXAiJNduHUVYkVZF2MU+IzS4QBNLM3Fq81Q0uXydGcoUgxsgEFA1J4CkSUjm8X+iRy+qDxsbvwQzQ27MT0KMOw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.26.3/11b0cc2996de1118cdf28274dc3357fd8634d018}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/api-core@1.26.4':
-    resolution: {integrity: sha512-Kc8Ivguh6WqyPuAkGtwj9hOOztB4OpBjnWXhLu62aNkCLMeIO3nSqeIalsMUK8+hbO53JVz9BWmBofYMZYxhqQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.26.4/acdb17eb0dd91c15d63996226186a063a6aab70d}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/api-core@1.26.5':
-    resolution: {integrity: sha512-icwQjNx5pYjwgN3LzA3eq4EQ1MzY5V/3c5FElagAf37wE6VvarCn+don6axCTgV8rrTBztahK9ZNS2LI5A4LaQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.26.5/5c2d89b654e1f8aec27de395bdcfb826fb8263dc}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/api-core@1.26.6':
-    resolution: {integrity: sha512-AgppuKZ/2lX/W+m7hwMQ7gOBLY0xSRDKUML4RBVOVcDBV9EdUtBYSUulzflEJxdMu3qOGxWzmMHf9zlP4aaJWg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.26.6/f489b287762580fbef1d6d8ed8775206a3a397aa}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/api-server@1.25.6':
-    resolution: {integrity: sha512-Nnl6zRU7NcU4VQH0W/S4FeDpUEqFNPk24IR4TSE71l6vbWJz/zaRuiquFolL2Mx8coPqGRW76IIPumWSIkzlyw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-server/1.25.6/12d1f778f527d469d65ab1b09ce1e843cefb7702}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-core@1.27.5':
-    resolution: {integrity: sha512-MnDu9IbbZs4aXaoSegaYaHHYDvHMni/a0kS2+NPyk+wgU/Iqd/tTXr9FE2GnMdaVziSzzvn0jFz27MUURhmnJw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.27.5/76c752978d246bee9fe5ac192230dbfdd8de9373}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-core@1.27.6':
-    resolution: {integrity: sha512-1taYTetWp7o7/wSEmT06oEGMamdofz7Z4x8+u+ZcjlJQGkLcEWPZCtHX2obXqtEywzCjjR57czQg9HXf/UhfNg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.27.6/cc66f9245cd7eaeec5293e3cda7d5adbad8da759}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-data@1.27.4':
-    resolution: {integrity: sha512-RejKNuUbKXhmcHKJzDzHqAulb0d5cisnYUd53jpA57xHsnIZsNI6EtiuYP6AX3isRoGa9fHelApog0sg8N3Y0g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.27.4/cfeb8f7a585431fab3f118d3e66a7317e3404d63}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-data@1.27.5':
-    resolution: {integrity: sha512-RJ4t8YPRErcH9QUHyWz0DiyDPIstrZTEOGUisbaLJn5c4+JKichEOlpKTyM21dm+bzfGMnvAo/KoDBIjkzuG2Q==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.27.5/3a56bf0206d714c57016c8a4f72c4d0103fb8a1f}
-    engines: {node: '>= 24.9.0'}
-
-  '@mwashburn160/pipeline-data@1.27.6':
-    resolution: {integrity: sha512-Erg/BxQK/8fQ9S3HtHvUf0racTpWzEI5dZU/8Dkxh53+iJPhSY1UV6ugNUQFrPYgGGdgxwbEeqce+/BH/hMriQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.27.6/a6ce736f2a990b36e3a53cba23b352537255b33b}
-    engines: {node: '>= 24.9.0'}
-
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
 
@@ -2836,6 +2841,9 @@ packages:
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
+
+  '@scarf/scarf@1.4.0':
+    resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
   '@sinclair/typebox@0.34.48':
     resolution: {integrity: sha512-kKJTNuK3AQOrgjjotVxMrCn1sUJwM76wMszfq1kdU4uYVJjvEWuFQ6HgvLt4Xz3fSmZlTOxJ/Ie13KnIcWQXFA==}
@@ -3350,6 +3358,9 @@ packages:
 
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
+
+  '@types/swagger-ui-express@4.1.8':
+    resolution: {integrity: sha512-AhZV8/EIreHFmBV5wAs0gzJUNq9JbbSXgJLQubCC0jtIo6prnI9MIRRxnU4MZX9RB9yXxF1V4R7jtLl/Wcj31g==}
 
   '@types/triple-beam@1.3.5':
     resolution: {integrity: sha512-6WaYesThRMCl19iryMYP7/x2OVgCtbIVflDGFpWnb9irXI3UjYE4AzmYuiUKY1AJstGijoY+MgUszMgRxIYTYw==}
@@ -5605,6 +5616,9 @@ packages:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
 
+  openapi3-ts@4.5.0:
+    resolution: {integrity: sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==}
+
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
@@ -6188,6 +6202,15 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
+  swagger-ui-dist@5.31.2:
+    resolution: {integrity: sha512-uIoesCjDcxnAKj/C/HG5pjHZMQs2K/qmqpUlwLxxaVryGKlgm8Ri+VOza5xywAqf//pgg/hW16RYa6dDuTCOSg==}
+
+  swagger-ui-express@5.0.1:
+    resolution: {integrity: sha512-SrNU3RiBGTLLmFU8GIJdOdanJTl4TOmT27tt3bWWHppqYmAZ6IDuEuBvMU6nZq0zLEe6b/1rACXCgLZqO6ZfrA==}
+    engines: {node: '>= v0.10.32'}
+    peerDependencies:
+      express: '>=4.0.0 || >=5.0.0-beta'
+
   synckit@0.11.12:
     resolution: {integrity: sha512-Bh7QjT8/SuKUIfObSXNHNSK6WHo6J1tHCqJsuaFDP7gP0fkzSfTxI8y85JrppZ0h8l0maIgc2tfuZQ6/t3GtnQ==}
     engines: {node: ^14.18.0 || >=16.0.0}
@@ -6610,6 +6633,11 @@ snapshots:
       zod: 4.3.6
 
   '@alloc/quick-lru@5.2.0': {}
+
+  '@asteasolutions/zod-to-openapi@8.4.0(zod@4.3.6)':
+    dependencies:
+      openapi3-ts: 4.5.0
+      zod: 4.3.6
 
   '@aws-cdk/asset-awscli-v1@2.2.263': {}
 
@@ -8473,281 +8501,6 @@ snapshots:
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.3':
     optional: true
 
-  '@mwashburn160/api-core@1.26.3':
-    dependencies:
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
-
-  '@mwashburn160/api-core@1.26.4':
-    dependencies:
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
-
-  '@mwashburn160/api-core@1.26.5':
-    dependencies:
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
-
-  '@mwashburn160/api-core@1.26.6':
-    dependencies:
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
-
-  '@mwashburn160/api-server@1.25.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.5
-      '@mwashburn160/pipeline-core': 1.27.5(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
-      cors: 2.8.6
-      express: 5.2.1
-      express-rate-limit: 8.2.1(express@5.2.1)
-      helmet: 8.1.0
-      jsonwebtoken: 9.0.3
-      prom-client: 15.1.3
-      uuid: 13.0.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - debug
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-core@1.27.5(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.4
-      '@mwashburn160/pipeline-data': 1.27.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
-      aws-cdk-lib: 2.240.0(constructs@10.5.1)
-      axios: 1.13.5
-      constructs: 10.5.1
-      jsonwebtoken: 9.0.3
-      uuid: 13.0.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - debug
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-core@1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.5
-      '@mwashburn160/pipeline-data': 1.27.5(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
-      aws-cdk-lib: 2.240.0(constructs@10.5.1)
-      axios: 1.13.5
-      constructs: 10.5.1
-      jsonwebtoken: 9.0.3
-      uuid: 13.0.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - debug
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-data@1.27.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.3
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
-      pg: 8.18.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-data@1.27.5(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.4
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
-      pg: 8.18.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@mwashburn160/pipeline-data@1.27.6(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@mwashburn160/api-core': 1.26.5
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
-      pg: 8.18.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
       '@emnapi/core': 1.8.1
@@ -8957,6 +8710,8 @@ snapshots:
   '@pkgr/core@0.2.9': {}
 
   '@rtsao/scc@1.1.0': {}
+
+  '@scarf/scarf@1.4.0': {}
 
   '@sinclair/typebox@0.34.48': {}
 
@@ -9578,6 +9333,11 @@ snapshots:
       '@types/node': 24.10.11
 
   '@types/stack-utils@2.0.3': {}
+
+  '@types/swagger-ui-express@4.1.8':
+    dependencies:
+      '@types/express': 5.0.6
+      '@types/serve-static': 2.2.0
 
   '@types/triple-beam@1.3.5': {}
 
@@ -12234,6 +11994,10 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
+  openapi3-ts@4.5.0:
+    dependencies:
+      yaml: 2.8.2
+
   optionator@0.9.4:
     dependencies:
       deep-is: 0.1.4
@@ -12879,6 +12643,15 @@ snapshots:
       has-flag: 4.0.0
 
   supports-preserve-symlinks-flag@1.0.0: {}
+
+  swagger-ui-dist@5.31.2:
+    dependencies:
+      '@scarf/scarf': 1.4.0
+
+  swagger-ui-express@5.0.1(express@5.2.1):
+    dependencies:
+      express: 5.2.1
+      swagger-ui-dist: 5.31.2
 
   synckit@0.11.12:
     dependencies:

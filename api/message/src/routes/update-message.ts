@@ -1,3 +1,8 @@
+/**
+ * @module routes/update-message
+ * @description Express routes for updating messages, including marking individual messages and entire threads as read.
+ */
+
 import {
   sendBadRequest,
   sendInternalError,
@@ -6,6 +11,7 @@ import {
   ErrorCode,
   getParam,
 } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
@@ -22,7 +28,7 @@ export function createUpdateMessageRoutes(): Router {
 
   // PUT /messages/:id/read — Mark message as read
   router.put('/:id/read', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || 'unknown';
     const id = getParam(req.params, 'id');
@@ -48,7 +54,7 @@ export function createUpdateMessageRoutes(): Router {
 
   // PUT /messages/:id/thread/read — Mark entire thread as read
   router.put('/:id/thread/read', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || 'unknown';
     const id = getParam(req.params, 'id');

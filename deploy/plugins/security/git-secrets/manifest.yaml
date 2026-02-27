@@ -1,0 +1,68 @@
+name: git-secrets
+description: Secret detection plugin using Gitleaks and TruffleHog to scan code repositories for leaked credentials, API keys, and sensitive data using AWS CDK CodeBuildStep
+keywords:
+  - secrets
+  - gitleaks
+  - trufflehog
+  - security
+  - credentials
+  - api-keys
+  - passwords
+  - leaks
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: secrets-reports
+dockerfile: Dockerfile
+installCommands:
+  # Gitleaks version selection
+  - |
+    if [ -f /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} ]; then
+      ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /usr/local/bin/gitleaks
+    else
+      echo "Gitleaks ${GITLEAKS_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
+        | tar -xz -C /tmp && mv /tmp/gitleaks /usr/local/bin/gitleaks
+    fi
+  - gitleaks version
+  - trufflehog --version
+commands:
+  - mkdir -p secrets-reports
+  # Gitleaks scan
+  - |
+    CONFIG_ARG=""
+    if [ -n "${GITLEAKS_CONFIG}" ] && [ -f "${GITLEAKS_CONFIG}" ]; then
+      CONFIG_ARG="--config ${GITLEAKS_CONFIG}"
+    fi
+    echo "Running Gitleaks ${SCAN_MODE} scan..."
+    case "${SCAN_MODE}" in
+      directory)
+        gitleaks detect --source . \
+          --report-format ${REPORT_FORMAT} \
+          --report-path secrets-reports/gitleaks-results.json \
+          ${CONFIG_ARG} \
+          --no-git || true
+        ;;
+      git)
+        gitleaks detect --source . \
+          --report-format ${REPORT_FORMAT} \
+          --report-path secrets-reports/gitleaks-results.json \
+          ${CONFIG_ARG} || true
+        ;;
+    esac
+  # TruffleHog scan
+  - |
+    echo "Running TruffleHog filesystem scan..."
+    trufflehog filesystem . \
+      --json \
+      --no-update \
+      > secrets-reports/trufflehog-results.json 2>&1 || true
+  - "echo \"Secret scan complete. Reports available in secrets-reports/\""
+env:
+  GITLEAKS_VERSION: "8.22.0"
+  SCAN_MODE: directory
+  GITLEAKS_CONFIG: ""
+  REPORT_FORMAT: json

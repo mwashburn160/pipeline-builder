@@ -34,6 +34,9 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const [isActive, setIsActive] = useState(plugin.isActive);
   const [isDefault, setIsDefault] = useState(plugin.isDefault);
   const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState(plugin.primaryOutputDirectory || '');
+  const [timeout, setPluginTimeout] = useState<string>(plugin.timeout != null ? String(plugin.timeout) : '');
+  const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
+  const [secrets, setSecrets] = useState(JSON.stringify(plugin.secrets || [], null, 2));
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,9 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
             setIsActive(fetched.isActive);
             setIsDefault(fetched.isDefault);
             setPrimaryOutputDirectory(fetched.primaryOutputDirectory || '');
+            setPluginTimeout(fetched.timeout != null ? String(fetched.timeout) : '');
+            setFailureBehavior(fetched.failureBehavior || 'fail');
+            setSecrets(JSON.stringify(fetched.secrets || [], null, 2));
             setAccessModifier(fetched.accessModifier);
           } else {
             setFullPlugin(plugin);
@@ -103,6 +109,15 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
       return;
     }
 
+    let parsedSecrets: Array<{ name: string; required: boolean; description?: string }> = [];
+    try {
+      parsedSecrets = secrets.trim() ? JSON.parse(secrets) : [];
+    } catch {
+      setError('Invalid JSON in secrets field');
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await api.updatePlugin(plugin.id, {
         name,
@@ -119,6 +134,9 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
         isDefault,
         accessModifier,
         primaryOutputDirectory: primaryOutputDirectory.trim() || null,
+        timeout: timeout.trim() ? parseInt(timeout, 10) : null,
+        failureBehavior,
+        secrets: parsedSecrets,
       });
 
       if (response.success) {
@@ -242,8 +260,23 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
             <FormField label="Primary Output Directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
               <input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} className="input" disabled={loading} placeholder="e.g. cdk.out, dist, build" />
             </FormField>
+            <div className="grid grid-cols-2 gap-4 mb-3">
+              <FormField label="Timeout (minutes)" hint="Build timeout — blank = CodeBuild default (60 min)">
+                <input type="number" value={timeout} onChange={(e) => setPluginTimeout(e.target.value)} className="input" disabled={loading} placeholder="60" min={1} />
+              </FormField>
+              <FormField label="Failure Behavior" hint="What happens when this step fails">
+                <select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value as 'fail' | 'warn' | 'ignore')} className="input" disabled={loading}>
+                  <option value="fail">Fail (stop pipeline)</option>
+                  <option value="warn">Warn (log warning, continue)</option>
+                  <option value="ignore">Ignore (silently continue)</option>
+                </select>
+              </FormField>
+            </div>
             <FormField label="Metadata (JSON)" className="mb-3">
               <textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
+            </FormField>
+            <FormField label="Secrets (JSON)" className="mb-3" hint='Array of {name, required, description}'>
+              <textarea value={secrets} onChange={(e) => setSecrets(e.target.value)} rows={3} className="input font-mono text-xs" disabled={loading} placeholder='[{"name": "API_KEY", "required": true, "description": "API key for service"}]' />
             </FormField>
           </div>
 

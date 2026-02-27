@@ -1,0 +1,82 @@
+name: health-check
+description: Post-deployment health check and smoke testing plugin for verifying application endpoints are responsive and returning expected status codes using AWS CDK CodeBuildStep
+keywords:
+  - health-check
+  - smoke-test
+  - deploy-verify
+  - endpoint
+  - http
+  - uptime
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: health-reports
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - |
+    if [ -z "${HEALTH_ENDPOINTS}" ]; then
+      echo "WARNING: HEALTH_ENDPOINTS not set. Set to comma-separated URLs to check."
+      echo "Example: HEALTH_ENDPOINTS=https://api.example.com/health,https://app.example.com"
+    fi
+commands:
+  - mkdir -p health-reports
+  - |
+    if [ -z "${HEALTH_ENDPOINTS}" ]; then
+      echo "ERROR: HEALTH_ENDPOINTS must be set (comma-separated URLs)"
+      exit 1
+    fi
+    RESULTS="[]"
+    FAILED=0
+    TOTAL=0
+    IFS=',' read -ra ENDPOINTS <<< "${HEALTH_ENDPOINTS}"
+    for endpoint in "${ENDPOINTS[@]}"; do
+      endpoint=$(echo "${endpoint}" | xargs)
+      TOTAL=$((TOTAL + 1))
+      echo "Checking: ${endpoint}"
+      SUCCESS=false
+      for attempt in $(seq 1 ${HEALTH_RETRIES}); do
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          --max-time ${HEALTH_TIMEOUT} \
+          "${endpoint}" 2>/dev/null || echo "000")
+        RESPONSE_TIME=$(curl -s -o /dev/null -w "%{time_total}" \
+          --max-time ${HEALTH_TIMEOUT} \
+          "${endpoint}" 2>/dev/null || echo "0")
+        if [ "${HTTP_STATUS}" = "${EXPECTED_STATUS}" ]; then
+          echo "  OK (${HTTP_STATUS}) - ${RESPONSE_TIME}s (attempt ${attempt})"
+          SUCCESS=true
+          RESULT="{\"endpoint\":\"${endpoint}\",\"status\":${HTTP_STATUS},\"response_time\":${RESPONSE_TIME},\"healthy\":true,\"attempts\":${attempt}}"
+          break
+        else
+          echo "  FAIL (${HTTP_STATUS}) - attempt ${attempt}/${HEALTH_RETRIES}"
+          if [ "${attempt}" -lt "${HEALTH_RETRIES}" ]; then
+            sleep ${HEALTH_RETRY_DELAY}
+          fi
+        fi
+      done
+      if [ "${SUCCESS}" = "false" ]; then
+        FAILED=$((FAILED + 1))
+        RESULT="{\"endpoint\":\"${endpoint}\",\"status\":${HTTP_STATUS},\"response_time\":0,\"healthy\":false,\"attempts\":${HEALTH_RETRIES}}"
+        echo "  FAILED after ${HEALTH_RETRIES} attempts"
+      fi
+      RESULTS=$(echo "${RESULTS}" | jq ". + [${RESULT}]")
+    done
+    echo "${RESULTS}" | jq '.' > health-reports/health-results.json
+    echo ""
+    echo "=== Health Check Summary ==="
+    echo "Total: ${TOTAL}, Passed: $((TOTAL - FAILED)), Failed: ${FAILED}"
+    if [ "${FAILED}" -gt 0 ]; then
+      echo "WARNING: ${FAILED} endpoint(s) failed health check"
+    else
+      echo "All endpoints healthy"
+    fi
+  - "echo \"Health check complete. Report available in health-reports/\""
+env:
+  HEALTH_ENDPOINTS: ""
+  HEALTH_TIMEOUT: "10"
+  HEALTH_RETRIES: "3"
+  HEALTH_RETRY_DELAY: "5"
+  EXPECTED_STATUS: "200"

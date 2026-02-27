@@ -52,6 +52,7 @@ export function DashboardLayout({
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchUnreadCount = useCallback(async () => {
+    if (document.visibilityState !== 'visible') return;
     try {
       const result = await api.getUnreadCount();
       setUnreadCount(result.data?.count || 0);

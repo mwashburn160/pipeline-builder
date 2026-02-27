@@ -1,0 +1,102 @@
+name: manual-approval-custom
+description: Custom pipeline approval gate using SNS/SSM polling — publishes an SNS notification and polls SSM Parameter Store for approval response via AWS CDK CodeBuildStep
+keywords:
+  - approval
+  - gate
+  - manual
+  - pipeline
+  - infrastructure
+  - sns
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 60
+failureBehavior: fail
+primaryOutputDirectory: approval-output
+dockerfile: Dockerfile
+secrets: []
+installCommands:
+  - aws --version
+commands:
+  - mkdir -p approval-output
+  # Generate approval token
+  - |
+    APPROVAL_TOKEN=$(date +%s)-$(head -c 16 /dev/urandom | xxd -p)
+    echo "${APPROVAL_TOKEN}" > approval-output/approval-token.txt
+    echo "Approval token generated: ${APPROVAL_TOKEN}"
+  # Publish SNS notification
+  - |
+    if [ -z "${APPROVAL_TOPIC_ARN}" ]; then
+      echo "ERROR: APPROVAL_TOPIC_ARN must be set"
+      exit 1
+    fi
+    APPROVAL_TOKEN=$(cat approval-output/approval-token.txt)
+    BUILD_ID="${CODEBUILD_BUILD_ID:-unknown}"
+    PIPELINE_NAME="${CODEBUILD_INITIATOR:-unknown}"
+
+    MESSAGE_BODY=$(jq -n \
+      --arg msg "${APPROVAL_MESSAGE}" \
+      --arg token "${APPROVAL_TOKEN}" \
+      --arg build "${BUILD_ID}" \
+      --arg pipeline "${PIPELINE_NAME}" \
+      --arg url "${APPROVAL_URL}" \
+      '{
+        message: $msg,
+        approvalToken: $token,
+        buildId: $build,
+        pipeline: $pipeline,
+        approvalUrl: $url,
+        timestamp: now | todate
+      }')
+
+    echo "Publishing approval notification to SNS..."
+    aws sns publish \
+      --topic-arn "${APPROVAL_TOPIC_ARN}" \
+      --subject "Pipeline Approval Required: ${PIPELINE_NAME}" \
+      --message "${MESSAGE_BODY}" \
+      | tee approval-output/sns-publish-result.json
+    echo "Notification sent. Waiting for approval..."
+  # Poll for approval response
+  - |
+    APPROVAL_TOKEN=$(cat approval-output/approval-token.txt)
+    BUILD_ID="${CODEBUILD_BUILD_ID:-unknown}"
+    PARAMETER_NAME="/pipeline-builder/approvals/${BUILD_ID}"
+    ELAPSED=0
+    POLL_INTERVAL=15
+
+    echo "Polling for approval at parameter: ${PARAMETER_NAME}"
+    echo "Timeout: ${APPROVAL_TIMEOUT} seconds"
+
+    while [ ${ELAPSED} -lt ${APPROVAL_TIMEOUT} ]; do
+      RESPONSE=$(aws ssm get-parameter \
+        --name "${PARAMETER_NAME}" \
+        --query "Parameter.Value" \
+        --output text 2>/dev/null || echo "PENDING")
+
+      if [ "${RESPONSE}" = "APPROVED" ]; then
+        echo "Approval received! Proceeding..."
+        echo "APPROVED" > approval-output/approval-status.txt
+        # Clean up the parameter
+        aws ssm delete-parameter --name "${PARAMETER_NAME}" 2>/dev/null || true
+        exit 0
+      elif [ "${RESPONSE}" = "REJECTED" ]; then
+        echo "Approval rejected. Failing pipeline."
+        echo "REJECTED" > approval-output/approval-status.txt
+        aws ssm delete-parameter --name "${PARAMETER_NAME}" 2>/dev/null || true
+        exit 1
+      fi
+
+      sleep ${POLL_INTERVAL}
+      ELAPSED=$((ELAPSED + POLL_INTERVAL))
+      echo "Waiting for approval... (${ELAPSED}s / ${APPROVAL_TIMEOUT}s)"
+    done
+
+    echo "ERROR: Approval timed out after ${APPROVAL_TIMEOUT} seconds"
+    echo "TIMEOUT" > approval-output/approval-status.txt
+    exit 1
+  - "echo \"Manual approval complete. Status available in approval-output/\""
+env:
+  APPROVAL_TOPIC_ARN: ""
+  APPROVAL_MESSAGE: "Pipeline requires manual approval"
+  APPROVAL_TIMEOUT: "3600"
+  APPROVAL_URL: ""

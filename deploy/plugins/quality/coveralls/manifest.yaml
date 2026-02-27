@@ -1,0 +1,65 @@
+name: coveralls
+description: Coveralls coverage reporting plugin for uploading and tracking code coverage with badge support and PR status checks using AWS CDK CodeBuildStep
+keywords:
+  - coveralls
+  - coverage
+  - reporting
+  - badge
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+secrets:
+  - name: COVERALLS_REPO_TOKEN
+    required: true
+    description: "Coveralls repository token"
+primaryOutputDirectory: coveralls-reports
+dockerfile: Dockerfile
+installCommands:
+  - node -v && npm -v
+  - coveralls --version || echo "Coveralls CLI ready"
+  - |
+    if [ -z "${COVERALLS_REPO_TOKEN}" ]; then
+      echo "WARNING: COVERALLS_REPO_TOKEN is not set. Coverage upload will fail."
+      echo "Provide COVERALLS_REPO_TOKEN via CodeBuild secrets or environment variables."
+    fi
+commands:
+  - mkdir -p coveralls-reports
+  # Auto-detect coverage files and pipe to coveralls
+  - |
+    echo "Scanning for coverage files..."
+    COVERAGE_SENT=false
+    # LCOV format (JavaScript/TypeScript)
+    LCOV=$(find . -name "lcov.info" -not -path "*/node_modules/*" 2>/dev/null | head -1)
+    if [ -n "${LCOV}" ]; then
+      echo "Found LCOV coverage: ${LCOV}"
+      cat "${LCOV}" | coveralls 2>&1 | tee coveralls-reports/coveralls-upload.log || true
+      COVERAGE_SENT=true
+    fi
+    # Cobertura XML format (Python/Java)
+    if [ "${COVERAGE_SENT}" = "false" ]; then
+      COBERTURA=$(find . -name "coverage.xml" -not -path "*/node_modules/*" 2>/dev/null | head -1)
+      if [ -n "${COBERTURA}" ]; then
+        echo "Found Cobertura coverage: ${COBERTURA}"
+        cat "${COBERTURA}" | coveralls 2>&1 | tee coveralls-reports/coveralls-upload.log || true
+        COVERAGE_SENT=true
+      fi
+    fi
+    # Python .coverage file
+    if [ "${COVERAGE_SENT}" = "false" ]; then
+      if [ -f .coverage ]; then
+        echo "Found Python .coverage file"
+        pip install coverage 2>/dev/null || true
+        coverage report --format=lcov 2>/dev/null | coveralls 2>&1 | tee coveralls-reports/coveralls-upload.log || true
+        COVERAGE_SENT=true
+      fi
+    fi
+    if [ "${COVERAGE_SENT}" = "false" ]; then
+      echo "No coverage files found. Run tests with coverage enabled first."
+    fi
+  - "echo \"Coveralls upload complete.\""
+# COVERALLS_REPO_TOKEN must be provided at runtime via CodeBuild secrets or environment variables
+# Do NOT define COVERALLS_REPO_TOKEN here or in the Dockerfile
+env:
+  COVERALLS_SERVICE_NAME: codebuild

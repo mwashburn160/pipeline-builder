@@ -52,16 +52,19 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.26.6';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.27.6';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.27.6';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.25.6';
+let apiServerVersion = 'workspace:*';
+
+/** @mwashburn160/ai-core package version */
+let aiCoreVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -199,7 +202,8 @@ let api_core = new PackageProject({
     `express@${expressVersion}`,  // Express types for middleware definitions
     'jsonwebtoken@9.0.3',         // JWT authentication
     'winston@3.19.0',             // Structured logging
-    'zod@4.3.6'                   // Runtime type validation
+    'zod@4.3.6',                  // Runtime type validation
+    '@asteasolutions/zod-to-openapi@8.4.0', // OpenAPI spec generation from Zod schemas
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express type definitions
@@ -386,12 +390,14 @@ let api_server = new PackageProject({
     'jsonwebtoken@9.0.3',                                 // JWT authentication
     'uuid@13.0.0',                                        // UUID generation
     'prom-client@15.1.3',                                  // Prometheus metrics
+    'swagger-ui-express@5.0.1',                            // Swagger UI for OpenAPI docs
   ],
   devDeps: [
     '@types/express@5.0.6',                // Express type definitions
     '@types/express-serve-static-core@5.1.1', // Express core types
     '@types/cors@2.8.19',                  // CORS type definitions
     '@types/jsonwebtoken@9.0.10',          // JWT type definitions
+    '@types/swagger-ui-express@4.1.8',     // Swagger UI type definitions
     '@types/node@25.3.0',                  // Node.js type definitions
     `typescript@${typescriptVersion}`
   ]
@@ -404,6 +410,49 @@ api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 if (api_server.jest) {
   api_server.jest.config.maxWorkers = 1;
 }
+
+// =============================================================================
+// AI Core Package - Shared AI provider registry
+// =============================================================================
+/**
+ * AI Core package (@mwashburn160/ai-core)
+ *
+ * Shared AI provider registry and model resolution for services that use
+ * AI-powered generation (plugin, pipeline). Centralises the Vercel AI SDK
+ * provider wrappers so each consuming service only needs domain-specific
+ * code (prompts, schemas, generation logic).
+ *
+ * @dependency api-core - Provider catalog, env var mapping, logger
+ * @dependency ai - Vercel AI SDK core (LanguageModel type, generateText)
+ * @dependency @ai-sdk/* - Provider-specific SDK packages
+ */
+let ai_core = new PackageProject({
+  parent: root,
+  name: '@mwashburn160/ai-core',
+  outdir: './packages/ai-core',
+  defaultReleaseBranch: 'main',
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion: typescriptVersion,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+  deps: [
+    `@mwashburn160/api-core@${apiCoreVersion}`,  // Provider catalog + logger
+    'ai@6.0.99',                                  // Vercel AI SDK core
+    '@ai-sdk/anthropic@3.0.47',                   // Anthropic provider
+    '@ai-sdk/openai@3.0.31',                      // OpenAI provider
+    '@ai-sdk/google@3.0.31',                      // Google provider
+    '@ai-sdk/xai@3.0.59',                         // xAI (Grok) provider
+    '@ai-sdk/amazon-bedrock@4.0.64',              // Amazon Bedrock provider
+  ],
+  devDeps: [
+    '@types/node@25.3.0',
+    `typescript@${typescriptVersion}`,
+  ],
+});
+ai_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
 // Pipeline Manager - CLI tool for pipeline management
@@ -880,12 +929,7 @@ let plugin = new FunctionProject({
     'yaml@2.8.2',                                         // YAML parsing
     'adm-zip@0.5.16',                                     // ZIP extraction
     'multer@2.0.2',                                       // File uploads
-    'ai@6.0.99',                                          // Vercel AI SDK core
-    '@ai-sdk/anthropic@3.0.47',                           // Anthropic provider
-    '@ai-sdk/openai@3.0.31',                              // OpenAI provider
-    '@ai-sdk/google@3.0.31',                              // Google provider
-    '@ai-sdk/xai@3.0.59',                                 // xAI (Grok) provider
-    '@ai-sdk/amazon-bedrock@4.0.64',                      // Amazon Bedrock provider
+    `@mwashburn160/ai-core@${aiCoreVersion}`,              // AI provider registry
     'zod@4.3.6',                                          // Schema validation (for structured output)
     'bullmq@5.34.8',                                      // Job queue (Redis-backed)
     'ioredis@5.6.1',                                      // Redis client (required by BullMQ)
@@ -976,12 +1020,7 @@ let pipeline = new FunctionProject({
     'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
     'uuid@13.0.0',                                        // UUID generation
     'yaml@2.8.2',                                          // YAML parsing
-    'ai@6.0.99',                                           // Vercel AI SDK core
-    '@ai-sdk/anthropic@3.0.47',                            // Anthropic provider
-    '@ai-sdk/openai@3.0.31',                               // OpenAI provider
-    '@ai-sdk/google@3.0.31',                               // Google provider
-    '@ai-sdk/xai@3.0.59',                                  // xAI (Grok) provider
-    '@ai-sdk/amazon-bedrock@4.0.64',                       // Amazon Bedrock provider
+    `@mwashburn160/ai-core@${aiCoreVersion}`,               // AI provider registry
     'zod@4.3.6',                                           // Schema validation (for structured output)
   ],
   devDeps: [

@@ -2,12 +2,14 @@
  * @module routes/read-plugins
  * @description Read-only plugin routes using service layer.
  *
- * GET /plugins        — paginated list with filters and sorting
- * GET /plugins/find   — find single plugin by query-string filters
- * GET /plugins/:id    — get a plugin by UUID
+ * GET  /plugins        — paginated list with filters and sorting
+ * POST /plugins/lookup — find single plugin by body filter (used by CDK Lambda handler)
+ * GET  /plugins/find   — find single plugin by query-string filters
+ * GET  /plugins/:id    — get a plugin by UUID
  */
 
 import { getParam, ErrorCode, isSystemAdmin, errorMessage, sendBadRequest, sendInternalError, sendSuccess, parsePaginationParams } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Router, Request, Response } from 'express';
 import {
@@ -32,7 +34,7 @@ export function createReadPluginRoutes(
   // GET /plugins — paginated list
   // -------------------------------------------------------------------------
   router.get('/', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
@@ -75,10 +77,37 @@ export function createReadPluginRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // POST /plugins/lookup — find single plugin by body filter (CDK Lambda handler)
+  // -------------------------------------------------------------------------
+  router.post('/lookup', async (req: Request, res: Response) => {
+    const ctx = getContext(req);
+    const orgId = ctx.identity.orgId?.toLowerCase();
+    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
+
+    try {
+      const { filter } = req.body;
+      if (!filter) return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
+
+      const plugins = await pluginService.find(filter, orgId);
+      const result = plugins[0];
+
+      if (!result) return sendPluginNotFound(res);
+
+      ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
+      void quotaService.increment(orgId, 'apiCalls', req.headers.authorization || '');
+
+      return sendSuccess(res, 200, { plugin: normalizePlugin(result) });
+    } catch (error) {
+      ctx.log('ERROR', 'Failed to lookup plugin', { error: errorMessage(error) });
+      return sendInternalError(res, errorMessage(error));
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // GET /plugins/find — single plugin by filter
   // -------------------------------------------------------------------------
   router.get('/find', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
 
@@ -110,7 +139,7 @@ export function createReadPluginRoutes(
   // GET /plugins/:id — single plugin by UUID
   // -------------------------------------------------------------------------
   router.get('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase();
     if (!orgId) return sendBadRequest(res, 'Organization ID is required');
     const id = getParam(req.params, 'id');

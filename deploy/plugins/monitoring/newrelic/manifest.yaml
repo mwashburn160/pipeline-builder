@@ -1,0 +1,75 @@
+name: newrelic
+description: New Relic deployment marker plugin for recording deployments and correlating releases with application performance metrics using AWS CDK CodeBuildStep
+keywords:
+  - newrelic
+  - monitoring
+  - deploy
+  - apm
+  - observability
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+secrets:
+  - name: NEW_RELIC_API_KEY
+    required: true
+    description: "New Relic API key"
+primaryOutputDirectory: newrelic-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${NEW_RELIC_API_KEY}" ]; then
+      echo "WARNING: NEW_RELIC_API_KEY not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p newrelic-output
+  - |
+    if [ -z "${NEW_RELIC_API_KEY}" ]; then
+      echo "ERROR: NEW_RELIC_API_KEY must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    if [ -z "${NR_APP_ID}" ]; then
+      echo "ERROR: NR_APP_ID must be set to target New Relic application"
+      exit 1
+    fi
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    REVISION="${NR_REVISION:-unknown}"
+    DESCRIPTION="${NR_DESCRIPTION:-Deployment via pipeline}"
+    USER="${NR_USER:-pipeline}"
+    echo "Recording deployment marker for app ${NR_APP_ID}..."
+    PAYLOAD=$(jq -n \
+      --arg revision "${REVISION}" \
+      --arg description "${DESCRIPTION}" \
+      --arg user "${USER}" \
+      --arg timestamp "${TIMESTAMP}" \
+      '{
+        "deployment": {
+          "revision": $revision,
+          "description": $description,
+          "user": $user,
+          "timestamp": $timestamp
+        }
+      }')
+    echo "${PAYLOAD}" | jq '.' | tee newrelic-output/payload.json
+    HTTP_STATUS=$(curl -s -o newrelic-output/response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "Api-Key: ${NEW_RELIC_API_KEY}" \
+      -d "${PAYLOAD}" \
+      "https://api.newrelic.com/v2/applications/${NR_APP_ID}/deployments.json") || true
+    if [ "${HTTP_STATUS}" = "201" ]; then
+      echo "Deployment marker recorded successfully"
+      cat newrelic-output/response.txt | jq '.' 2>/dev/null || cat newrelic-output/response.txt
+    else
+      echo "WARNING: New Relic returned HTTP ${HTTP_STATUS}"
+      cat newrelic-output/response.txt
+    fi
+  - "echo \"New Relic deployment marker complete. Output saved in newrelic-output/\""
+env:
+  NR_APP_ID: ""
+  NR_REVISION: ""
+  NR_DESCRIPTION: ""
+  NR_USER: ""

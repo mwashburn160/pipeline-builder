@@ -18,7 +18,9 @@ export const PluginFilterSchema = BaseFilterSchema.extend({
 });
 
 /**
- * Plugin creation schema
+ * Plugin creation schema — used for OpenAPI documentation and direct API creation.
+ * Currently no route uses this directly; plugins are created via upload or AI generation.
+ * Retained for future direct-create endpoint and OpenAPI spec completeness.
  */
 export const PluginCreateSchema = z.object({
   orgId: z.string().min(1, 'Organization ID is required'),
@@ -31,10 +33,18 @@ export const PluginCreateSchema = z.object({
   primaryOutputDirectory: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  buildArgs: z.record(z.string(), z.string()).optional(),
   installCommands: z.array(z.string()).optional(),
   commands: z.array(z.string()).optional(),
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
+  timeout: z.number().int().positive().nullable().optional(),
+  failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional(),
+  secrets: z.array(z.object({
+    name: z.string().min(1),
+    required: z.boolean(),
+    description: z.string().optional(),
+  })).optional(),
 });
 
 /**
@@ -50,11 +60,19 @@ export const PluginUpdateSchema = z.object({
   computeType: z.string().optional(),
   primaryOutputDirectory: z.string().nullable().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  buildArgs: z.record(z.string(), z.string()).optional(),
   installCommands: z.array(z.string()).optional(),
   commands: z.array(z.string()).optional(),
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
   accessModifier: AccessModifierSchema.optional(),
+  timeout: z.number().int().positive().nullable().optional(),
+  failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional(),
+  secrets: z.array(z.object({
+    name: z.string().min(1),
+    required: z.boolean(),
+    description: z.string().optional(),
+  })).optional(),
 });
 
 /**

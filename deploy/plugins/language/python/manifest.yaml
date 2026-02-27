@@ -1,0 +1,78 @@
+name: python
+description: Python plugin for building and testing Python applications using pip, Poetry, or Pipenv with AWS CDK CodeBuildStep
+keywords:
+  - python
+  - pip
+  - poetry
+  - pipenv
+  - pytest
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Python version selection
+  - pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
+  - python --version
+  # Auto-detect or use explicit package manager, then install dependencies
+  - |
+    PKG="${PACKAGE_MANAGER}"
+    if [ "${PKG}" = "auto" ]; then
+      if [ -f poetry.lock ] || ([ -f pyproject.toml ] && grep -q '\[tool.poetry\]' pyproject.toml 2>/dev/null); then
+        PKG="poetry"
+      elif [ -f Pipfile ] || [ -f Pipfile.lock ]; then
+        PKG="pipenv"
+      else
+        PKG="pip"
+      fi
+    fi
+    echo "Package manager: ${PKG}"
+    python -m pip install --upgrade pip setuptools wheel
+    case "${PKG}" in
+      pip)
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+        pip show pytest > /dev/null 2>&1 || pip install pytest pytest-cov
+        ;;
+      poetry)
+        pip install poetry
+        poetry config virtualenvs.in-project true
+        poetry install --no-interaction
+        ;;
+      pipenv)
+        pip install pipenv
+        pipenv install --dev --system
+        pip show pytest > /dev/null 2>&1 || pip install pytest pytest-cov
+        ;;
+      *)
+        echo "ERROR: Unknown PACKAGE_MANAGER '${PKG}'. Supported: auto, pip, poetry, pipenv"
+        exit 1
+        ;;
+    esac
+commands:
+  - |
+    PKG="${PACKAGE_MANAGER}"
+    if [ "${PKG}" = "auto" ]; then
+      if [ -f poetry.lock ] || ([ -f pyproject.toml ] && grep -q '\[tool.poetry\]' pyproject.toml 2>/dev/null); then
+        PKG="poetry"
+      elif [ -f Pipfile ] || [ -f Pipfile.lock ]; then
+        PKG="pipenv"
+      else
+        PKG="pip"
+      fi
+    fi
+    case "${PKG}" in
+      poetry)
+        poetry run pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
+        ;;
+      *)
+        pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
+        ;;
+    esac
+env:
+  PYTHON_VERSION: "3.12"
+  PACKAGE_MANAGER: auto

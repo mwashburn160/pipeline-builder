@@ -1,0 +1,54 @@
+name: shellcheck
+description: ShellCheck shell script linting plugin for detecting bugs, syntax issues, and portability problems in bash, sh, and zsh scripts using AWS CDK CodeBuildStep
+keywords:
+  - shellcheck
+  - shell
+  - bash
+  - lint
+  - script
+  - code-quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: shellcheck-reports
+dockerfile: Dockerfile
+installCommands:
+  # ShellCheck version selection
+  - |
+    if [ -f /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} ]; then
+      ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /usr/local/bin/shellcheck
+    else
+      echo "ShellCheck ${SHELLCHECK_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz \
+        | tar -xJ -C /tmp && mv /tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck /usr/local/bin/shellcheck
+    fi
+  - shellcheck --version
+commands:
+  - mkdir -p shellcheck-reports
+  - |
+    echo "Scanning for shell scripts..."
+    SCRIPTS=$(find . -type f \( -name "*.sh" -o -name "*.bash" -o -name "*.zsh" \) \
+      -not -path "*/node_modules/*" \
+      -not -path "*/.git/*" \
+      -not -path "*/vendor/*" 2>/dev/null)
+    if [ -z "${SCRIPTS}" ]; then
+      echo "No shell scripts found to lint"
+      echo "[]" > shellcheck-reports/shellcheck-results.json
+    else
+      echo "Found scripts to lint:"
+      echo "${SCRIPTS}"
+      echo "${SCRIPTS}" | xargs shellcheck \
+        --format=${SHELLCHECK_FORMAT} \
+        --severity=${SHELLCHECK_SEVERITY} \
+        --shell=${SHELLCHECK_SHELL} \
+        > shellcheck-reports/shellcheck-results.json 2>&1 || true
+    fi
+  - "echo \"ShellCheck complete. Report available in shellcheck-reports/\""
+env:
+  SHELLCHECK_VERSION: "0.10.0"
+  SHELLCHECK_SEVERITY: warning
+  SHELLCHECK_FORMAT: json
+  SHELLCHECK_SHELL: bash

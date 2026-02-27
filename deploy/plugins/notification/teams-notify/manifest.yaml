@@ -1,0 +1,137 @@
+name: teams-notify
+description: Microsoft Teams notification plugin for sending pipeline status alerts and build results to Teams channels via webhook using AWS CDK CodeBuildStep
+keywords:
+  - teams
+  - microsoft
+  - notification
+  - alert
+  - webhook
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: TEAMS_WEBHOOK_URL
+    required: true
+    description: "Microsoft Teams incoming webhook URL"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${TEAMS_WEBHOOK_URL}" ]; then
+      echo "WARNING: TEAMS_WEBHOOK_URL not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${TEAMS_WEBHOOK_URL}" ]; then
+      echo "ERROR: TEAMS_WEBHOOK_URL must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    # Build adaptive card payload
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    case "${NOTIFICATION_TYPE}" in
+      pipeline-status)
+        STATUS="${PIPELINE_STATUS:-unknown}"
+        NAME="${PIPELINE_NAME:-Pipeline}"
+        case "${STATUS}" in
+          success|succeeded)
+            COLOR="good"
+            TITLE="Build Succeeded"
+            ;;
+          failure|failed)
+            COLOR="attention"
+            TITLE="Build Failed"
+            ;;
+          *)
+            COLOR="warning"
+            TITLE="Status: ${STATUS}"
+            ;;
+        esac
+        MENTION_BLOCK=""
+        if [ "${STATUS}" = "failure" ] || [ "${STATUS}" = "failed" ]; then
+          if [ -n "${MENTION_ON_FAILURE}" ]; then
+            MENTION_BLOCK=", {\"type\": \"TextBlock\", \"text\": \"${MENTION_ON_FAILURE} please investigate\", \"color\": \"attention\"}"
+          fi
+        fi
+        PAYLOAD=$(jq -n \
+          --arg color "${COLOR}" \
+          --arg title "${TITLE}" \
+          --arg name "${NAME}" \
+          --arg ts "${TIMESTAMP}" \
+          --arg mention "${MENTION_BLOCK}" \
+          '{
+            "type": "message",
+            "attachments": [{
+              "contentType": "application/vnd.microsoft.card.adaptive",
+              "content": {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": [
+                  {
+                    "type": "TextBlock",
+                    "size": "medium",
+                    "weight": "bolder",
+                    "text": ($name + " — " + $title),
+                    "color": $color
+                  },
+                  {
+                    "type": "FactSet",
+                    "facts": [
+                      { "title": "Pipeline", "value": $name },
+                      { "title": "Status", "value": $title },
+                      { "title": "Timestamp", "value": $ts }
+                    ]
+                  }
+                ]
+              }
+            }]
+          }')
+        ;;
+      custom)
+        if [ -z "${CUSTOM_MESSAGE}" ]; then
+          echo "ERROR: CUSTOM_MESSAGE must be set for custom notification type"
+          exit 1
+        fi
+        PAYLOAD=$(jq -n --arg text "${CUSTOM_MESSAGE}" '{
+          "type": "message",
+          "attachments": [{
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+              "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+              "type": "AdaptiveCard",
+              "version": "1.4",
+              "body": [{"type": "TextBlock", "text": $text, "wrap": true}]
+            }
+          }]
+        }')
+        ;;
+      *)
+        echo "ERROR: Unknown NOTIFICATION_TYPE '${NOTIFICATION_TYPE}'. Supported: pipeline-status, custom"
+        exit 1
+        ;;
+    esac
+    echo "Sending Teams notification..."
+    echo "${PAYLOAD}" | jq '.' | tee notify-output/payload.json
+    HTTP_STATUS=$(curl -s -o notify-output/response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -d "${PAYLOAD}" \
+      "${TEAMS_WEBHOOK_URL}") || true
+    if [ "${HTTP_STATUS}" = "200" ] || [ "${HTTP_STATUS}" = "202" ]; then
+      echo "Notification sent successfully"
+    else
+      echo "WARNING: Teams returned HTTP ${HTTP_STATUS}"
+      cat notify-output/response.txt
+    fi
+  - "echo \"Teams notification complete. Payload saved in notify-output/\""
+env:
+  NOTIFICATION_TYPE: pipeline-status
+  PIPELINE_NAME: ""
+  PIPELINE_STATUS: ""
+  CUSTOM_MESSAGE: ""
+  MENTION_ON_FAILURE: ""

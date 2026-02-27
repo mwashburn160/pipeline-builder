@@ -1,0 +1,78 @@
+name: flyway
+description: Flyway database migration plugin supporting migrate, repair, info, validate, and clean actions via AWS CDK CodeBuildStep
+keywords:
+  - flyway
+  - database
+  - migration
+  - sql
+  - schema
+  - deploy
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+primaryOutputDirectory: flyway-output
+dockerfile: Dockerfile
+secrets:
+  - name: FLYWAY_USER
+    required: true
+    description: "Database username for Flyway connection"
+  - name: FLYWAY_PASSWORD
+    required: true
+    description: "Database password for Flyway connection"
+installCommands:
+  - flyway --version
+  - java --version
+commands:
+  - mkdir -p flyway-output
+  # Validate required parameters
+  - |
+    if [ -z "${FLYWAY_URL}" ]; then
+      echo "ERROR: FLYWAY_URL must be set (e.g., jdbc:postgresql://host:5432/db)"
+      exit 1
+    fi
+  # Build Flyway arguments
+  - |
+    FLYWAY_ARGS="-url=${FLYWAY_URL} -user=${FLYWAY_USER} -password=${FLYWAY_PASSWORD}"
+    if [ -n "${FLYWAY_SCHEMAS}" ]; then
+      FLYWAY_ARGS="${FLYWAY_ARGS} -schemas=${FLYWAY_SCHEMAS}"
+    fi
+    FLYWAY_ARGS="${FLYWAY_ARGS} -locations=${FLYWAY_LOCATIONS}"
+    FLYWAY_ARGS="${FLYWAY_ARGS} -baselineOnMigrate=${FLYWAY_BASELINE_ON_MIGRATE}"
+    FLYWAY_ARGS="${FLYWAY_ARGS} -outOfOrder=${FLYWAY_OUT_OF_ORDER}"
+
+    case "${FLYWAY_ACTION}" in
+      migrate)
+        echo "Running Flyway migrate..."
+        flyway ${FLYWAY_ARGS} migrate | tee flyway-output/migrate-result.txt
+        ;;
+      repair)
+        echo "Running Flyway repair..."
+        flyway ${FLYWAY_ARGS} repair | tee flyway-output/repair-result.txt
+        ;;
+      info)
+        echo "Running Flyway info..."
+        flyway ${FLYWAY_ARGS} info | tee flyway-output/info-result.txt
+        ;;
+      validate)
+        echo "Running Flyway validate..."
+        flyway ${FLYWAY_ARGS} validate | tee flyway-output/validate-result.txt
+        ;;
+      clean)
+        echo "WARNING: Running Flyway clean — this will drop all objects in the schemas!"
+        flyway ${FLYWAY_ARGS} -cleanDisabled=false clean | tee flyway-output/clean-result.txt
+        ;;
+      *)
+        echo "ERROR: Unknown FLYWAY_ACTION '${FLYWAY_ACTION}'. Supported: migrate, repair, info, validate, clean"
+        exit 1
+        ;;
+    esac
+  - "echo \"Flyway ${FLYWAY_ACTION} complete. Output available in flyway-output/\""
+env:
+  FLYWAY_URL: ""
+  FLYWAY_SCHEMAS: ""
+  FLYWAY_LOCATIONS: "filesystem:./sql"
+  FLYWAY_ACTION: migrate
+  FLYWAY_BASELINE_ON_MIGRATE: "false"
+  FLYWAY_OUT_OF_ORDER: "false"

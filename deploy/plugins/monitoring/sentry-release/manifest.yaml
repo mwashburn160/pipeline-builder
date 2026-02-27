@@ -1,0 +1,80 @@
+name: sentry-release
+description: Sentry release tracking plugin for creating releases, associating commits, finalizing releases, and optionally uploading source maps using AWS CDK CodeBuildStep
+keywords:
+  - sentry
+  - release
+  - error-tracking
+  - sourcemaps
+  - monitoring
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+secrets:
+  - name: SENTRY_AUTH_TOKEN
+    required: true
+    description: "Sentry authentication token"
+primaryOutputDirectory: sentry-output
+dockerfile: Dockerfile
+installCommands:
+  - sentry-cli --version
+  - |
+    if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
+      echo "WARNING: SENTRY_AUTH_TOKEN not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p sentry-output
+  - |
+    if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
+      echo "ERROR: SENTRY_AUTH_TOKEN must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    if [ -z "${SENTRY_ORG}" ]; then
+      echo "ERROR: SENTRY_ORG must be set"
+      exit 1
+    fi
+    if [ -z "${SENTRY_PROJECT}" ]; then
+      echo "ERROR: SENTRY_PROJECT must be set"
+      exit 1
+    fi
+    # Determine release version
+    RELEASE="${SENTRY_RELEASE}"
+    if [ -z "${RELEASE}" ]; then
+      RELEASE=$(sentry-cli releases propose-version 2>/dev/null || echo "unknown-$(date +%s)")
+      echo "Auto-detected release version: ${RELEASE}"
+    fi
+    echo "${RELEASE}" > sentry-output/release-version.txt
+    # Create new release
+    echo "Creating Sentry release: ${RELEASE}..."
+    sentry-cli releases new "${RELEASE}" \
+      --org "${SENTRY_ORG}" \
+      --project "${SENTRY_PROJECT}" \
+      2>&1 | tee sentry-output/release-create.log || true
+    # Associate commits with the release
+    echo "Associating commits..."
+    sentry-cli releases set-commits "${RELEASE}" --auto \
+      --org "${SENTRY_ORG}" \
+      2>&1 | tee sentry-output/release-commits.log || true
+    # Upload source maps if path is specified
+    if [ -n "${SENTRY_SOURCEMAPS_PATH}" ] && [ -d "${SENTRY_SOURCEMAPS_PATH}" ]; then
+      echo "Uploading source maps from ${SENTRY_SOURCEMAPS_PATH}..."
+      sentry-cli releases files "${RELEASE}" upload-sourcemaps "${SENTRY_SOURCEMAPS_PATH}" \
+        --org "${SENTRY_ORG}" \
+        --project "${SENTRY_PROJECT}" \
+        2>&1 | tee sentry-output/sourcemaps-upload.log || true
+    else
+      echo "No source maps path specified or directory not found. Skipping source map upload."
+    fi
+    # Finalize the release
+    echo "Finalizing release..."
+    sentry-cli releases finalize "${RELEASE}" \
+      --org "${SENTRY_ORG}" \
+      2>&1 | tee sentry-output/release-finalize.log || true
+    echo "Release ${RELEASE} finalized"
+  - "echo \"Sentry release tracking complete. Output saved in sentry-output/\""
+env:
+  SENTRY_ORG: ""
+  SENTRY_PROJECT: ""
+  SENTRY_RELEASE: ""
+  SENTRY_SOURCEMAPS_PATH: ""

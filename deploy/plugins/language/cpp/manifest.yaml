@@ -1,0 +1,76 @@
+name: cpp
+description: C/C++ plugin for building and testing C/C++ applications using CMake, Make, or Meson with AWS CDK CodeBuildStep
+keywords:
+  - cpp
+  - c
+  - cmake
+  - make
+  - meson
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  - gcc --version | head -1
+  - cmake --version | head -1
+  # Auto-detect or use explicit build system, then configure
+  - |
+    BUILD="${BUILD_SYSTEM}"
+    if [ "${BUILD}" = "auto" ]; then
+      if [ -f CMakeLists.txt ]; then
+        BUILD="cmake"
+      elif [ -f meson.build ]; then
+        BUILD="meson"
+      elif [ -f Makefile ]; then
+        BUILD="make"
+      else
+        echo "ERROR: No CMakeLists.txt, meson.build, or Makefile found. Set BUILD_SYSTEM explicitly."
+        exit 1
+      fi
+    fi
+    echo "Build system: ${BUILD}"
+    case "${BUILD}" in
+      cmake)
+        if [ -f conanfile.txt ] || [ -f conanfile.py ]; then conan install . --build=missing; fi
+        mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ..
+        ;;
+      meson)
+        meson setup build --buildtype=$(echo ${BUILD_TYPE} | tr '[:upper:]' '[:lower:]')
+        ;;
+      make)
+        echo "Make project detected, no configure step needed."
+        ;;
+      *)
+        echo "ERROR: Unknown BUILD_SYSTEM '${BUILD}'. Supported: auto, cmake, meson, make"
+        exit 1
+        ;;
+    esac
+commands:
+  - |
+    BUILD="${BUILD_SYSTEM}"
+    if [ "${BUILD}" = "auto" ]; then
+      if [ -f CMakeLists.txt ]; then BUILD="cmake"
+      elif [ -f meson.build ]; then BUILD="meson"
+      else BUILD="make"; fi
+    fi
+    case "${BUILD}" in
+      cmake)
+        cmake --build build --config ${BUILD_TYPE} -j$(nproc)
+        cd build && ctest --output-on-failure
+        ;;
+      meson)
+        meson compile -C build
+        meson test -C build
+        ;;
+      make)
+        make -j$(nproc)
+        make test 2>/dev/null || make check 2>/dev/null || echo "No test target found"
+        ;;
+    esac
+env:
+  BUILD_SYSTEM: auto
+  BUILD_TYPE: Release

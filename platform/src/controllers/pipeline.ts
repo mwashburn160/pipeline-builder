@@ -15,12 +15,7 @@ import {
 
 const logger = createLogger('PipelineController');
 
-/**
- * Replace non-alphanumeric characters in a string.
- * @param input - Source string
- * @param replaceValue - Replacement character (default '_')
- * @returns Sanitized string
- */
+/** Replace non-alphanumeric characters in a string. */
 function replaceNonAlphanumeric(input: string, replaceValue: string = '_'): string {
   return input.replace(/[^a-zA-Z0-9]/g, replaceValue);
 }
