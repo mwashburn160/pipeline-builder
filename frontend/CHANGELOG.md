@@ -1,3 +1,13 @@
+## 1.23.12 (2026-02-27)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.25.11 ([17538f3f](https://github.com/mwashburn160/pipeline-builder/commit/17538f3f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.23.11 (2026-02-27)
 
 ### 🩹 Fixes
