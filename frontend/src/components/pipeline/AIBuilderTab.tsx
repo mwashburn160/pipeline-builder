@@ -14,6 +14,7 @@ import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import api from '@/lib/api';
+import { AI_MAX_PROMPT_LENGTH } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface AIBuilderTabRef {
@@ -186,11 +187,11 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
             rows={6}
             className="input text-sm"
             disabled={disabled || generating}
-            maxLength={5000}
+            maxLength={AI_MAX_PROMPT_LENGTH}
           />
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {prompt.length}/5000 characters
+              {prompt.length}/{AI_MAX_PROMPT_LENGTH} characters
             </p>
             <button
               onClick={handleGenerate}

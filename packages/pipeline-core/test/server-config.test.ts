@@ -153,6 +153,9 @@ describe('loadRateLimitConfig', () => {
 });
 
 describe('validateServerConfig', () => {
+  const defaultHttpClient = { timeout: 5000, maxRetries: 2, retryDelayMs: 200 };
+  const defaultSse = { maxClientsPerRequest: 10, clientTimeoutMs: 1800000, cleanupIntervalMs: 300000 };
+
   it('does not throw for valid config', () => {
     expect(() =>
       validateServerConfig({
@@ -160,6 +163,8 @@ describe('validateServerConfig', () => {
         cors: { credentials: true, origin: ['https://example.com'] },
         trustProxy: 1,
         platformUrl: 'https://example.com',
+        httpClient: defaultHttpClient,
+        sse: defaultSse,
       }),
     ).not.toThrow();
   });
@@ -171,6 +176,8 @@ describe('validateServerConfig', () => {
         cors: { credentials: true, origin: '*' },
         trustProxy: 1,
         platformUrl: 'https://example.com',
+        httpClient: defaultHttpClient,
+        sse: defaultSse,
       }),
     ).not.toThrow();
   });
@@ -182,6 +189,8 @@ describe('validateServerConfig', () => {
         cors: { credentials: true, origin: ['https://example.com'] },
         trustProxy: 1,
         platformUrl: 'http://example.com',
+        httpClient: defaultHttpClient,
+        sse: defaultSse,
       }),
     ).not.toThrow();
   });
@@ -193,6 +202,8 @@ describe('validateServerConfig', () => {
         cors: { credentials: true, origin: ['http://localhost:3000'] },
         trustProxy: 1,
         platformUrl: 'http://localhost:8443',
+        httpClient: defaultHttpClient,
+        sse: defaultSse,
       }),
     ).not.toThrow();
   });

@@ -77,7 +77,7 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
     }
 
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const limitNum = Math.min(config.pagination.maxLimit, Math.max(1, parseInt(limit as string, 10) || config.pagination.defaultLimit));
     const skip = (pageNum - 1) * limitNum;
 
     const [organizations, total] = await Promise.all([

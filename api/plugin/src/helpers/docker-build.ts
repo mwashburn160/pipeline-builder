@@ -49,7 +49,7 @@ export interface BuildResult {
   fullImage: string;
 }
 
-const BUILDER_NAME = 'plugin-builder';
+const BUILDER_NAME = process.env.DOCKER_BUILDER_NAME || 'plugin-builder';
 
 // Validation patterns for Docker build inputs
 const VALID_NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -131,7 +131,8 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
       network: registry.network || 'default',
     });
 
-    await execFileAsync('docker', args, { timeout: 300_000 });
+    const buildTimeoutMs = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '300000');
+    await execFileAsync('docker', args, { timeout: buildTimeoutMs });
 
     return { fullImage };
   } finally {

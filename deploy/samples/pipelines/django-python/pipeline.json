@@ -1,0 +1,277 @@
+{
+  "project": "django",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for django/django - a high-level Python web framework that encourages rapid development and clean design. Includes linting, multi-version testing, security scanning, and PyPI publishing.",
+  "keywords": [
+    "python",
+    "django",
+    "web-framework",
+    "backend",
+    "orm",
+    "rest-api"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "django",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "django/django",
+          "branch": "main",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "PYTHON_VERSION": "3.12"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Lint",
+        "steps": [
+          {
+            "plugin": {
+              "name": "ruff",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "RUFF_CONFIG": "pyproject.toml"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "pip install ruff",
+              "ruff check .",
+              "ruff format --check ."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "mypy",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "pip install mypy django-stubs",
+              "mypy django/"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Unit-Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "python-pytest",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "python-3.12",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "pip install -e '.[testing]'",
+              "python -m pytest tests/ -x --tb=short -q"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "python-pytest",
+              "alias": "py311-compat",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "python-3.11",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.11",
+                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
+              }
+            },
+            "position": "post",
+            "timeout": 30,
+            "failureBehavior": "warn",
+            "commands": [
+              "pip install -e '.[testing]'",
+              "python -m pytest tests/ -x --tb=short -q"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Coverage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "coverage-py",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "COVERAGE_THRESHOLD": "75"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "pip install coverage",
+              "coverage run -m pytest tests/",
+              "coverage report --fail-under=75",
+              "coverage xml"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "steps": [
+          {
+            "plugin": {
+              "name": "bandit",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "BANDIT_SEVERITY": "medium"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "pip install bandit",
+              "bandit -r django/ -ll -ii"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "safety",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "pip install safety",
+              "safety check"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {}
+            },
+            "position": "post",
+            "commands": [
+              "git secrets --scan"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Package",
+        "steps": [
+          {
+            "plugin": {
+              "name": "twine-publish",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "PYPI_REPOSITORY": "https://upload.pypi.org/legacy/"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "pip install build twine",
+              "python -m build",
+              "twine upload dist/*"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "mkdocs-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "pip install mkdocs mkdocs-material",
+              "mkdocs build --strict"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

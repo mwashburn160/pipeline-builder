@@ -190,10 +190,10 @@ function nanoToISO(nanoTs: string): string {
  */
 export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult> {
   const query = buildLogQL(params);
-  const limit = Math.min(Math.max(params.limit || 100, 1), 1000);
+  const limit = Math.min(Math.max(params.limit || config.logs.defaultLimit, 1), config.logs.maxLimit);
 
   const now = Date.now();
-  const oneHourAgo = now - 3_600_000;
+  const oneHourAgo = now - config.logs.defaultLookbackMs;
 
   // Loki expects nanosecond timestamps; frontend sends milliseconds
   const startMs = params.start ? Number(params.start) : oneHourAgo;

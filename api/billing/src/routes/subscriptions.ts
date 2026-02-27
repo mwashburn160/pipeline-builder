@@ -86,7 +86,7 @@ export function createSubscriptionRoutes(): Router {
         const plan = await Plan.findById(subscription.planId).lean();
 
         return sendSuccess(res, 200, {
-          subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId),
+          subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId, plan?.tier),
         });
       } catch (error) {
         logger.error('Failed to get subscription', { error: errorMessage(error), orgId });
@@ -163,7 +163,7 @@ export function createSubscriptionRoutes(): Router {
         logger.info('Subscription created', { orgId, planId, interval });
 
         return sendSuccess(res, 201, {
-          subscription: buildSubscriptionResponse(subscription, plan.name),
+          subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
         });
       } catch (error) {
         logger.error('Failed to create subscription', { error: errorMessage(error), orgId });

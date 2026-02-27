@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
 import AIPluginBuilderTab from './AIPluginBuilderTab';
 import api from '@/lib/api';
+import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 
 /** Props for the CreatePluginModal component. */
 interface CreatePluginModalProps {
@@ -67,7 +68,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated 
     setSuccess(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+    const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
 
     try {
       const response = await api.uploadPlugin(file, access, { signal: controller.signal });

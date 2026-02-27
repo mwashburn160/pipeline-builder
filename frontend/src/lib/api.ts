@@ -1,4 +1,5 @@
 import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority } from '@/types';
+import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
@@ -81,10 +82,8 @@ class ApiClient {
   private refreshAttempts = 0;
   private sessionExpiredCallbacks: Set<() => void> = new Set();
 
-  /** Refresh the token 5 minutes before it expires */
-  private static REFRESH_BUFFER_MS = 5 * 60 * 1000;
-  /** Maximum consecutive refresh failures before forcing logout */
-  private static MAX_REFRESH_ATTEMPTS = 3;
+  private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
+  private static MAX_REFRESH_ATTEMPTS = MAX_REFRESH_ATTEMPTS;
 
   /**
    * Register a callback invoked when the session expires (refresh fails).
@@ -585,6 +584,13 @@ class ApiClient {
   async deleteUserById(id: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/users/${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  async updateUserFeatures(userId: string, overrides: Record<string, boolean>) {
+    return this.request<ApiResponse<{ user: User }>>(`/api/users/${userId}/features`, {
+      method: 'PUT',
+      body: JSON.stringify({ overrides }),
     });
   }
 

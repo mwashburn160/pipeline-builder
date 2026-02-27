@@ -729,6 +729,16 @@ Full endpoint documentation, query parameters, and curl examples: [docs/api-refe
 
 All requests require a JWT bearer token and `x-org-id` header.
 
+## Samples
+
+Ready-to-use pipeline configurations and CDK TypeScript examples: [docs/samples.md](docs/samples.md).
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| Pipeline Samples | 7 | Language-specific CI/CD pipelines (React, Spring Boot, Django, Gin, Axum, Rails, ASP.NET Core) |
+| CDK JSON Samples | 4 | Infrastructure patterns (VPC, cross-account, S3 source, multi-region) |
+| CDK TypeScript Examples | 6 | Programmatic usage (basic, VPC, multi-account, monorepo, IAM roles, secrets) |
+
 ---
 
 ## License

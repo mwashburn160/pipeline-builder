@@ -1,0 +1,298 @@
+{
+  "project": "aspnetcore",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes code analysis, multi-TFM testing, container scanning, and NuGet publishing.",
+  "keywords": [
+    "dotnet",
+    "csharp",
+    "aspnetcore",
+    "web-api",
+    "blazor",
+    "microsoft",
+    "backend"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "aspnetcore",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "dotnet/aspnetcore",
+          "branch": "main",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "DOTNET_VERSION": "8.0"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Analysis",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-format",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "dotnet-8.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "dotnet format --verify-no-changes --verbosity diagnostic"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "roslyn-analyzers",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "TREAT_WARNINGS_AS_ERRORS": "true"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "dotnet build /p:TreatWarningsAsErrors=true /p:EnforceCodeStyleInBuild=true"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "dotnet-outdated",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "ignore",
+            "commands": [
+              "dotnet tool install --global dotnet-outdated-tool",
+              "dotnet outdated"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Build-Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-test",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "dotnet-8.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
+              }
+            },
+            "position": "pre",
+            "timeout": 45,
+            "commands": [
+              "dotnet restore",
+              "dotnet build --no-restore --configuration Release",
+              "dotnet test --no-build --configuration Release --logger trx --collect:\"XPlat Code Coverage\""
+            ]
+          },
+          {
+            "plugin": {
+              "name": "dotnet-test",
+              "alias": "net9-compat",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "dotnet-9.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "9.0"
+              }
+            },
+            "position": "post",
+            "timeout": 45,
+            "failureBehavior": "warn",
+            "commands": [
+              "dotnet restore",
+              "dotnet build --no-restore",
+              "dotnet test --no-build"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-security-scan",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "dotnet tool install --global security-scan",
+              "security-scan aspnetcore.sln --excl-proj=*test*"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "snyk",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "SNYK_SEVERITY_THRESHOLD": "high"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "npm install -g snyk",
+              "snyk test --severity-threshold=high --file=aspnetcore.sln"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "trivy",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "TRIVY_SEVERITY": "HIGH,CRITICAL"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "trivy fs --severity HIGH,CRITICAL ."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Container",
+        "steps": [
+          {
+            "plugin": {
+              "name": "docker-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "DOCKERFILE": "Dockerfile",
+                "IMAGE_TAG": "latest",
+                "aws:cdk:codebuild:buildenvironment:privileged": true
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "docker build -t dotnet/aspnetcore:latest .",
+              "docker tag dotnet/aspnetcore:latest dotnet/aspnetcore:$(date +%Y%m%d)"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "container-scan",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "IMAGE": "dotnet/aspnetcore:latest"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "trivy image --severity HIGH,CRITICAL dotnet/aspnetcore:latest"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Publish",
+        "steps": [
+          {
+            "plugin": {
+              "name": "nuget-publish",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "NUGET_SOURCE": "https://api.nuget.org/v3/index.json"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "dotnet pack --configuration Release --no-build --output ./nupkg",
+              "dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

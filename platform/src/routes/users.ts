@@ -10,6 +10,7 @@ import {
   getUserById,
   updateUserById,
   deleteUserById,
+  updateUserFeatures,
 } from '../controllers';
 import { authenticateToken, requireRole } from '../middleware';
 
@@ -23,6 +24,9 @@ router.get('/:id', authenticateToken, requireRole('admin'), getUserById);
 
 /** PUT /users/:id - Update user by ID (system admin only) */
 router.put('/:id', authenticateToken, requireRole('admin'), updateUserById);
+
+/** PUT /users/:id/features - Update user feature overrides (admin only) */
+router.put('/:id/features', authenticateToken, requireRole('admin'), updateUserFeatures);
 
 /** DELETE /users/:id - Delete user by ID (system admin only) */
 router.delete('/:id', authenticateToken, requireRole('admin'), deleteUserById);

@@ -26,6 +26,9 @@ interface RawUserData {
   organizationId?: string;
   organizationName?: string;
   isEmailVerified?: boolean;
+  tier?: string;
+  features?: string[];
+  featureOverrides?: Record<string, boolean>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -59,6 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             organizationId: rawUser.organizationId,
             organizationName: rawUser.organizationName,
             isEmailVerified: rawUser.isEmailVerified ?? false,
+            tier: rawUser.tier as User['tier'],
+            features: rawUser.features,
+            featureOverrides: rawUser.featureOverrides,
             createdAt: rawUser.createdAt,
             updatedAt: rawUser.updatedAt,
           };

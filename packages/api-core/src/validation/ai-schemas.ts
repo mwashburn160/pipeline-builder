@@ -23,6 +23,8 @@
 import { z } from 'zod';
 import { AccessModifierSchema } from './common-schemas';
 
+const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000');
+
 // ---------------------------------------------------------------------------
 // AI Generation Request
 // ---------------------------------------------------------------------------
@@ -36,7 +38,7 @@ export const AIGenerateBodySchema = z.object({
   prompt: z
     .string()
     .min(1, 'A prompt with a natural language description is required')
-    .max(5000, 'Prompt must be 5000 characters or fewer'),
+    .max(MAX_PROMPT_LENGTH, `Prompt must be ${MAX_PROMPT_LENGTH} characters or fewer`),
 
   /** AI provider identifier (e.g. "anthropic", "openai", "google"). */
   provider: z.string().min(1, 'A provider is required (e.g., "anthropic", "openai", "google")'),

@@ -110,8 +110,8 @@ export class Connection {
     this.options = {
       enableLogging: options.enableLogging ?? true,
       enableAutoRetry: options.enableAutoRetry ?? true,
-      maxRetries: options.maxRetries ?? 3,
-      retryDelay: options.retryDelay ?? 1000,
+      maxRetries: options.maxRetries ?? parseInt(process.env.DB_MAX_RETRIES || '3'),
+      retryDelay: options.retryDelay ?? parseInt(process.env.DB_RETRY_DELAY_MS || '1000'),
       ssl: options.ssl ?? false,
     };
 

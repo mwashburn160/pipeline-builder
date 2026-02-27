@@ -1,3 +1,5 @@
+import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
+
 export function pct(used: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min(100, Math.round((used / limit) * 100));
@@ -19,8 +21,8 @@ export type StatusColor = 'green' | 'yellow' | 'red' | 'purple';
 export function statusInfo(used: number, limit: number): { label: string; color: StatusColor } {
   if (limit === -1) return { label: 'Unlimited', color: 'purple' };
   const p = pct(used, limit);
-  if (p >= 90) return { label: 'Critical', color: 'red' };
-  if (p >= 70) return { label: 'Warning', color: 'yellow' };
+  if (p >= QUOTA_CRITICAL_THRESHOLD) return { label: 'Critical', color: 'red' };
+  if (p >= QUOTA_WARNING_THRESHOLD) return { label: 'Warning', color: 'yellow' };
   return { label: 'Healthy', color: 'green' };
 }
 
@@ -44,15 +46,15 @@ export function overallHealthColor(quotas: Record<string, { used: number; limit:
     if (q.limit === -1) continue;
     worst = Math.max(worst, pct(q.used, q.limit));
   }
-  if (worst >= 90) return 'bg-red-500';
-  if (worst >= 70) return 'bg-yellow-500';
+  if (worst >= QUOTA_CRITICAL_THRESHOLD) return 'bg-red-500';
+  if (worst >= QUOTA_WARNING_THRESHOLD) return 'bg-yellow-500';
   return 'bg-green-500';
 }
 
 export function barColor(used: number, limit: number, unlimited: boolean): string {
   if (unlimited) return 'bg-blue-500';
   const p = pct(used, limit);
-  if (p >= 90) return 'bg-red-500';
-  if (p >= 70) return 'bg-yellow-500';
+  if (p >= QUOTA_CRITICAL_THRESHOLD) return 'bg-red-500';
+  if (p >= QUOTA_WARNING_THRESHOLD) return 'bg-yellow-500';
   return 'bg-green-500';
 }

@@ -1,0 +1,268 @@
+{
+  "project": "gin",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes static analysis, race condition testing, benchmarking, container building, and binary publishing.",
+  "keywords": [
+    "go",
+    "golang",
+    "gin",
+    "web-framework",
+    "http",
+    "rest-api",
+    "microservice"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "gin",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "gin-gonic/gin",
+          "branch": "master",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "GO_VERSION": "1.22"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Static-Analysis",
+        "steps": [
+          {
+            "plugin": {
+              "name": "golangci-lint",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22",
+                "GOLANGCI_LINT_VERSION": "1.57.2"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.57.2",
+              "golangci-lint run ./..."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "go-vet",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "go vet ./..."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "govulncheck",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "go install golang.org/x/vuln/cmd/govulncheck@latest",
+              "govulncheck ./..."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "go-test",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22",
+                "GOFLAGS": "-count=1"
+              }
+            },
+            "position": "pre",
+            "timeout": 20,
+            "commands": [
+              "go test -v -coverprofile=coverage.out ./..."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "go-test-race",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22"
+              }
+            },
+            "position": "post",
+            "timeout": 30,
+            "commands": [
+              "go test -race -count=1 ./..."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Benchmark",
+        "steps": [
+          {
+            "plugin": {
+              "name": "go-bench",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "go test -bench=. -benchmem -run=^$ ./..."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Build",
+        "steps": [
+          {
+            "plugin": {
+              "name": "go-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22",
+                "CGO_ENABLED": "0",
+                "GOOS": "linux",
+                "GOARCH": "amd64"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "go build -ldflags='-s -w' -o bin/gin ./..."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "docker-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOCKERFILE": "Dockerfile",
+                "IMAGE_TAG": "latest",
+                "aws:cdk:codebuild:buildenvironment:privileged": true
+              }
+            },
+            "position": "post",
+            "commands": [
+              "docker build -t gin-gonic/gin:latest ."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "steps": [
+          {
+            "plugin": {
+              "name": "trivy",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "TRIVY_SEVERITY": "HIGH,CRITICAL"
+              }
+            },
+            "position": "pre",
+            "failureBehavior": "warn",
+            "commands": [
+              "trivy fs --severity HIGH,CRITICAL --exit-code 1 ."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "gosec",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "go install github.com/securego/gosec/v2/cmd/gosec@latest",
+              "gosec ./..."
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

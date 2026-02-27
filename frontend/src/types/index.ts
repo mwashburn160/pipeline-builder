@@ -9,6 +9,9 @@ export interface User {
   organizationId?: string;
   organizationName?: string;
   isEmailVerified: boolean;
+  tier?: QuotaTier;
+  features?: string[];
+  featureOverrides?: Record<string, boolean>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -300,6 +303,7 @@ export interface Subscription {
   orgId: string;
   planId: string;
   planName?: string;
+  tier?: QuotaTier;
   status: SubscriptionStatus;
   interval: BillingInterval;
   currentPeriodStart: string;

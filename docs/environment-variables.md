@@ -352,6 +352,120 @@ Used by pipeline-core for CDK infrastructure builds.
 
 ---
 
+## HTTP Client
+
+Used by api-core's internal HTTP client for service-to-service communication.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HTTP_CLIENT_TIMEOUT` | `5000` | HTTP client timeout in ms |
+| `HTTP_CLIENT_MAX_RETRIES` | `2` | Max retry attempts for failed requests |
+| `HTTP_CLIENT_RETRY_DELAY_MS` | `200` | Delay between retries in ms |
+
+---
+
+## SSE (Server-Sent Events)
+
+Used by api-server's SSE connection manager for real-time streaming.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SSE_MAX_CLIENTS_PER_REQUEST` | `10` | Max SSE clients per request |
+| `SSE_CLIENT_TIMEOUT_MS` | `1800000` | SSE client timeout in ms (1800000 = 30 min) |
+| `SSE_CLEANUP_INTERVAL_MS` | `300000` | SSE cleanup interval in ms (300000 = 5 min) |
+
+---
+
+## Plugin Build Queue
+
+Used by the plugin service's BullMQ job queue for Docker builds.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name for plugin builds |
+| `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts before failing |
+| `PLUGIN_BUILD_BACKOFF_DELAY_MS` | `5000` | Exponential backoff delay in ms |
+| `PLUGIN_BUILD_COMPLETED_RETENTION_SECS` | `3600` | Completed job retention (3600 = 1h) |
+| `PLUGIN_BUILD_FAILED_RETENTION_SECS` | `86400` | Failed job retention (86400 = 24h) |
+| `PLUGIN_BUILD_WORKER_TIMEOUT_MS` | `10000` | Worker ready timeout in ms |
+
+---
+
+## Docker Build
+
+Used by the plugin service for building plugin Docker images.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DOCKER_BUILD_TIMEOUT_MS` | `300000` | Docker build timeout in ms (300000 = 5 min) |
+| `DOCKER_BUILDER_NAME` | `plugin-builder` | Docker buildx builder name |
+| `PLUGIN_IMAGE_PREFIX` | `p-` | Plugin image tag prefix |
+
+---
+
+## Pagination & Limits
+
+Used across api-core validation, pipeline-core, and platform controllers.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_PAGE_LIMIT` | `1000` | Max page limit for paginated queries |
+| `DEFAULT_PAGE_LIMIT` | `100` | Default page limit when not specified |
+| `MAX_PROMPT_LENGTH` | `5000` | Max AI prompt length in characters |
+| `MAX_PLUGIN_UPLOAD_BYTES` | `104857600` | Max plugin upload size in bytes (100 MB) |
+| `PIPELINE_NAME_MAX_LENGTH` | `100` | Max pipeline name length |
+| `DEFAULT_PLUGIN_VERSION` | `1.0.0` | Default plugin version when not specified |
+
+---
+
+## Database Connection Retries
+
+Used by pipeline-data's PostgreSQL connection manager.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_MAX_RETRIES` | `3` | Max connection retry attempts |
+| `DB_RETRY_DELAY_MS` | `1000` | Delay between retries in ms |
+
+---
+
+## Cookie
+
+Used by platform authentication controllers.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COOKIE_SAME_SITE` | `lax` | SameSite cookie attribute: `lax`, `strict`, or `none` |
+
+---
+
+## Google OAuth URL Overrides
+
+Override default Google OAuth endpoints. Useful for custom OAuth providers.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GOOGLE_AUTHORIZE_URL` | `https://accounts.google.com/o/oauth2/v2/auth` | Google OAuth authorize URL |
+| `GOOGLE_TOKEN_URL` | `https://oauth2.googleapis.com/token` | Google OAuth token URL |
+| `GOOGLE_USERINFO_URL` | `https://www.googleapis.com/oauth2/v2/userinfo` | Google userinfo URL |
+| `OAUTH_CLEANUP_INTERVAL_MS` | `60000` | OAuth CSRF state cleanup interval in ms |
+
+---
+
+## Platform Log & Pagination
+
+Used by platform log service and list controllers.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_DEFAULT_LIMIT` | `100` | Default log query limit |
+| `LOG_MAX_LIMIT` | `1000` | Max log query limit |
+| `LOG_DEFAULT_LOOKBACK_MS` | `3600000` | Default log lookback window in ms (1 hour) |
+| `PLATFORM_LIST_MAX` | `100` | Platform list endpoints max items |
+| `PLATFORM_LIST_DEFAULT` | `20` | Platform list endpoints default items |
+
+---
+
 ## Additional (Optional)
 
 These variables are not set by default. Uncomment in `.env` as needed.

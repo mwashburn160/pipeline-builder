@@ -38,6 +38,22 @@ export interface ServerConfig {
   readonly trustProxy: number;
   /** Frontend base URL, used as CORS fallback (env: `PLATFORM_BASE_URL`). */
   readonly platformUrl: string;
+  readonly httpClient: {
+    /** Default HTTP request timeout in ms (env: `HTTP_CLIENT_TIMEOUT`). */
+    readonly timeout: number;
+    /** Maximum retry attempts for failed requests (env: `HTTP_CLIENT_MAX_RETRIES`). */
+    readonly maxRetries: number;
+    /** Base delay between retries in ms (env: `HTTP_CLIENT_RETRY_DELAY_MS`). */
+    readonly retryDelayMs: number;
+  };
+  readonly sse: {
+    /** Max SSE clients per request (env: `SSE_MAX_CLIENTS_PER_REQUEST`). */
+    readonly maxClientsPerRequest: number;
+    /** SSE client timeout in ms (env: `SSE_CLIENT_TIMEOUT_MS`). */
+    readonly clientTimeoutMs: number;
+    /** SSE cleanup interval in ms (env: `SSE_CLEANUP_INTERVAL_MS`). */
+    readonly cleanupIntervalMs: number;
+  };
 }
 
 /** JWT and refresh token authentication configuration. */

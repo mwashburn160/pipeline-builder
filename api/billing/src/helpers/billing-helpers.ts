@@ -55,7 +55,7 @@ export async function syncTierToQuotaService(
     const client = createSafeClient({
       host: config.quotaService.host,
       port: config.quotaService.port,
-      timeout: 5000,
+      timeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000'),
     });
 
     const response = await client.put(`/quotas/${orgId}`, { tier }, {
@@ -97,12 +97,14 @@ export function buildSubscriptionResponse(
     updatedAt: Date;
   },
   planName?: string,
+  tier?: string,
 ): Record<string, unknown> {
   return {
     id: subscription._id.toString(),
     orgId: subscription.orgId,
     planId: subscription.planId,
     ...(planName !== undefined && { planName }),
+    ...(tier !== undefined && { tier }),
     status: subscription.status,
     interval: subscription.interval,
     currentPeriodStart: subscription.currentPeriodStart.toISOString(),

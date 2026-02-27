@@ -80,10 +80,10 @@ export class SSEManager {
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(options: SSEManagerOptions = {}) {
-    this.maxClientsPerRequest = options.maxClientsPerRequest ?? 10;
-    this.clientTimeoutMs = options.clientTimeoutMs ?? 30 * 60 * 1000; // 30 minutes
+    this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10');
+    this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000'); // 30 minutes
 
-    const cleanupIntervalMs = options.cleanupIntervalMs ?? 5 * 60 * 1000; // 5 minutes
+    const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000'); // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
   }
 

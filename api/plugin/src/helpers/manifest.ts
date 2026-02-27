@@ -79,7 +79,8 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
   }
 
   // --- Image tag -----------------------------------------------------------
-  const imageTag = `p-${manifest.name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+  const prefix = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
+  const imageTag = `${prefix}${manifest.name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
 
   return { manifest, extractDir, dockerfile, dockerfileContent, imageTag };
 }

@@ -1,0 +1,277 @@
+{
+  "project": "axum",
+  "organization": "AcmeCorp",
+  "description": "CI/CD pipeline for tokio-rs/axum - an ergonomic and modular web framework built with Tokio, Tower, and Hyper. Includes Clippy linting, multi-target testing, Miri safety checks, and crate publishing.",
+  "keywords": [
+    "rust",
+    "axum",
+    "tokio",
+    "async",
+    "web-framework",
+    "tower",
+    "hyper"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "axum",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "tokio-rs/axum",
+          "branch": "main",
+          "trigger": "AUTO"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "version": "1.0.0",
+          "accessModifier": "public",
+          "isActive": true,
+          "isDefault": true
+        },
+        "metadata": {
+          "RUST_VERSION": "stable"
+        }
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Lint",
+        "steps": [
+          {
+            "plugin": {
+              "name": "clippy",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "rust-stable",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable",
+                "CLIPPY_FLAGS": "-D warnings"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "cargo clippy --all-targets --all-features -- -D warnings"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "rustfmt",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "rust-nightly",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "RUST_VERSION": "nightly"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "cargo +nightly fmt --all -- --check"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "cargo-doc",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable",
+                "RUSTDOCFLAGS": "-D warnings"
+              }
+            },
+            "position": "post",
+            "failureBehavior": "warn",
+            "commands": [
+              "RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --all-features"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "cargo-test",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "rust-stable",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "cargo test --all-features --workspace"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "cargo-test",
+              "alias": "msrv-check",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "rust-1.75",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "RUST_VERSION": "1.75.0"
+              }
+            },
+            "position": "post",
+            "timeout": 30,
+            "failureBehavior": "warn",
+            "commands": [
+              "cargo test --workspace"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Safety",
+        "steps": [
+          {
+            "plugin": {
+              "name": "cargo-miri",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "rust-nightly",
+                "accessModifier": "public",
+                "isActive": true
+              },
+              "metadata": {
+                "RUST_VERSION": "nightly"
+              }
+            },
+            "position": "pre",
+            "timeout": 45,
+            "failureBehavior": "warn",
+            "commands": [
+              "rustup component add miri",
+              "cargo miri test --workspace"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "cargo-audit",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "cargo install cargo-audit",
+              "cargo audit"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Build",
+        "steps": [
+          {
+            "plugin": {
+              "name": "cargo-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable",
+                "CARGO_PROFILE": "release",
+                "TARGET": "x86_64-unknown-linux-gnu",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "cargo build --release --all-features"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "docker-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOCKERFILE": "Dockerfile",
+                "IMAGE_TAG": "latest",
+                "aws:cdk:codebuild:buildenvironment:privileged": true
+              }
+            },
+            "position": "post",
+            "commands": [
+              "docker build -t tokio-rs/axum:latest ."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Publish",
+        "steps": [
+          {
+            "plugin": {
+              "name": "cargo-publish",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "RUST_VERSION": "stable",
+                "CRATES_IO_TOKEN_SECRET": "crates-io-token"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "cargo publish --dry-run"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

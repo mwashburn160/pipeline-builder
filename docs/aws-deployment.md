@@ -37,21 +37,29 @@ Deploys Pipeline Builder on a single hardened EC2 instance running Minikube. All
 
 ### Architecture
 
-```
-Internet --> Route53 A Record --> Elastic IP --> EC2 Instance
-                                                  |
-                                          iptables DNAT
-                                          443 --> minikube:30443
-                                           80 --> minikube:30080
-                                                  |
-                                              Minikube
-                                                  |
-                                      Nginx (TLS + JWT parsing)
-                                                  |
-                    +----------+---------+---------+---------+---------+
-                 platform  pipeline   plugin    quota   billing  message  frontend
-                    |          |        |
-                 MongoDB  PostgreSQL  Redis
+```mermaid
+flowchart TB
+    INET["Internet"] --> R53["Route53 A Record"]
+    R53 --> EIP["Elastic IP"]
+    EIP --> EC2["EC2 Instance"]
+
+    subgraph EC2_INNER["EC2 Instance"]
+        IPTABLES["iptables DNAT<br/>443 → minikube:30443<br/>80 → minikube:30080"]
+        subgraph MK["Minikube"]
+            NGINX["Nginx<br/>TLS + JWT parsing"]
+            NGINX --> platform & pipeline & plugin & quota & billing & message & frontend
+            platform --> MongoDB
+            pipeline --> PostgreSQL
+            plugin --> Redis
+        end
+        IPTABLES --> NGINX
+    end
+
+    EC2 --> IPTABLES
+
+    style INET fill:#4A90D9,color:#fff
+    style MK fill:#f0f4fa,color:#333
+    style NGINX fill:#F5A623,color:#fff
 ```
 
 ### Deploy
@@ -94,22 +102,29 @@ ssh -i my-keypair.pem ec2-user@pipeline.example.com
 
 ### Files
 
-```
-deploy/aws/ec2/
-├── template.yaml          # CloudFormation stack
-├── bin/
-│   ├── bootstrap.sh       # EC2 setup, hardening, minikube install
-│   ├── startup.sh         # K8s deployment (adapted from minikube)
-│   ├── shutdown.sh        # Teardown script
-│   └── update-tls-secret.sh  # Certbot renewal hook
-├── k8s/                   # All 23 K8s manifests (copied from minikube)
-├── nginx/
-│   ├── nginx-ec2.conf     # Adapted nginx config
-│   ├── jwt.js             # NJS JWT parsing
-│   └── metrics.js         # NJS metrics endpoint
-├── config/                # Observability configs
-├── .env.example           # Reference configuration
-└── .gitignore
+```mermaid
+graph LR
+    ROOT["deploy/aws/ec2/"]
+    ROOT --- A["template.yaml — CloudFormation stack"]
+    ROOT --- B["bin/"]
+    ROOT --- C["k8s/ — 23 K8s manifests"]
+    ROOT --- D["nginx/"]
+    ROOT --- E["config/ — Observability configs"]
+    ROOT --- F[".env.example — Reference config"]
+    ROOT --- G[".gitignore"]
+
+    B --- B1["bootstrap.sh — EC2 setup, hardening, minikube install"]
+    B --- B2["startup.sh — K8s deployment"]
+    B --- B3["shutdown.sh — Teardown script"]
+    B --- B4["update-tls-secret.sh — Certbot renewal hook"]
+
+    D --- D1["nginx-ec2.conf — Adapted nginx config"]
+    D --- D2["jwt.js — NJS JWT parsing"]
+    D --- D3["metrics.js — NJS metrics endpoint"]
+
+    style ROOT fill:#4A90D9,color:#fff
+    style B fill:#f0f4fa,color:#333
+    style D fill:#f0f4fa,color:#333
 ```
 
 ### Teardown
@@ -134,22 +149,39 @@ Deploys Pipeline Builder as serverless containers on AWS ECS Fargate. The K8s ma
 
 ### Architecture
 
-```
-Internet --> Route53 --> ALB (Let's Encrypt cert via ACM)
-                          |
-                        Nginx (HTTP only, JWT parsing)
-                          |
-          +--------+--------+--------+--------+--------+--------+--------+
-       platform pipeline  plugin   quota  billing message frontend
-          |        |        |
-       MongoDB PostgreSQL Redis     (all on Fargate + EFS)
+```mermaid
+flowchart TB
+    INET["Internet"] --> R53["Route53"]
+    R53 --> ALB["ALB<br/>Let's Encrypt cert via ACM"]
 
-Cloud Map DNS: *.pipeline-builder.local
-Storage: EFS access points (7 total)
-Secrets: AWS Secrets Manager
-Config: S3 bucket
-Logging: Fluent Bit sidecar --> Loki
-Observability: Prometheus + Loki + Grafana (all on Fargate)
+    subgraph ECS["ECS Fargate"]
+        NGINX["Nginx<br/>HTTP only · JWT parsing"]
+        NGINX --> platform & pipeline & plugin & quota & billing & message & frontend
+        platform --> MongoDB
+        pipeline --> PostgreSQL
+        plugin --> Redis
+    end
+
+    ALB --> NGINX
+
+    subgraph INFRA["AWS Infrastructure"]
+        CM["Cloud Map DNS<br/>*.pipeline-builder.local"]
+        EFS["EFS access points (7 total)"]
+        SM["AWS Secrets Manager"]
+        S3["S3 bucket (config)"]
+    end
+
+    subgraph OBS["Observability"]
+        FB["Fluent Bit sidecar"] --> Loki
+        Prometheus
+        Grafana
+    end
+
+    style INET fill:#4A90D9,color:#fff
+    style ALB fill:#F5A623,color:#fff
+    style ECS fill:#f0f4fa,color:#333
+    style INFRA fill:#e8f5e9,color:#333
+    style OBS fill:#fff3e0,color:#333
 ```
 
 ### Deploy
@@ -180,9 +212,18 @@ bash bin/deploy.sh \
 
 Stacks are deployed in dependency order. Each exports values consumed by downstream stacks.
 
-```
-01-foundation --> 02-cluster --> 03-databases --> 04-services --> 05-observability
-                                                               --> 06-admin
+```mermaid
+flowchart LR
+    A["01-foundation"] --> B["02-cluster"]
+    B --> C["03-databases"]
+    C --> D["04-services"]
+    D --> E["05-observability"]
+    D --> F["06-admin"]
+
+    style A fill:#4A90D9,color:#fff
+    style D fill:#F5A623,color:#fff
+    style E fill:#2ECC71,color:#fff
+    style F fill:#2ECC71,color:#fff
 ```
 
 | Stack | Contents |
@@ -295,33 +336,44 @@ This deletes all 6 stacks in reverse dependency order and empties the S3 config 
 
 ### Files
 
-```
-deploy/aws/fargate/
-├── stacks/
-│   ├── 01-foundation.yaml     # VPC, ALB, EFS, S3, Cloud Map, Route53
-│   ├── 02-cluster.yaml        # ECS Cluster, IAM, security groups, log groups
-│   ├── 03-databases.yaml      # PostgreSQL, MongoDB, Redis
-│   ├── 04-services.yaml       # Nginx + 7 application services
-│   ├── 05-observability.yaml  # Prometheus, Loki, Grafana
-│   └── 06-admin.yaml          # Registry, PgAdmin, Mongo Express, Registry UI
-├── config/
-│   ├── grafana/               # Dashboards and datasource configs
-│   ├── loki/                  # Loki configuration (EFS storage)
-│   ├── prometheus/            # Prometheus scrape config (Cloud Map targets)
-│   └── fluent-bit/            # Fluent Bit config (ships to Loki)
-├── nginx/
-│   ├── nginx-fargate.conf     # HTTP-only nginx (ALB handles TLS)
-│   ├── jwt.js                 # NJS JWT parsing
-│   └── metrics.js             # NJS metrics endpoint
-├── bin/
-│   ├── deploy.sh              # Full deployment orchestrator
-│   ├── teardown.sh            # Delete all stacks
-│   ├── init-secrets.sh        # Generate and store secrets
-│   └── init-cert.sh           # Let's Encrypt certificate via Route53
-├── mongodb-init.js            # MongoDB initialization
-├── postgres-init.sql          # PostgreSQL schema initialization
-├── .env.example               # Reference configuration
-└── .gitignore
+```mermaid
+graph LR
+    ROOT["deploy/aws/fargate/"]
+    ROOT --- S["stacks/"]
+    ROOT --- CF["config/"]
+    ROOT --- N["nginx/"]
+    ROOT --- BN["bin/"]
+    ROOT --- M["mongodb-init.js — MongoDB initialization"]
+    ROOT --- P["postgres-init.sql — PostgreSQL schema initialization"]
+    ROOT --- E[".env.example — Reference config"]
+    ROOT --- I[".gitignore"]
+
+    S --- S1["01-foundation.yaml — VPC, ALB, EFS, S3, Cloud Map, Route53"]
+    S --- S2["02-cluster.yaml — ECS Cluster, IAM, security groups, log groups"]
+    S --- S3["03-databases.yaml — PostgreSQL, MongoDB, Redis"]
+    S --- S4["04-services.yaml — Nginx + 7 application services"]
+    S --- S5["05-observability.yaml — Prometheus, Loki, Grafana"]
+    S --- S6["06-admin.yaml — Registry, PgAdmin, Mongo Express, Registry UI"]
+
+    CF --- CF1["grafana/ — Dashboards and datasource configs"]
+    CF --- CF2["loki/ — Loki configuration"]
+    CF --- CF3["prometheus/ — Prometheus scrape config"]
+    CF --- CF4["fluent-bit/ — Fluent Bit config"]
+
+    N --- N1["nginx-fargate.conf — HTTP-only nginx"]
+    N --- N2["jwt.js — NJS JWT parsing"]
+    N --- N3["metrics.js — NJS metrics endpoint"]
+
+    BN --- BN1["deploy.sh — Full deployment orchestrator"]
+    BN --- BN2["teardown.sh — Delete all stacks"]
+    BN --- BN3["init-secrets.sh — Generate and store secrets"]
+    BN --- BN4["init-cert.sh — Let's Encrypt certificate via Route53"]
+
+    style ROOT fill:#4A90D9,color:#fff
+    style S fill:#f0f4fa,color:#333
+    style CF fill:#e8f5e9,color:#333
+    style N fill:#fff3e0,color:#333
+    style BN fill:#f0f4fa,color:#333
 ```
 
 ---

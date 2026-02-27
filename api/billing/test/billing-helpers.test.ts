@@ -138,6 +138,16 @@ describe('buildSubscriptionResponse', () => {
     const result = buildSubscriptionResponse(baseSub);
     expect(result).not.toHaveProperty('planName');
   });
+
+  it('includes tier when provided', () => {
+    const result = buildSubscriptionResponse(baseSub, 'Pro', 'pro');
+    expect(result.tier).toBe('pro');
+  });
+
+  it('omits tier when not provided', () => {
+    const result = buildSubscriptionResponse(baseSub, 'Pro');
+    expect(result).not.toHaveProperty('tier');
+  });
 });
 
 // ---------------------------------------------------------------------------

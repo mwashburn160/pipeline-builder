@@ -5,7 +5,8 @@
  * and admin endpoints for listing, viewing, updating, and deleting users.
  */
 
-import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag } from '@mwashburn160/api-core';
+import type { FeatureFlag, QuotaTier } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { config } from '../config';
@@ -39,6 +40,7 @@ interface UserResponseInput {
   role: string;
   isEmailVerified: boolean;
   organizationId?: Types.ObjectId | string;
+  featureOverrides?: Map<string, boolean> | Record<string, boolean>;
   createdAt?: Date;
   updatedAt?: Date;
   tokenVersion?: number;
@@ -51,13 +53,26 @@ interface OrgSummary {
   slug: string;
 }
 
+/** Convert Mongoose Map or plain object to Record<string, boolean>. */
+function toOverridesRecord(overrides?: Map<string, boolean> | Record<string, boolean>): Record<string, boolean> | undefined {
+  if (!overrides) return undefined;
+  if (overrides instanceof Map) return Object.fromEntries(overrides);
+  return overrides;
+}
+
 /**
  * Build a standardized user response object for API output.
  * @param user - User fields from DB
  * @param organizationName - Resolved org name (or null)
  * @param organization - Optional detailed org summary
+ * @param extra - Optional tier and resolved features
  */
-function formatUserResponse(user: UserResponseInput, organizationName: string | null, organization?: OrgSummary) {
+function formatUserResponse(
+  user: UserResponseInput,
+  organizationName: string | null,
+  organization?: OrgSummary,
+  extra?: { tier?: QuotaTier; features?: FeatureFlag[] },
+) {
   return {
     id: user._id.toString(),
     username: user.username,
@@ -67,6 +82,9 @@ function formatUserResponse(user: UserResponseInput, organizationName: string | 
     organizationId: user.organizationId?.toString() || null,
     organizationName,
     ...(organization && { organization }),
+    ...(extra?.tier && { tier: extra.tier }),
+    ...(extra?.features && { features: extra.features }),
+    ...(user.featureOverrides && { featureOverrides: toOverridesRecord(user.featureOverrides) }),
     ...(user.createdAt && { createdAt: user.createdAt }),
     ...(user.updatedAt && { updatedAt: user.updatedAt }),
     ...(user.tokenVersion !== undefined && { tokenVersion: user.tokenVersion }),
@@ -87,16 +105,29 @@ export async function getUser(req: Request, res: Response): Promise<void> {
 
   try {
     const user = await User.findById(userId)
-      .select('_id username email role isEmailVerified organizationId tokenVersion')
+      .select('_id username email role isEmailVerified organizationId featureOverrides tokenVersion')
       .lean();
 
     if (!user) {
       return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
-    const organizationName = await getOrgName(user.organizationId?.toString());
+    // Resolve org tier and features
+    let organizationName: string | null = null;
+    let tier: QuotaTier = 'developer';
+    let isSystem = false;
 
-    sendSuccess(res, 200, { user: formatUserResponse(user, organizationName) });
+    if (user.organizationId) {
+      const org = await Organization.findById(user.organizationId).select('name tier').lean();
+      organizationName = org?.name || null;
+      tier = (org?.tier as QuotaTier) || 'developer';
+      isSystem = user.organizationId.toString() === 'system';
+    }
+
+    const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
+    const features = resolveUserFeatures(tier, overrides, isSystem);
+
+    sendSuccess(res, 200, { user: formatUserResponse(user, organizationName, undefined, { tier, features }) });
   } catch (error) {
     logger.error('[GET USER] Error:', error);
     return sendError(res, 500, 'Failed to fetch user');
@@ -273,7 +304,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
     }
 
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const limitNum = Math.min(config.pagination.maxLimit, Math.max(1, parseInt(limit as string, 10) || config.pagination.defaultLimit));
     const skip = (pageNum - 1) * limitNum;
 
     const [users, total] = await Promise.all([
@@ -321,7 +352,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
 
     const user = await User.findById(id)
-      .select('_id username email role isEmailVerified organizationId createdAt updatedAt')
+      .select('_id username email role isEmailVerified organizationId featureOverrides createdAt updatedAt')
       .lean();
 
     if (!user) {
@@ -334,16 +365,23 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
 
     let organizationName: string | null = null;
     let organization: OrgSummary | null = null;
+    let tier: QuotaTier = 'developer';
+    let isSystem = false;
 
     if (user.organizationId) {
-      const org = await Organization.findById(user.organizationId).select('_id name slug').lean();
+      const org = await Organization.findById(user.organizationId).select('_id name slug tier').lean();
       if (org) {
         organizationName = org.name;
         organization = { id: org._id.toString(), name: org.name, slug: org.slug };
+        tier = (org.tier as QuotaTier) || 'developer';
+        isSystem = org._id.toString() === 'system';
       }
     }
 
-    sendSuccess(res, 200, { user: formatUserResponse(user, organizationName, organization ?? undefined) });
+    const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
+    const features = resolveUserFeatures(tier, overrides, isSystem);
+
+    sendSuccess(res, 200, { user: formatUserResponse(user, organizationName, organization ?? undefined, { tier, features }) });
   } catch (error) {
     logger.error('[GET USER BY ID] Error:', error);
     return sendError(res, 500, 'Failed to fetch user');
@@ -497,5 +535,72 @@ export async function deleteUserById(req: Request, res: Response): Promise<void>
   } catch (error) {
     logger.error('[DELETE USER BY ID] Error:', error);
     return sendError(res, 500, 'Failed to delete user');
+  }
+}
+
+/**
+ * Update feature overrides for a user (Admin only)
+ * PUT /users/:id/features
+ */
+export async function updateUserFeatures(req: Request, res: Response): Promise<void> {
+  const admin = requireAdminContext(req, res);
+  if (!admin) return;
+
+  try {
+    const { id } = req.params;
+    const { overrides } = req.body;
+
+    if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+      return sendError(res, 400, 'Request body must include an "overrides" object', 'VALIDATION_ERROR');
+    }
+
+    // Validate all keys are valid feature flags
+    const invalidKeys = Object.keys(overrides).filter(k => !isValidFeatureFlag(k));
+    if (invalidKeys.length > 0) {
+      return sendError(res, 400, `Invalid feature flag(s): ${invalidKeys.join(', ')}`, 'VALIDATION_ERROR');
+    }
+
+    // Validate all values are booleans
+    const nonBooleanKeys = Object.entries(overrides).filter(([, v]) => typeof v !== 'boolean').map(([k]) => k);
+    if (nonBooleanKeys.length > 0) {
+      return sendError(res, 400, `Override values must be booleans. Invalid: ${nonBooleanKeys.join(', ')}`, 'VALIDATION_ERROR');
+    }
+
+    const user = await User.findById(id).select('_id username email role isEmailVerified organizationId featureOverrides');
+    if (!user) {
+      return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+    }
+
+    // Org admin can only update users in their org
+    if (admin.isOrgAdmin && user.organizationId?.toString() !== req.user!.organizationId) {
+      return sendError(res, 403, 'Forbidden: Can only update users in your organization');
+    }
+
+    // Apply overrides
+    user.featureOverrides = new Map(Object.entries(overrides as Record<string, boolean>));
+    await user.save();
+
+    // Resolve features for response
+    let tier: QuotaTier = 'developer';
+    let isSystem = false;
+    let organizationName: string | null = null;
+
+    if (user.organizationId) {
+      const org = await Organization.findById(user.organizationId).select('name tier').lean();
+      organizationName = org?.name || null;
+      tier = (org?.tier as QuotaTier) || 'developer';
+      isSystem = user.organizationId.toString() === 'system';
+    }
+
+    const features = resolveUserFeatures(tier, overrides as Record<string, boolean>, isSystem);
+
+    logger.info(`[UPDATE USER FEATURES] User ${id} features updated by ${admin.adminType} ${req.user!.sub}`);
+
+    sendSuccess(res, 200, {
+      user: formatUserResponse(user, organizationName, undefined, { tier, features }),
+    }, 'Feature overrides updated successfully');
+  } catch (error) {
+    logger.error('[UPDATE USER FEATURES] Error:', error);
+    return sendError(res, 500, 'Failed to update user features');
   }
 }

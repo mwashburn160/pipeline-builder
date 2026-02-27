@@ -9,6 +9,7 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SAMPLES_DIR="$DEPLOY_DIR/samples"
+PIPELINES_DIR="$SAMPLES_DIR/pipelines"
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
 
 echo "=== Loading pipelines ==="
@@ -29,15 +30,16 @@ if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
 fi
 echo "  Logged in successfully."
 
-if [ ! -d "$SAMPLES_DIR" ]; then
-    echo "No samples directory found at $SAMPLES_DIR" >&2
+if [ ! -d "$PIPELINES_DIR" ]; then
+    echo "No pipelines directory found at $PIPELINES_DIR" >&2
     exit 1
 fi
 
 echo ""
 echo "=== Creating sample pipelines ==="
-find "$SAMPLES_DIR" -type f -iname "*.json" -exec sh -c '
-    echo "  Creating: $(basename "$1")"
+find "$PIPELINES_DIR" -type f -name "pipeline.json" -exec sh -c '
+    DIR_NAME=$(basename "$(dirname "$1")")
+    echo "  Creating: $DIR_NAME"
     BODY=$(jq ".accessModifier = \"public\"" "$1")
     CREATE_STATUS=$(curl -X POST "$2/api/pipeline" \
      -s -o /dev/null -w "%{http_code}" \
