@@ -36,9 +36,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.26.11",
-    "@mwashburn160/api-server": "1.25.11",
-    "@mwashburn160/pipeline-core": "1.27.11",
+    "@mwashburn160/api-core": "1.26.12",
+    "@mwashburn160/api-server": "1.25.12",
+    "@mwashburn160/pipeline-core": "1.27.12",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",
@@ -55,7 +55,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.20.12",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
