@@ -85,6 +85,12 @@ export interface RoleNameOptions {
  * Role configuration that creates a new IAM role with CodeBuild service principal
  * and minimal CloudWatch Logs permissions.
  *
+ * **Important:** This role type uses `codebuild.amazonaws.com` as the trust principal.
+ * It is intended for CodeBuild project roles only — do NOT use it as the pipeline-level
+ * role (`BuilderProps.role`), which requires `codepipeline.amazonaws.com`. For the
+ * pipeline role, use `roleArn` or `roleName` to reference a pre-configured role,
+ * or omit `role` entirely to let CDK auto-create one with the correct principal.
+ *
  * @example
  * ```typescript
  * const role: CodeBuildDefaultRoleConfig = {

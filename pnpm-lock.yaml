@@ -54,8 +54,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -139,8 +139,8 @@ importers:
   api/message:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -215,8 +215,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ai-core
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -312,8 +312,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ai-core
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -424,8 +424,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -509,8 +509,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
@@ -588,8 +588,8 @@ importers:
         specifier: 3.0.59
         version: 3.0.59(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.26.8
+        version: 1.26.8
       ai:
         specifier: 6.0.99
         version: 6.0.99(zod@4.3.6)
@@ -695,8 +695,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/pipeline-core':
         specifier: workspace:*
         version: link:../pipeline-core
@@ -780,8 +780,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.26.8
+        version: 1.26.8
       '@mwashburn160/pipeline-data':
         specifier: workspace:*
         version: link:../pipeline-data
@@ -850,8 +850,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 1.26.8
+        version: 1.26.8
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -987,8 +987,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 1.26.8
+        version: 1.26.8
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -2600,6 +2600,10 @@ packages:
     resolution: {integrity: sha512-x0fWaQtYp4E6sktbsdAqnehxDgEc/VwM7uLsRCYWaiGu0ykYdZPiS8zCWdnjHwyiumousxfBm4SO31eXqwEZhQ==}
     cpu: [x64]
     os: [win32]
+
+  '@mwashburn160/api-core@1.26.8':
+    resolution: {integrity: sha512-Djw4FP3Fpv/59fsqvpLe4SsSeVpfLj+a4oXVRdhDoWPT4U0Wvs5UVkInXQaBaHH77YdmqC2u5EMt62XlrFcfsg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.26.8/6ac8f2231f1b8bf66adfba84d5fe78a8ad8bc51f}
+    engines: {node: '>= 24.9.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -8500,6 +8504,16 @@ snapshots:
 
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.3':
     optional: true
+
+  '@mwashburn160/api-core@1.26.8':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 8.4.0(zod@4.3.6)
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
