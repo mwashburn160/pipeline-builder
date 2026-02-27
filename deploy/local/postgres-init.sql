@@ -49,11 +49,16 @@ CREATE TABLE IF NOT EXISTS plugins (
     -- Build Configuration
     plugin_type              VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
     compute_type             VARCHAR(20) NOT NULL DEFAULT 'SMALL',
+    timeout                  INTEGER,
+    failure_behavior         VARCHAR(10) NOT NULL DEFAULT 'fail'
+                             CHECK (failure_behavior IN ('fail', 'warn', 'ignore')),
+    secrets                  JSONB NOT NULL DEFAULT '[]',
     dockerfile               TEXT,
     primary_output_directory VARCHAR(28),
     
     -- Runtime Configuration
     env                 JSONB NOT NULL DEFAULT '{}',
+    build_args          JSONB NOT NULL DEFAULT '{}',
     install_commands    VARCHAR(512)[] NOT NULL DEFAULT '{}',
     commands            VARCHAR(512)[] NOT NULL DEFAULT '{}',
     

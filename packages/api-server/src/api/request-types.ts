@@ -1,3 +1,8 @@
+/**
+ * @module api/request-types
+ * @description Request context factory that combines identity extraction, request tracing, and dual-output logging via Winston and SSE.
+ */
+
 import { getIdentity, RequestIdentity, createLogger, HttpRequest } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -42,7 +47,7 @@ export interface RequestContext {
  *
  *   if (!ctx.identity.orgId) {
  *     ctx.log('ERROR', 'Missing organization ID');
- *     return res.status(400).json({ error: 'x-org-id header required' });
+ *     return sendBadRequest(res, 'x-org-id header required');
  *   }
  *
  *   // Process request...

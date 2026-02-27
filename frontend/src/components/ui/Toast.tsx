@@ -21,6 +21,8 @@ export function Toast({ message, type, onDone, duration = 3500 }: ToastProps) {
 
   return (
     <div
+      role="alert"
+      aria-live="assertive"
       className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm transition-all ${
         type === 'error'
           ? 'bg-red-50/90 text-red-800 border border-red-200 dark:bg-red-900/90 dark:text-red-200 dark:border-red-800'

@@ -1,0 +1,29 @@
+name: dotnet
+description: .NET plugin for building and testing C#/F# applications using dotnet CLI with AWS CDK CodeBuildStep
+keywords:
+  - dotnet
+  - csharp
+  - fsharp
+  - nuget
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # .NET version selection
+  - |
+    if ! dotnet --list-sdks | grep -q "^${DOTNET_VERSION}"; then
+      curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel ${DOTNET_VERSION} --install-dir /opt/dotnet
+    fi
+  - dotnet --version
+  # Restore dependencies
+  - dotnet restore
+commands:
+  - dotnet build --no-restore --configuration Release
+  - dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+env:
+  DOTNET_VERSION: "8.0"

@@ -1,3 +1,8 @@
+/**
+ * @module core/query-filters
+ * @description Defines TypeScript filter interfaces used to specify query criteria for pipelines, plugins, and messages.
+ */
+
 import { AccessModifier } from '@mwashburn160/api-core';
 
 /**
@@ -139,9 +144,10 @@ export interface PipelineFilter extends CommonFilter {
  */
 export interface MessageFilter extends CommonFilter {
   /**
-   * Thread ID to filter by (for fetching thread replies)
+   * Thread ID to filter by (for fetching thread replies).
+   * Pass `null` to filter for root messages only (threadId IS NULL).
    */
-  readonly threadId?: string;
+  readonly threadId?: string | null;
 
   /**
    * Recipient organization ID to filter by
@@ -162,7 +168,7 @@ export interface MessageFilter extends CommonFilter {
   /**
    * Filter by priority level
    */
-  readonly priority?: string;
+  readonly priority?: 'normal' | 'high' | 'urgent';
 }
 
 /**
@@ -235,4 +241,27 @@ export function validatePluginFilter(filter: PluginFilter): void {
  */
 export function validatePipelineFilter(filter: PipelineFilter): void {
   validateCommonFilter(filter);
+}
+
+/**
+ * Validates message filter properties.
+ * Returns a result object with `valid` flag and `errors` array.
+ */
+export function validateMessageFilter(filter: Partial<MessageFilter>): {
+  valid: boolean;
+  errors: string[];
+} {
+  const errors: string[] = [];
+
+  if (filter.messageType && !['announcement', 'conversation'].includes(filter.messageType)) {
+    errors.push(`Invalid messageType: "${filter.messageType}". Must be "announcement" or "conversation"`);
+  }
+  if (filter.priority && !['normal', 'high', 'urgent'].includes(filter.priority)) {
+    errors.push(`Invalid priority: "${filter.priority}". Must be "normal", "high", or "urgent"`);
+  }
+  if (filter.threadId !== undefined && filter.threadId !== null && typeof filter.threadId !== 'string') {
+    errors.push('threadId must be a string UUID or null');
+  }
+
+  return { valid: errors.length === 0, errors };
 }

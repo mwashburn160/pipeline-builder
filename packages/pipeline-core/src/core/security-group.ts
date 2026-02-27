@@ -1,3 +1,8 @@
+/**
+ * @module core/security-group
+ * @description Resolves security group configurations into CDK ISecurityGroup instances for use in CodeBuild networking.
+ */
+
 import { ISecurityGroup, SecurityGroup, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
 import { UniqueId } from './id-generator';

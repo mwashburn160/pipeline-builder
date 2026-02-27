@@ -20,7 +20,7 @@ export * from './core/network-types';
 export * from './core/role-types';
 export * from './core/security-group-types';
 export * from './core/id-generator';
-export { replaceNonAlphanumeric } from './core/pipeline-helpers';
+export { replaceNonAlphanumeric, extractMetadataEnv } from './core/pipeline-helpers';
 export { MetadataBuilder } from './core/metadata-builder';
 export * from './core/artifact-manager';
 
@@ -46,11 +46,15 @@ export {
   buildMessageConditions,
   validatePluginFilter,
   validatePipelineFilter,
+  validateMessageFilter,
 
   // Query filter types
   type PluginFilter,
   type PipelineFilter,
   type MessageFilter,
+
+  // Plugin types
+  type PluginSecret,
 
   // CRUD service
   CrudService,
@@ -63,3 +67,4 @@ export * from './pipeline/step-types';
 export * from './pipeline/stage-builder';
 export * from './pipeline/pipeline-builder';
 export * from './pipeline/plugin-lookup';
+export { PipelineConfiguration } from './pipeline/pipeline-configuration';

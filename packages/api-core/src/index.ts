@@ -65,3 +65,6 @@ export * from './routes';
 
 // Validation
 export * from './validation';
+
+// OpenAPI
+export * from './openapi';

@@ -42,9 +42,10 @@ declare global {
  *
  * // Use context in route handlers
  * app.get('/pipelines', authenticateToken, async (req, res) => {
- *   req.context!.log('INFO', 'Fetching pipelines');
+ *   const ctx = getContext(req);
+ *   ctx.log('INFO', 'Fetching pipelines');
  *
- *   if (!req.context!.identity.orgId) {
+ *   if (!ctx.identity.orgId) {
  *     return sendError(res, 400, 'Organization ID required');
  *   }
  *

@@ -161,9 +161,6 @@ export interface ServiceConfig {
 }
 
 /**
- * Quota service configuration (single consolidated service).
- */
-/**
  * Health check response.
  */
 export interface HealthCheckResponse {

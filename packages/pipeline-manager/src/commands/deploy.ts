@@ -180,8 +180,9 @@ export function deploy(program: Command): void {
           'Is Active': pipeline.isActive,
         });
 
-        // Encode pipeline props
-        const encoded = Buffer.from(JSON.stringify(pipeline.props), 'utf-8').toString('base64');
+        // Encode pipeline props (inject orgId for per-org secret resolution)
+        const propsWithOrgId = { ...pipeline.props, ...(pipeline.orgId && { orgId: pipeline.orgId }) };
+        const encoded = Buffer.from(JSON.stringify(propsWithOrgId), 'utf-8').toString('base64');
         const outputPath = options.output;
 
         // Ensure output directory exists

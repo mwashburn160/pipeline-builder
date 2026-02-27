@@ -1,0 +1,39 @@
+name: ruby
+description: Ruby plugin for building and testing Ruby applications using Bundler with AWS CDK CodeBuildStep
+keywords:
+  - ruby
+  - bundler
+  - rake
+  - rspec
+  - minitest
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Ruby version selection
+  - rbenv install -s ${RUBY_VERSION} && rbenv global ${RUBY_VERSION}
+  - ruby --version
+  # Install dependencies
+  - gem install bundler
+  - if [ -f Gemfile.lock ]; then bundle install; elif [ -f Gemfile ]; then bundle install; fi
+commands:
+  - |
+    if bundle exec rspec --version > /dev/null 2>&1; then
+      echo "Running RSpec..."
+      bundle exec rspec --format documentation --format RspecJunitFormatter --out junit/test-results.xml 2>/dev/null || bundle exec rspec --format documentation
+    elif bundle exec rake -T test > /dev/null 2>&1; then
+      echo "Running Rake test..."
+      bundle exec rake test
+    elif [ -f Rakefile ]; then
+      echo "Running default Rake task..."
+      bundle exec rake
+    else
+      echo "No test framework detected. Skipping tests."
+    fi
+env:
+  RUBY_VERSION: "3.3.6"

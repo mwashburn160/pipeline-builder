@@ -259,7 +259,7 @@ describe('sendInternalError', () => {
   it('should include details when provided', () => {
     const res = mockRes();
     sendInternalError(res, 'DB error', { dbCode: '42601' });
-    expect(res.body.dbCode).toBe('42601');
+    expect(res.body.details).toEqual({ dbCode: '42601' });
   });
 });
 

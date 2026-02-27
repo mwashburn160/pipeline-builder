@@ -1,0 +1,55 @@
+name: eslint
+description: ESLint JavaScript and TypeScript linting plugin for enforcing code quality and style standards using AWS CDK CodeBuildStep
+keywords:
+  - eslint
+  - lint
+  - javascript
+  - typescript
+  - code-quality
+  - style
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+  # Install project dependencies (includes ESLint from project)
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    else
+      echo "No package.json found — installing ESLint globally"
+      npm install -g eslint
+    fi
+commands:
+  - mkdir -p lint-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    WARN_ARG=""
+    if [ "${ESLINT_MAX_WARNINGS}" != "-1" ]; then
+      WARN_ARG="--max-warnings ${ESLINT_MAX_WARNINGS}"
+    fi
+    echo "Running ESLint..."
+    npx eslint . \
+      --format ${ESLINT_FORMAT} \
+      --output-file lint-reports/eslint-results.json \
+      ${WARN_ARG} || true
+    npx eslint . ${WARN_ARG} || true
+  - "echo \"ESLint complete. Report available in lint-reports/\""
+env:
+  NODE_VERSION: "20"
+  ESLINT_FORMAT: json
+  ESLINT_MAX_WARNINGS: "-1"

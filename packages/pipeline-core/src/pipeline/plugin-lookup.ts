@@ -1,3 +1,8 @@
+/**
+ * @module pipeline/plugin-lookup
+ * @description CDK construct that resolves plugin references at deploy time via a Lambda-backed custom resource calling the platform API.
+ */
+
 import { join } from 'path';
 import { createLogger } from '@mwashburn160/api-core';
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
@@ -199,8 +204,12 @@ export class PluginLookup extends Construct {
       metadata: {},
       pluginType: 'CodeBuildStep',
       computeType: 'SMALL',
+      timeout: null,
+      failureBehavior: 'fail',
+      secrets: [],
       primaryOutputDirectory: 'dist',
       env: {},
+      buildArgs: {},
       installCommands: [],
       commands: [],
       imageTag: 'no_image_tag',

@@ -1,3 +1,8 @@
+/**
+ * @module core/pipeline-types
+ * @description Defines core pipeline type definitions including trigger types, source types, and re-exports shared enums from api-core.
+ */
+
 import type { CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
 
 // Re-export shared types from api-core for convenience
@@ -123,7 +128,7 @@ export const MetadataKeys = {
 
   // ── IAM role configuration (namespace: iam:role) ──
   ROLE_TYPE: 'aws:cdk:iam:role:type',
-  ROLE_ARN: 'aws:cdk:iam:role:roleArn',
+  ROLE_ARN: 'aws:cdk:iam:role:rolearn',
   ROLE_NAME: 'aws:cdk:iam:role:rolename',
   ROLE_MUTABLE: 'aws:cdk:iam:role:mutable',
 
@@ -144,3 +149,10 @@ export const MetadataKeys = {
  * Type for MetadataKeys values
  */
 export type MetadataKey = typeof MetadataKeys[keyof typeof MetadataKeys];
+
+/**
+ * Prefix for AWS CDK metadata keys.
+ * Keys with this prefix are handled by MetadataBuilder and should NOT
+ * be passed as CodeBuild environment variables.
+ */
+export const CDK_METADATA_PREFIX = 'aws:cdk:';

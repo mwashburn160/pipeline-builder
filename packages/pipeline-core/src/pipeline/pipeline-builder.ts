@@ -1,3 +1,8 @@
+/**
+ * @module pipeline/pipeline-builder
+ * @description Main CDK construct that orchestrates pipeline creation by composing sources, synth steps, stages, and CodeBuild defaults into an AWS CodePipeline.
+ */
+
 import { Tags } from 'aws-cdk-lib';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
@@ -27,6 +32,9 @@ export interface BuilderProps {
 
   /** Organization identifier (will be sanitized to lowercase alphanumeric with underscores) */
   readonly organization: string;
+
+  /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
+  readonly orgId?: string;
 
   /** Optional custom pipeline name. Defaults to: {organization}-{project}-pipeline */
   readonly pipelineName?: string;
@@ -127,6 +135,7 @@ export class PipelineBuilder extends Construct {
       stageName: 'no-stage',
       stageAlias: 'no-stage-alias',
       pluginAlias: `${synthAlias}-alias`,
+      orgId: props.orgId,
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
@@ -156,6 +165,7 @@ export class PipelineBuilder extends Construct {
         globalMetadata: this.config.metadata.merged,
         defaultComputeType,
         artifactManager,
+        orgId: props.orgId,
       });
       stageBuilder.addStages(this.pipeline, props.stages);
     }

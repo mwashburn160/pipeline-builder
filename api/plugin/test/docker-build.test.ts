@@ -271,6 +271,59 @@ describe('docker-build', () => {
     });
   });
 
+  describe('buildArgs handling', () => {
+    it('includes --build-arg flags in docker command', async () => {
+      const req = makeRequest({
+        buildArgs: { PYTHON_VERSION: '3.12' },
+      });
+      await buildAndPush(req);
+
+      const buildArgs = mockExecFile.mock.calls[0][1];
+      expect(buildArgs).toContain('--build-arg');
+      expect(buildArgs).toContain('PYTHON_VERSION=3.12');
+    });
+
+    it('includes multiple --build-arg flags', async () => {
+      const req = makeRequest({
+        buildArgs: { PYTHON_VERSION: '3.12', NODE_ENV: 'production' },
+      });
+      await buildAndPush(req);
+
+      const buildArgs = mockExecFile.mock.calls[0][1];
+      const buildArgFlags = buildArgs.filter((a: string) => a === '--build-arg');
+      expect(buildArgFlags).toHaveLength(2);
+      expect(buildArgs).toContain('PYTHON_VERSION=3.12');
+      expect(buildArgs).toContain('NODE_ENV=production');
+    });
+
+    it('skips --build-arg when buildArgs is empty', async () => {
+      const req = makeRequest({ buildArgs: {} });
+      await buildAndPush(req);
+
+      const buildArgs = mockExecFile.mock.calls[0][1];
+      expect(buildArgs).not.toContain('--build-arg');
+    });
+
+    it('skips --build-arg when buildArgs is undefined', async () => {
+      const req = makeRequest();
+      await buildAndPush(req);
+
+      const buildArgs = mockExecFile.mock.calls[0][1];
+      expect(buildArgs).not.toContain('--build-arg');
+    });
+
+    it('places --build-arg flags before -f flag', async () => {
+      const req = makeRequest({ buildArgs: { VERSION: '1.0' } });
+      await buildAndPush(req);
+
+      const args = mockExecFile.mock.calls[0][1];
+      const buildArgIdx = args.indexOf('--build-arg');
+      const fIdx = args.indexOf('-f');
+      expect(buildArgIdx).toBeGreaterThan(-1);
+      expect(buildArgIdx).toBeLessThan(fIdx);
+    });
+  });
+
   describe('error handling', () => {
     it('throws when Docker build fails', async () => {
       mockExecFile.mockRejectedValue(new Error('docker: build failed with exit code 1'));

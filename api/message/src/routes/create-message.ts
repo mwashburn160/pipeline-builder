@@ -18,6 +18,7 @@ import {
   MessageCreateSchema,
   MessageReplySchema,
 } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { schema } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
@@ -38,7 +39,7 @@ export function createCreateMessageRoutes(): Router {
 
   // POST /messages — Create new message
   router.post('/', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || 'unknown';
 
@@ -93,7 +94,7 @@ export function createCreateMessageRoutes(): Router {
 
   // POST /messages/:id/reply — Reply to a thread
   router.post('/:id/reply', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
     const userId = ctx.identity.userId || 'unknown';
     const id = getParam(req.params, 'id');

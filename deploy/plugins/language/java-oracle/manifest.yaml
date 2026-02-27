@@ -1,0 +1,78 @@
+name: java-oracle
+description: Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM applications with optional native-image compilation using AWS CDK CodeBuildStep
+keywords:
+  - java
+  - kotlin
+  - jvm
+  - oracle
+  - graalvm
+  - native-image
+  - maven
+  - gradle
+  - quarkus
+  - micronaut
+  - ktor
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Java and Kotlin version selection
+  - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
+  - java -version
+  - kotlin -version
+  - |
+    if [ "${NATIVE_BUILD}" = "true" ]; then
+      echo "GraalVM native-image enabled"
+      native-image --version
+    fi
+  # Auto-detect or use explicit build tool, then install dependencies
+  - |
+    TOOL="${BUILD_TOOL}"
+    if [ "${TOOL}" = "auto" ]; then
+      if [ -f pom.xml ]; then
+        TOOL="maven"
+      elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+        TOOL="gradle"
+      else
+        echo "ERROR: No pom.xml or build.gradle found. Set BUILD_TOOL=maven or BUILD_TOOL=gradle explicitly."
+        exit 1
+      fi
+    fi
+    echo "Build tool: ${TOOL}"
+    case "${TOOL}" in
+      maven)  mvn dependency:resolve -q ;;
+      gradle) gradle dependencies --quiet ;;
+      *)
+        echo "ERROR: Unknown BUILD_TOOL '${TOOL}'. Supported: auto, maven, gradle"
+        exit 1
+        ;;
+    esac
+commands:
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
+    TOOL="${BUILD_TOOL}"
+    if [ "${TOOL}" = "auto" ]; then
+      if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
+    fi
+    if [ "${NATIVE_BUILD}" = "true" ]; then
+      echo "Building native image..."
+      case "${TOOL}" in
+        maven)  mvn clean package -Pnative -B ;;
+        gradle) gradle nativeCompile ;;
+      esac
+    else
+      case "${TOOL}" in
+        maven)  mvn clean verify -B ;;
+        gradle) gradle clean build ;;
+      esac
+    fi
+env:
+  JAVA_VERSION: 21.0.5-graal
+  KOTLIN_VERSION: 2.1.0
+  BUILD_TOOL: auto
+  NATIVE_BUILD: "false"

@@ -1,0 +1,94 @@
+name: prisma-cloud
+description: Prisma Cloud (Palo Alto) container image and IaC security scanning plugin with Checkov for infrastructure compliance using AWS CDK CodeBuildStep
+keywords:
+  - prisma
+  - twistlock
+  - palo-alto
+  - container
+  - iac
+  - security
+  - compliance
+  - checkov
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: PRISMA_ACCESS_KEY
+    required: true
+    description: "Prisma Cloud access key"
+  - name: PRISMA_SECRET_KEY
+    required: true
+    description: "Prisma Cloud secret key"
+primaryOutputDirectory: prisma-reports
+dockerfile: Dockerfile
+installCommands:
+  - checkov --version
+  - |
+    if [ -n "${PRISMA_CONSOLE_URL}" ] && [ -n "${PRISMA_ACCESS_KEY}" ] && [ -n "${PRISMA_SECRET_KEY}" ]; then
+      echo "Downloading twistcli from Prisma Console..."
+      curl -fsSL -u "${PRISMA_ACCESS_KEY}:${PRISMA_SECRET_KEY}" \
+        "${PRISMA_CONSOLE_URL}/api/v1/util/twistcli" -o /usr/local/bin/twistcli \
+        && chmod +x /usr/local/bin/twistcli
+      twistcli --version
+    else
+      echo "WARNING: PRISMA_CONSOLE_URL/ACCESS_KEY/SECRET_KEY not set — twistcli unavailable"
+      echo "Checkov (open-source IaC scanner) is available"
+    fi
+commands:
+  - mkdir -p prisma-reports
+  - |
+    case "${PRISMA_SCAN_TYPE}" in
+      iac)
+        echo "Running Checkov IaC scan..."
+        checkov -d . \
+          --output json \
+          --output-file-path prisma-reports \
+          --check "${PRISMA_SEVERITY}" \
+          --compact \
+          || true
+        ;;
+      image)
+        if [ -z "${DOCKER_IMAGE}" ]; then
+          echo "ERROR: DOCKER_IMAGE must be set for container image scan"
+          exit 1
+        fi
+        if [ ! -f /usr/local/bin/twistcli ]; then
+          echo "ERROR: twistcli not available. Set PRISMA_CONSOLE_URL and credentials."
+          exit 1
+        fi
+        echo "Running Prisma Cloud image scan: ${DOCKER_IMAGE}"
+        twistcli images scan \
+          --address "${PRISMA_CONSOLE_URL}" \
+          --user "${PRISMA_ACCESS_KEY}" \
+          --password "${PRISMA_SECRET_KEY}" \
+          --output-file prisma-reports/image-scan.json \
+          --details \
+          "${DOCKER_IMAGE}" || true
+        ;;
+      all)
+        echo "Running Checkov IaC scan..."
+        checkov -d . \
+          --output json \
+          --output-file-path prisma-reports \
+          --compact \
+          || true
+        if [ -n "${DOCKER_IMAGE}" ] && [ -f /usr/local/bin/twistcli ]; then
+          echo "Running Prisma Cloud image scan: ${DOCKER_IMAGE}"
+          twistcli images scan \
+            --address "${PRISMA_CONSOLE_URL}" \
+            --user "${PRISMA_ACCESS_KEY}" \
+            --password "${PRISMA_SECRET_KEY}" \
+            --output-file prisma-reports/image-scan.json \
+            --details \
+            "${DOCKER_IMAGE}" || true
+        fi
+        ;;
+    esac
+  - "echo \"Prisma Cloud scan complete. Reports available in prisma-reports/\""
+env:
+  PRISMA_CONSOLE_URL: ""
+  PRISMA_SCAN_TYPE: iac
+  PRISMA_SEVERITY: high
+  DOCKER_IMAGE: ""

@@ -90,6 +90,9 @@ export const PluginDeployGeneratedSchema = z.object({
   /** Environment variables. */
   env: z.record(z.string(), z.string()).optional(),
 
+  /** Docker build arguments passed via --build-arg at image build time. */
+  buildArgs: z.record(z.string(), z.string()).optional(),
+
   /** Complete Dockerfile content for the build environment. */
   dockerfile: z.string().min(1, 'Dockerfile content is required'),
 

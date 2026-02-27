@@ -1,0 +1,125 @@
+name: azure-deploy
+description: Azure infrastructure deployment plugin supporting Web App, Container Instances, AKS, and Function deployments with Azure CLI and kubectl using AWS CDK CodeBuildStep
+keywords:
+  - azure
+  - microsoft
+  - cloud
+  - deploy
+  - infrastructure
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 45
+failureBehavior: fail
+secrets:
+  - name: AZURE_CLIENT_ID
+    required: true
+    description: "Azure service principal client ID"
+  - name: AZURE_CLIENT_SECRET
+    required: true
+    description: "Azure service principal client secret"
+  - name: AZURE_TENANT_ID
+    required: true
+    description: "Azure tenant ID"
+primaryOutputDirectory: azure-output
+dockerfile: Dockerfile
+installCommands:
+  - az version
+  - kubectl version --client 2>/dev/null || true
+  - |
+    if [ -z "${AZURE_CLIENT_ID}" ] || [ -z "${AZURE_CLIENT_SECRET}" ] || [ -z "${AZURE_TENANT_ID}" ]; then
+      echo "WARNING: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID not fully set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p azure-output
+  - |
+    if [ -z "${AZURE_CLIENT_ID}" ] || [ -z "${AZURE_CLIENT_SECRET}" ] || [ -z "${AZURE_TENANT_ID}" ]; then
+      echo "ERROR: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID must all be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    if [ -z "${AZURE_RESOURCE_GROUP}" ]; then
+      echo "ERROR: AZURE_RESOURCE_GROUP must be set"
+      exit 1
+    fi
+    # Authenticate with service principal
+    echo "Authenticating with Azure..."
+    az login --service-principal \
+      --username "${AZURE_CLIENT_ID}" \
+      --password "${AZURE_CLIENT_SECRET}" \
+      --tenant "${AZURE_TENANT_ID}" \
+      2>&1 | tee azure-output/auth.log
+    # Set subscription if specified
+    if [ -n "${AZURE_SUBSCRIPTION}" ]; then
+      az account set --subscription "${AZURE_SUBSCRIPTION}"
+      echo "Using subscription: ${AZURE_SUBSCRIPTION}"
+    fi
+    RG="${AZURE_RESOURCE_GROUP}"
+    echo "Using resource group: ${RG}"
+    # Deploy based on type
+    case "${DEPLOY_TYPE}" in
+      webapp)
+        if [ -z "${APP_NAME}" ]; then
+          echo "ERROR: APP_NAME must be set for webapp deployments"
+          exit 1
+        fi
+        echo "Deploying to Web App: ${APP_NAME}..."
+        az webapp deploy \
+          --resource-group "${RG}" \
+          --name "${APP_NAME}" \
+          2>&1 | tee azure-output/deploy.log || true
+        az webapp show --resource-group "${RG}" --name "${APP_NAME}" -o json \
+          > azure-output/app-info.json 2>/dev/null || true
+        ;;
+      container-instances)
+        if [ -z "${CONTAINER_NAME}" ]; then
+          echo "ERROR: CONTAINER_NAME must be set for container-instances deployments"
+          exit 1
+        fi
+        echo "Deploying Container Instance: ${CONTAINER_NAME}..."
+        az container create \
+          --resource-group "${RG}" \
+          --name "${CONTAINER_NAME}" \
+          2>&1 | tee azure-output/deploy.log || true
+        az container show --resource-group "${RG}" --name "${CONTAINER_NAME}" -o json \
+          > azure-output/container-info.json 2>/dev/null || true
+        ;;
+      aks)
+        if [ -z "${AKS_CLUSTER}" ]; then
+          echo "ERROR: AKS_CLUSTER must be set for AKS deployments"
+          exit 1
+        fi
+        echo "Connecting to AKS cluster: ${AKS_CLUSTER}..."
+        az aks get-credentials \
+          --resource-group "${RG}" \
+          --name "${AKS_CLUSTER}" \
+          2>&1 | tee azure-output/cluster-auth.log
+        echo "Applying Kubernetes manifests..."
+        MANIFEST_PATH="${K8S_MANIFEST_PATH:-.}"
+        kubectl apply -f "${MANIFEST_PATH}" \
+          2>&1 | tee azure-output/deploy.log || true
+        kubectl get pods --all-namespaces -o json > azure-output/pods.json 2>/dev/null || true
+        ;;
+      function)
+        if [ -z "${FUNCTION_APP_NAME}" ]; then
+          echo "ERROR: FUNCTION_APP_NAME must be set for function deployments"
+          exit 1
+        fi
+        echo "Deploying Function App: ${FUNCTION_APP_NAME}..."
+        az functionapp deployment source config-zip \
+          --resource-group "${RG}" \
+          --name "${FUNCTION_APP_NAME}" \
+          --src "${FUNCTION_PACKAGE:-function.zip}" \
+          2>&1 | tee azure-output/deploy.log || true
+        az functionapp show --resource-group "${RG}" --name "${FUNCTION_APP_NAME}" -o json \
+          > azure-output/function-info.json 2>/dev/null || true
+        ;;
+      *)
+        echo "ERROR: Unknown DEPLOY_TYPE '${DEPLOY_TYPE}'. Supported: webapp, container-instances, aks, function"
+        exit 1
+        ;;
+    esac
+  - "echo \"Azure deployment complete. Output saved in azure-output/\""
+env:
+  AZURE_SUBSCRIPTION: ""
+  AZURE_RESOURCE_GROUP: ""
+  DEPLOY_TYPE: webapp

@@ -60,36 +60,57 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   // PaymentProvider interface methods
   // -----------------------------------------------------------------------
 
+  /**
+   * Return a placeholder customer ID.
+   * AWS Marketplace customers are identified via ResolveCustomer during registration.
+   * The customerId should match the ProductCode/CustomerIdentifier from registration.
+   * TODO: Implement proper customer identity mapping once registration flow is complete.
+   * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_ResolveCustomer.html
+   */
   async createCustomer(orgId: string, _email: string): Promise<string> {
-    // Customer identity comes from ResolveCustomer during registration.
-    logger.debug('AWS Marketplace: createCustomer (placeholder)', { orgId });
+    logger.warn('AWS Marketplace: createCustomer returning placeholder', { orgId });
     return `aws_cus_${orgId}`;
   }
 
+  /**
+   * Return a placeholder subscription ID.
+   * TODO: Implement via AWS Marketplace Entitlement Service once entitlement
+   * dimensions are configured in the AWS Marketplace Management Portal.
+   * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_GetEntitlements.html
+   */
   async createSubscription(
     customerId: string,
     planId: string,
     _interval: BillingInterval,
   ): Promise<ExternalSubscriptionResult> {
-    logger.info('AWS Marketplace: createSubscription', { customerId, planId });
+    logger.warn('AWS Marketplace: createSubscription returning placeholder', { customerId, planId });
     return {
       externalId: `aws_sub_${customerId}_${Date.now()}`,
       externalCustomerId: customerId,
     };
   }
 
+  /**
+   * No-op — cancellations are driven by SNS notifications from AWS Marketplace.
+   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   */
   async cancelSubscription(externalId: string): Promise<void> {
-    // Cancellations are driven by SNS notifications from AWS.
     logger.debug('AWS Marketplace: cancelSubscription handled via SNS', { externalId });
   }
 
+  /**
+   * No-op — plan changes are driven by SNS notifications from AWS Marketplace.
+   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   */
   async updateSubscription(externalId: string, planId: string): Promise<void> {
-    // Plan changes are driven by SNS notifications from AWS.
     logger.debug('AWS Marketplace: updateSubscription handled via SNS', { externalId, planId });
   }
 
+  /**
+   * No-op — reactivations are driven by SNS notifications from AWS Marketplace.
+   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   */
   async reactivateSubscription(externalId: string): Promise<void> {
-    // Reactivations are driven by SNS notifications from AWS.
     logger.debug('AWS Marketplace: reactivateSubscription handled via SNS', { externalId });
   }
 

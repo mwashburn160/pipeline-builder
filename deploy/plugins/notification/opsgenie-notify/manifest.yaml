@@ -1,0 +1,97 @@
+name: opsgenie-notify
+description: Opsgenie alert plugin for notifying on-call teams about pipeline events and failures via REST API v2 using AWS CDK CodeBuildStep
+keywords:
+  - opsgenie
+  - alert
+  - notification
+  - oncall
+  - atlassian
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: OPSGENIE_API_KEY
+    required: true
+    description: "Opsgenie API key"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${OPSGENIE_API_KEY}" ]; then
+      echo "WARNING: OPSGENIE_API_KEY not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${OPSGENIE_API_KEY}" ]; then
+      echo "ERROR: OPSGENIE_API_KEY must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    NAME="${PIPELINE_NAME:-Pipeline}"
+    STATUS="${PIPELINE_STATUS:-unknown}"
+    PRIORITY="${OG_PRIORITY:-P2}"
+    case "${NOTIFICATION_TYPE}" in
+      alert)
+        MESSAGE="${NAME} — Pipeline ${STATUS}"
+        DESCRIPTION="Pipeline ${NAME} reported status: ${STATUS} at ${TIMESTAMP}"
+        # Build responders array if team is specified
+        RESPONDERS="[]"
+        if [ -n "${OG_TEAM}" ]; then
+          RESPONDERS=$(jq -n --arg team "${OG_TEAM}" '[{"name": $team, "type": "team"}]')
+        fi
+        PAYLOAD=$(jq -n \
+          --arg message "${MESSAGE}" \
+          --arg description "${DESCRIPTION}" \
+          --arg priority "${PRIORITY}" \
+          --arg source "${NAME}" \
+          --argjson responders "${RESPONDERS}" \
+          '{
+            "message": $message,
+            "description": $description,
+            "priority": $priority,
+            "source": $source,
+            "responders": $responders,
+            "tags": ["pipeline", "automated"]
+          }')
+        ;;
+      close)
+        PAYLOAD=$(jq -n \
+          --arg source "${NAME}" \
+          --arg note "Pipeline ${NAME} recovered — status: ${STATUS}" \
+          '{
+            "source": $source,
+            "note": $note
+          }')
+        ;;
+      *)
+        echo "ERROR: Unknown NOTIFICATION_TYPE '${NOTIFICATION_TYPE}'. Supported: alert, close"
+        exit 1
+        ;;
+    esac
+    echo "Sending Opsgenie ${NOTIFICATION_TYPE}..."
+    echo "${PAYLOAD}" | jq '.' | tee notify-output/payload.json
+    HTTP_STATUS=$(curl -s -o notify-output/response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "Authorization: GenieKey ${OPSGENIE_API_KEY}" \
+      -d "${PAYLOAD}" \
+      "https://api.opsgenie.com/v2/alerts") || true
+    if [ "${HTTP_STATUS}" = "202" ]; then
+      echo "Opsgenie alert created successfully"
+      cat notify-output/response.txt | jq '.' 2>/dev/null || cat notify-output/response.txt
+    else
+      echo "WARNING: Opsgenie returned HTTP ${HTTP_STATUS}"
+      cat notify-output/response.txt
+    fi
+  - "echo \"Opsgenie notification complete. Payload saved in notify-output/\""
+env:
+  NOTIFICATION_TYPE: alert
+  PIPELINE_NAME: ""
+  PIPELINE_STATUS: ""
+  OG_PRIORITY: P2
+  OG_TEAM: ""

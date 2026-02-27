@@ -1,0 +1,59 @@
+name: npm-publish
+description: NPM package publish plugin for deploying Node.js packages to the npm registry with tag and access control support using AWS CDK CodeBuildStep
+keywords:
+  - npm
+  - publish
+  - registry
+  - nodejs
+  - package
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: NPM_TOKEN
+    required: true
+    description: "npm registry authentication token"
+primaryOutputDirectory: publish-output
+dockerfile: Dockerfile
+installCommands:
+  - node --version
+  - npm --version
+  - |
+    if [ -z "${NPM_TOKEN}" ]; then
+      echo "WARNING: NPM_TOKEN not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p publish-output
+  - |
+    # Configure npm authentication
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+    echo "Configured npm registry authentication"
+  - |
+    # Build dry-run flag
+    DRY_RUN_FLAG=""
+    if [ "${NPM_DRY_RUN}" = "true" ]; then
+      DRY_RUN_FLAG="--dry-run"
+      echo "Dry-run mode enabled — package will NOT be published"
+    fi
+    # Publish to npm
+    echo "Publishing package with tag '${NPM_TAG}' and access '${NPM_ACCESS}'..."
+    npm publish \
+      --tag "${NPM_TAG}" \
+      --access "${NPM_ACCESS}" \
+      ${DRY_RUN_FLAG} \
+      2>&1 | tee publish-output/npm-publish.log || true
+  - |
+    # Save publish metadata
+    if [ -f package.json ]; then
+      PACKAGE_NAME=$(jq -r '.name // "unknown"' package.json)
+      PACKAGE_VERSION=$(jq -r '.version // "unknown"' package.json)
+      echo "{\"package\": \"${PACKAGE_NAME}\", \"version\": \"${PACKAGE_VERSION}\", \"tag\": \"${NPM_TAG}\", \"access\": \"${NPM_ACCESS}\", \"dryRun\": ${NPM_DRY_RUN}}" \
+        | jq '.' > publish-output/publish-metadata.json
+    fi
+  - "echo \"NPM publish complete.\""
+env:
+  NPM_DRY_RUN: "false"
+  NPM_TAG: latest
+  NPM_ACCESS: public

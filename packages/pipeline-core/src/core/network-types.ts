@@ -1,3 +1,8 @@
+/**
+ * @module core/network-types
+ * @description Defines TypeScript interfaces for VPC, subnet, and CodeBuild network configuration options.
+ */
+
 import type { SecretValue } from 'aws-cdk-lib';
 import type { MetaDataType } from './pipeline-types';
 import type { SecurityGroupConfig } from './security-group-types';

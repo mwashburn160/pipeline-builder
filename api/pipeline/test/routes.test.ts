@@ -57,7 +57,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   })),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({}));
+jest.mock('@mwashburn160/api-server', () => ({
+  getContext: (req: any) => req.context,
+}));
 
 import { isSystemAdmin, sendBadRequest } from '@mwashburn160/api-core';
 import { validateFilter } from '../src/helpers/pipeline-helpers';

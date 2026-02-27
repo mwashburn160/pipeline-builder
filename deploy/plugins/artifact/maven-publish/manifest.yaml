@@ -1,0 +1,79 @@
+name: maven-publish
+description: Maven artifact publish plugin for deploying Java/Kotlin packages to Maven Central via OSSRH or custom repositories with GPG signing using AWS CDK CodeBuildStep
+keywords:
+  - maven
+  - publish
+  - java
+  - central
+  - sonatype
+  - ossrh
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: OSSRH_USERNAME
+    required: true
+    description: "Maven Central (OSSRH) username"
+  - name: OSSRH_PASSWORD
+    required: true
+    description: "Maven Central (OSSRH) password"
+  - name: GPG_PASSPHRASE
+    required: false
+    description: "GPG key passphrase for artifact signing"
+primaryOutputDirectory: publish-output
+dockerfile: Dockerfile
+installCommands:
+  - source ${SDKMAN_DIR}/bin/sdkman-init.sh
+  - java -version
+  - mvn --version
+  - gpg --version | head -1
+  - |
+    if [ -z "${OSSRH_USERNAME}" ] || [ -z "${OSSRH_PASSWORD}" ]; then
+      echo "WARNING: OSSRH_USERNAME/OSSRH_PASSWORD not set. Inject via CodeBuild secrets at runtime."
+    fi
+    if [ -z "${GPG_PASSPHRASE}" ]; then
+      echo "WARNING: GPG_PASSPHRASE not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p publish-output
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh
+    # Import GPG private key if provided
+    if [ -n "${GPG_PRIVATE_KEY}" ]; then
+      echo "Importing GPG private key..."
+      echo "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>&1 | tee publish-output/gpg-import.log
+      echo "GPG key imported successfully"
+    else
+      echo "No GPG_PRIVATE_KEY provided — skipping GPG key import"
+    fi
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh
+    # Build repository URL arguments
+    REPO_ARGS=""
+    if [ -n "${MAVEN_REPOSITORY_URL}" ]; then
+      REPO_ARGS="-DaltDeploymentRepository=custom::default::${MAVEN_REPOSITORY_URL}"
+      echo "Publishing to custom repository: ${MAVEN_REPOSITORY_URL}"
+    else
+      echo "Publishing to Maven Central via OSSRH..."
+    fi
+    # Deploy with release profile
+    echo "Running mvn deploy..."
+    mvn deploy -P release \
+      -Dgpg.passphrase="${GPG_PASSPHRASE}" \
+      ${REPO_ARGS} \
+      -B \
+      2>&1 | tee publish-output/maven-deploy.log || true
+  - |
+    # Save publish metadata
+    if [ -f pom.xml ]; then
+      GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout 2>/dev/null || echo "unknown")
+      ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null || echo "unknown")
+      VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null || echo "unknown")
+      echo "{\"groupId\": \"${GROUP_ID}\", \"artifactId\": \"${ARTIFACT_ID}\", \"version\": \"${VERSION}\", \"repository\": \"${MAVEN_REPOSITORY_URL:-Maven Central (OSSRH)}\"}" \
+        | jq '.' > publish-output/publish-metadata.json
+    fi
+  - "echo \"Maven publish complete.\""
+env:
+  MAVEN_REPOSITORY_URL: ""

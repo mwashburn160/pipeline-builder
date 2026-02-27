@@ -1,9 +1,16 @@
-import { sendSuccess, sendError } from '@mwashburn160/api-core';
+/**
+ * @module api/app-factory
+ * @description Factory for creating pre-configured Express applications with security, rate limiting, health checks, and SSE support.
+ */
+
+import { sendSuccess, sendError, generateOpenApiSpec } from '@mwashburn160/api-core';
+import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
 import { metricsMiddleware, metricsHandler } from './metrics';
 import { SSEManager } from '../http/sse-connection-manager';
@@ -39,6 +46,10 @@ export interface CreateAppOptions {
   /** Skip default PostgreSQL health/metrics endpoints (default: false).
    *  When true, the service should provide its own health check. */
   skipDefaultHealthCheck?: boolean;
+  /** Enable OpenAPI spec at /docs/openapi.json and Swagger UI at /docs (default: true) */
+  enableOpenApi?: boolean;
+  /** OpenAPI spec customization options */
+  openApiOptions?: OpenApiSpecOptions;
 }
 
 /**
@@ -89,6 +100,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     urlEncodedLimit = '1mb',
     sseManager = new SSEManager(),
     skipDefaultHealthCheck = false,
+    enableOpenApi = true,
+    openApiOptions,
   } = options;
 
   const config = Config.get();
@@ -100,7 +113,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          // Swagger UI requires unsafe-inline + unsafe-eval for its scripts
+          scriptSrc: enableOpenApi
+            ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+            : ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:'],
           connectSrc: ["'self'"],
@@ -169,6 +185,17 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.get('/metrics', metricsHandler());
   }
 
+  // OpenAPI spec and Swagger UI (registered before rate limiter)
+  if (enableOpenApi) {
+    const spec = generateOpenApiSpec(openApiOptions);
+    app.get('/docs/openapi.json', (_req: Request, res: Response) => {
+      res.json(spec);
+    });
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(spec, {
+      customSiteTitle: openApiOptions?.title ?? 'Pipeline Builder API Docs',
+    }));
+  }
+
   // Rate limiting
   if (enableRateLimit) {
     const limiter = rateLimit({
@@ -181,8 +208,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.use(limiter);
   }
 
-  // Request timeout
-  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000', 10);
+  // Express request timeout (distinct from CoreConstants.HANDLER_TIMEOUT_MS which is for Lambda)
+  const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || String(DEFAULT_REQUEST_TIMEOUT_MS), 10);
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setTimeout(timeoutMs, () => {
       if (!res.headersSent) {

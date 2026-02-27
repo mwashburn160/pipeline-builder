@@ -1,0 +1,80 @@
+name: fortify
+description: Micro Focus Fortify enterprise SAST plugin supporting Fortify on Demand (FoD) and ScanCentral for static code analysis using AWS CDK CodeBuildStep
+keywords:
+  - fortify
+  - sast
+  - security
+  - enterprise
+  - micro-focus
+  - fod
+  - compliance
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: FORTIFY_SSC_TOKEN
+    required: false
+    description: "Fortify SSC authentication token"
+  - name: FOD_CLIENT_ID
+    required: false
+    description: "Fortify on Demand client ID"
+  - name: FOD_CLIENT_SECRET
+    required: false
+    description: "Fortify on Demand client secret"
+primaryOutputDirectory: fortify-reports
+dockerfile: Dockerfile
+installCommands:
+  - fcli --version 2>/dev/null || echo "Fortify CLI ready"
+  - |
+    case "${FORTIFY_SCAN_TYPE}" in
+      fod)
+        if [ -z "${FOD_CLIENT_ID}" ] || [ -z "${FOD_CLIENT_SECRET}" ]; then
+          echo "WARNING: FOD_CLIENT_ID and FOD_CLIENT_SECRET must be injected via CodeBuild secrets"
+        fi
+        ;;
+      ssc)
+        if [ -z "${FORTIFY_SSC_TOKEN}" ]; then
+          echo "WARNING: FORTIFY_SSC_TOKEN must be injected via CodeBuild secrets"
+        fi
+        ;;
+    esac
+commands:
+  - mkdir -p fortify-reports
+  - |
+    case "${FORTIFY_SCAN_TYPE}" in
+      fod)
+        echo "Submitting to Fortify on Demand..."
+        fcli fod session login \
+          --url "${FOD_URL}" \
+          --client-id "${FOD_CLIENT_ID}" \
+          --client-secret "${FOD_CLIENT_SECRET}"
+        # Package and upload source
+        fcli fod sast-scan start \
+          --release "${FORTIFY_APP_NAME}:${FORTIFY_RELEASE}" \
+          --file . \
+          --store scan_id \
+          || true
+        echo "Scan submitted. Use Fortify on Demand portal to view results."
+        fcli fod session logout
+        ;;
+      ssc)
+        echo "Submitting to Fortify SSC..."
+        fcli ssc session login \
+          --url "${SSC_URL}" \
+          --token "${FORTIFY_SSC_TOKEN}"
+        fcli ssc artifact upload \
+          --appversion "${FORTIFY_APP_NAME}:${FORTIFY_RELEASE}" \
+          --file . \
+          || true
+        fcli ssc session logout
+        ;;
+    esac
+  - "echo \"Fortify scan complete. Reports available in fortify-reports/\""
+env:
+  FORTIFY_SCAN_TYPE: fod
+  FORTIFY_APP_NAME: ""
+  FORTIFY_RELEASE: ""
+  FOD_URL: https://ams.fortify.com
+  SSC_URL: ""

@@ -1,0 +1,56 @@
+name: codecov
+description: Codecov coverage reporting plugin for uploading and tracking code coverage with PR comments and badges using AWS CDK CodeBuildStep
+keywords:
+  - codecov
+  - coverage
+  - reporting
+  - pr-comments
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: warn
+secrets:
+  - name: CODECOV_TOKEN
+    required: true
+    description: "Codecov upload token"
+primaryOutputDirectory: codecov-reports
+dockerfile: Dockerfile
+installCommands:
+  - codecov --version || echo "Codecov uploader ready"
+  - |
+    if [ -z "${CODECOV_TOKEN}" ]; then
+      echo "WARNING: CODECOV_TOKEN is not set. Coverage upload will fail."
+      echo "Provide CODECOV_TOKEN via CodeBuild secrets or environment variables."
+    fi
+commands:
+  - mkdir -p codecov-reports
+  # Auto-detect coverage files and upload to Codecov
+  - |
+    CODECOV_ARGS=""
+    if [ -n "${CODECOV_FLAGS}" ]; then
+      CODECOV_ARGS="${CODECOV_ARGS} --flags ${CODECOV_FLAGS}"
+    fi
+    if [ -n "${CODECOV_FILE}" ]; then
+      CODECOV_ARGS="${CODECOV_ARGS} --file ${CODECOV_FILE}"
+    else
+      echo "Auto-detecting coverage files..."
+      for f in lcov.info coverage/lcov.info coverage.xml .coverage jacoco.xml coverage.out; do
+        FOUND=$(find . -name "$(basename ${f})" -not -path "*/node_modules/*" 2>/dev/null | head -1)
+        if [ -n "${FOUND}" ]; then
+          echo "Found coverage file: ${FOUND}"
+          CODECOV_ARGS="${CODECOV_ARGS} --file ${FOUND}"
+          break
+        fi
+      done
+    fi
+    codecov upload-process \
+      --token ${CODECOV_TOKEN} \
+      ${CODECOV_ARGS} \
+      2>&1 | tee codecov-reports/codecov-upload.log || true
+  - "echo \"Codecov upload complete.\""
+# CODECOV_TOKEN must be provided at runtime via CodeBuild secrets or environment variables
+# Do NOT define CODECOV_TOKEN here or in the Dockerfile
+env:
+  CODECOV_FLAGS: ""
+  CODECOV_FILE: ""

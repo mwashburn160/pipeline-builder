@@ -1,0 +1,114 @@
+name: helm-deploy
+description: Helm chart deployment plugin for Kubernetes with install, upgrade, uninstall, and template actions including EKS authentication support via AWS CDK CodeBuildStep
+keywords:
+  - helm
+  - kubernetes
+  - deploy
+  - k8s
+  - chart
+  - eks
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+primaryOutputDirectory: helm-output
+dockerfile: Dockerfile
+secrets:
+  - name: KUBECONFIG_DATA
+    required: false
+    description: "Base64-encoded kubeconfig; not needed if running in EKS with IAM role"
+installCommands:
+  - helm version --short
+  - kubectl version --client --output=json
+  - aws --version
+commands:
+  - mkdir -p helm-output
+  # Decode kubeconfig if provided
+  - |
+    if [ -n "${KUBECONFIG_DATA}" ]; then
+      echo "Decoding provided KUBECONFIG_DATA..."
+      mkdir -p ~/.kube
+      echo "${KUBECONFIG_DATA}" | base64 -d > ~/.kube/config
+      chmod 600 ~/.kube/config
+      export KUBECONFIG=~/.kube/config
+    fi
+  # Add Helm repo if HELM_REPO_URL is set
+  - |
+    if [ -n "${HELM_REPO_URL}" ]; then
+      REPO_NAME="${HELM_REPO_NAME:-helm-repo}"
+      echo "Adding Helm repo: ${REPO_NAME} -> ${HELM_REPO_URL}"
+      helm repo add "${REPO_NAME}" "${HELM_REPO_URL}"
+      helm repo update
+    fi
+  # Execute Helm action
+  - |
+    VALUES_ARGS=""
+    if [ -n "${HELM_VALUES_FILE}" ]; then
+      VALUES_ARGS="-f ${HELM_VALUES_FILE}"
+    fi
+    SET_ARGS=""
+    if [ -n "${HELM_SET_VALUES}" ]; then
+      SET_ARGS="--set ${HELM_SET_VALUES}"
+    fi
+    ATOMIC_ARG=""
+    if [ "${HELM_ATOMIC}" = "true" ]; then
+      ATOMIC_ARG="--atomic"
+    fi
+
+    case "${HELM_ACTION}" in
+      install)
+        echo "Installing Helm release: ${HELM_RELEASE} from chart: ${HELM_CHART}"
+        helm install "${HELM_RELEASE}" "${HELM_CHART}" \
+          --namespace "${HELM_NAMESPACE}" \
+          --create-namespace \
+          --timeout "${HELM_TIMEOUT}" \
+          ${ATOMIC_ARG} \
+          ${VALUES_ARGS} \
+          ${SET_ARGS} \
+          | tee helm-output/install-result.txt
+        ;;
+      upgrade)
+        echo "Upgrading Helm release: ${HELM_RELEASE} from chart: ${HELM_CHART}"
+        helm upgrade "${HELM_RELEASE}" "${HELM_CHART}" \
+          --install \
+          --namespace "${HELM_NAMESPACE}" \
+          --create-namespace \
+          --timeout "${HELM_TIMEOUT}" \
+          ${ATOMIC_ARG} \
+          ${VALUES_ARGS} \
+          ${SET_ARGS} \
+          | tee helm-output/upgrade-result.txt
+        ;;
+      uninstall)
+        echo "Uninstalling Helm release: ${HELM_RELEASE}"
+        helm uninstall "${HELM_RELEASE}" \
+          --namespace "${HELM_NAMESPACE}" \
+          --timeout "${HELM_TIMEOUT}" \
+          | tee helm-output/uninstall-result.txt
+        ;;
+      template)
+        echo "Rendering template for chart: ${HELM_CHART}"
+        helm template "${HELM_RELEASE}" "${HELM_CHART}" \
+          --namespace "${HELM_NAMESPACE}" \
+          ${VALUES_ARGS} \
+          ${SET_ARGS} \
+          | tee helm-output/template-result.yaml
+        ;;
+      *)
+        echo "ERROR: Unknown HELM_ACTION '${HELM_ACTION}'. Supported: install, upgrade, uninstall, template"
+        exit 1
+        ;;
+    esac
+  - "echo \"Helm ${HELM_ACTION} complete. Output available in helm-output/\""
+env:
+  HELM_RELEASE: ""
+  HELM_CHART: ""
+  HELM_NAMESPACE: default
+  HELM_ACTION: upgrade
+  HELM_VALUES_FILE: ""
+  HELM_SET_VALUES: ""
+  HELM_TIMEOUT: "300s"
+  HELM_ATOMIC: "true"
+  HELM_REPO_URL: ""
+  HELM_REPO_NAME: ""

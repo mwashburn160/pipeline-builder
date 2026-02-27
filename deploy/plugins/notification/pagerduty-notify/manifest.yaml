@@ -1,0 +1,101 @@
+name: pagerduty-notify
+description: PagerDuty incident trigger plugin for alerting on-call teams about pipeline failures and critical events via Events API v2 using AWS CDK CodeBuildStep
+keywords:
+  - pagerduty
+  - incident
+  - alert
+  - notification
+  - oncall
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: PAGERDUTY_ROUTING_KEY
+    required: true
+    description: "PagerDuty Events API routing key"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${PAGERDUTY_ROUTING_KEY}" ]; then
+      echo "WARNING: PAGERDUTY_ROUTING_KEY not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${PAGERDUTY_ROUTING_KEY}" ]; then
+      echo "ERROR: PAGERDUTY_ROUTING_KEY must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    NAME="${PIPELINE_NAME:-Pipeline}"
+    STATUS="${PIPELINE_STATUS:-unknown}"
+    SOURCE="${PD_SOURCE:-${NAME}}"
+    SEVERITY="${PD_SEVERITY:-critical}"
+    case "${NOTIFICATION_TYPE}" in
+      trigger)
+        SUMMARY="${NAME} — Pipeline ${STATUS}"
+        PAYLOAD=$(jq -n \
+          --arg routing_key "${PAGERDUTY_ROUTING_KEY}" \
+          --arg summary "${SUMMARY}" \
+          --arg source "${SOURCE}" \
+          --arg severity "${SEVERITY}" \
+          --arg ts "${TIMESTAMP}" \
+          --arg name "${NAME}" \
+          --arg status "${STATUS}" \
+          '{
+            "routing_key": $routing_key,
+            "event_action": "trigger",
+            "payload": {
+              "summary": $summary,
+              "source": $source,
+              "severity": $severity,
+              "timestamp": $ts,
+              "custom_details": {
+                "pipeline_name": $name,
+                "pipeline_status": $status
+              }
+            }
+          }')
+        ;;
+      resolve)
+        DEDUP_KEY="${NAME}-pipeline"
+        PAYLOAD=$(jq -n \
+          --arg routing_key "${PAGERDUTY_ROUTING_KEY}" \
+          --arg dedup_key "${DEDUP_KEY}" \
+          '{
+            "routing_key": $routing_key,
+            "event_action": "resolve",
+            "dedup_key": $dedup_key
+          }')
+        ;;
+      *)
+        echo "ERROR: Unknown NOTIFICATION_TYPE '${NOTIFICATION_TYPE}'. Supported: trigger, resolve"
+        exit 1
+        ;;
+    esac
+    echo "Sending PagerDuty ${NOTIFICATION_TYPE} event..."
+    echo "${PAYLOAD}" | jq '.' | tee notify-output/payload.json
+    HTTP_STATUS=$(curl -s -o notify-output/response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -d "${PAYLOAD}" \
+      "https://events.pagerduty.com/v2/enqueue") || true
+    if [ "${HTTP_STATUS}" = "202" ]; then
+      echo "PagerDuty event sent successfully"
+      cat notify-output/response.txt | jq '.' 2>/dev/null || cat notify-output/response.txt
+    else
+      echo "WARNING: PagerDuty returned HTTP ${HTTP_STATUS}"
+      cat notify-output/response.txt
+    fi
+  - "echo \"PagerDuty notification complete. Payload saved in notify-output/\""
+env:
+  NOTIFICATION_TYPE: trigger
+  PIPELINE_NAME: ""
+  PIPELINE_STATUS: ""
+  PD_SEVERITY: critical
+  PD_SOURCE: ""

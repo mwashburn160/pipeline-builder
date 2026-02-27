@@ -1,0 +1,60 @@
+name: checkstyle
+description: Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom rule sets using AWS CDK CodeBuildStep
+keywords:
+  - checkstyle
+  - java
+  - lint
+  - code-style
+  - google
+  - sun
+  - code-quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: checkstyle-reports
+dockerfile: Dockerfile
+installCommands:
+  # Java version selection
+  - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION}
+  - java -version
+  # Checkstyle version selection
+  - |
+    if [ -f /opt/checkstyle/versions/checkstyle-${CHECKSTYLE_VERSION}.jar ]; then
+      ln -sf /opt/checkstyle/versions/checkstyle-${CHECKSTYLE_VERSION}.jar /opt/checkstyle/checkstyle.jar
+    else
+      echo "Checkstyle ${CHECKSTYLE_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/checkstyle/checkstyle/releases/download/checkstyle-${CHECKSTYLE_VERSION}/checkstyle-${CHECKSTYLE_VERSION}-all.jar \
+        -o /opt/checkstyle/checkstyle.jar
+    fi
+  - java -jar /opt/checkstyle/checkstyle.jar --version
+commands:
+  - mkdir -p checkstyle-reports
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION}
+    # Resolve config file
+    case "${CHECKSTYLE_CONFIG}" in
+      google)  CONFIG_FILE="/opt/checkstyle/configs/google_checks.xml" ;;
+      sun)     CONFIG_FILE="/opt/checkstyle/configs/sun_checks.xml" ;;
+      *)
+        if [ -f "${CHECKSTYLE_CONFIG}" ]; then
+          CONFIG_FILE="${CHECKSTYLE_CONFIG}"
+        else
+          echo "ERROR: Config '${CHECKSTYLE_CONFIG}' not found. Supported: google, sun, or path to XML file"
+          exit 1
+        fi
+        ;;
+    esac
+    echo "Running Checkstyle with config: ${CONFIG_FILE}"
+    java -jar /opt/checkstyle/checkstyle.jar \
+      -c "${CONFIG_FILE}" \
+      -f xml \
+      -o checkstyle-reports/checkstyle-results.xml \
+      -r src/ || true
+  - "echo \"Checkstyle complete. Report available in checkstyle-reports/\""
+env:
+  CHECKSTYLE_VERSION: "10.21.1"
+  CHECKSTYLE_CONFIG: google
+  JAVA_VERSION: 17.0.13-tem

@@ -39,6 +39,8 @@ export interface BuildRequest {
   imageTag: string;
   /** Registry configuration. */
   registry: RegistryInfo;
+  /** Docker build arguments passed via --build-arg. */
+  buildArgs?: Record<string, string>;
 }
 
 /** Result of a successful build + push. */
@@ -79,7 +81,7 @@ function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
  * @throws Error if the build or push fails
  */
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
-  const { contextDir, dockerfile, imageTag, registry } = req;
+  const { contextDir, dockerfile, imageTag, registry, buildArgs } = req;
 
   validateBuildInputs(registry, imageTag);
 
@@ -110,6 +112,12 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
     if (registry.network) {
       args.push('--builder', BUILDER_NAME);
+    }
+
+    if (buildArgs) {
+      for (const [key, value] of Object.entries(buildArgs)) {
+        args.push('--build-arg', `${key}=${value}`);
+      }
     }
 
     args.push(

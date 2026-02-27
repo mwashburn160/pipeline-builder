@@ -1,3 +1,8 @@
+/**
+ * @module config/config-types
+ * @description Defines TypeScript interfaces for all application configuration sections including server, auth, database, registry, AWS, and billing.
+ */
+
 import type { QuotaTier } from '@mwashburn160/api-core';
 import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
@@ -19,43 +24,62 @@ export interface AppConfig {
   readonly billing: BillingConfig;
 }
 
+/** Express server configuration. */
 export interface ServerConfig {
+  /** HTTP listen port (env: `PORT`). */
   readonly port: number;
   readonly cors: {
+    /** Whether to include credentials in CORS responses (env: `CORS_CREDENTIALS`). */
     readonly credentials: boolean;
+    /** Allowed origin(s) — single string, array, or `'*'` (env: `CORS_ORIGIN`). */
     readonly origin: string | string[];
   };
+  /** Number of reverse proxy hops to trust (env: `TRUST_PROXY`). */
   readonly trustProxy: number;
+  /** Frontend base URL, used as CORS fallback (env: `PLATFORM_BASE_URL`). */
   readonly platformUrl: string;
 }
 
+/** JWT and refresh token authentication configuration. */
 export interface AuthConfig {
   readonly jwt: {
+    /** Signing secret for access tokens (env: `JWT_SECRET`). */
     readonly secret: string;
+    /** Token lifetime in seconds (env: `JWT_EXPIRES_IN`). */
     readonly expiresIn: number;
+    /** Signing algorithm, e.g. `'HS256'` (env: `JWT_ALGORITHM`). */
     readonly algorithm: Algorithm;
+    /** bcrypt salt rounds for password hashing (env: `JWT_SALT_ROUNDS`). */
     readonly saltRounds: number;
   };
   readonly refreshToken: {
+    /** Signing secret for refresh tokens (env: `REFRESH_TOKEN_SECRET`). */
     readonly secret: string;
+    /** Token lifetime in seconds (env: `REFRESH_TOKEN_EXPIRES_IN`). */
     readonly expiresIn: number;
   };
 }
 
+/** PostgreSQL and Drizzle ORM database configuration. */
 export interface DatabaseConfig {
   readonly postgres: {
+    /** PostgreSQL host (env: `DB_HOST`). */
     readonly host: string;
+    /** PostgreSQL port (env: `DB_PORT`). */
     readonly port: number;
+    /** Database name (env: `DATABASE`). */
     readonly database: string;
+    /** Database user (env: `DB_USER`). */
     readonly user: string;
+    /** Database password (env: `DB_PASSWORD`). */
     readonly password: string;
   };
-  readonly mongodb: {
-    readonly uri: string;
-  };
   readonly drizzle: {
+    /** Maximum connection pool size (env: `DRIZZLE_MAX_POOL_SIZE`). */
     readonly maxPoolSize: number;
+    /** Idle connection timeout in ms (env: `DRIZZLE_IDLE_TIMEOUT_MILLIS`). */
     readonly idleTimeoutMillis: number;
+    /** New connection timeout in ms (env: `DRIZZLE_CONNECTION_TIMEOUT_MILLIS`). */
     readonly connectionTimeoutMillis: number;
   };
 }
@@ -91,10 +115,15 @@ export interface AWSConfig {
   };
 }
 
+/** Express rate limiting configuration. */
 export interface RateLimitConfig {
+  /** Maximum requests per window (env: `LIMITER_MAX`). */
   readonly max: number;
+  /** Rate limit window in milliseconds (env: `LIMITER_WINDOWMS`). */
   readonly windowMs: number;
+  /** Include legacy `X-RateLimit-*` headers. */
   readonly legacyHeaders: boolean;
+  /** Include standard `RateLimit-*` headers (RFC 6585). */
   readonly standardHeaders: boolean;
 }
 

@@ -1,4 +1,9 @@
-import { eq, or, SQL } from 'drizzle-orm';
+/**
+ * @module api/query-builders
+ * @description Builds SQL condition arrays for pipeline, plugin, and message queries by combining access control, filtering, and entity-specific criteria.
+ */
+
+import { eq, isNull, or, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   normalizeStringFilter,
@@ -120,9 +125,13 @@ export function buildMessageConditions(
     conditions.push(eq(schema.message.isActive, true));
   }
 
-  // Thread filter
+  // Thread filter (null = root messages only via IS NULL)
   if (filter.threadId !== undefined) {
-    conditions.push(eq(schema.message.threadId, filter.threadId));
+    if (filter.threadId === null) {
+      conditions.push(isNull(schema.message.threadId));
+    } else {
+      conditions.push(eq(schema.message.threadId, filter.threadId));
+    }
   }
 
   // Recipient org filter

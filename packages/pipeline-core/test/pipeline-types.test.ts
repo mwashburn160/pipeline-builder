@@ -35,16 +35,13 @@ describe('MetadataKeys', () => {
 
   it('should have correct Role namespace keys', () => {
     expect(MetadataKeys.ROLE_TYPE).toBe('aws:cdk:iam:role:type');
-    expect(MetadataKeys.ROLE_ARN).toBe('aws:cdk:iam:role:roleArn');
+    expect(MetadataKeys.ROLE_ARN).toBe('aws:cdk:iam:role:rolearn');
   });
 
   it('should all be lowercase except for the object keys', () => {
     for (const [, value] of Object.entries(MetadataKeys)) {
       // MetadataKeys values should be lowercase (aws:cdk:... format)
-      // except ROLE_ARN which has roleArn
-      if (value !== MetadataKeys.ROLE_ARN) {
-        expect(value).toBe(value.toLowerCase());
-      }
+      expect(value).toBe(value.toLowerCase());
     }
   });
 });

@@ -43,7 +43,10 @@ export function useBuildStatus(requestId: string | null) {
     eventSource.onmessage = (event) => {
       try {
         const parsed: BuildEvent = JSON.parse(event.data);
-        setEvents((prev) => [...prev, parsed]);
+        setEvents((prev) => {
+          const next = [...prev, parsed];
+          return next.length > 1000 ? next.slice(-1000) : next;
+        });
 
         if (parsed.type === 'COMPLETED') {
           setStatus('completed');

@@ -139,7 +139,10 @@ export interface Plugin {
   metadata: Record<string, string | number | boolean>;
   pluginType: string;
   computeType: string;
-  
+  timeout?: number;
+  failureBehavior?: 'fail' | 'warn' | 'ignore';
+  secrets?: Array<{ name: string; required: boolean; description?: string }>;
+
   // Build configuration
   env: Record<string, string>;
   installCommands: string[];

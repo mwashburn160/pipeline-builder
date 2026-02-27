@@ -1,0 +1,43 @@
+# Go Plugin — Multi-version build environment using goenv
+# Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+# Go version is selected at runtime via GO_VERSION env var
+
+FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System dependencies for builds
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    zip \
+    unzip \
+    curl \
+    jq \
+    ca-certificates \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install goenv
+ENV GOENV_ROOT=/opt/goenv
+RUN git clone https://github.com/go-nv/goenv.git ${GOENV_ROOT}
+
+# Pre-install common Go versions
+RUN ${GOENV_ROOT}/bin/goenv install 1.21.13 && \
+    ${GOENV_ROOT}/bin/goenv install 1.22.10 && \
+    ${GOENV_ROOT}/bin/goenv install 1.23.5 && \
+    ${GOENV_ROOT}/bin/goenv global 1.22.10
+
+# Add goenv to PATH
+ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
+ENV GOPATH=/opt/go
+ENV PATH="${GOPATH}/bin:${PATH}"
+
+# Default Go version (overridden by GO_VERSION env var at runtime)
+ENV GO_VERSION=1.22.10
+
+# Working directory for pipeline source
+WORKDIR /app
+
+# Default entrypoint — overridden by CodeBuildStep commands
+CMD ["bash"]

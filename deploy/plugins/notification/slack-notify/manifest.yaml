@@ -1,0 +1,105 @@
+name: slack-notify
+description: Slack notification plugin for sending pipeline status alerts, build results, and custom messages to Slack channels via webhook using AWS CDK CodeBuildStep
+keywords:
+  - slack
+  - notification
+  - alert
+  - webhook
+  - pipeline-status
+  - teams
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: SLACK_WEBHOOK_URL
+    required: true
+    description: "Slack incoming webhook URL"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - curl --version | head -1
+  - jq --version
+  - |
+    if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+      echo "WARNING: SLACK_WEBHOOK_URL not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${SLACK_WEBHOOK_URL}" ]; then
+      echo "ERROR: SLACK_WEBHOOK_URL must be set (injected via CodeBuild secrets)"
+      exit 1
+    fi
+    # Build notification payload
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    case "${NOTIFICATION_TYPE}" in
+      pipeline-status)
+        STATUS="${PIPELINE_STATUS:-unknown}"
+        NAME="${PIPELINE_NAME:-Pipeline}"
+        case "${STATUS}" in
+          success|succeeded)
+            COLOR="#36a64f"
+            EMOJI=":white_check_mark:"
+            TEXT="${EMOJI} *${NAME}* — Build Succeeded"
+            ;;
+          failure|failed)
+            COLOR="#dc3545"
+            EMOJI=":x:"
+            TEXT="${EMOJI} *${NAME}* — Build Failed"
+            if [ -n "${MENTION_ON_FAILURE}" ]; then
+              TEXT="${TEXT}\n<${MENTION_ON_FAILURE}> please investigate"
+            fi
+            ;;
+          *)
+            COLOR="#ffc107"
+            EMOJI=":building_construction:"
+            TEXT="${EMOJI} *${NAME}* — Status: ${STATUS}"
+            ;;
+        esac
+        PAYLOAD=$(jq -n \
+          --arg text "${TEXT}" \
+          --arg color "${COLOR}" \
+          --arg ts "${TIMESTAMP}" \
+          '{
+            "attachments": [{
+              "color": $color,
+              "text": $text,
+              "footer": ("Pipeline notification | " + $ts),
+              "mrkdwn_in": ["text"]
+            }]
+          }')
+        ;;
+      custom)
+        if [ -z "${CUSTOM_MESSAGE}" ]; then
+          echo "ERROR: CUSTOM_MESSAGE must be set for custom notification type"
+          exit 1
+        fi
+        PAYLOAD=$(jq -n --arg text "${CUSTOM_MESSAGE}" '{"text": $text}')
+        ;;
+      *)
+        echo "ERROR: Unknown NOTIFICATION_TYPE '${NOTIFICATION_TYPE}'. Supported: pipeline-status, custom"
+        exit 1
+        ;;
+    esac
+    echo "Sending Slack notification..."
+    echo "${PAYLOAD}" | jq '.' | tee notify-output/payload.json
+    HTTP_STATUS=$(curl -s -o notify-output/response.txt -w "%{http_code}" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -d "${PAYLOAD}" \
+      "${SLACK_WEBHOOK_URL}")
+    if [ "${HTTP_STATUS}" = "200" ]; then
+      echo "Notification sent successfully"
+    else
+      echo "WARNING: Slack returned HTTP ${HTTP_STATUS}"
+      cat notify-output/response.txt
+    fi
+  - "echo \"Slack notification complete. Payload saved in notify-output/\""
+env:
+  NOTIFICATION_TYPE: pipeline-status
+  PIPELINE_NAME: ""
+  PIPELINE_STATUS: ""
+  CUSTOM_MESSAGE: ""
+  MENTION_ON_FAILURE: ""

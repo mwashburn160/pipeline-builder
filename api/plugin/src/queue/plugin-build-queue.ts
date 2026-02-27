@@ -23,6 +23,12 @@ import type { RegistryInfo } from '../helpers/docker-build';
 
 const logger = createLogger('plugin-build-queue');
 
+/** Retention period for completed jobs (1 hour in seconds). */
+const COMPLETED_JOB_RETENTION_SECS = 3_600;
+
+/** Retention period for failed jobs (24 hours in seconds). */
+const FAILED_JOB_RETENTION_SECS = 86_400;
+
 // ---------------------------------------------------------------------------
 // Job data types
 // ---------------------------------------------------------------------------
@@ -33,6 +39,7 @@ interface BuildRequestData {
   dockerfile: string;
   imageTag: string;
   registry: RegistryInfo;
+  buildArgs?: Record<string, string>;
 }
 
 /** Plugin record data stored in the BullMQ job for DB insertion. */
@@ -47,11 +54,15 @@ interface PluginRecordData {
   primaryOutputDirectory: string | null;
   dockerfile: string | null;
   env: Record<string, string>;
+  buildArgs: Record<string, string>;
   keywords: string[];
   installCommands: string[];
   commands: string[];
   imageTag: string;
   accessModifier: string;
+  timeout: number | null;
+  failureBehavior: string;
+  secrets: Array<{ name: string; required: boolean; description?: string }>;
 }
 
 /** Data stored in each BullMQ job. */
@@ -117,8 +128,8 @@ export function getQueue(): Queue<PluginBuildJobData> {
       defaultJobOptions: {
         attempts: 2,
         backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: { age: 3600 }, // keep completed jobs 1 hour
-        removeOnFail: { age: 86400 }, // keep failed jobs 24 hours
+        removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
+        removeOnFail: { age: FAILED_JOB_RETENTION_SECS },
       },
     });
   }
@@ -190,10 +201,15 @@ export function startWorker(
       });
 
       try {
-        // 1. Build and push Docker image (async — does NOT block event loop)
-        const { fullImage } = await buildAndPush(buildRequest);
+        // 1. Build and push Docker image (skipped for ManualApprovalStep — no Docker image needed)
+        const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
+        let fullImage = '';
 
-        sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
+        if (!isApprovalStep) {
+          const buildResult = await buildAndPush(buildRequest);
+          fullImage = buildResult.fullImage;
+          sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
+        }
 
         // 2. Persist to database
         const result = await db.transaction(async (tx) => {

@@ -32,7 +32,6 @@ jest.mock('@mwashburn160/api-core', () => ({
 
 import {
   getNextResetDate,
-  validateQuotaValues,
   computeQuotaStatus,
   sendOrgNotFound,
   sendInvalidQuotaType,
@@ -82,54 +81,6 @@ describe('quota-helpers', () => {
       const result = getNextResetDate(365);
       expect(result).toBeInstanceOf(Date);
       expect(result.getHours()).toBe(0);
-    });
-  });
-
-  describe('validateQuotaValues', () => {
-    it('should return empty array for valid values', () => {
-      const errors = validateQuotaValues({ plugins: 10, pipelines: 5, apiCalls: -1 });
-      expect(errors).toEqual([]);
-    });
-
-    it('should accept -1 as unlimited', () => {
-      const errors = validateQuotaValues({ plugins: -1 });
-      expect(errors).toEqual([]);
-    });
-
-    it('should accept 0 as valid', () => {
-      const errors = validateQuotaValues({ plugins: 0 });
-      expect(errors).toEqual([]);
-    });
-
-    it('should reject non-integer numbers', () => {
-      const errors = validateQuotaValues({ plugins: 1.5 });
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0]).toContain('plugins');
-    });
-
-    it('should reject values less than -1', () => {
-      const errors = validateQuotaValues({ pipelines: -2 });
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0]).toContain('pipelines');
-    });
-
-    it('should reject non-number values', () => {
-      const errors = validateQuotaValues({ apiCalls: 'abc' as any });
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0]).toContain('apiCalls');
-    });
-
-    it('should skip undefined values', () => {
-      const errors = validateQuotaValues({ plugins: undefined as any });
-      expect(errors).toEqual([]);
-    });
-
-    it('should report multiple errors', () => {
-      const errors = validateQuotaValues({
-        plugins: -5,
-        pipelines: 'invalid' as any,
-      });
-      expect(errors.length).toBe(2);
     });
   });
 

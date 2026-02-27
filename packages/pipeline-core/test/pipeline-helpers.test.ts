@@ -31,7 +31,7 @@ jest.mock('aws-cdk-lib/aws-ec2', () => ({
 }));
 jest.mock('constructs', () => ({ Construct: jest.fn() }));
 
-import { merge, replaceNonAlphanumeric } from '../src/core/pipeline-helpers';
+import { merge, replaceNonAlphanumeric, extractMetadataEnv } from '../src/core/pipeline-helpers';
 
 describe('merge', () => {
   it('should merge multiple metadata objects', () => {
@@ -90,5 +90,73 @@ describe('replaceNonAlphanumeric', () => {
 
   it('should handle empty string', () => {
     expect(replaceNonAlphanumeric('')).toBe('');
+  });
+});
+
+describe('extractMetadataEnv', () => {
+  it('should extract non-namespaced keys as string env vars', () => {
+    const metadata = {
+      PYTHON_VERSION: '3.12',
+      WORKDIR: './',
+      NODE_ENV: 'production',
+    };
+    expect(extractMetadataEnv(metadata)).toEqual({
+      PYTHON_VERSION: '3.12',
+      WORKDIR: './',
+      NODE_ENV: 'production',
+    });
+  });
+
+  it('should exclude aws:cdk: prefixed keys', () => {
+    const metadata = {
+      'PYTHON_VERSION': '3.12',
+      'aws:cdk:pipelines:codepipeline:selfmutation': true,
+      'aws:cdk:codebuild:buildenvironment:privileged': true,
+    };
+    expect(extractMetadataEnv(metadata)).toEqual({
+      PYTHON_VERSION: '3.12',
+    });
+  });
+
+  it('should convert boolean values to strings', () => {
+    const metadata = { ENABLE_CACHE: true, VERBOSE: false };
+    expect(extractMetadataEnv(metadata)).toEqual({
+      ENABLE_CACHE: 'true',
+      VERBOSE: 'false',
+    });
+  });
+
+  it('should convert number values to strings', () => {
+    const metadata = { MAX_RETRIES: 3, TIMEOUT: 300 };
+    expect(extractMetadataEnv(metadata)).toEqual({
+      MAX_RETRIES: '3',
+      TIMEOUT: '300',
+    });
+  });
+
+  it('should return empty object for empty metadata', () => {
+    expect(extractMetadataEnv({})).toEqual({});
+  });
+
+  it('should return empty object when all keys are namespaced', () => {
+    const metadata = {
+      'aws:cdk:pipelines:codepipeline:selfmutation': true,
+      'aws:cdk:codebuild:buildenvironment:computetype': 'MEDIUM',
+    };
+    expect(extractMetadataEnv(metadata)).toEqual({});
+  });
+
+  it('should handle mixed namespaced and non-namespaced keys', () => {
+    const metadata = {
+      'PYTHON_VERSION': '3.11',
+      'WORKDIR': './src',
+      'aws:cdk:pipelines:codepipeline:selfmutation': true,
+      'ENABLE_CACHE': true,
+    };
+    expect(extractMetadataEnv(metadata)).toEqual({
+      PYTHON_VERSION: '3.11',
+      WORKDIR: './src',
+      ENABLE_CACHE: 'true',
+    });
   });
 });

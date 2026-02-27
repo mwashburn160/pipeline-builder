@@ -66,6 +66,11 @@
       "type": "build"
     },
     {
+      "name": "@asteasolutions/zod-to-openapi",
+      "version": "8.4.0",
+      "type": "runtime"
+    },
+    {
       "name": "express",
       "version": "5.2.1",
       "type": "runtime"

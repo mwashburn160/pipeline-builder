@@ -1,3 +1,8 @@
+/**
+ * @module database/postgres-connection
+ * @description Manages the PostgreSQL connection pool and Drizzle ORM instance with support for retry logic, health checks, and graceful shutdown.
+ */
+
 import { createLogger } from '@mwashburn160/api-core';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, PoolConfig, PoolClient } from 'pg';
@@ -10,16 +15,22 @@ const logger = createLogger('Database');
  * Get database configuration from environment variables
  * Note: Uses environment variables directly to avoid circular dependency with pipeline-core
  */
+function parseIntEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
 function getDatabaseConfig() {
   return {
     host: process.env.DB_HOST || 'postgres',
-    port: parseInt(process.env.DB_PORT || '5432'),
+    port: parseIntEnv(process.env.DB_PORT, 5432),
     database: process.env.DATABASE || 'pipeline-builder',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || '',
-    maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
-    idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
-    connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000'),
+    maxPoolSize: parseIntEnv(process.env.DRIZZLE_MAX_POOL_SIZE, 20),
+    idleTimeoutMillis: parseIntEnv(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS, 30000),
+    connectionTimeoutMillis: parseIntEnv(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS, 10000),
   };
 }
 

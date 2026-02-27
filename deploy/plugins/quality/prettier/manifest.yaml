@@ -1,0 +1,57 @@
+name: prettier
+description: Prettier code formatting verification plugin for checking consistent formatting across JavaScript, TypeScript, CSS, HTML, JSON, YAML, and Markdown using AWS CDK CodeBuildStep
+keywords:
+  - prettier
+  - format
+  - code-style
+  - javascript
+  - typescript
+  - css
+  - html
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: format-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+  # Install project dependencies (includes Prettier from project if configured)
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    fi
+    # Ensure Prettier is available
+    npx prettier --version 2>/dev/null || npm install -g prettier
+commands:
+  - mkdir -p format-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    echo "Checking code formatting with Prettier..."
+    npx prettier --check "${PRETTIER_GLOB}" \
+      --log-level warn \
+      2>&1 | tee format-reports/prettier-results.txt || true
+    # Generate list of unformatted files
+    npx prettier --list-different "${PRETTIER_GLOB}" \
+      > format-reports/unformatted-files.txt 2>/dev/null || true
+    UNFORMATTED=$(wc -l < format-reports/unformatted-files.txt | tr -d ' ')
+    if [ "${UNFORMATTED}" -gt 0 ]; then
+      echo "WARNING: ${UNFORMATTED} file(s) need formatting"
+    else
+      echo "All files are properly formatted"
+    fi
+  - "echo \"Prettier check complete. Report available in format-reports/\""
+env:
+  NODE_VERSION: "20"
+  PRETTIER_GLOB: "."

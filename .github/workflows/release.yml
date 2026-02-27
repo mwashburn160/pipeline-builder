@@ -144,7 +144,7 @@ jobs:
         run: pnpm nx release --first-release --skip-publish --verbose
       - name: Check publish library
         id: check
-        run: echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains("api-core","api-server","pipeline-core","pipeline-data","pipeline-manager"))')  >> $GITHUB_OUTPUT
+        run: echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains("ai-core","api-core","api-server","pipeline-core","pipeline-data","pipeline-manager"))')  >> $GITHUB_OUTPUT
       - name: Publish library
         id: publish
         if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}

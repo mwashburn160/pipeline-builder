@@ -1,10 +1,27 @@
+/**
+ * @module config/database-config
+ * @description Loads and validates PostgreSQL and Drizzle ORM database configuration from environment variables.
+ */
+
 import { createLogger } from '@mwashburn160/api-core';
 import type { DatabaseConfig } from './config-types';
 
 const log = createLogger('DatabaseConfig');
 
 /**
- * Load database configuration from environment variables
+ * Load database configuration from environment variables.
+ *
+ * Environment variables:
+ * - `DB_HOST` — PostgreSQL host (default: `'postgres'`)
+ * - `DB_PORT` — PostgreSQL port (default: `5432`)
+ * - `DATABASE` — PostgreSQL database name (default: `'pipeline_builder'`)
+ * - `DB_USER` — PostgreSQL user (default: `'postgres'`)
+ * - `DB_PASSWORD` — PostgreSQL password (default: `'password'`)
+ * - `DRIZZLE_MAX_POOL_SIZE` — Max connection pool size (default: `20`)
+ * - `DRIZZLE_IDLE_TIMEOUT_MILLIS` — Idle connection timeout in ms (default: `30000`)
+ * - `DRIZZLE_CONNECTION_TIMEOUT_MILLIS` — New connection timeout in ms (default: `5000`)
+ *
+ * @returns Fully populated DatabaseConfig with postgres and drizzle sections
  */
 export function loadDatabaseConfig(): DatabaseConfig {
   return {
@@ -15,9 +32,6 @@ export function loadDatabaseConfig(): DatabaseConfig {
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || 'password',
     },
-    mongodb: {
-      uri: process.env.MONGODB_URI || 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin',
-    },
     drizzle: {
       maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
       idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
@@ -27,7 +41,9 @@ export function loadDatabaseConfig(): DatabaseConfig {
 }
 
 /**
- * Validate database configuration
+ * Validate database configuration and log warnings for suboptimal settings.
+ *
+ * @param config - Database configuration to validate
  */
 export function validateDatabaseConfig(config: DatabaseConfig): void {
   const warnings: string[] = [];

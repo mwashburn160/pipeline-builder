@@ -1,0 +1,62 @@
+name: pypi-publish
+description: PyPI package publish plugin for deploying Python packages to PyPI or custom repositories using twine with AWS CDK CodeBuildStep
+keywords:
+  - pypi
+  - publish
+  - python
+  - package
+  - twine
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: TWINE_USERNAME
+    required: true
+    description: "PyPI upload username"
+  - name: TWINE_PASSWORD
+    required: true
+    description: "PyPI upload password"
+primaryOutputDirectory: publish-output
+dockerfile: Dockerfile
+installCommands:
+  - python3 --version
+  - twine --version
+  - python3 -m build --version
+  - |
+    if [ -z "${TWINE_PASSWORD}" ]; then
+      echo "WARNING: TWINE_PASSWORD not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p publish-output
+  - |
+    # Build the package
+    echo "Building Python package..."
+    python3 -m build 2>&1 | tee publish-output/build.log
+  - |
+    # Build repository URL flag
+    REPO_FLAG=""
+    if [ -n "${PYPI_REPOSITORY}" ]; then
+      REPO_FLAG="--repository-url ${PYPI_REPOSITORY}"
+      echo "Publishing to custom repository: ${PYPI_REPOSITORY}"
+    else
+      echo "Publishing to default PyPI..."
+    fi
+    # Upload to PyPI
+    twine upload \
+      --username "${TWINE_USERNAME}" \
+      ${REPO_FLAG} \
+      dist/* \
+      2>&1 | tee publish-output/twine-upload.log || true
+  - |
+    # Save publish metadata
+    if [ -f setup.py ] || [ -f setup.cfg ] || [ -f pyproject.toml ]; then
+      PACKAGE_FILES=$(ls dist/ 2>/dev/null | tr '\n' ', ')
+      echo "{\"username\": \"${TWINE_USERNAME}\", \"repository\": \"${PYPI_REPOSITORY:-https://upload.pypi.org/legacy/}\", \"files\": \"${PACKAGE_FILES}\"}" \
+        | jq '.' > publish-output/publish-metadata.json
+    fi
+  - "echo \"PyPI publish complete.\""
+env:
+  PYPI_REPOSITORY: ""
+  TWINE_USERNAME: __token__

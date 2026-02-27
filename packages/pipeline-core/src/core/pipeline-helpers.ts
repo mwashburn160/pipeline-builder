@@ -1,12 +1,17 @@
+/**
+ * @module core/pipeline-helpers
+ * @description Provides utility functions for building CodeBuild steps, merging metadata, and constructing environment variables for pipeline plugins.
+ */
+
 import { createLogger } from '@mwashburn160/api-core';
 import type { Plugin } from '@mwashburn160/pipeline-data';
 import { Duration, SecretValue } from 'aws-cdk-lib';
-import { ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
-import { CodeBuildStep, ShellStep } from 'aws-cdk-lib/pipelines';
+import { BuildEnvironmentVariableType, ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
+import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { ArtifactKey } from './artifact-manager';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
-import { PluginType, ComputeType, MetaDataType } from './pipeline-types';
+import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 
 const log = createLogger('Helper');
@@ -19,26 +24,78 @@ export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
 }
 
 /**
- * Build environment variables from plugin config, merged metadata, and custom env.
- * Custom env vars override plugin defaults. WORKDIR from metadata is also applied.
+ * Extract non-namespaced metadata keys as environment variable strings.
+ * Keys starting with 'aws:cdk:' are reserved for CDK construct props
+ * (processed by MetadataBuilder) and are excluded here.
+ *
+ * All values are converted to strings for CodeBuild compatibility.
  */
-const WORKDIR_KEY = 'WORKDIR';
+export function extractMetadataEnv(metadata: MetaDataType): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!key.startsWith(CDK_METADATA_PREFIX)) {
+      env[key] = String(value);
+    }
+  }
+  return env;
+}
+
+/**
+ * Build environment variables from plugin config, merged metadata, and custom env.
+ *
+ * Merge order (last wins):
+ *   1. plugin.env — plugin default env vars (lowest priority)
+ *   2. non-namespaced metadata keys — e.g. PYTHON_VERSION, WORKDIR
+ *   3. customEnv — per-step custom env vars (highest priority)
+ */
 const BOOTSTRAP_CMD = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
 
 function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
-  const env = { ...(plugin.env ?? {}), ...(customEnv ?? {}) };
-  if (WORKDIR_KEY in metadata) {
-    env[WORKDIR_KEY] = String(metadata[WORKDIR_KEY]);
+  return {
+    ...(plugin.env ?? {}),
+    ...extractMetadataEnv(metadata),
+    ...(customEnv ?? {}),
+  };
+}
+
+/**
+ * Wrap build commands based on failure behavior.
+ * - 'fail' (default): No wrapping — commands fail the pipeline naturally.
+ * - 'warn': Run commands with `set +e`, capture failures, log warnings, continue.
+ * - 'ignore': Append `|| true` to each command — failures are silently swallowed.
+ *
+ * Only applied to build commands, not install commands (install failures should always stop the build).
+ */
+function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
+  if (!behavior || behavior === 'fail') return commands;
+
+  if (behavior === 'ignore') {
+    return commands.map(cmd => `${cmd} || true`);
   }
-  return env;
+
+  // 'warn': run all commands, capture failures, but don't stop
+  return [
+    'set +e',
+    '_STEP_EXIT=0',
+    ...commands.map(cmd => `${cmd} || { echo "WARNING: Command failed with exit code $?"; _STEP_EXIT=1; }`),
+    'set -e',
+    'if [ "$_STEP_EXIT" -ne 0 ]; then echo "WARNING: One or more commands in this step failed"; fi',
+  ];
 }
 
 /**
  * Build bootstrap-prefixed install and build commands from plugin config.
  * Each command list is prepended with a WORKDIR bootstrap that defaults to './'.
  * When custom commands are provided, they are injected before/after the plugin's commands.
+ * Build commands are optionally wrapped by failureBehavior logic.
  */
-function buildCommands(plugin: Plugin, custom?: StepCustomization): { installCommands: string[]; commands: string[] } {
+function buildCommands(plugin: Plugin, custom?: StepCustomization, failureBehavior?: 'fail' | 'warn' | 'ignore'): { installCommands: string[]; commands: string[] } {
+  const userCommands = [
+    ...(custom?.preCommands ?? []),
+    ...(plugin.commands?.length ? plugin.commands : []),
+    ...(custom?.postCommands ?? []),
+  ];
+
   return {
     installCommands: [
       BOOTSTRAP_CMD,
@@ -46,21 +103,44 @@ function buildCommands(plugin: Plugin, custom?: StepCustomization): { installCom
       ...(plugin.installCommands ?? []),
       ...(custom?.postInstallCommands ?? []),
     ],
-    commands: [
-      BOOTSTRAP_CMD,
-      ...(custom?.preCommands ?? []),
-      ...(plugin.commands?.length ? plugin.commands : []),
-      ...(custom?.postCommands ?? []),
-    ],
+    commands: [BOOTSTRAP_CMD, ...wrapCommandsForFailureBehavior(userCommands, failureBehavior)],
   };
 }
 
 /**
- * Convert a plain env record to CodeBuild's environmentVariables format.
+ * Convert a plain env record to CodeBuild's environmentVariables format (PLAINTEXT).
  */
 function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value: string }> {
   return Object.fromEntries(
     Object.entries(env).map(([name, value]) => [name, { value }]),
+  );
+}
+
+/**
+ * Build SECRETS_MANAGER-type environment variables from plugin secret declarations.
+ * Uses naming convention: pipeline-builder/{orgId}/{secretName}
+ * Each org manages these secrets in their own AWS Secrets Manager.
+ */
+const VALID_SECRET_NAME = /^[a-zA-Z0-9/_+=.@-]+$/;
+
+function toSecretEnvVars(
+  secrets: Array<{ name: string; required: boolean }>,
+  orgId: string,
+): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
+  return Object.fromEntries(
+    secrets.map(({ name }) => {
+      const secretPath = `pipeline-builder/${orgId}/${name}`;
+      if (!VALID_SECRET_NAME.test(secretPath)) {
+        log.warn(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);
+      }
+      return [
+        name,
+        {
+          value: secretPath,
+          type: BuildEnvironmentVariableType.SECRETS_MANAGER,
+        },
+      ];
+    }),
   );
 }
 
@@ -82,23 +162,45 @@ function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value
  * This means metadata keys like `aws:cdk:pipelines:codebuildstep:commands`
  * will override the plugin-derived commands when explicitly set.
  */
-export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep {
+export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
   const {
     id, plugin, input, metadata, network, scope,
     preInstallCommands, postInstallCommands, preCommands, postCommands,
-    env: customEnv, additionalInputs, timeout,
-    artifactManager, stageName, stageAlias, pluginAlias,
+    env: customEnv, additionalInputs, timeout, failureBehavior,
+    artifactManager, stageName, stageAlias, pluginAlias, orgId,
   } = options;
 
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
+
+  // ManualApprovalStep: no commands, env, compute, or network — just id + optional comment
+  if (plugin.pluginType === PluginType.MANUAL_APPROVAL_STEP) {
+    return new ManualApprovalStep(id, {
+      comment: merged.APPROVAL_COMMENT as string | undefined,
+    });
+  }
+
   const metadataBuilder = MetadataBuilder.from(merged);
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
+  // Warn about required secrets without orgId (can't resolve)
+  const requiredSecrets = plugin.secrets?.filter(s => s.required) ?? [];
+  if (requiredSecrets.length > 0 && !orgId) {
+    log.warn(
+      `Plugin "${plugin.name}" declares ${requiredSecrets.length} required secret(s) but no orgId is available. ` +
+      `Secrets will not be injected: ${requiredSecrets.map(s => s.name).join(', ')}`,
+    );
+  }
+
+  // Resolve plugin secrets as SECRETS_MANAGER env vars
+  const secretEnvVars = (plugin.secrets?.length && orgId)
+    ? toSecretEnvVars(plugin.secrets, orgId)
+    : {};
+
   const env = buildEnv(plugin, merged, customEnv);
   const { installCommands, commands } = buildCommands(plugin, {
     preInstallCommands, postInstallCommands, preCommands, postCommands,
-  });
+  }, failureBehavior);
   const programmatic = { input, installCommands, commands };
 
   // Return ShellStep if plugin type is SHELL_STEP
@@ -127,7 +229,10 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
-      environmentVariables: toCodeBuildEnvVars(env),
+      environmentVariables: {
+        ...toCodeBuildEnvVars(env),
+        ...secretEnvVars,
+      },
       ...metadataBuilder.forBuildEnvironment(),
     },
     ...metadataBuilder.forCodeBuildStep(),

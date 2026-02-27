@@ -2,11 +2,13 @@
  * @module routes/generate-plugin
  * @description AI-powered plugin configuration generation and deployment.
  *
- * Provides three endpoints for the plugin AI builder workflow:
+ * Provides four endpoints for the plugin AI builder workflow:
  *
  * - **GET /plugins/providers** — List available AI providers and their models.
  * - **POST /plugins/generate** — Generate plugin config + Dockerfile from
  *   a natural language description using the AI SDK.
+ * - **POST /plugins/generate/stream** — Same as above but streams partial
+ *   results as SSE events for real-time progressive output.
  * - **POST /plugins/deploy-generated** — Build Docker image from the
  *   generated Dockerfile and save the plugin to the database.
  *
@@ -31,14 +33,14 @@ import {
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
 } from '@mwashburn160/api-core';
-import { checkQuota } from '@mwashburn160/api-server';
+import { checkQuota, getContext } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config } from '@mwashburn160/pipeline-core';
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { getQueue } from '../queue/plugin-build-queue';
-import { getAvailableProviders, generatePluginConfig } from '../services/ai-plugin-generation-service';
+import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';
 
 const logger = createLogger('generate-plugin');
 
@@ -71,7 +73,7 @@ export function createGeneratePluginRoutes(
    * Validated with {@link AIGenerateBodySchema}.
    */
   router.post('/generate', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
 
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
@@ -121,6 +123,106 @@ export function createGeneratePluginRoutes(
     }
   });
 
+  // -- POST /generate/stream — stream plugin config as SSE events -------------
+  /**
+   * Accepts a natural language prompt and streams AI-generated plugin
+   * configuration as SSE events. Each event contains a partial JSON object
+   * that progressively builds toward the final configuration.
+   *
+   * Events: {type:"partial", data:{...}} → {type:"done", data:{config,dockerfile}} → [DONE]
+   */
+  router.post('/generate/stream', async (req: Request, res: Response) => {
+    const ctx = getContext(req);
+
+    const validation = validateBody(req, AIGenerateBodySchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error);
+    }
+    const { prompt, provider, model, apiKey } = validation.value;
+
+    try {
+      const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
+      ctx.log('INFO', 'AI plugin streaming generation requested', {
+        promptLength: prompt.length,
+        provider,
+        model,
+      });
+
+      // Set SSE headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.setTimeout(0);
+      res.flushHeaders();
+
+      // Track client disconnect
+      let aborted = false;
+      req.on('close', () => { aborted = true; });
+
+      const result = streamPluginConfig({
+        prompt: prompt.trim(),
+        orgId,
+        provider,
+        model,
+        ...(apiKey ? { apiKey } : {}),
+      });
+
+      // Stream partial objects
+      for await (const partialObject of result.partialOutputStream) {
+        if (aborted) break;
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
+        } catch (serializeError) {
+          logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
+        }
+      }
+
+      if (!aborted) {
+        // Get final validated output
+        const finalOutput = await result.output;
+        if (finalOutput) {
+          const { dockerfile, ...config } = finalOutput;
+          res.write(`data: ${JSON.stringify({
+            type: 'done',
+            data: {
+              config: {
+                ...config,
+                description: config.description ?? undefined,
+                primaryOutputDirectory: config.primaryOutputDirectory ?? undefined,
+                env: config.env ?? undefined,
+              },
+              dockerfile,
+            },
+          })}\n\n`);
+        }
+        res.write('data: [DONE]\n\n');
+      }
+
+      res.end();
+    } catch (error) {
+      const message = errorMessage(error);
+      logger.error('AI plugin streaming generation failed', {
+        requestId: ctx.requestId,
+        error: message,
+      });
+
+      if (!res.headersSent) {
+        if (message.includes('not configured') || message.includes('API key')) {
+          return sendInternalError(res, 'AI generation is not configured for the requested provider');
+        }
+        if (message.includes('not available for provider')) {
+          return sendBadRequest(res, message);
+        }
+        return sendInternalError(res, 'Failed to stream plugin configuration');
+      }
+
+      // Headers already sent — send error as SSE event
+      res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+      res.end();
+    }
+  });
+
   // -- POST /deploy-generated — build Docker + save to DB ---------------------
   /**
    * Deploys an AI-generated plugin by building a Docker image from the
@@ -139,10 +241,10 @@ export function createGeneratePluginRoutes(
         return sendError(res, 403, 'Only administrators can create plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
       next();
-    }) as import('express').RequestHandler,
-    checkQuota(quotaService, 'plugins') as import('express').RequestHandler,
+    }) as RequestHandler,
+    checkQuota(quotaService, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
-      const ctx = req.context!;
+      const ctx = getContext(req);
       const config = Config.get();
 
       try {
@@ -155,7 +257,7 @@ export function createGeneratePluginRoutes(
         }
         const {
           name, description, version, pluginType, computeType, keywords,
-          primaryOutputDirectory, installCommands, commands, env,
+          primaryOutputDirectory, installCommands, commands, env, buildArgs,
           dockerfile, accessModifier: rawAccess,
         } = validation.value;
 
@@ -190,6 +292,7 @@ export function createGeneratePluginRoutes(
               dockerfile: 'Dockerfile',
               imageTag,
               registry: config.registry,
+              buildArgs: buildArgs || {},
             },
             pluginRecord: {
               orgId,
@@ -202,11 +305,15 @@ export function createGeneratePluginRoutes(
               primaryOutputDirectory: primaryOutputDirectory || null,
               dockerfile,
               env: env || {},
+              buildArgs: buildArgs || {},
               keywords: keywords || [],
               installCommands: installCommands || [],
               commands,
               imageTag,
               accessModifier,
+              timeout: null,
+              failureBehavior: 'fail',
+              secrets: [],
             },
           },
         );

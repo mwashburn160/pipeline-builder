@@ -1,0 +1,172 @@
+{
+  "project": "Java-Enterprise",
+  "organization": "AcmeCorp",
+  "description": "Enterprise Java pipeline: Corretto build, Checkstyle, SonarCloud, Veracode SAST, Maven Central publish.",
+  "keywords": [
+    "java",
+    "kotlin",
+    "corretto",
+    "sonarcloud",
+    "veracode",
+    "maven"
+  ],
+  "accessModifier": "public",
+  "props": {
+    "project": "Java-Enterprise",
+    "organization": "AcmeCorp",
+    "global": {
+      "aws:cdk:pipelines:codepipeline:selfmutation": true,
+      "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,
+      "aws:cdk:pipelines:codepipeline:publishassetsinparallel": true,
+      "aws:cdk:pipelines:codepipeline:crossaccountkeys": true,
+      "aws:cdk:pipelines:codepipeline:enablekeyrotation": true,
+      "aws:cdk:pipelines:codepipeline:reusecrossregionsupportstacks": true,
+      "aws:cdk:pipelines:codepipeline:usechangesets": false
+    },
+    "defaults": {},
+    "synth": {
+      "source": {
+        "type": "github",
+        "options": {
+          "repo": "acme/java-enterprise-app",
+          "branch": "main",
+          "trigger": "WEBHOOK"
+        }
+      },
+      "plugin": {
+        "name": "cdk-synth",
+        "filter": {
+          "name": "cdk-synth",
+          "isActive": true,
+          "isDefault": true,
+          "accessModifier": "public"
+        }
+      },
+      "metadata": {
+        "WORKDIR": "./"
+      }
+    },
+    "stages": [
+      {
+        "stageName": "Quality",
+        "steps": [
+          {
+            "plugin": {
+              "name": "checkstyle",
+              "filter": {
+                "name": "checkstyle",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "CHECKSTYLE_CONFIG": "google",
+              "JAVA_VERSION": "17"
+            },
+            "position": "pre"
+          }
+        ]
+      },
+      {
+        "stageName": "Build-Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "java-corretto",
+              "filter": {
+                "name": "java-corretto",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "JAVA_VERSION": "17",
+              "BUILD_TOOL": "auto",
+              "KOTLIN_VERSION": "2.1.0"
+            },
+            "position": "pre"
+          }
+        ]
+      },
+      {
+        "stageName": "Coverage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "codecov",
+              "filter": {
+                "name": "codecov",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "CODECOV_FLAGS": "unittests"
+            },
+            "position": "pre"
+          }
+        ]
+      },
+      {
+        "stageName": "SAST",
+        "steps": [
+          {
+            "plugin": {
+              "name": "sonarcloud",
+              "filter": {
+                "name": "sonarcloud",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "LANGUAGE": "java",
+              "LANGUAGE_VERSION": "17"
+            },
+            "position": "pre"
+          },
+          {
+            "plugin": {
+              "name": "veracode",
+              "filter": {
+                "name": "veracode",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "VERACODE_SCAN_TYPE": "pipeline",
+              "VERACODE_APP_NAME": "java-enterprise-app"
+            },
+            "position": "pre"
+          }
+        ]
+      },
+      {
+        "stageName": "Publish",
+        "steps": [
+          {
+            "plugin": {
+              "name": "maven-publish",
+              "filter": {
+                "name": "maven-publish",
+                "isActive": true,
+                "isDefault": true,
+                "accessModifier": "public"
+              }
+            },
+            "metadata": {
+              "MAVEN_REPOSITORY_URL": "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+            },
+            "position": "post"
+          }
+        ]
+      }
+    ]
+  }
+}

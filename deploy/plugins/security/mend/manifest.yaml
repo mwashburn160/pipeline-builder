@@ -1,0 +1,64 @@
+name: mend
+description: Mend (formerly WhiteSource) SCA plugin for scanning dependencies for known CVEs and OSS license compliance using AWS CDK CodeBuildStep
+keywords:
+  - mend
+  - whitesource
+  - sca
+  - license
+  - vulnerability
+  - compliance
+  - dependency
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: MEND_API_KEY
+    required: true
+    description: "Mend API key"
+  - name: MEND_ORG_TOKEN
+    required: true
+    description: "Mend organization token"
+primaryOutputDirectory: mend-reports
+dockerfile: Dockerfile
+installCommands:
+  - mend --version 2>/dev/null || echo "Mend CLI ready"
+  - |
+    if [ -z "${MEND_API_KEY}" ]; then
+      echo "WARNING: MEND_API_KEY must be injected via CodeBuild secrets"
+    fi
+commands:
+  - mkdir -p mend-reports
+  - |
+    echo "Running Mend ${MEND_SCAN_TYPE} scan..."
+    case "${MEND_SCAN_TYPE}" in
+      sca)
+        mend sca \
+          --url "${MEND_URL}" \
+          --api-key "${MEND_API_KEY}" \
+          --org-token "${MEND_ORG_TOKEN}" \
+          --product "${MEND_PRODUCT_NAME}" \
+          --project "${MEND_PROJECT_NAME}" \
+          --dir . \
+          --report \
+          --report-dir mend-reports \
+          || true
+        ;;
+      image)
+        mend image \
+          --url "${MEND_URL}" \
+          --api-key "${MEND_API_KEY}" \
+          --dir . \
+          --report \
+          --report-dir mend-reports \
+          || true
+        ;;
+    esac
+  - "echo \"Mend scan complete. Reports available in mend-reports/\""
+env:
+  MEND_URL: https://saas.mend.io
+  MEND_PRODUCT_NAME: ""
+  MEND_PROJECT_NAME: ""
+  MEND_SCAN_TYPE: sca
+  MEND_SEVERITY_THRESHOLD: medium

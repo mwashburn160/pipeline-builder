@@ -1,0 +1,61 @@
+name: java
+description: Java and Kotlin plugin for building and testing JVM applications using Maven or Gradle with AWS CDK CodeBuildStep
+keywords:
+  - java
+  - kotlin
+  - jvm
+  - maven
+  - gradle
+  - junit
+  - spring
+  - ktor
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Java and Kotlin version selection
+  - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
+  - java -version
+  - kotlin -version
+  # Auto-detect or use explicit build tool, then install dependencies
+  - |
+    TOOL="${BUILD_TOOL}"
+    if [ "${TOOL}" = "auto" ]; then
+      if [ -f pom.xml ]; then
+        TOOL="maven"
+      elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+        TOOL="gradle"
+      else
+        echo "ERROR: No pom.xml or build.gradle found. Set BUILD_TOOL=maven or BUILD_TOOL=gradle explicitly."
+        exit 1
+      fi
+    fi
+    echo "Build tool: ${TOOL}"
+    case "${TOOL}" in
+      maven)  mvn dependency:resolve -q ;;
+      gradle) gradle dependencies --quiet ;;
+      *)
+        echo "ERROR: Unknown BUILD_TOOL '${TOOL}'. Supported: auto, maven, gradle"
+        exit 1
+        ;;
+    esac
+commands:
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
+    TOOL="${BUILD_TOOL}"
+    if [ "${TOOL}" = "auto" ]; then
+      if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
+    fi
+    case "${TOOL}" in
+      maven)  mvn clean verify -B ;;
+      gradle) gradle clean build ;;
+    esac
+env:
+  JAVA_VERSION: 17.0.13-tem
+  KOTLIN_VERSION: 2.1.0
+  BUILD_TOOL: auto

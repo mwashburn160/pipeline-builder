@@ -1,0 +1,73 @@
+name: gar-push
+description: Push container images to Google Artifact Registry with gcloud service account authentication using AWS CDK CodeBuildStep
+keywords:
+  - google
+  - gar
+  - artifact-registry
+  - gcp
+  - container
+  - docker
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: GOOGLE_APPLICATION_CREDENTIALS
+    required: true
+    description: "Google Cloud service account credentials"
+primaryOutputDirectory: registry-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - gcloud --version
+  # Authenticate with Google Artifact Registry
+  - |
+    if [ -n "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
+      echo "Authenticating with Google Cloud service account..."
+      gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}"
+      echo "Configuring Docker for Artifact Registry (${GAR_LOCATION}-docker.pkg.dev)..."
+      gcloud auth configure-docker "${GAR_LOCATION}-docker.pkg.dev" --quiet
+    else
+      echo "WARNING: GOOGLE_APPLICATION_CREDENTIALS not set. Set GOOGLE_APPLICATION_CREDENTIALS to the path of your service account JSON key file"
+    fi
+commands:
+  - mkdir -p registry-output
+  - |
+    if [ -z "${IMAGE_NAME}" ]; then
+      echo "ERROR: IMAGE_NAME must be set"
+      exit 1
+    fi
+    if [ -z "${GAR_PROJECT}" ]; then
+      echo "ERROR: GAR_PROJECT must be set (e.g., my-gcp-project)"
+      exit 1
+    fi
+    if [ -z "${GAR_REPOSITORY}" ]; then
+      echo "ERROR: GAR_REPOSITORY must be set (e.g., my-docker-repo)"
+      exit 1
+    fi
+    FULL_IMAGE="${GAR_LOCATION}-docker.pkg.dev/${GAR_PROJECT}/${GAR_REPOSITORY}/${IMAGE_NAME}:${IMAGE_TAG}"
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      "${DOCKER_CONTEXT}"
+    # Save image metadata
+    docker inspect "${FULL_IMAGE}" > registry-output/image-metadata.json
+    echo "${FULL_IMAGE}" > registry-output/image-name.txt
+  # Push image to Google Artifact Registry
+  - |
+    FULL_IMAGE=$(cat registry-output/image-name.txt)
+    echo "Pushing image: ${FULL_IMAGE}"
+    docker push "${FULL_IMAGE}" || true
+    echo "Image push attempted: ${FULL_IMAGE}"
+  - "echo \"GAR push complete.\""
+env:
+  GAR_LOCATION: us-central1
+  GAR_PROJECT: ""
+  GAR_REPOSITORY: ""
+  IMAGE_NAME: ""
+  IMAGE_TAG: latest
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."

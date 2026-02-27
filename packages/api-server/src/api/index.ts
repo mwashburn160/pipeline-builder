@@ -4,6 +4,7 @@ export * from './middleware-factory';
 export * from './context-middleware';
 export * from './check-quota';
 export * from './require-org-id';
+export * from './get-context';
 
 // App factory
 export * from './app-factory';

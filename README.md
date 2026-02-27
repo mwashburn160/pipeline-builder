@@ -695,6 +695,22 @@ pnpm build && pnpm test
 
 ---
 
+## Plugin Catalog
+
+66 pre-built plugins across 9 categories covering every CI/CD pipeline stage: [docs/plugins/README.md](docs/plugins/README.md).
+
+| Category | Plugins | Doc |
+|----------|---------|-----|
+| Language | 12 | [language.md](docs/plugins/language.md) |
+| Security | 14 | [security.md](docs/plugins/security.md) |
+| Code Quality | 11 | [quality.md](docs/plugins/quality.md) |
+| Artifact & Registry | 11 | [artifact.md](docs/plugins/artifact.md) |
+| Deploy | 4 | [deploy.md](docs/plugins/deploy.md) |
+| Infrastructure (CDK) | 3 | [infrastructure.md](docs/plugins/infrastructure.md) |
+| Testing | 3 | [testing.md](docs/plugins/testing.md) |
+| Notification | 5 | [notification.md](docs/plugins/notification.md) |
+| AI | 2 | [ai.md](docs/plugins/ai.md) |
+
 ## Metadata Keys
 
 Pipeline Builder provides 50+ strongly-typed metadata keys for CodePipeline, CodeBuild, and network configuration. See [docs/metadata-keys.md](docs/metadata-keys.md) for the full reference.

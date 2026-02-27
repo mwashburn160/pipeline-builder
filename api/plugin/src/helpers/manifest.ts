@@ -42,22 +42,10 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
 
   const manifest: PluginManifest = YAML.parse(zip.readAsText(manifestEntry));
 
-  if (!manifest.name || !manifest.version || !manifest.commands) {
+  const isApprovalStep = manifest.pluginType === 'ManualApprovalStep';
+
+  if (!manifest.name || !manifest.version || (!isApprovalStep && !manifest.commands)) {
     throw new ValidationError('Invalid manifest: name, version, and commands are required');
-  }
-
-  // --- Dockerfile path validation -----------------------------------------
-  const rawDockerfile = manifest.dockerfile || 'Dockerfile';
-  const dockerfile = path.normalize(rawDockerfile);
-
-  if (
-    dockerfile.includes('\0') ||
-    dockerfile.includes('..') ||
-    path.isAbsolute(dockerfile) ||
-    dockerfile.includes(path.sep + path.sep) ||
-    dockerfile.startsWith(path.sep)
-  ) {
-    throw new ValidationError('Invalid dockerfile path: must not contain path traversal or be absolute');
   }
 
   // --- Extract -------------------------------------------------------------
@@ -65,11 +53,30 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
   fs.mkdirSync(extractDir, { recursive: true });
   zip.extractAllTo(extractDir, true);
 
-  // --- Read Dockerfile for DB storage -------------------------------------
-  const dockerfilePath = path.join(extractDir, dockerfile);
-  const dockerfileContent = fs.existsSync(dockerfilePath)
-    ? fs.readFileSync(dockerfilePath, 'utf-8')
-    : null;
+  // --- Dockerfile path validation (skipped for ManualApprovalStep) --------
+  let dockerfile = '';
+  let dockerfileContent: string | null = null;
+
+  if (!isApprovalStep) {
+    const rawDockerfile = manifest.dockerfile || 'Dockerfile';
+    dockerfile = path.normalize(rawDockerfile);
+
+    if (
+      dockerfile.includes('\0') ||
+      dockerfile.includes('..') ||
+      path.isAbsolute(dockerfile) ||
+      dockerfile.includes(path.sep + path.sep) ||
+      dockerfile.startsWith(path.sep)
+    ) {
+      throw new ValidationError('Invalid dockerfile path: must not contain path traversal or be absolute');
+    }
+
+    // --- Read Dockerfile for DB storage -----------------------------------
+    const dockerfilePath = path.join(extractDir, dockerfile);
+    dockerfileContent = fs.existsSync(dockerfilePath)
+      ? fs.readFileSync(dockerfilePath, 'utf-8')
+      : null;
+  }
 
   // --- Image tag -----------------------------------------------------------
   const imageTag = `p-${manifest.name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();

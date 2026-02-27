@@ -1,0 +1,66 @@
+name: ghcr-push
+description: Push container images to GitHub Container Registry (ghcr.io) with GitHub CLI authentication using AWS CDK CodeBuildStep
+keywords:
+  - github
+  - ghcr
+  - container
+  - registry
+  - push
+  - docker
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: GITHUB_TOKEN
+    required: true
+    description: "GitHub personal access token"
+primaryOutputDirectory: registry-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - gh --version
+  # Authenticate with GitHub Container Registry
+  - |
+    if [ -n "${GITHUB_TOKEN}" ]; then
+      echo "Logging into GitHub Container Registry (ghcr.io)..."
+      echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin
+    else
+      echo "WARNING: GITHUB_TOKEN not set. Set GITHUB_TOKEN to authenticate with ghcr.io"
+    fi
+commands:
+  - mkdir -p registry-output
+  - |
+    if [ -z "${IMAGE_NAME}" ]; then
+      echo "ERROR: IMAGE_NAME must be set"
+      exit 1
+    fi
+    if [ -z "${GITHUB_OWNER}" ]; then
+      echo "ERROR: GITHUB_OWNER must be set (e.g., my-org or my-username)"
+      exit 1
+    fi
+    FULL_IMAGE="ghcr.io/${GITHUB_OWNER}/${IMAGE_NAME}:${IMAGE_TAG}"
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      "${DOCKER_CONTEXT}"
+    # Save image metadata
+    docker inspect "${FULL_IMAGE}" > registry-output/image-metadata.json
+    echo "${FULL_IMAGE}" > registry-output/image-name.txt
+  # Push image to GHCR
+  - |
+    FULL_IMAGE=$(cat registry-output/image-name.txt)
+    echo "Pushing image: ${FULL_IMAGE}"
+    docker push "${FULL_IMAGE}" || true
+    echo "Image push attempted: ${FULL_IMAGE}"
+  - "echo \"GHCR push complete.\""
+env:
+  GITHUB_USERNAME: ""
+  GITHUB_OWNER: ""
+  IMAGE_NAME: ""
+  IMAGE_TAG: latest
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."

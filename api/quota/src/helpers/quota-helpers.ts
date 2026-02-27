@@ -30,33 +30,6 @@ export function getNextResetDate(days: number): Date {
 }
 
 // ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate quota limit values from a request body.
- * Returns an array of validation error strings (empty = valid).
- */
-export function validateQuotaValues(
-  body: Partial<Record<QuotaType, unknown>>,
-): string[] {
-  const errors: string[] = [];
-
-  for (const key of VALID_QUOTA_TYPES) {
-    const val = body[key];
-    if (val === undefined) continue;
-
-    if (typeof val !== 'number' || (!Number.isInteger(val) && val !== -1)) {
-      errors.push(`${key} must be an integer or -1 for unlimited`);
-    } else if ((val as number) < -1) {
-      errors.push(`${key} must be -1 (unlimited) or a non-negative integer`);
-    }
-  }
-
-  return errors;
-}
-
-// ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
 

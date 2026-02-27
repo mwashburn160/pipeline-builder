@@ -170,6 +170,13 @@ export default function PluginsPage() {
       render: (p) => <>{p.computeType}</>,
     },
     {
+      id: 'timeout',
+      header: 'Timeout',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.timeout ?? 0,
+      render: (p) => <>{p.timeout ? `${p.timeout}m` : '\u2014'}</>,
+    },
+    {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,

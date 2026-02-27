@@ -91,14 +91,6 @@ export async function syncTierToQuotaService(
 }
 
 /**
- * Format cents to a display price string.
- */
-export function formatPrice(cents: number): string {
-  if (cents === 0) return 'Free';
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-/**
  * Build a full subscription response object (used in GET, POST, PUT routes).
  */
 export function buildSubscriptionResponse(

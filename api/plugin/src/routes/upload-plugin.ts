@@ -13,7 +13,7 @@
 import * as fs from 'fs';
 
 import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
-import { authenticateToken, checkQuota, requireOrgId } from '@mwashburn160/api-server';
+import { authenticateToken, checkQuota, getContext, requireOrgId } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -64,7 +64,7 @@ export function createUploadPluginRoutes(
     }) as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
     async (req: Request, res: Response) => {
-      const ctx = req.context!;
+      const ctx = getContext(req);
       const config = Config.get();
 
       let zipPath: string | undefined;
@@ -111,6 +111,7 @@ export function createUploadPluginRoutes(
               dockerfile: plugin.dockerfile,
               imageTag: plugin.imageTag,
               registry: config.registry,
+              buildArgs: plugin.manifest.buildArgs || {},
             },
             pluginRecord: {
               orgId,
@@ -123,11 +124,15 @@ export function createUploadPluginRoutes(
               primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
               env: plugin.manifest.env || {},
+              buildArgs: plugin.manifest.buildArgs || {},
               keywords: plugin.manifest.keywords || [],
               installCommands: plugin.manifest.installCommands || [],
-              commands: plugin.manifest.commands,
+              commands: plugin.manifest.commands || [],
               imageTag: plugin.imageTag,
               accessModifier,
+              timeout: plugin.manifest.timeout ?? null,
+              failureBehavior: plugin.manifest.failureBehavior || 'fail',
+              secrets: plugin.manifest.secrets || [],
             },
           },
         );

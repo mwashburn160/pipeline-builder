@@ -1,5 +1,5 @@
 {
-  "project": "Sample",
+  "project": "Python-Pytest",
   "organization": "AcmeCorp",
   "description": "A sample pipeline for demonstration purposes.",
   "keywords": [
@@ -9,9 +9,8 @@
   ],
   "accessModifier": "public",
   "props": {
-    "project": "Sample",
+    "project": "Python-Pytest",
     "organization": "AcmeCorp",
-    "pipelineName": "SamplePipeline",
     "global": {
       "aws:cdk:pipelines:codepipeline:selfmutation": true,
       "aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation": true,

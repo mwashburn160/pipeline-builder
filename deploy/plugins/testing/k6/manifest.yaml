@@ -1,0 +1,67 @@
+name: k6
+description: k6 performance and load testing plugin for running configurable load tests with virtual users, duration controls, and performance thresholds using AWS CDK CodeBuildStep
+keywords:
+  - k6
+  - load-testing
+  - performance
+  - stress-test
+  - grafana
+  - api
+  - benchmark
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 60
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: k6-reports
+dockerfile: Dockerfile
+installCommands:
+  # k6 version selection
+  - |
+    if [ -f /opt/k6/versions/k6-${K6_VERSION} ]; then
+      ln -sf /opt/k6/versions/k6-${K6_VERSION} /usr/local/bin/k6
+    else
+      echo "k6 ${K6_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz \
+        | tar -xz -C /tmp && mv /tmp/k6-v${K6_VERSION}-linux-amd64/k6 /usr/local/bin/k6
+    fi
+  - k6 version
+  - |
+    if [ -z "${K6_SCRIPT}" ]; then
+      K6_SCRIPT=$(find . -name "*.js" -path "*/k6/*" -o -name "load-test*.js" -o -name "perf-test*.js" 2>/dev/null | head -1)
+      if [ -z "${K6_SCRIPT}" ]; then
+        echo "WARNING: No k6 test script found. Set K6_SCRIPT=path/to/test.js"
+      else
+        echo "Auto-detected k6 script: ${K6_SCRIPT}"
+      fi
+    fi
+commands:
+  - mkdir -p k6-reports
+  - |
+    if [ -z "${K6_SCRIPT}" ]; then
+      K6_SCRIPT=$(find . -name "*.js" -path "*/k6/*" -o -name "load-test*.js" -o -name "perf-test*.js" 2>/dev/null | head -1)
+    fi
+    if [ -z "${K6_SCRIPT}" ]; then
+      echo "ERROR: No k6 test script found. Set K6_SCRIPT=path/to/test.js"
+      exit 1
+    fi
+    THRESHOLD_ARG=""
+    if [ -n "${K6_THRESHOLDS}" ]; then
+      THRESHOLD_ARG="--summary-trend-stats='avg,min,med,max,p(90),p(95),p(99)'"
+    fi
+    echo "Running k6 load test: ${K6_SCRIPT}"
+    echo "VUs: ${K6_VUS}, Duration: ${K6_DURATION}"
+    k6 run "${K6_SCRIPT}" \
+      --vus ${K6_VUS} \
+      --duration ${K6_DURATION} \
+      --out json=k6-reports/k6-results.json \
+      --summary-export k6-reports/k6-summary.json \
+      ${THRESHOLD_ARG} || true
+  - "echo \"k6 load test complete. Reports available in k6-reports/\""
+env:
+  K6_VERSION: "0.56.0"
+  K6_SCRIPT: ""
+  K6_VUS: "10"
+  K6_DURATION: 30s
+  K6_THRESHOLDS: ""

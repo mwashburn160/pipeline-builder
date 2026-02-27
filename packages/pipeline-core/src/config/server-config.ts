@@ -1,3 +1,8 @@
+/**
+ * @module config/server-config
+ * @description Loads and validates server, authentication, and rate limiting configuration from environment variables.
+ */
+
 import { createLogger } from '@mwashburn160/api-core';
 import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
@@ -6,7 +11,16 @@ import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 const log = createLogger('ServerConfig');
 
 /**
- * Load server configuration from environment variables
+ * Load server configuration from environment variables.
+ *
+ * Environment variables:
+ * - `PORT` — HTTP listen port (default: `3000`)
+ * - `CORS_ORIGIN` — Comma-separated allowed origins (default: `PLATFORM_BASE_URL`)
+ * - `CORS_CREDENTIALS` — Allow credentials; set to `'false'` to disable (default: `true`)
+ * - `TRUST_PROXY` — Express trust proxy hops (default: `1`)
+ * - `PLATFORM_BASE_URL` — Frontend URL used as CORS fallback (default: `'https://localhost:8443'`)
+ *
+ * @returns Server configuration with port, CORS, trust proxy, and platform URL
  */
 export function loadServerConfig(): ServerConfig {
   return {
@@ -23,35 +37,42 @@ export function loadServerConfig(): ServerConfig {
 }
 
 /**
- * Load authentication configuration from environment variables
+ * Load authentication configuration from environment variables.
+ *
+ * Environment variables:
+ * - `JWT_SECRET` — **Required.** Secret key for signing JWTs
+ * - `REFRESH_TOKEN_SECRET` — **Required.** Secret key for signing refresh tokens
+ * - `JWT_EXPIRES_IN` — JWT lifetime in seconds (default: `7200` = 2 hours)
+ * - `JWT_ALGORITHM` — JWT signing algorithm (default: `'HS256'`)
+ * - `JWT_SALT_ROUNDS` — bcrypt salt rounds for password hashing (default: `12`)
+ * - `REFRESH_TOKEN_EXPIRES_IN` — Refresh token lifetime in seconds (default: `2592000` = 30 days)
+ *
+ * @returns Authentication configuration with safe defaults (empty strings when env vars are unset).
+ * Call {@link validateAuthConfig} at server startup to enforce required secrets.
  */
 export function loadAuthConfig(): AuthConfig {
-  const jwtSecret = process.env.JWT_SECRET;
-  const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
-
-  if (!jwtSecret) {
-    throw new Error('JWT_SECRET environment variable is required');
-  }
-  if (!refreshSecret) {
-    throw new Error('REFRESH_TOKEN_SECRET environment variable is required');
-  }
-
   return {
     jwt: {
-      secret: jwtSecret,
+      secret: process.env.JWT_SECRET || '',
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
     },
     refreshToken: {
-      secret: refreshSecret,
+      secret: process.env.REFRESH_TOKEN_SECRET || '',
       expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
     },
   };
 }
 
 /**
- * Load rate limiting configuration from environment variables
+ * Load rate limiting configuration from environment variables.
+ *
+ * Environment variables:
+ * - `LIMITER_MAX` — Max requests per window (default: `100`)
+ * - `LIMITER_WINDOWMS` — Rate limit window in ms (default: `900000` = 15 minutes)
+ *
+ * @returns Rate limit configuration
  */
 export function loadRateLimitConfig(): RateLimitConfig {
   return {
@@ -63,7 +84,9 @@ export function loadRateLimitConfig(): RateLimitConfig {
 }
 
 /**
- * Validate server configuration
+ * Validate server configuration and log warnings for insecure settings.
+ *
+ * @param config - Server configuration to validate
  */
 export function validateServerConfig(config: ServerConfig): void {
   const warnings: string[] = [];
@@ -88,8 +111,11 @@ export function validateServerConfig(config: ServerConfig): void {
 }
 
 /**
- * Validate authentication configuration (JWT secrets, algorithms, expiration)
+ * Validate authentication configuration (JWT secrets, algorithms, expiration).
  * Call this at server startup, not during CDK synthesis.
+ *
+ * @param config - Auth configuration to validate
+ * @throws {Error} If secrets are insecure, too short (<32 chars), or use disallowed algorithms
  */
 export function validateAuthConfig(config: AuthConfig): void {
   const errors: string[] = [];

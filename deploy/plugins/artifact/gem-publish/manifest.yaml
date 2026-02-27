@@ -1,0 +1,68 @@
+name: gem-publish
+description: RubyGems package publish plugin for deploying Ruby gems to RubyGems.org with dry-run support using AWS CDK CodeBuildStep
+keywords:
+  - gem
+  - publish
+  - ruby
+  - rubygems
+  - package
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: GEM_HOST_API_KEY
+    required: true
+    description: "RubyGems API key"
+primaryOutputDirectory: publish-output
+dockerfile: Dockerfile
+installCommands:
+  - ruby --version
+  - gem --version
+  - |
+    if [ -z "${GEM_HOST_API_KEY}" ]; then
+      echo "WARNING: GEM_HOST_API_KEY not set. Inject via CodeBuild secrets at runtime."
+    fi
+commands:
+  - mkdir -p publish-output
+  - |
+    # Configure gem credentials
+    mkdir -p ~/.gem
+    echo "---" > ~/.gem/credentials
+    echo ":rubygems_api_key: ${GEM_HOST_API_KEY}" >> ~/.gem/credentials
+    chmod 0600 ~/.gem/credentials
+    echo "Configured RubyGems authentication"
+  - |
+    # Build the gem
+    echo "Building gem..."
+    GEMSPEC=$(ls *.gemspec 2>/dev/null | head -1)
+    if [ -z "${GEMSPEC}" ]; then
+      echo "ERROR: No .gemspec file found in project root"
+      exit 1
+    fi
+    gem build "${GEMSPEC}" 2>&1 | tee publish-output/gem-build.log
+  - |
+    # Push the gem
+    GEM_FILE=$(ls *.gem 2>/dev/null | head -1)
+    if [ -z "${GEM_FILE}" ]; then
+      echo "ERROR: No .gem file found after build"
+      exit 1
+    fi
+    if [ "${GEM_DRY_RUN}" = "true" ]; then
+      echo "Dry-run mode enabled — gem will NOT be published"
+      echo "Would push: ${GEM_FILE}"
+      cp "${GEM_FILE}" publish-output/
+    else
+      echo "Publishing ${GEM_FILE} to RubyGems..."
+      gem push "${GEM_FILE}" 2>&1 | tee publish-output/gem-push.log || true
+      cp "${GEM_FILE}" publish-output/
+    fi
+  - |
+    # Save publish metadata
+    GEM_FILE=$(ls *.gem 2>/dev/null | head -1)
+    echo "{\"gem\": \"${GEM_FILE:-unknown}\", \"dryRun\": ${GEM_DRY_RUN}}" \
+      | jq '.' > publish-output/publish-metadata.json
+  - "echo \"Gem publish complete.\""
+env:
+  GEM_DRY_RUN: "false"

@@ -1,0 +1,77 @@
+name: kubectl-deploy
+description: Kubernetes deployment plugin using kubectl for applying, deleting, and rolling out resources with EKS authentication support via AWS CDK CodeBuildStep
+keywords:
+  - kubernetes
+  - kubectl
+  - deploy
+  - k8s
+  - eks
+  - rollout
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+primaryOutputDirectory: deploy-output
+dockerfile: Dockerfile
+secrets:
+  - name: KUBECONFIG_DATA
+    required: false
+    description: "Base64-encoded kubeconfig; not needed if running in EKS with IAM role"
+installCommands:
+  - kubectl version --client --output=json
+  - aws --version
+commands:
+  - mkdir -p deploy-output
+  # Decode kubeconfig if provided
+  - |
+    if [ -n "${KUBECONFIG_DATA}" ]; then
+      echo "Decoding provided KUBECONFIG_DATA..."
+      mkdir -p ~/.kube
+      echo "${KUBECONFIG_DATA}" | base64 -d > ~/.kube/config
+      chmod 600 ~/.kube/config
+      export KUBECONFIG=~/.kube/config
+    fi
+  # Set context and namespace
+  - |
+    if [ -n "${KUBE_CONTEXT}" ]; then
+      echo "Switching to context: ${KUBE_CONTEXT}"
+      kubectl config use-context "${KUBE_CONTEXT}"
+    fi
+    echo "Using namespace: ${KUBE_NAMESPACE}"
+  # Execute deploy action
+  - |
+    case "${DEPLOY_ACTION}" in
+      apply)
+        echo "Applying manifests from ${MANIFEST_PATH}..."
+        kubectl apply -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" | tee deploy-output/apply-result.txt
+        echo "Waiting for rollout completion (timeout: ${ROLLOUT_TIMEOUT})..."
+        for deploy in $(kubectl get deployments -n "${KUBE_NAMESPACE}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+          echo "Waiting for deployment/${deploy}..."
+          kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}" || true
+        done
+        ;;
+      delete)
+        echo "Deleting manifests from ${MANIFEST_PATH}..."
+        kubectl delete -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" --ignore-not-found | tee deploy-output/delete-result.txt
+        ;;
+      rollout)
+        echo "Performing rollout restart for deployments in ${KUBE_NAMESPACE}..."
+        for deploy in $(kubectl get deployments -n "${KUBE_NAMESPACE}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+          echo "Restarting deployment/${deploy}..."
+          kubectl rollout restart deployment/${deploy} -n "${KUBE_NAMESPACE}"
+          kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
+        done | tee deploy-output/rollout-result.txt
+        ;;
+      *)
+        echo "ERROR: Unknown DEPLOY_ACTION '${DEPLOY_ACTION}'. Supported: apply, delete, rollout"
+        exit 1
+        ;;
+    esac
+  - "echo \"kubectl ${DEPLOY_ACTION} complete. Output available in deploy-output/\""
+env:
+  KUBE_CONTEXT: ""
+  KUBE_NAMESPACE: default
+  DEPLOY_ACTION: apply
+  MANIFEST_PATH: "k8s/"
+  ROLLOUT_TIMEOUT: "300s"

@@ -6,6 +6,7 @@
  */
 
 import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getContext } from '@mwashburn160/api-server';
 import { BuilderProps } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import {
@@ -24,7 +25,7 @@ export function createUpdatePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.put('/:id', async (req: Request, res: Response) => {
-    const ctx = req.context!;
+    const ctx = getContext(req);
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

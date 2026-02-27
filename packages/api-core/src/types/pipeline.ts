@@ -42,10 +42,12 @@ export type ComputeType = ValueOf<typeof ComputeType>;
  *
  * @property CODE_BUILD_STEP - Full CodeBuild step with custom build environment
  * @property SHELL_STEP - Simple shell step without custom build environment
+ * @property MANUAL_APPROVAL_STEP - Native CDK approval gate (no Docker image, no commands)
  */
 export const PluginType = {
   CODE_BUILD_STEP: 'CodeBuildStep',
   SHELL_STEP: 'ShellStep',
+  MANUAL_APPROVAL_STEP: 'ManualApprovalStep',
 } as const;
 export type PluginType = ValueOf<typeof PluginType>;
 

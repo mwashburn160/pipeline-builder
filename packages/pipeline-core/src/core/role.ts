@@ -1,3 +1,8 @@
+/**
+ * @module core/role
+ * @description Resolves IAM role configurations into CDK IRole instances for use in CodePipeline constructs.
+ */
+
 import { Effect, IRole, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { UniqueId } from './id-generator';

@@ -39,6 +39,11 @@ export interface PipelineBase {
   organization: string;
 
   /**
+   * Tenant identifier (from API response, used for per-org secret resolution)
+   */
+  orgId?: string;
+
+  /**
    * Pipeline properties/configuration
    */
   props: PipelineProps;

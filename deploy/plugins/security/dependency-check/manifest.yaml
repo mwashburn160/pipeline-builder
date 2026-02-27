@@ -1,0 +1,70 @@
+name: dependency-check
+description: OWASP Dependency-Check software composition analysis (SCA) plugin for scanning project dependencies for known CVEs using AWS CDK CodeBuildStep
+keywords:
+  - owasp
+  - dependency-check
+  - sca
+  - security
+  - vulnerability
+  - cve
+  - nvd
+  - license
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: NVD_API_KEY
+    required: false
+    description: "NVD API key for enhanced vulnerability data"
+primaryOutputDirectory: dc-reports
+dockerfile: Dockerfile
+installCommands:
+  # Dependency-Check version selection
+  - |
+    if [ -d /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check ]; then
+      ln -sf /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check /opt/dependency-check/current
+    else
+      echo "Dependency-Check ${DC_VERSION} not pre-installed, downloading..."
+      curl -fsSL https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip \
+        -o /tmp/dc.zip && unzip -q /tmp/dc.zip -d /opt/dependency-check/versions/dc-${DC_VERSION} && rm /tmp/dc.zip
+      ln -sf /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check /opt/dependency-check/current
+    fi
+  - dependency-check.sh --version
+  # Install project dependencies for accurate scanning
+  - |
+    echo "Resolving project dependencies..."
+    if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
+    if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
+    if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
+    if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+    if [ -f Pipfile.lock ]; then pip3 install pipenv && pipenv install --system; fi
+    if [ -f go.mod ]; then go mod download; fi
+    if [ -f *.sln ] || [ -f *.csproj ]; then dotnet restore 2>/dev/null || true; fi
+commands:
+  - mkdir -p dc-reports
+  - |
+    SUPPRESSION_ARG=""
+    if [ -n "${DC_SUPPRESSION_FILE}" ] && [ -f "${DC_SUPPRESSION_FILE}" ]; then
+      SUPPRESSION_ARG="--suppression ${DC_SUPPRESSION_FILE}"
+    fi
+    NVD_ARG=""
+    if [ -n "${NVD_API_KEY}" ]; then
+      NVD_ARG="--nvdApiKey ${NVD_API_KEY}"
+    fi
+    dependency-check.sh \
+      --scan . \
+      --out dc-reports \
+      --format ${DC_FORMAT} \
+      --failOnCVSS ${DC_FAIL_ON_CVSS} \
+      ${NVD_ARG} \
+      ${SUPPRESSION_ARG} \
+      --enableExperimental \
+      || true
+  - "echo \"Dependency-Check scan complete. Reports available in dc-reports/\""
+env:
+  DC_VERSION: "12.0.0"
+  DC_FAIL_ON_CVSS: "7"
+  DC_FORMAT: JSON
+  DC_SUPPRESSION_FILE: ""

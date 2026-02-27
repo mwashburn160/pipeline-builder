@@ -74,6 +74,9 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildStatus]);
 
+  // Streaming preview state (shown during generation before final result)
+  const [streamPreview, setStreamPreview] = useState<string | null>(null);
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError('Please enter a description of your plugin.');
@@ -88,22 +91,31 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
     setGenerating(true);
     setGeneratedConfig(null);
     setGeneratedDockerfile(null);
+    setStreamPreview(null);
 
     try {
       const keyToUse = ai.customApiKey.trim() || undefined;
-      const response = await api.generatePlugin(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse);
-      const data = response.data;
-      if (!data?.config || !data?.dockerfile) {
-        setError('AI did not produce a complete plugin configuration');
-        return;
+
+      for await (const event of api.streamPluginGeneration(
+        prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
+      )) {
+        if (event.type === 'partial' && event.data) {
+          setStreamPreview(JSON.stringify(event.data, null, 2));
+        } else if (event.type === 'done' && event.data) {
+          const data = event.data as { config: GeneratedConfig; dockerfile: string };
+          setGeneratedConfig(data.config);
+          setGeneratedDockerfile(data.dockerfile);
+          setStreamPreview(null);
+        } else if (event.type === 'error') {
+          setError(event.message || 'Generation failed');
+        }
       }
-      setGeneratedConfig(data.config);
-      setGeneratedDockerfile(data.dockerfile);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Generation failed';
       setError(message);
     } finally {
       setGenerating(false);
+      setStreamPreview(null);
     }
   };
 
@@ -304,6 +316,21 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
               <LoadingSpinner size="sm" /> Building Docker image...
             </div>
           )}
+        </div>
+      )}
+
+      {/* Streaming Preview */}
+      {generating && streamPreview && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="label">Generating...</label>
+            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+              <LoadingSpinner size="sm" /> Streaming...
+            </span>
+          </div>
+          <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
+            {streamPreview}
+          </pre>
         </div>
       )}
 

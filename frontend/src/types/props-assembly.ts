@@ -227,11 +227,19 @@ export function assembleBuilderProps(
   // Synth
   const synthNetwork = assembleNetworkConfig(state.synth.networkType, state.synth.network);
   const synthMeta = assembleMetadata(state.synth.metadata);
+  const synthEnv = assembleEnv(state.synth.env);
   const synth: Record<string, unknown> = {
     source,
     plugin: assemblePluginOptions(state.synth.plugin),
     ...(synthMeta && { metadata: synthMeta }),
     ...(synthNetwork && { network: synthNetwork }),
+    ...(state.synth.installCommands.commands.filter(Boolean).length > 0 && {
+      [state.synth.installCommands.position === 'pre' ? 'preInstallCommands' : 'postInstallCommands']: state.synth.installCommands.commands.filter(Boolean),
+    }),
+    ...(state.synth.buildCommands.commands.filter(Boolean).length > 0 && {
+      [state.synth.buildCommands.position === 'pre' ? 'preCommands' : 'postCommands']: state.synth.buildCommands.commands.filter(Boolean),
+    }),
+    ...(synthEnv && { env: synthEnv }),
   };
 
   // Defaults
@@ -298,6 +306,8 @@ export function assembleBuilderProps(
               ...(a.path.trim() && { directory: a.path.trim() }),
             })),
           }),
+          ...(step.timeout.trim() && { timeout: parseInt(step.timeout, 10) }),
+          ...(step.failureBehavior !== 'fail' && { failureBehavior: step.failureBehavior }),
         };
       }),
     }));

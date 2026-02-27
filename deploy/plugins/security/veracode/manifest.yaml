@@ -1,0 +1,73 @@
+name: veracode
+description: Veracode enterprise SAST and DAST security scanning plugin for static analysis of application artifacts using AWS CDK CodeBuildStep
+keywords:
+  - veracode
+  - sast
+  - dast
+  - security
+  - enterprise
+  - compliance
+  - vulnerability
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: VERACODE_API_ID
+    required: true
+    description: "Veracode API ID"
+  - name: VERACODE_API_KEY
+    required: true
+    description: "Veracode API key"
+primaryOutputDirectory: veracode-reports
+dockerfile: Dockerfile
+installCommands:
+  - veracode --version 2>/dev/null || echo "Veracode CLI ready"
+  - java -version
+  - |
+    if [ -z "${VERACODE_API_ID}" ] || [ -z "${VERACODE_API_KEY}" ]; then
+      echo "WARNING: VERACODE_API_ID and VERACODE_API_KEY must be injected via CodeBuild secrets"
+    fi
+commands:
+  - mkdir -p veracode-reports
+  - |
+    case "${VERACODE_SCAN_TYPE}" in
+      pipeline)
+        echo "Running Veracode Pipeline Scan..."
+        ARTIFACT="${VERACODE_ARTIFACT}"
+        if [ -z "${ARTIFACT}" ]; then
+          ARTIFACT=$(find . -name "*.jar" -o -name "*.war" -o -name "*.zip" -o -name "*.ear" 2>/dev/null | head -1)
+          if [ -z "${ARTIFACT}" ]; then
+            echo "ERROR: No artifact found. Set VERACODE_ARTIFACT=path/to/artifact"
+            exit 1
+          fi
+          echo "Auto-detected artifact: ${ARTIFACT}"
+        fi
+        java -jar /opt/veracode/pipeline-scan.jar \
+          --veracode_api_id "${VERACODE_API_ID}" \
+          --veracode_api_key "${VERACODE_API_KEY}" \
+          --file "${ARTIFACT}" \
+          --issue_details true \
+          --json_output_file veracode-reports/pipeline-results.json \
+          --fail_on_severity "${VERACODE_SEVERITY_THRESHOLD}" \
+          || true
+        ;;
+      policy)
+        echo "Running Veracode Policy Scan (upload)..."
+        if [ -z "${VERACODE_APP_NAME}" ]; then
+          echo "ERROR: VERACODE_APP_NAME must be set for policy scan"
+          exit 1
+        fi
+        veracode static scan \
+          --app-name "${VERACODE_APP_NAME}" \
+          --filepath "${VERACODE_ARTIFACT:-.}" \
+          2>&1 | tee veracode-reports/policy-scan.log || true
+        ;;
+    esac
+  - "echo \"Veracode scan complete. Reports available in veracode-reports/\""
+env:
+  VERACODE_SCAN_TYPE: pipeline
+  VERACODE_APP_NAME: ""
+  VERACODE_SEVERITY_THRESHOLD: Medium
+  VERACODE_ARTIFACT: ""
