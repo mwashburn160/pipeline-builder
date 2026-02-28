@@ -1,3 +1,17 @@
+## 1.23.4 (2026-02-28)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.27.3 ([925aecee](https://github.com/mwashburn160/pipeline-builder/commit/925aecee))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/ai-core to 1.2.4
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.23.3 (2026-02-28)
 
 ### 🩹 Fixes
