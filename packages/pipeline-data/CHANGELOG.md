@@ -1,3 +1,13 @@
+## 1.30.2 (2026-02-28)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.30.1 ([edab4278](https://github.com/mwashburn160/pipeline-builder/commit/edab4278))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.1 (2026-02-28)
 
 This was a version bump only for @mwashburn160/pipeline-data to align it with other projects, there were no code changes.
