@@ -17,6 +17,7 @@
  *   POST   /billing/marketplace/resolve          — AWS Marketplace registration redirect
  *   POST   /billing/marketplace/sns              — AWS Marketplace SNS webhook
  *   GET    /billing/marketplace/entitlements      — check marketplace entitlements
+ *   POST   /billing/stripe/webhook               — Stripe webhook events
  *
  * Set BILLING_ENABLED=false to run the service in disabled mode (health check only, 503 on all billing routes).
  */
@@ -32,6 +33,7 @@ import { seedPlans } from './helpers/seed-plans';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions';
 import { createMarketplaceRoutes } from './routes/marketplace';
 import { createReadPlanRoutes } from './routes/read-plans';
+import { createStripeWebhookRoutes } from './routes/stripe-webhook';
 import { createSubscriptionRoutes } from './routes/subscriptions';
 
 const logger = createLogger('billing');
@@ -55,6 +57,10 @@ if (config.enabled) {
   // SNS may send text/plain — add text body parser for the marketplace SNS webhook
   app.use('/billing/marketplace/sns', express.text({ type: 'text/plain' }));
   app.use('/billing', createMarketplaceRoutes());
+
+  // Stripe requires raw body for webhook signature verification
+  app.use('/billing/stripe/webhook', express.raw({ type: 'application/json' }));
+  app.use('/billing', createStripeWebhookRoutes());
 
   runServer(app, {
     name: 'Billing Service',

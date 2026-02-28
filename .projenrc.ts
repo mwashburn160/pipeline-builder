@@ -841,7 +841,8 @@ let billing = new FunctionProject({
     'winston@3.19.0',                                     // Logging
     'zod@4.3.6',                                          // Input validation
     '@aws-sdk/client-marketplace-metering@3.997.0',       // AWS Marketplace ResolveCustomer
-    '@aws-sdk/client-marketplace-entitlement-service@3.997.0' // AWS Marketplace GetEntitlements
+    '@aws-sdk/client-marketplace-entitlement-service@3.997.0', // AWS Marketplace GetEntitlements
+    'stripe@17.7.0',                                       // Stripe payment processing
   ],
   devDeps: [
     '@types/express@5.0.6',       // Express types

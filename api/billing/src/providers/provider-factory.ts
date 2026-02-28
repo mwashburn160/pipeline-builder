@@ -5,6 +5,7 @@
  * Uses BILLING_PROVIDER env var:
  *   - 'stub' (default) — no-op provider for local dev
  *   - 'aws-marketplace' — AWS Marketplace SaaS integration
+ *   - 'stripe' — Stripe payment processing
  */
 
 import { createLogger } from '@mwashburn160/api-core';
@@ -12,6 +13,7 @@ import { config } from '../config';
 import { AWSMarketplaceProvider } from './aws-marketplace-provider';
 import type { PaymentProvider } from './payment-provider';
 import { StubPaymentProvider } from './stub-provider';
+import { StripeProvider } from './stripe-provider';
 
 const logger = createLogger('provider-factory');
 
@@ -19,7 +21,7 @@ let cachedProvider: PaymentProvider | null = null;
 
 /**
  * Get the configured payment provider (singleton).
- * Validates required config when using aws-marketplace.
+ * Validates required config for the selected provider.
  */
 export function getPaymentProvider(): PaymentProvider {
   if (cachedProvider) return cachedProvider;
@@ -36,6 +38,16 @@ export function getPaymentProvider(): PaymentProvider {
         productCode: config.marketplace.productCode,
         region: config.marketplace.region,
       });
+      break;
+    }
+    case 'stripe': {
+      if (!config.stripe.secretKey) {
+        throw new Error(
+          'STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe',
+        );
+      }
+      cachedProvider = new StripeProvider(config.stripe);
+      logger.info('Using Stripe payment provider');
       break;
     }
     case 'stub':

@@ -25,6 +25,7 @@ import { createLogger } from '@mwashburn160/api-core';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
 import type { MarketplaceConfig } from '../config';
 import type { BillingInterval } from '../models/subscription';
+import { Subscription } from '../models/subscription';
 
 const logger = createLogger('aws-marketplace-provider');
 
@@ -61,21 +62,34 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   // -----------------------------------------------------------------------
 
   /**
-   * Return a placeholder customer ID.
-   * AWS Marketplace customers are identified via ResolveCustomer during registration.
-   * The customerId should match the ProductCode/CustomerIdentifier from registration.
-   * TODO: Implement proper customer identity mapping once registration flow is complete.
+   * Look up the AWS Marketplace CustomerIdentifier for an organization.
+   * Marketplace customers are identified via ResolveCustomer during the registration
+   * flow (POST /billing/marketplace/resolve). This method retrieves the stored
+   * identifier from an existing marketplace subscription.
    * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_ResolveCustomer.html
    */
   async createCustomer(orgId: string, _email: string): Promise<string> {
-    logger.warn('AWS Marketplace: createCustomer returning placeholder', { orgId });
-    return `aws_cus_${orgId}`;
+    const existing = await Subscription.findOne({
+      orgId,
+      'metadata.provider': 'aws-marketplace',
+    });
+
+    if (existing?.metadata?.awsCustomerIdentifier) {
+      const customerIdentifier = existing.metadata.awsCustomerIdentifier as string;
+      logger.info('Found existing marketplace customer', { orgId, customerIdentifier });
+      return customerIdentifier;
+    }
+
+    throw new Error(
+      'AWS Marketplace customers must register through the Marketplace. '
+      + 'Use POST /billing/marketplace/resolve with a registration token.',
+    );
   }
 
   /**
-   * Return a placeholder subscription ID.
-   * TODO: Implement via AWS Marketplace Entitlement Service once entitlement
-   * dimensions are configured in the AWS Marketplace Management Portal.
+   * Verify marketplace entitlements and return subscription references.
+   * Calls the AWS Marketplace Entitlement Service to confirm the customer
+   * has an active entitlement before allowing subscription creation.
    * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_GetEntitlements.html
    */
   async createSubscription(
@@ -83,9 +97,26 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     planId: string,
     _interval: BillingInterval,
   ): Promise<ExternalSubscriptionResult> {
-    logger.warn('AWS Marketplace: createSubscription returning placeholder', { customerId, planId });
+    const entitlements = await this.getEntitlements(customerId);
+    const activeEntitlement = entitlements.find((e) => e.isEntitled);
+
+    if (!activeEntitlement) {
+      throw new Error(
+        'No active AWS Marketplace entitlement found for this customer. '
+        + 'The customer may need to subscribe through AWS Marketplace.',
+      );
+    }
+
+    if (activeEntitlement.planId !== planId) {
+      logger.warn('Requested plan differs from marketplace entitlement', {
+        customerId,
+        requestedPlan: planId,
+        entitledPlan: activeEntitlement.planId,
+      });
+    }
+
     return {
-      externalId: `aws_sub_${customerId}_${Date.now()}`,
+      externalId: `aws_sub_${customerId}`,
       externalCustomerId: customerId,
     };
   }
