@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@mwashburn160/api-core": "1.29.0",
-    "@mwashburn160/pipeline-data": "workspace:*",
+    "@mwashburn160/pipeline-data": "1.30.0",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",
