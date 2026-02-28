@@ -1,3 +1,13 @@
+## 1.29.0 (2026-02-28)
+
+### 🚀 Features
+
+- add feature manager ([4b15aee7](https://github.com/mwashburn160/pipeline-builder/commit/4b15aee7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.5 (2026-02-28)
 
 ### 🩹 Fixes
