@@ -37,7 +37,7 @@
     "@ai-sdk/google": "3.0.31",
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@mwashburn160/api-core": "1.29.3",
+    "@mwashburn160/api-core": "1.29.4",
     "ai": "6.0.99"
   },
   "engines": {
@@ -45,7 +45,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.3.4",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
