@@ -1,3 +1,17 @@
+## 1.25.0 (2026-02-28)
+
+### 🚀 Features
+
+- add feature manager ([4b15aee7](https://github.com/mwashburn160/pipeline-builder/commit/4b15aee7))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.29.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.5 (2026-02-28)
 
 ### 🩹 Fixes
