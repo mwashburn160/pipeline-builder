@@ -19,7 +19,7 @@ import type { RequestContext } from './request-types';
  *
  * @example
  * ```typescript
- * app.get('/pipelines', authenticateToken, async (req, res) => {
+ * app.get('/pipelines', requireAuth, async (req, res) => {
  *   const ctx = getContext(req);
  *   ctx.log('INFO', 'Fetching pipelines');
  *   // ...

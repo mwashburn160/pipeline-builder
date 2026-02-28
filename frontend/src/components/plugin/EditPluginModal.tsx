@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAsyncCallback } from '@/hooks/useAsync';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
@@ -38,9 +39,12 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
   const [secrets, setSecrets] = useState(JSON.stringify(plugin.secrets || [], null, 2));
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { execute: saveAsync, loading, error: saveError } = useAsyncCallback(
+    (data: Parameters<typeof api.updatePlugin>[1]) => api.updatePlugin(plugin.id, data),
+  );
+  const error = validationError || saveError;
 
   // Fetch full plugin data by ID to ensure description/keywords are populated
   useEffect(() => {
@@ -86,8 +90,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const p = fullPlugin ?? plugin;
 
   const handleSave = async () => {
-    setLoading(true);
-    setError(null);
+    setValidationError(null);
     setSuccess(null);
 
     let parsedMetadata: Record<string, string | number | boolean> = {};
@@ -96,16 +99,14 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
     try {
       parsedMetadata = metadata.trim() ? JSON.parse(metadata) : {};
     } catch {
-      setError('Invalid JSON in metadata field');
-      setLoading(false);
+      setValidationError('Invalid JSON in metadata field');
       return;
     }
 
     try {
       parsedEnv = env.trim() ? JSON.parse(env) : {};
     } catch {
-      setError('Invalid JSON in env field');
-      setLoading(false);
+      setValidationError('Invalid JSON in env field');
       return;
     }
 
@@ -113,41 +114,34 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
     try {
       parsedSecrets = secrets.trim() ? JSON.parse(secrets) : [];
     } catch {
-      setError('Invalid JSON in secrets field');
-      setLoading(false);
+      setValidationError('Invalid JSON in secrets field');
       return;
     }
 
-    try {
-      const response = await api.updatePlugin(plugin.id, {
-        name,
-        description,
-        keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-        version,
-        metadata: parsedMetadata,
-        pluginType,
-        computeType,
-        env: parsedEnv,
-        installCommands: installCommands.split('\n').filter(c => c.trim()),
-        commands: commands.split('\n').filter(c => c.trim()),
-        isActive,
-        isDefault,
-        accessModifier,
-        primaryOutputDirectory: primaryOutputDirectory.trim() || null,
-        timeout: timeout.trim() ? parseInt(timeout, 10) : null,
-        failureBehavior,
-        secrets: parsedSecrets,
-      });
+    const response = await saveAsync({
+      name,
+      description,
+      keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
+      version,
+      metadata: parsedMetadata,
+      pluginType,
+      computeType,
+      env: parsedEnv,
+      installCommands: installCommands.split('\n').filter(c => c.trim()),
+      commands: commands.split('\n').filter(c => c.trim()),
+      isActive,
+      isDefault,
+      accessModifier,
+      primaryOutputDirectory: primaryOutputDirectory.trim() || null,
+      timeout: timeout.trim() ? parseInt(timeout, 10) : null,
+      failureBehavior,
+      secrets: parsedSecrets,
+    });
 
-      if (response.success) {
-        setSuccess('Plugin updated successfully!');
-        onSaved();
-        setTimeout(() => onClose(), 1500);
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to update plugin');
-    } finally {
-      setLoading(false);
+    if (response?.success) {
+      setSuccess('Plugin updated successfully!');
+      onSaved();
+      setTimeout(() => onClose(), 1500);
     }
   };
 

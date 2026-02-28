@@ -12,23 +12,23 @@ import {
   getUser,
   updateUser,
 } from '../controllers';
-import { authenticateToken } from '../middleware';
+import { requireAuth } from '../middleware';
 
 const router = Router();
 
 /** GET /user/profile - Get current user's profile */
-router.get('/profile', authenticateToken, getUser);
+router.get('/profile', requireAuth, getUser);
 
 /** PATCH /user/profile - Update current user's profile */
-router.patch('/profile', authenticateToken, updateUser);
+router.patch('/profile', requireAuth, updateUser);
 
 /** DELETE /user/account - Delete current user's account */
-router.delete('/account', authenticateToken, deleteUser);
+router.delete('/account', requireAuth, deleteUser);
 
 /** POST /user/change-password - Change current user's password */
-router.post('/change-password', authenticateToken, changePassword);
+router.post('/change-password', requireAuth, changePassword);
 
 /** POST /user/generate-token - Generate API token for current user */
-router.post('/generate-token', authenticateToken, generateToken);
+router.post('/generate-token', requireAuth, generateToken);
 
 export default router;

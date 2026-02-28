@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { queryLogs, getLogServices, getLogLevels } from '../controllers';
-import { authenticateToken } from '../middleware';
+import { requireAuth } from '../middleware';
 
 const router = Router();
 
@@ -22,18 +22,18 @@ const router = Router();
  * @query {number} [limit=100] - Max entries (1-1000)
  * @query {string} [direction=backward] - Sort direction
  */
-router.get('/', authenticateToken, queryLogs);
+router.get('/', requireAuth, queryLogs);
 
 /**
  * @route GET /logs/services
  * @description List available service names from Loki.
  */
-router.get('/services', authenticateToken, getLogServices);
+router.get('/services', requireAuth, getLogServices);
 
 /**
  * @route GET /logs/levels
  * @description List available log levels from Loki.
  */
-router.get('/levels', authenticateToken, getLogLevels);
+router.get('/levels', requireAuth, getLogLevels);
 
 export default router;

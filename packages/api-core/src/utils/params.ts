@@ -42,60 +42,6 @@ export function getParam(
 }
 
 /**
- * Extract a required string parameter from Express 5 route params.
- * Throws an error if the parameter is missing.
- *
- * @param params - Request params object
- * @param key - Parameter key
- * @returns The parameter value as a string
- * @throws Error if parameter is missing
- *
- * @example
- * ```typescript
- * try {
- *   const id = getRequiredParam(req.params, 'id');
- *   // id is guaranteed to be a string
- * } catch (err) {
- *   return sendError(res, 400, err.message);
- * }
- * ```
- */
-export function getRequiredParam(
-  params: Record<string, ParamValue>,
-  key: string,
-): string {
-  const value = getParam(params, key);
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required parameter: ${key}`);
-  }
-  return value;
-}
-
-/**
- * Extract multiple parameters from Express 5 route params.
- *
- * @param params - Request params object
- * @param keys - Array of parameter keys
- * @returns Object with parameter values
- *
- * @example
- * ```typescript
- * // Route: GET /orgs/:orgId/plugins/:pluginId
- * const { orgId, pluginId } = getParams(req.params, ['orgId', 'pluginId']);
- * ```
- */
-export function getParams<K extends string>(
-  params: Record<string, ParamValue>,
-  keys: K[],
-): Record<K, string | undefined> {
-  const result = {} as Record<K, string | undefined>;
-  for (const key of keys) {
-    result[key] = getParam(params, key);
-  }
-  return result;
-}
-
-/**
  * Extract the organization ID from request.
  * Checks params, headers, and user object.
  *

@@ -1,7 +1,7 @@
 /**
  * @module helpers/seed-plans
  * @description Seed default billing plans on startup if none exist.
- * Plan definitions come from Config.get().billing.plans (environment-variable driven).
+ * Plan definitions come from Config.get('billing').plans (environment-variable driven).
  */
 
 import { createLogger } from '@mwashburn160/api-core';
@@ -12,7 +12,7 @@ const logger = createLogger('seed-plans');
 
 /**
  * Seed default plans if the plans collection is empty.
- * Plan definitions are loaded from Config.get().billing.plans.
+ * Plan definitions are loaded from Config.get('billing').plans.
  */
 export async function seedPlans(): Promise<void> {
   const count = await Plan.countDocuments();
@@ -21,7 +21,7 @@ export async function seedPlans(): Promise<void> {
     return;
   }
 
-  const { plans } = Config.get().billing;
+  const { plans } = Config.get('billing');
 
   const documents = plans.map((plan) => ({
     _id: plan.id,

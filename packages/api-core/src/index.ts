@@ -13,7 +13,7 @@
  * @example
  * ```typescript
  * import {
- *   authenticateToken,
+ *   requireAuth,
  *   sendSuccess,
  *   sendError,
  *   createQuotaService,
@@ -24,7 +24,7 @@
  * const logger = createLogger('my-service');
  * const quotaService = createQuotaService();
  *
- * app.get('/resource/:id', authenticateToken, async (req, res) => {
+ * app.get('/resource/:id', requireAuth, async (req, res) => {
  *   const id = getParam(req.params, 'id');
  *
  *   // Check quota
@@ -62,6 +62,12 @@ export * from './middleware';
 
 // Routes
 export * from './routes';
+
+// Errors
+export * from './errors';
+
+// Features
+export * from './features';
 
 // Validation
 export * from './validation';

@@ -6,7 +6,7 @@
  * with multi-tenant access control, pagination, and sorting.
  */
 
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger, NotFoundError } from '@mwashburn160/api-core';
 import { SQL, eq, and, asc, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -301,6 +301,15 @@ export abstract class CrudService<
           scopeConditions.push(eq(projectColumn, project));
         }
 
+        // Lock existing defaults with FOR UPDATE to prevent concurrent setDefault races
+        await tx.execute(
+          sql`SELECT id FROM ${this.schema}
+              WHERE ${orgColumn} = ${org}
+                AND ${(this.schema as any).isDefault} = true
+              ${projectColumn ? sql`AND ${projectColumn} = ${project}` : sql``}
+              FOR UPDATE`,
+        );
+
         // Mark all entities in scope as non-default
         await tx
           .update(this.schema)
@@ -328,7 +337,7 @@ export abstract class CrudService<
           .returning() as unknown as TEntity[];
 
         if (!updated) {
-          throw new Error(`Entity with id ${id} not found`);
+          throw new NotFoundError(`Entity with id ${id} not found`);
         }
 
         return updated;

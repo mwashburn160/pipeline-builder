@@ -5,9 +5,9 @@
  * PUT /plugins/:id — update a plugin by its UUID
  */
 
-import { getParam, ErrorCode, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
-import { getContext } from '@mwashburn160/api-server';
-import { Router, Request, Response } from 'express';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { withRoute } from '@mwashburn160/api-server';
+import { Router } from 'express';
 import {
   normalizePlugin,
   sendPluginNotFound,
@@ -17,14 +17,13 @@ import { pluginService } from '../services/plugin-service';
 /**
  * Register the UPDATE route on a router.
  *
- * Expects `authenticateToken` and `requireOrgId` to have already been
+ * Expects `requireAuth` and `requireOrgId` to have already been
  * applied as router-level middleware in the parent.
  */
 export function createUpdatePluginRoutes(): Router {
   const router: Router = Router();
 
-  router.put('/:id', async (req: Request, res: Response) => {
-    const ctx = getContext(req);
+  router.put('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -37,68 +36,55 @@ export function createUpdatePluginRoutes(): Router {
 
     const body = validation.value;
 
-    const orgId = ctx.identity.orgId?.toLowerCase();
-    if (!orgId) return sendBadRequest(res, 'Organization ID is required');
-
     ctx.log('INFO', 'Plugin update request received', { id });
 
-    try {
-      const existing = await pluginService.findById(id, orgId);
+    const existing = await pluginService.findById(id, orgId);
 
-      if (!existing) return sendPluginNotFound(res);
+    if (!existing) return sendPluginNotFound(res);
 
-      // Only system admins can edit non-private plugins
-      if (!isSystemAdmin(req) && existing.accessModifier !== 'private') {
-        ctx.log('INFO', 'Non-system-admin denied edit of non-private plugin', {
-          id, accessModifier: existing.accessModifier,
-        });
-        return sendError(res, 403, 'Only system admins can edit public plugins.', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
+    // Only system admins can edit non-private plugins
+    if (!requirePublicAccess(req, res, existing)) return;
 
-      // Build update data from validated body
-      const updateData: Record<string, unknown> = {
-        ...pickDefined({
-          name: body.name,
-          description: body.description,
-          keywords: body.keywords,
-          version: body.version,
-          metadata: body.metadata,
-          pluginType: body.pluginType,
-          computeType: body.computeType,
-          primaryOutputDirectory: body.primaryOutputDirectory,
-          env: body.env,
-          installCommands: body.installCommands,
-          commands: body.commands,
-          isActive: body.isActive,
-          isDefault: body.isDefault,
-          buildArgs: body.buildArgs,
-          timeout: body.timeout,
-          failureBehavior: body.failureBehavior,
-          secrets: body.secrets,
-        }),
-        // Access modifier requires special handling (admin-only public)
-        ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
-        updatedAt: new Date(),
-        updatedBy: ctx.identity.userId || 'system',
-      };
+    // Build update data from validated body
+    const updateData: Record<string, unknown> = {
+      ...pickDefined({
+        name: body.name,
+        description: body.description,
+        keywords: body.keywords,
+        version: body.version,
+        metadata: body.metadata,
+        pluginType: body.pluginType,
+        computeType: body.computeType,
+        primaryOutputDirectory: body.primaryOutputDirectory,
+        env: body.env,
+        installCommands: body.installCommands,
+        commands: body.commands,
+        isActive: body.isActive,
+        isDefault: body.isDefault,
+        buildArgs: body.buildArgs,
+        timeout: body.timeout,
+        failureBehavior: body.failureBehavior,
+        secrets: body.secrets,
+      }),
+      // Access modifier requires special handling (admin-only public)
+      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
+      updatedAt: new Date(),
+      updatedBy: userId || 'system',
+    };
 
-      const updated = await pluginService.update(
-        id,
-        updateData,
-        orgId,
-        ctx.identity.userId || 'system',
-      );
+    const updated = await pluginService.update(
+      id,
+      updateData,
+      orgId,
+      userId || 'system',
+    );
 
-      if (!updated) return sendPluginNotFound(res);
+    if (!updated) return sendPluginNotFound(res);
 
-      ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
+    ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 
-      return sendSuccess(res, 200, { plugin: normalizePlugin(updated) });
-    } catch (error) {
-      ctx.log('ERROR', 'Failed to update plugin', { error: errorMessage(error) });
-      return sendInternalError(res, errorMessage(error));
-    }
-  });
+    return sendSuccess(res, 200, { plugin: normalizePlugin(updated) });
+  }));
 
   return router;
 }

@@ -33,15 +33,23 @@ jest.mock('fs', () => ({
   rmSync: mockRmSync,
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}));
+jest.mock('@mwashburn160/api-core', () => {
+  class ValidationError extends Error {
+    statusCode = 400;
+    code = 'VALIDATION_ERROR';
+    constructor(message: string) { super(message); this.name = 'ValidationError'; }
+  }
+  return {
+    ValidationError,
+    createLogger: () => ({
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    }),
+    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  };
+});
 
 import { buildAndPush, type BuildRequest, type RegistryInfo } from '../src/helpers/docker-build';
 

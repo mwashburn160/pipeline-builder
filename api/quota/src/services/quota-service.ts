@@ -213,22 +213,48 @@ export class QuotaService {
       };
     }
 
-    // ----- Auto-reset expired periods atomically -----
-    await Organization.updateOne(
-      { _id: orgId, [`${usagePath}.resetAt`]: { $lte: new Date() } },
-      { $set: { [`${usagePath}.used`]: 0, [`${usagePath}.resetAt`]: getNextResetDate(config.quota.resetDays) } },
-    );
-
-    // ----- Atomic increment with limit check -----
+    // ----- Atomic reset-if-expired + increment with limit check -----
+    // Uses aggregation pipeline update to combine reset and increment in a single operation,
+    // preventing race conditions where concurrent requests could increment before reset completes.
+    const now = new Date();
+    const nextReset = getNextResetDate(config.quota.resetDays);
     const org = await Organization.findOneAndUpdate(
       {
         _id: orgId,
         $or: [
           { [`quotas.${quotaType}`]: -1 },
-          { $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${quotaType}`] } },
+          // When period is expired, allow if amount fits within limit (after reset to 0)
+          {
+            [`${usagePath}.resetAt`]: { $lte: now },
+            $expr: { $lte: [amount, `$quotas.${quotaType}`] },
+          },
+          // When period is not expired, allow if current used + amount fits within limit
+          {
+            [`${usagePath}.resetAt`]: { $gt: now },
+            $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${quotaType}`] },
+          },
         ],
       },
-      { $inc: { [`${usagePath}.used`]: amount } },
+      [
+        {
+          $set: {
+            [`${usagePath}.used`]: {
+              $cond: {
+                if: { $lte: [`$${usagePath}.resetAt`, now] },
+                then: amount, // Period expired: reset to 0 then add amount
+                else: { $add: [`$${usagePath}.used`, amount] }, // Not expired: increment
+              },
+            },
+            [`${usagePath}.resetAt`]: {
+              $cond: {
+                if: { $lte: [`$${usagePath}.resetAt`, now] },
+                then: nextReset,
+                else: `$${usagePath}.resetAt`,
+              },
+            },
+          },
+        },
+      ],
       { returnDocument: 'after' },
     );
 

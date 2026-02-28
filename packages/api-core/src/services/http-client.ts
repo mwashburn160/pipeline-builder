@@ -134,8 +134,9 @@ export class InternalHttpClient {
       try {
         const response = await this.request<T>(method, path, body, options);
 
-        // Retry on transient server errors
-        if (attempt < maxRetries && (response.statusCode === 502 || response.statusCode === 503 || response.statusCode === 504)) {
+        // Retry on transient server errors and rate limiting
+        const retryable = [429, 502, 503, 504];
+        if (attempt < maxRetries && retryable.includes(response.statusCode)) {
           logger.debug('Retrying on transient status', { method, path, statusCode: response.statusCode, attempt: attempt + 1 });
           await this.sleep(baseDelay * Math.pow(2, attempt));
           continue;
@@ -179,6 +180,11 @@ export class InternalHttpClient {
 
       if (bodyStr) {
         headers['Content-Length'] = Buffer.byteLength(bodyStr);
+      }
+
+      // Validate path to prevent protocol injection / request smuggling
+      if (path.includes('://') || path.startsWith('//')) {
+        throw new Error(`Invalid request path: ${path}`);
       }
 
       const requestOptions: http.RequestOptions = {

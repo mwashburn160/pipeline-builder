@@ -8,19 +8,20 @@
  */
 
 import {
-  authenticateToken,
+  requireAuth,
   isSystemOrg,
   sendSuccess,
   sendError,
+  sendBadRequest,
   sendQuotaExceeded,
   ErrorCode,
   createLogger,
   getParam,
   errorMessage,
+  validateBody,
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
-import { ZodError } from 'zod';
 import {
   AUTH_OPTS,
   sendOrgNotFound,
@@ -38,18 +39,14 @@ const router: Router = Router();
 
 router.put(
   '/:orgId',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
 
-    let body: ReturnType<typeof UpdateQuotaSchema.parse>;
-    try {
-      body = UpdateQuotaSchema.parse(req.body);
-    } catch (error) {
-      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
-      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
-    }
+    const validation = validateBody(req, UpdateQuotaSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const body = validation.value;
 
     try {
       const result = await quotaService.update(targetOrgId, body);
@@ -68,20 +65,14 @@ router.put(
 
 router.post(
   '/:orgId/reset',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
 
-    let body: ReturnType<typeof ResetQuotaSchema.parse>;
-    try {
-      body = ResetQuotaSchema.parse(req.body);
-    } catch (error) {
-      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
-      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const { quotaType } = body;
+    const validation = validateBody(req, ResetQuotaSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { quotaType } = validation.value;
 
     try {
       const result = await quotaService.resetUsage(targetOrgId, quotaType);
@@ -104,20 +95,14 @@ router.post(
 
 router.post(
   '/:orgId/increment',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
 
-    let body: ReturnType<typeof IncrementQuotaSchema.parse>;
-    try {
-      body = IncrementQuotaSchema.parse(req.body);
-    } catch (error) {
-      const msg = error instanceof ZodError ? error.issues.map(i => i.message).join('; ') : 'Invalid request body';
-      return sendError(res, 400, msg, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const { quotaType, amount } = body;
+    const validation = validateBody(req, IncrementQuotaSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { quotaType, amount } = validation.value;
 
     try {
       const typedType = quotaType as QuotaType;

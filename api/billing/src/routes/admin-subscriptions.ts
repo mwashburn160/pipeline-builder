@@ -8,8 +8,8 @@
  */
 
 import {
-  authenticateToken,
-  isSystemAdmin,
+  requireAuth,
+  requireSystemAdmin,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -32,18 +32,6 @@ const logger = createLogger('billing-admin');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
-/** Middleware to require system admin. */
-function requireAdmin(req: Request, res: Response, next: () => void): void {
-  if (!isSystemAdmin(req)) {
-    return sendError(
-      res, 403,
-      'Access denied. Only system administrators can perform this action.',
-      ErrorCode.INSUFFICIENT_PERMISSIONS,
-    );
-  }
-  next();
-}
-
 /**
  * Create the admin-only billing router (system admin required).
  *
@@ -62,8 +50,8 @@ export function createAdminSubscriptionRoutes(): Router {
 
   router.get(
     '/admin/subscriptions',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       try {
         const limit = parseQueryInt(req.query.limit, 50);
@@ -94,8 +82,8 @@ export function createAdminSubscriptionRoutes(): Router {
 
   router.put(
     '/admin/subscriptions/:id',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const subscriptionId = getParam(req.params, 'id');
       const validation = validateBody(req, AdminSubscriptionUpdateSchema);
@@ -163,8 +151,8 @@ export function createAdminSubscriptionRoutes(): Router {
 
   router.get(
     '/admin/events',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       try {
         const limit = parseQueryInt(req.query.limit, 50);

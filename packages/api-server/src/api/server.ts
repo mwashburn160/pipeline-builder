@@ -64,7 +64,7 @@ export interface StartServerResult {
  * ```typescript
  * const { app, sseManager } = createApp();
  *
- * app.post('/api/resource', authenticateToken, handler);
+ * app.post('/api/resource', requireAuth, handler);
  *
  * await startServer(app, {
  *   name: 'My Microservice',
@@ -77,7 +77,7 @@ export async function startServer(
   app: Express,
   options: StartServerOptions = {},
 ): Promise<StartServerResult> {
-  const config = Config.get();
+  const serverConfig = Config.get('server');
   const {
     name = 'Microservice',
     sseManager,
@@ -88,10 +88,10 @@ export async function startServer(
     testDatabase,
     closeDatabase,
   } = options;
-  const port = options.port ?? config.server.port;
+  const port = options.port ?? serverConfig.port;
 
   // Validate auth configuration at server startup (not during CDK synthesis)
-  Config.validateAuth(config);
+  Config.validateAuth();
 
   logger.info(`Starting ${name}...`);
 
@@ -116,7 +116,7 @@ export async function startServer(
   // Start server
   const server = app.listen(port, () => {
     logger.info(`${name} listening on port: ${port}`);
-    logger.info(`Platform URL: ${config.server.platformUrl}`);
+    logger.info(`Platform URL: ${serverConfig.platformUrl}`);
     onStart?.(port);
   });
 

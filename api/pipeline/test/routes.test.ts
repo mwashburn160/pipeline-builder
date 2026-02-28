@@ -29,39 +29,79 @@ jest.mock('../src/helpers/pipeline-helpers', () => ({
   }),
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
-  getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-  },
-  isSystemAdmin: jest.fn(() => false),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
-  sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
-    const response: any = { success: true, statusCode };
-    if (data !== undefined) response.data = data;
-    if (message) response.message = message;
-    res.status(statusCode).json(response);
-  }),
-  sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
-    res.status(400).json({ success: false, statusCode: 400, message: msg, code });
-  }),
-  sendInternalError: jest.fn((res: any, msg: string) => {
-    res.status(500).json({ success: false, statusCode: 500, message: msg });
-  }),
-  parsePaginationParams: jest.fn(() => ({
-    limit: 25,
-    offset: 0,
-    sortBy: 'createdAt',
-    sortOrder: 'desc',
-  })),
-}));
+jest.mock('@mwashburn160/api-core', () => {
+  const mockIsSystemAdmin = jest.fn((_req?: any) => false);
+  return {
+    getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
+    ErrorCode: {
+      MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
+      INTERNAL_ERROR: 'INTERNAL_ERROR',
+    },
+    isSystemAdmin: mockIsSystemAdmin,
+    errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+    sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
+      const response: any = { success: true, statusCode };
+      if (data !== undefined) response.data = data;
+      if (message) response.message = message;
+      res.status(statusCode).json(response);
+    }),
+    sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
+      res.status(400).json({ success: false, statusCode: 400, message: msg, code });
+    }),
+    sendInternalError: jest.fn((res: any, msg: string) => {
+      res.status(500).json({ success: false, statusCode: 500, message: msg });
+    }),
+    parsePaginationParams: jest.fn(() => ({
+      limit: 25,
+      offset: 0,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    })),
+    applyAccessControl: jest.fn((filter: any, req: any) => {
+      if (!mockIsSystemAdmin(req)) {
+        return { ...filter, accessModifier: 'private' };
+      }
+      return filter;
+    }),
+    requirePublicAccess: jest.fn((req: any, res: any, resource: any) => {
+      if (!mockIsSystemAdmin(req) && resource.accessModifier !== 'private') {
+        res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.' });
+        return false;
+      }
+      return true;
+    }),
+    incrementQuota: jest.fn(),
+  };
+});
+
+const mockGetContext = (req: any) => req.context;
+const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
+  res.status(400).json({ success: false, statusCode: 400, message: msg });
+});
+const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
+  res.status(500).json({ success: false, statusCode: 500, message: msg });
+});
 
 jest.mock('@mwashburn160/api-server', () => ({
-  getContext: (req: any) => req.context,
+  getContext: (req: any) => mockGetContext(req),
+  withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
+    const ctx = mockGetContext(req);
+    const orgId = ctx.identity.orgId?.toLowerCase() || '';
+    const userId = ctx.identity.userId || '';
+    const requireOrgId = options?.requireOrgId !== false;
+    if (requireOrgId && !orgId) {
+      return mockSendBadRequestForRoute(res, 'Organization ID is required');
+    }
+    try {
+      await handler({ req, res, ctx, orgId, userId });
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return mockSendInternalErrorForRoute(res, msg);
+    }
+  },
 }));
 
-import { isSystemAdmin, sendBadRequest } from '@mwashburn160/api-core';
+import { isSystemAdmin, sendBadRequest, incrementQuota } from '@mwashburn160/api-core';
 import { validateFilter } from '../src/helpers/pipeline-helpers';
 import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
 
@@ -176,7 +216,8 @@ describe('GET /pipelines (list)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Organization ID is required');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Organization ID is required' }));
   });
 
   it('returns 400 on invalid filter', async () => {
@@ -204,7 +245,7 @@ describe('GET /pipelines (list)', () => {
 
     await handler(mockReq(), mockRes());
 
-    expect(mockQuotaService.increment).toHaveBeenCalledWith('org-1', 'apiCalls', 'Bearer tok');
+    expect(incrementQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'apiCalls', 'Bearer tok', expect.any(Function));
   });
 });
 
@@ -245,7 +286,8 @@ describe('GET /pipelines/find', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Organization ID is required');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Organization ID is required' }));
   });
 });
 

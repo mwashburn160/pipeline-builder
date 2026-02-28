@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
+import { useFeatures } from '@/hooks/useFeatures';
 
 // ---------------------------------------------------------------------------
 // Navigation data
@@ -36,10 +37,8 @@ interface NavItem {
   adminOnly?: boolean;
   /** Only visible to system admins */
   systemAdminOnly?: boolean;
-  /** Hidden when the user belongs to the system organization */
-  hideForSystemOrg?: boolean;
-  /** Hidden when billing is not enabled */
-  hideWhenBillingDisabled?: boolean;
+  /** Feature that must be enabled for this item to be visible */
+  requiredFeature?: string;
 }
 
 /** A labeled group of navigation items. */
@@ -82,7 +81,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Account',
     items: [
       { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, hideForSystemOrg: true, hideWhenBillingDisabled: true },
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
       { title: 'Settings', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
     ],
@@ -99,10 +98,6 @@ interface SidebarProps {
   isSysAdmin: boolean;
   /** Whether the current user is an organization admin or above */
   isAdmin: boolean;
-  /** Whether the user belongs to the system organization */
-  isSystemOrg: boolean;
-  /** Whether billing features are enabled in the platform config */
-  billingEnabled: boolean;
   /** The currently authenticated user */
   user: User;
   /** Number of unread messages shown as a badge on the Messages link */
@@ -121,8 +116,6 @@ interface SidebarProps {
 export function Sidebar({
   isSysAdmin,
   isAdmin,
-  isSystemOrg,
-  billingEnabled,
   user,
   unreadCount,
   currentPath,
@@ -130,6 +123,7 @@ export function Sidebar({
   onToggleDark,
   onLogout,
 }: SidebarProps) {
+  const features = useFeatures();
 
   const isActive = (href: string) =>
     href === '/dashboard'
@@ -139,8 +133,7 @@ export function Sidebar({
   const isItemVisible = (item: NavItem) => {
     if (item.systemAdminOnly && !isSysAdmin) return false;
     if (item.adminOnly && !isAdmin) return false;
-    if (item.hideForSystemOrg && isSystemOrg) return false;
-    if (item.hideWhenBillingDisabled && !billingEnabled) return false;
+    if (item.requiredFeature && !features.isEnabled(item.requiredFeature)) return false;
     return true;
   };
 

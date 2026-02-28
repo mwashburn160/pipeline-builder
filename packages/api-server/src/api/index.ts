@@ -15,5 +15,8 @@ export * from './metrics';
 // Server utilities
 export * from './server';
 
+// Route wrapper
+export * from './route-wrapper';
+
 // Request/Response types
 export * from './request-types';

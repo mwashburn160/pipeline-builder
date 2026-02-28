@@ -263,10 +263,17 @@ class ApiClient {
       headers['x-org-id'] = this.organizationId;
     }
 
+    // Apply default timeout unless caller already provided an AbortSignal
+    const controller = options.signal ? undefined : new AbortController();
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 30_000) : undefined;
+
     const response = await fetch(url, {
       ...options,
       headers,
       credentials: 'same-origin',
+      signal: options.signal || controller?.signal,
+    }).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
     });
 
     // Parse JSON response
@@ -312,8 +319,12 @@ class ApiClient {
 
     // Check statusCode from response body
     if (statusCode >= 400) {
+      // Strip HTML tags from server error messages to prevent XSS
+      const safeMessage = typeof data.message === 'string'
+        ? data.message.replace(/<[^>]*>/g, '')
+        : 'Request failed';
       throw new ApiError(
-        data.message || 'Request failed',
+        safeMessage,
         statusCode,
         data.code,
         data.details
@@ -383,9 +394,9 @@ class ApiClient {
   // Config endpoints (public)
   // ============================================
 
-  /** Get platform feature flags (public, no auth required). */
+  /** Get platform service feature flags (public, no auth required). */
   async getConfig() {
-    return this.request<ApiResponse<{ billingEnabled: boolean; emailEnabled: boolean; oauthEnabled: boolean }>>('/api/config');
+    return this.request<ApiResponse<{ serviceFeatures: Record<string, boolean> }>>('/api/config');
   }
 
   // ============================================

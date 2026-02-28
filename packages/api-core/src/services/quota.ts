@@ -17,8 +17,8 @@ const logger = createLogger('quota');
 export interface QuotaService {
   /** Check if quota is available (fail-open on error). */
   check(orgId: string, quotaType: QuotaType, authHeader: string): Promise<QuotaCheckResult>;
-  /** Increment quota usage (fire-and-forget). */
-  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number): void;
+  /** Increment quota usage. Returns a promise so callers can optionally handle errors. */
+  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number): Promise<void>;
   /** Update quota limits. Returns true on success. */
   updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string): Promise<boolean>;
   /** Reset quota usage. Returns true on success. */
@@ -76,10 +76,39 @@ function buildHeaders(orgId: string, authHeader?: string): Record<string, string
  *   return res.status(429).json({ error: 'Quota exceeded' });
  * }
  *
- * // Increment quota after success (fire-and-forget)
- * quotaService.increment(orgId, 'apiCalls', authHeader);
+ * // Increment quota after success
+ * quotaService.increment(orgId, 'apiCalls', authHeader).catch(err => logger.warn('Quota increment failed', { error: err }));
  * ```
  */
+/**
+ * Fire-and-forget quota increment with standardized error logging.
+ *
+ * Wraps `quotaService.increment()` with a `.catch()` that logs a warning.
+ * Eliminates the identical one-liner repeated across every read route.
+ *
+ * @param quotaService - Quota service client
+ * @param orgId - Organization ID
+ * @param quotaType - Quota type to increment
+ * @param authHeader - Authorization header value
+ * @param logWarn - Logging function for warnings (e.g., `(msg, meta) => ctx.log('WARN', msg, meta)` or `logger.warn`)
+ *
+ * @example
+ * ```typescript
+ * incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', (msg, meta) => ctx.log('WARN', msg, meta));
+ * ```
+ */
+export function incrementQuota(
+  quotaService: QuotaService,
+  orgId: string,
+  quotaType: QuotaType,
+  authHeader: string,
+  logWarn: (message: string, data?: unknown) => void,
+): void {
+  quotaService.increment(orgId, quotaType, authHeader).catch((err: unknown) =>
+    logWarn('Quota increment failed', { error: err instanceof Error ? err.message : String(err) }),
+  );
+}
+
 export function createQuotaService(config: QuotaServiceConfig = {}): QuotaService {
   const serviceConfig: ServiceConfig = {
     host: config.host ?? process.env.QUOTA_SERVICE_HOST ?? 'quota',
@@ -114,26 +143,19 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return response.body.data.status;
     },
 
-    increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1): void {
+    async increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1): Promise<void> {
       const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
 
-      // Fire and forget
-      client
-        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader) })
-        .then((response) => {
-          if (!response || response.statusCode !== 200) {
-            logger.warn('Failed to increment quota', {
-              orgId, quotaType, amount, statusCode: response?.statusCode,
-            });
-          } else {
-            logger.debug('Quota incremented', { orgId, quotaType, amount });
-          }
-        })
-        .catch((error) => {
-          logger.warn('Error incrementing quota', {
-            orgId, quotaType, error: error instanceof Error ? error.message : String(error),
-          });
+      const response = await client
+        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader) });
+
+      if (!response || response.statusCode !== 200) {
+        logger.warn('Failed to increment quota', {
+          orgId, quotaType, amount, statusCode: response?.statusCode,
         });
+      } else {
+        logger.debug('Quota incremented', { orgId, quotaType, amount });
+      }
     },
 
     async updateLimits(

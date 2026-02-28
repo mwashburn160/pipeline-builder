@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useAsyncCallback } from '@/hooks/useAsync';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -34,8 +35,9 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
+    (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
+  );
   const [success, setSuccess] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
@@ -83,7 +85,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   };
 
   const handlePreview = () => {
-    setError(null);
+    clearError();
     const props = formRef.current?.getPropsPreview() ?? null;
     if (props) {
       setPreviewJson(JSON.stringify(props, null, 2));
@@ -108,40 +110,29 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   };
 
   const handleSave = async () => {
-    setLoading(true);
-    setError(null);
     setSuccess(null);
 
     const parsedProps = resolveProps();
-    if (!parsedProps) {
-      setLoading(false);
-      return;
-    }
+    if (!parsedProps) return;
 
     // Get description/keywords from form state
     const desc = formRef.current?.getDescription() ?? p.description ?? '';
     const kw = formRef.current?.getKeywords() ?? p.keywords?.join(', ') ?? '';
 
-    try {
-      const response = await api.updatePipeline(pipeline.id, {
-        pipelineName: parsedProps.pipelineName,
-        description: desc,
-        keywords: kw.split(',').map(k => k.trim()).filter(k => k),
-        props: parsedProps,
-        isActive,
-        isDefault,
-        accessModifier,
-      });
+    const response = await saveAsync({
+      pipelineName: parsedProps.pipelineName,
+      description: desc,
+      keywords: kw.split(',').map(k => k.trim()).filter(k => k),
+      props: parsedProps,
+      isActive,
+      isDefault,
+      accessModifier,
+    });
 
-      if (response.success) {
-        setSuccess('Pipeline updated successfully!');
-        onSaved();
-        setTimeout(() => onClose(), 1500);
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to update pipeline');
-    } finally {
-      setLoading(false);
+    if (response?.success) {
+      setSuccess('Pipeline updated successfully!');
+      onSaved();
+      setTimeout(() => onClose(), 1500);
     }
   };
 

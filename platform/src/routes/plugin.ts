@@ -12,7 +12,7 @@ import {
   getPlugin,
   createPlugin,
 } from '../controllers';
-import { authenticateToken } from '../middleware';
+import { requireAuth } from '../middleware';
 
 const router = Router();
 
@@ -49,7 +49,7 @@ const upload = multer({
  * @query {number} [page=1] - Page number
  * @query {number} [limit=20] - Results per page
  */
-router.get('/', authenticateToken, listPlugins);
+router.get('/', requireAuth, listPlugins);
 
 /**
  * @route GET /plugin/search
@@ -63,7 +63,7 @@ router.get('/', authenticateToken, listPlugins);
  * @query {boolean} [isDefault] - Default status
  * @query {string} [accessModifier] - 'public' or 'private'
  */
-router.get('/search', authenticateToken, getPlugin);
+router.get('/search', requireAuth, getPlugin);
 
 /**
  * @route GET /plugin/:id
@@ -71,7 +71,7 @@ router.get('/search', authenticateToken, getPlugin);
  * @param {string} id - Plugin UUID
  * @note Quota enforcement handled by get-plugin microservice
  */
-router.get('/:id', authenticateToken, getPluginById);
+router.get('/:id', requireAuth, getPluginById);
 
 /**
  * @route POST /plugin
@@ -81,6 +81,6 @@ router.get('/:id', authenticateToken, getPluginById);
  * @body {string} [accessModifier='private'] - 'public' or 'private'
  * @note Quota enforcement handled by upload-plugin microservice
  */
-router.post('/', authenticateToken, upload.single('plugin'), createPlugin);
+router.post('/', requireAuth, upload.single('plugin'), createPlugin);
 
 export default router;

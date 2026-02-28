@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAsyncCallback } from '@/hooks/useAsync';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon } from 'lucide-react';
 import api from '@/lib/api';
 import type { Message } from '@/types';
@@ -44,7 +45,9 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
   const [thread, setThread] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
-  const [sending, setSending] = useState(false);
+  const { execute: sendReplyAsync, loading: sending } = useAsyncCallback(
+    (content: string) => api.replyToMessage(rootMessage.id, content),
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchThread = async () => {
@@ -72,17 +75,10 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
   const handleSendReply = async () => {
     if (!replyContent.trim() || sending) return;
 
-    setSending(true);
-    try {
-      const result = await api.replyToMessage(rootMessage.id, replyContent.trim());
-      if (result.data) {
-        setThread(prev => [...prev, result.data!]);
-        setReplyContent('');
-      }
-    } catch {
-      // Error handled silently
-    } finally {
-      setSending(false);
+    const result = await sendReplyAsync(replyContent.trim());
+    if (result?.data) {
+      setThread(prev => [...prev, result.data!]);
+      setReplyContent('');
     }
   };
 

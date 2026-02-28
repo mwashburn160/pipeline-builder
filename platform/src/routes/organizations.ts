@@ -5,11 +5,11 @@
 
 import { Router } from 'express';
 import { listAllOrganizations } from '../controllers';
-import { authenticateToken, requireRole } from '../middleware';
+import { requireAuth, requireRole } from '../middleware';
 
 const router = Router();
 
 /** GET /organizations - List all organizations (system admin only) */
-router.get('/', authenticateToken, requireRole('admin'), listAllOrganizations);
+router.get('/', requireAuth, requireRole('admin'), listAllOrganizations);
 
 export default router;

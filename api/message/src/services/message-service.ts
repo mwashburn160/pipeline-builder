@@ -3,8 +3,8 @@
  * @description Service layer for managing internal messages, threads, read tracking, and unread counts between organizations and the system org.
  */
 
-import { CrudService, schema, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
-import { SQL } from 'drizzle-orm';
+import { CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
+import { SQL, eq, and } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -141,6 +141,31 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       isRead: false,
     };
     return this.count(filter, orgId);
+  }
+
+  /**
+   * Cascade soft-delete all replies in a thread.
+   * Called after deleting a root message to prevent orphaned replies.
+   *
+   * @param threadId - Root message ID whose replies should be soft-deleted
+   * @param userId - User performing the deletion (for audit)
+   */
+  async deleteThread(threadId: string, userId: string): Promise<void> {
+    await db
+      .update(schema.message)
+      .set({
+        isActive: false,
+        updatedAt: new Date(),
+        updatedBy: userId,
+        deletedAt: new Date(),
+        deletedBy: userId,
+      })
+      .where(
+        and(
+          eq(schema.message.threadId, threadId),
+          eq(schema.message.isActive, true),
+        ),
+      );
   }
 }
 

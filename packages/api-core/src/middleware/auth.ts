@@ -34,9 +34,9 @@ function getJwtSecret(): string {
 }
 
 /**
- * Options for the authenticateToken middleware.
+ * Options for the requireAuth middleware.
  */
-export interface AuthTokenOptions {
+export interface RequireAuthOptions {
   /**
    * Allow `x-org-id` and `x-org-name` headers to override
    * the organizationId / organizationName from the JWT.
@@ -61,44 +61,44 @@ export interface AuthTokenOptions {
  *
  * @example
  * ```typescript
- * import { authenticateToken } from '@mwashburn160/api-core';
+ * import { requireAuth } from '@mwashburn160/api-core';
  *
  * // Standard usage — trust JWT exclusively
- * app.get('/protected', authenticateToken, (req, res) => {
+ * app.get('/protected', requireAuth, (req, res) => {
  *   res.json({ userId: req.user.sub });
  * });
  *
  * // Allow x-org-id / x-org-name header overrides
- * app.get('/resource', authenticateToken({ allowOrgHeaderOverride: true }), handler);
+ * app.get('/resource', requireAuth({ allowOrgHeaderOverride: true }), handler);
  * ```
  */
-export function authenticateToken(
+export function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction,
 ): void;
-export function authenticateToken(
-  options?: AuthTokenOptions,
+export function requireAuth(
+  options?: RequireAuthOptions,
 ): (req: Request, res: Response, next: NextFunction) => void;
-export function authenticateToken(
-  reqOrOptions?: Request | AuthTokenOptions,
+export function requireAuth(
+  reqOrOptions?: Request | RequireAuthOptions,
   res?: Response,
   next?: NextFunction,
 ): void | ((req: Request, res: Response, next: NextFunction) => void) {
   // If called with (req, res, next), use as direct middleware with default options
   if (reqOrOptions && res && next && 'headers' in reqOrOptions) {
-    return _authenticateToken({}, reqOrOptions as Request, res, next);
+    return _requireAuth({}, reqOrOptions as Request, res, next);
   }
 
   // Called with options — return a middleware function
-  const options = (reqOrOptions as AuthTokenOptions) || {};
+  const options = (reqOrOptions as RequireAuthOptions) || {};
   return (req: Request, resInner: Response, nextInner: NextFunction) => {
-    _authenticateToken(options, req, resInner, nextInner);
+    _requireAuth(options, req, resInner, nextInner);
   };
 }
 
-function _authenticateToken(
-  options: AuthTokenOptions,
+function _requireAuth(
+  options: RequireAuthOptions,
   req: Request,
   res: Response,
   next: NextFunction,
@@ -122,6 +122,11 @@ function _authenticateToken(
     // Only accept access tokens for API requests.
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
+    }
+
+    // Validate required token fields
+    if (!decoded.sub || !decoded.role) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Token missing required fields', ErrorCode.TOKEN_INVALID);
     }
 
     // Attach user to request
@@ -209,11 +214,11 @@ export function optionalAuth(
 
 /**
  * Middleware that requires organization membership.
- * Must be used after authenticateToken.
+ * Must be used after requireAuth.
  *
  * @example
  * ```typescript
- * app.get('/org-resource', authenticateToken, requireOrganization, (req, res) => {
+ * app.get('/org-resource', requireAuth, requireOrganization, (req, res) => {
  *   // req.user.organizationId is guaranteed to exist
  * });
  * ```
@@ -236,11 +241,11 @@ export function requireOrganization(
 
 /**
  * Middleware that requires admin role.
- * Must be used after authenticateToken.
+ * Must be used after requireAuth.
  *
  * @example
  * ```typescript
- * app.post('/admin-action', authenticateToken, requireAdmin, (req, res) => {
+ * app.post('/admin-action', requireAuth, requireAdmin, (req, res) => {
  *   // User is guaranteed to be admin
  * });
  * ```
@@ -284,6 +289,32 @@ export function isSystemOrg(req: Request): boolean {
  */
 export function isSystemAdmin(req: Request): boolean {
   return req.user?.role === 'admin' && isSystemOrg(req);
+}
+
+/**
+ * Middleware that requires system admin (admin role + system organization).
+ *
+ * Returns 403 if the user is not a system admin. Use this for routes
+ * that should only be accessible to administrators of the system org.
+ *
+ * @example
+ * ```typescript
+ * router.put('/:id', requireAuth, requireSystemAdmin, handler);
+ * ```
+ */
+export function requireSystemAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!isSystemAdmin(req)) {
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      'Access denied. Only system administrators can perform this action.',
+      ErrorCode.INSUFFICIENT_PERMISSIONS,
+    );
+  }
+  next();
 }
 
 /**

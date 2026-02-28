@@ -134,6 +134,7 @@ export class Connection {
         idleTimeoutMillis: config.idleTimeoutMillis,
         connectionTimeoutMillis: config.connectionTimeoutMillis,
         ssl: this.options.ssl,
+        allowExitOnIdle: true,
       };
 
       this.pool = new Pool(poolConfig);
@@ -232,11 +233,16 @@ export class Connection {
     callback: Parameters<typeof this.db.transaction>[0],
     timeoutMs: number = 30000,
   ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
     const txPromise = this.db.transaction(callback) as Promise<T>;
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Transaction timeout after ${timeoutMs}ms`)), timeoutMs),
-    );
-    return Promise.race([txPromise, timeoutPromise]);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Transaction timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    try {
+      return await Promise.race([txPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer!);
+    }
   }
 
   /**

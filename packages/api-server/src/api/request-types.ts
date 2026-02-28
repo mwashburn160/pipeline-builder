@@ -40,7 +40,7 @@ export interface RequestContext {
  *
  * @example
  * ```typescript
- * app.post('/api/resource', authenticateToken, async (req, res) => {
+ * app.post('/api/resource', requireAuth, async (req, res) => {
  *   const ctx = createRequestContext(req, res, sseManager);
  *
  *   ctx.log('INFO', 'Processing request', { data: req.body });

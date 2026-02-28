@@ -37,6 +37,7 @@ jest.mock('@mwashburn160/pipeline-core', () => {
     db: {
       transaction: jest.fn(async (cb: Function) => {
         const tx = {
+          execute: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
           insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
         };
@@ -48,6 +49,7 @@ jest.mock('@mwashburn160/pipeline-core', () => {
 
 jest.mock('drizzle-orm', () => ({
   SQL: class {},
+  sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),

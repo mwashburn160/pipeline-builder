@@ -12,7 +12,7 @@ const logger = createLogger('SSEManager');
 /**
  * Event types for SSE logging
  */
-export type SSEEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
+export type SSEEventType = 'INFO' | 'WARN' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
 
 /**
  * SSE payload structure
@@ -181,7 +181,7 @@ export class SSEManager {
       data,
     };
 
-    const clients = this.clients.get(requestId) || [];
+    const clients = [...(this.clients.get(requestId) || [])];
     let sentCount = 0;
 
     for (const client of clients) {

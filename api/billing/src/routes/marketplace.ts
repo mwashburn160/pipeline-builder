@@ -8,7 +8,7 @@
  */
 
 import {
-  authenticateToken,
+  requireAuth,
   sendSuccess,
   sendError,
   ErrorCode,
@@ -416,7 +416,7 @@ export function createMarketplaceRoutes(): Router {
 
   router.get(
     '/marketplace/entitlements',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {

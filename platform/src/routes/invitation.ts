@@ -14,7 +14,7 @@ import {
   revokeInvitation,
   resendInvitation,
 } from '../controllers';
-import { authenticateToken, requireRole } from '../middleware';
+import { requireAuth, requireRole } from '../middleware';
 
 const router = Router();
 
@@ -33,22 +33,22 @@ router.post('/accept-oauth', acceptInvitationViaOAuth);
  */
 
 /** POST /invitation/accept - Accept invitation (authenticated user) */
-router.post('/accept', authenticateToken, acceptInvitation);
+router.post('/accept', requireAuth, acceptInvitation);
 
 /*
  * Admin-Only Endpoints
  */
 
 /** POST /invitation/send - Send new invitation (org admin only) */
-router.post('/send', authenticateToken, requireRole('admin'), sendInvitation);
+router.post('/send', requireAuth, requireRole('admin'), sendInvitation);
 
 /** GET /invitation - List organization's invitations (org admin only) */
-router.get('/', authenticateToken, requireRole('admin'), listInvitations);
+router.get('/', requireAuth, requireRole('admin'), listInvitations);
 
 /** DELETE /invitation/:invitationId - Revoke pending invitation (org admin only) */
-router.delete('/:invitationId', authenticateToken, requireRole('admin'), revokeInvitation);
+router.delete('/:invitationId', requireAuth, requireRole('admin'), revokeInvitation);
 
 /** POST /invitation/:invitationId/resend - Resend invitation email (org admin only) */
-router.post('/:invitationId/resend', authenticateToken, requireRole('admin'), resendInvitation);
+router.post('/:invitationId/resend', requireAuth, requireRole('admin'), resendInvitation);
 
 export default router;

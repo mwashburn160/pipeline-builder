@@ -8,11 +8,11 @@
 
 // Re-export all authentication middleware from api-core
 export {
-  authenticateToken,
+  requireAuth,
   optionalAuth,
   requireOrganization,
   requireAdmin,
   isSystemOrg,
   isSystemAdmin,
-  type AuthTokenOptions,
+  type RequireAuthOptions,
 } from '@mwashburn160/api-core';

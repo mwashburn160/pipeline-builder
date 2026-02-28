@@ -73,8 +73,17 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
 
     // --- Read Dockerfile for DB storage -----------------------------------
     const dockerfilePath = path.join(extractDir, dockerfile);
-    dockerfileContent = fs.existsSync(dockerfilePath)
-      ? fs.readFileSync(dockerfilePath, 'utf-8')
+    const realDockerfilePath = fs.existsSync(dockerfilePath)
+      ? fs.realpathSync(dockerfilePath)
+      : null;
+
+    // Symlink check: ensure resolved path stays within the extraction directory
+    if (realDockerfilePath && !realDockerfilePath.startsWith(extractDir + path.sep)) {
+      throw new ValidationError('Invalid dockerfile path: resolves outside extraction directory');
+    }
+
+    dockerfileContent = realDockerfilePath
+      ? fs.readFileSync(realDockerfilePath, 'utf-8')
       : null;
   }
 

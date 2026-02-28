@@ -10,6 +10,7 @@
  */
 
 import { useState, useRef } from 'react';
+import { useAsyncCallback } from '@/hooks/useAsync';
 import { Upload } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -35,10 +36,27 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated 
   // Upload tab state
   const [file, setFile] = useState<File | null>(null);
   const [access, setAccess] = useState<'public' | 'private'>('private');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { execute: uploadAsync, loading, error: uploadError, clearError } = useAsyncCallback(
+    async (f: File, a: 'public' | 'private') => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
+      try {
+        return await api.uploadPlugin(f, a, { signal: controller.signal });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          throw new Error('Upload timed out. Please try again with a smaller file or check your connection.');
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+  );
+  const error = validationError || uploadError;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -48,47 +66,32 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated 
       const hasValidExtension = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
 
       if (!validTypes.includes(selected.type) && !hasValidExtension) {
-        setError('Please select a .zip or .tar.gz file');
+        setValidationError('Please select a .zip or .tar.gz file');
         return;
       }
 
       setFile(selected);
-      setError(null);
+      setValidationError(null);
     }
   };
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Please select a file to upload');
+      setValidationError('Please select a file to upload');
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    setValidationError(null);
     setSuccess(null);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
+    const response = await uploadAsync(file, access);
 
-    try {
-      const response = await api.uploadPlugin(file, access, { signal: controller.signal });
-
-      if (response.success) {
-        setSuccess('Plugin uploaded successfully!');
-        setFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        onCreated();
-        setTimeout(() => onClose(), 2000);
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Upload timed out. Please try again with a smaller file or check your connection.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to upload plugin');
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      setLoading(false);
+    if (response?.success) {
+      setSuccess('Plugin uploaded successfully!');
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      onCreated();
+      setTimeout(() => onClose(), 2000);
     }
   };
 
@@ -96,7 +99,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated 
     <div className="border-b border-gray-200 dark:border-gray-700 px-6">
       <nav className="-mb-px flex space-x-8">
         <button
-          onClick={() => { setActiveTab('upload'); setError(null); setSuccess(null); }}
+          onClick={() => { setActiveTab('upload'); setValidationError(null); clearError(); setSuccess(null); }}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
             activeTab === 'upload'
               ? 'border-blue-500 text-blue-600 dark:text-blue-400'
@@ -106,7 +109,7 @@ export default function CreatePluginModal({ canUploadPublic, onClose, onCreated 
           Upload
         </button>
         <button
-          onClick={() => { setActiveTab('ai'); setError(null); setSuccess(null); }}
+          onClick={() => { setActiveTab('ai'); setValidationError(null); clearError(); setSuccess(null); }}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
             activeTab === 'ai'
               ? 'border-blue-500 text-blue-600 dark:text-blue-400'

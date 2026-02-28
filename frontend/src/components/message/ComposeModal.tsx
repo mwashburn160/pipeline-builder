@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
+import { useAsyncCallback } from '@/hooks/useAsync';
 
 /** Props for the ComposeModal component. */
 interface ComposeModalProps {
@@ -31,43 +32,44 @@ function autoSubject(content: string): string {
 export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeModalProps) {
   const [recipientOrgId, setRecipientOrgId] = useState('');
   const [content, setContent] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
+
+  const { execute: sendAsync, loading: sending, error: sendError } = useAsyncCallback(
+    (data: Parameters<typeof onSend>[0]) => onSend(data),
+  );
+
+  const error = validationError || sendError || '';
 
   if (!isOpen) return null;
 
   const handleSend = async () => {
-    setError('');
+    setValidationError('');
 
     if (!content.trim()) {
-      setError('Message content is required');
+      setValidationError('Message content is required');
       return;
     }
 
     const recipient = isAnnouncement ? '*' : (isSystemOrg ? recipientOrgId.trim().toLowerCase() : 'system');
     if (isSystemOrg && !isAnnouncement && !recipient) {
-      setError('Recipient organization is required');
+      setValidationError('Recipient organization is required');
       return;
     }
 
-    setSending(true);
-    try {
-      await onSend({
-        recipientOrgId: recipient,
-        messageType: isAnnouncement ? 'announcement' : 'conversation',
-        subject: autoSubject(content),
-        content: content.trim(),
-        priority: 'normal',
-      });
+    const result = await sendAsync({
+      recipientOrgId: recipient,
+      messageType: isAnnouncement ? 'announcement' : 'conversation',
+      subject: autoSubject(content),
+      content: content.trim(),
+      priority: 'normal',
+    });
+
+    if (result !== null) {
       setContent('');
       setRecipientOrgId('');
       setIsAnnouncement(false);
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-    } finally {
-      setSending(false);
     }
   };
 
