@@ -1,3 +1,7 @@
+## 1.25.1 (2026-02-28)
+
+This was a version bump only for platform to align it with other projects, there were no code changes.
+
 ## 1.25.0 (2026-02-28)
 
 ### 🚀 Features
