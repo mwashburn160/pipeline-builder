@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { authenticateToken, optionalAuth, requireOrganization, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier } from '../src/middleware/auth';
+import { requireAuth, optionalAuth, requireOrganization, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier } from '../src/middleware/auth';
 
 const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
 
@@ -38,16 +38,16 @@ function signToken(payload: Record<string, unknown>, options?: jwt.SignOptions):
 }
 
 // ============================================================================
-// authenticateToken
+// requireAuth
 // ============================================================================
 
-describe('authenticateToken', () => {
+describe('requireAuth', () => {
   it('should reject request with no Authorization header', () => {
     const req = createMockReq();
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(res._status).toBe(401);
     expect(next).not.toHaveBeenCalled();
@@ -58,7 +58,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(res._status).toBe(401);
     expect(next).not.toHaveBeenCalled();
@@ -71,7 +71,7 @@ describe('authenticateToken', () => {
     const next = jest.fn();
 
     // Small delay to ensure token expires
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(res._status).toBe(401);
     expect(next).not.toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(res._status).toBe(401);
     expect(next).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(res._status).toBe(401);
     expect(next).not.toHaveBeenCalled();
@@ -107,7 +107,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(req.user).toBeDefined();
@@ -127,7 +127,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    const middleware = authenticateToken({ allowOrgHeaderOverride: true });
+    const middleware = requireAuth({ allowOrgHeaderOverride: true });
     middleware(req, res, next);
 
     expect(next).toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe('authenticateToken', () => {
     const res = createMockRes();
     const next = jest.fn();
 
-    authenticateToken(req, res, next);
+    requireAuth(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(req.user!.organizationId).toBe('org1');

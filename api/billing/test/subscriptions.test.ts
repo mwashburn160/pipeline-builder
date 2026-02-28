@@ -14,7 +14,7 @@ const mockSendError = jest.fn();
 const mockSendBadRequest = jest.fn();
 const mockValidateBody = jest.fn();
 const mockIsSystemAdmin = jest.fn();
-const mockAuthenticateToken = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
+const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
@@ -28,8 +28,9 @@ jest.mock('@mwashburn160/api-core', () => ({
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
   },
-  authenticateToken: mockAuthenticateToken,
+  requireAuth: mockRequireAuth,
   isSystemAdmin: mockIsSystemAdmin,
+  requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -109,7 +110,7 @@ const router = createSubscriptionRoutes();
 
 /**
  * Extract the last handler from a route stack (skips middleware like
- * authenticateToken and requireSysAdmin).
+ * requireAuth and requireSystemAdmin).
  */
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useAsyncCallback } from '@/hooks/useAsync';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
@@ -20,9 +21,12 @@ interface UploadPluginModalProps {
 export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded }: UploadPluginModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [access, setAccess] = useState<'public' | 'private'>('private');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const { execute: uploadAsync, loading, error: uploadError } = useAsyncCallback(
+    (f: File, a: 'public' | 'private') => api.uploadPlugin(f, a),
+  );
+  const error = validationError || uploadError;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
@@ -47,28 +51,27 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
       const hasValidExtension = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
 
       if (!validTypes.includes(selected.type) && !hasValidExtension) {
-        setError('Please select a .zip or .tar.gz file');
+        setValidationError('Please select a .zip or .tar.gz file');
         return;
       }
 
       setFile(selected);
-      setError(null);
+      setValidationError(null);
     }
   };
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Please select a file to upload');
+      setValidationError('Please select a file to upload');
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    setValidationError(null);
     setRequestId(null);
 
-    try {
-      const response = await api.uploadPlugin(file, access);
+    const response = await uploadAsync(file, access);
 
+    if (response) {
       if (response.statusCode === 202 && response.data?.requestId) {
         // Build queued — start listening for SSE events
         setRequestId(response.data.requestId);
@@ -79,10 +82,6 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
         onUploaded();
         setTimeout(() => onClose(), 2000);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload plugin');
-    } finally {
-      setLoading(false);
     }
   };
 

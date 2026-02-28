@@ -24,14 +24,22 @@ jest.mock('../src/database/postgres-connection', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    error: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.mock('@mwashburn160/api-core', () => {
+  class NotFoundError extends Error {
+    statusCode = 404;
+    code = 'NOT_FOUND';
+    constructor(message: string) { super(message); this.name = 'NotFoundError'; }
+  }
+  return {
+    createLogger: () => ({
+      info: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    }),
+    NotFoundError,
+  };
+});
 
 // Import after mocks are set up
 import { CrudService, BaseEntity } from '../src/api/crud-service';
@@ -360,6 +368,7 @@ describe('CrudService', () => {
       // Mock transaction to execute the callback with a mock tx
       mockTransaction.mockImplementation(async (cb: Function) => {
         const tx = {
+          execute: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockReturnValue({
             set: jest.fn().mockReturnValue({
               where: jest.fn().mockReturnValue({
@@ -376,9 +385,10 @@ describe('CrudService', () => {
       expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('should throw when entity not found', async () => {
+    it('should throw NotFoundError when entity not found', async () => {
       mockTransaction.mockImplementation(async (cb: Function) => {
         const tx = {
+          execute: jest.fn().mockResolvedValue([]),
           update: jest.fn().mockReturnValue({
             set: jest.fn().mockReturnValue({
               where: jest.fn().mockReturnValue({
@@ -393,6 +403,13 @@ describe('CrudService', () => {
       await expect(
         service.setDefault('my-project', 'org1', 'missing-id', 'user1'),
       ).rejects.toThrow('Entity with id missing-id not found');
+
+      try {
+        await service.setDefault('my-project', 'org1', 'missing-id', 'user1');
+      } catch (error) {
+        expect((error as any).name).toBe('NotFoundError');
+        expect((error as any).statusCode).toBe(404);
+      }
     });
   });
 

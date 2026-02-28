@@ -9,7 +9,7 @@
  */
 
 import {
-  authenticateToken,
+  requireAuth,
   isSystemAdmin,
   sendSuccess,
   sendError,
@@ -38,7 +38,7 @@ const router: Router = Router();
 
 router.get(
   '/',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   async (req: Request, res: Response) => {
     const orgId = req.user?.organizationId;
     if (!orgId) return sendMissingOrgId(res);
@@ -60,7 +60,7 @@ router.get(
 
 router.get(
   '/all',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   async (req: Request, res: Response) => {
     if (!isSystemAdmin(req)) {
       return sendError(
@@ -86,7 +86,7 @@ router.get(
 
 router.get(
   '/:orgId',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
@@ -107,7 +107,7 @@ router.get(
 
 router.get(
   '/:orgId/:quotaType',
-  authenticateToken(AUTH_OPTS) as RequestHandler,
+  requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
   async (req: Request, res: Response) => {
     const targetOrgId = getParam(req.params, 'orgId')!;

@@ -11,7 +11,7 @@ import {
   getPipeline,
   createPipeline,
 } from '../controllers';
-import { authenticateToken } from '../middleware';
+import { requireAuth } from '../middleware';
 
 const router = Router();
 
@@ -27,7 +27,7 @@ const router = Router();
  * @query {number} [page=1] - Page number
  * @query {number} [limit=20] - Results per page
  */
-router.get('/', authenticateToken, listPipelines);
+router.get('/', requireAuth, listPipelines);
 
 /**
  * @route GET /pipeline/search
@@ -40,7 +40,7 @@ router.get('/', authenticateToken, listPipelines);
  * @query {boolean} [isDefault] - Default status
  * @query {string} [accessModifier] - 'public' or 'private'
  */
-router.get('/search', authenticateToken, getPipeline);
+router.get('/search', requireAuth, getPipeline);
 
 /**
  * @route GET /pipeline/:id
@@ -48,7 +48,7 @@ router.get('/search', authenticateToken, getPipeline);
  * @param {string} id - Pipeline UUID
  * @note Quota enforcement handled by get-pipeline microservice
  */
-router.get('/:id', authenticateToken, getPipelineById);
+router.get('/:id', requireAuth, getPipelineById);
 
 /**
  * @route POST /pipeline
@@ -60,6 +60,6 @@ router.get('/:id', authenticateToken, getPipelineById);
  * @body {string} [accessModifier='private'] - 'public' or 'private'
  * @note Quota enforcement handled by create-pipeline microservice
  */
-router.post('/', authenticateToken, createPipeline);
+router.post('/', requireAuth, createPipeline);
 
 export default router;

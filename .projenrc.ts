@@ -52,19 +52,19 @@ let expressVersion = '5.2.1'
 
 // Internal package versions — workspace protocol for pnpm-managed projects
 /** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.28.4';
+let apiCoreVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.29.4';
+let pipelineDataVersion = 'workspace:*';
 
 /** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.29.4';
+let pipelineCoreVersion = 'workspace:*';
 
 /** @mwashburn160/api-server package version */
-let apiServerVersion = '1.27.4';
+let apiServerVersion = 'workspace:*';
 
 /** @mwashburn160/ai-core package version */
-let aiCoreVersion = '1.2.4';
+let aiCoreVersion = 'workspace:*';
 
 // =============================================================================
 // Root Project Configuration
@@ -132,7 +132,7 @@ root.addScripts({
  *
  * Responsibilities:
  * - api-core: Shared API utilities
- *   • Authentication middleware (JWT): authenticateToken, requireAdmin, etc.
+ *   • Authentication middleware (JWT): requireAuth, requireAdmin, etc.
  *   • HTTP client: InternalHttpClient, createSafeClient
  *   • Response utilities: sendSuccess, sendError, sendPaginated
  *   • Logging, identity extraction, parameter parsing
@@ -169,7 +169,7 @@ root.addScripts({
  * This is the foundational package for all API services in the monorepo.
  * It has NO internal dependencies and provides shared functionality for:
  *
- * - JWT authentication middleware (authenticateToken, requireAdmin, etc.)
+ * - JWT authentication middleware (requireAuth, requireAdmin, etc.)
  * - HTTP client utilities (InternalHttpClient, createSafeClient)
  * - Response standardization (sendSuccess, sendError, sendPaginated)
  * - Request identity extraction and validation

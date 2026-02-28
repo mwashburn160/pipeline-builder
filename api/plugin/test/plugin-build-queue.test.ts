@@ -42,6 +42,7 @@ jest.mock('ioredis', () => {
   return { __esModule: true, default: MockRedis };
 });
 
+const mockIncrementQuota = jest.fn();
 const mockExistsSync = jest.fn().mockReturnValue(false);
 const mockRmSync = jest.fn();
 
@@ -67,6 +68,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
 
 jest.mock('drizzle-orm', () => ({
   eq: jest.fn(),
+  sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -78,6 +80,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   extractDbError: jest.fn(() => ({})),
+  incrementQuota: mockIncrementQuota,
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({}));
@@ -202,6 +205,7 @@ describe('plugin-build-queue', () => {
 
     jest.mock('drizzle-orm', () => ({
       eq: jest.fn(),
+      sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
     }));
 
     jest.mock('@mwashburn160/api-core', () => ({
@@ -213,6 +217,7 @@ describe('plugin-build-queue', () => {
       }),
       errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
       extractDbError: jest.fn(() => ({})),
+      incrementQuota: mockIncrementQuota,
     }));
 
     jest.mock('@mwashburn160/api-server', () => ({}));
@@ -276,6 +281,7 @@ describe('plugin-build-queue', () => {
       const insertedPlugin = { id: 'plugin-1', name: 'my-plugin', version: '1.0.0', imageTag: 'p-test-abc123' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'registry:5000/plugin:p-test-abc123' });
       mockDbTransaction.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockReturnValue({
           set: jest.fn().mockReturnValue({
             where: jest.fn().mockResolvedValue(undefined),
@@ -305,7 +311,7 @@ describe('plugin-build-queue', () => {
       }));
 
       // Verify quota increment
-      expect(quota.increment).toHaveBeenCalledWith('org-1', 'plugins', 'Bearer tok');
+      expect(mockIncrementQuota).toHaveBeenCalledWith(quota, 'org-1', 'plugins', 'Bearer tok', expect.any(Function));
 
       // Verify return value
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
@@ -320,6 +326,7 @@ describe('plugin-build-queue', () => {
       const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDbTransaction.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
         insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }),
       }));
@@ -370,6 +377,7 @@ describe('plugin-build-queue', () => {
       const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDbTransaction.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
         insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }),
       }));

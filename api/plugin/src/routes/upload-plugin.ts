@@ -12,8 +12,8 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
-import { authenticateToken, checkQuota, getContext, requireOrgId } from '@mwashburn160/api-server';
+import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { requireAuth, checkQuota, requireOrgId, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -53,7 +53,7 @@ export function createUploadPluginRoutes(
   router.post(
     '/',
     upload.single('plugin') as RequestHandler,
-    authenticateToken as RequestHandler,
+    requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     // Admin check BEFORE quota — non-admins should be rejected without consuming quota
     ((req: Request, res: Response, next: () => void) => {
@@ -63,9 +63,8 @@ export function createUploadPluginRoutes(
       next();
     }) as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
-    async (req: Request, res: Response) => {
-      const ctx = getContext(req);
-      const config = Config.get();
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const registry = Config.get('registry');
 
       let zipPath: string | undefined;
 
@@ -74,8 +73,6 @@ export function createUploadPluginRoutes(
           return sendBadRequest(res, 'No plugin file uploaded', ErrorCode.MISSING_REQUIRED_FIELD);
         }
 
-        if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
-        const orgId = ctx.identity.orgId.toLowerCase();
         const validation = validateBody(req, PluginUploadBodySchema);
         if (!validation.ok) {
           return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -104,13 +101,13 @@ export function createUploadPluginRoutes(
           {
             requestId: ctx.requestId,
             orgId,
-            userId: ctx.identity.userId || 'system',
+            userId: userId || 'system',
             authToken: req.headers.authorization || '',
             buildRequest: {
               contextDir: plugin.extractDir,
               dockerfile: plugin.dockerfile,
               imageTag: plugin.imageTag,
-              registry: config.registry,
+              registry,
               buildArgs: plugin.manifest.buildArgs || {},
             },
             pluginRecord: {
@@ -154,25 +151,20 @@ export function createUploadPluginRoutes(
           imageTag: plugin.imageTag,
         }, 'Plugin build queued');
       } catch (error) {
-        if (res.headersSent) {
-          logger.error('Upload failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
-          return;
-        }
-
+        // Handle manifest ValidationError as 400 before withRoute's generic handler
         if (error instanceof ValidationError) {
           return sendBadRequest(res, error.message);
         }
 
-        logger.error('Upload failed', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
-
-        return sendInternalError(res, 'Plugin upload failed');
+        // Re-throw for withRoute's error handling (AppError → proper status, others → 500)
+        throw error;
       } finally {
         // Clean up zip if not already removed (error path)
         if (zipPath && fs.existsSync(zipPath)) {
           try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
         }
       }
-    },
+    }),
   );
 
   return router;

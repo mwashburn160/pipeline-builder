@@ -1,8 +1,9 @@
 /**
  * Build status polling hook using Server-Sent Events (SSE).
  * Connects to the plugin service's SSE endpoint and streams build events in real time.
+ * Includes automatic retry with exponential backoff on transient connection errors.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /** Discriminator for SSE build event payloads. */
 export type BuildEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
@@ -20,10 +21,13 @@ export interface BuildEvent {
 /** Lifecycle state of a plugin build. */
 export type BuildStatus = 'idle' | 'building' | 'completed' | 'failed';
 
+const MAX_RETRIES = 3;
+
 /**
  * Listens for SSE build events by requestId.
  * Opens an EventSource connection to the plugin service's SSE endpoint
  * and tracks build progress. Auto-closes on COMPLETED or final ERROR.
+ * Retries up to 3 times with exponential backoff on transient network errors.
  *
  * @param requestId - The request ID returned by the 202 response, or null to stay idle
  * @returns Build event history, current status, and the most recent event
@@ -31,18 +35,33 @@ export type BuildStatus = 'idle' | 'building' | 'completed' | 'failed';
 export function useBuildStatus(requestId: string | null) {
   const [events, setEvents] = useState<BuildEvent[]>([]);
   const [status, setStatus] = useState<BuildStatus>('idle');
+  const [reconnectKey, setReconnectKey] = useState(0);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Reset retry state when requestId changes
+  useEffect(() => {
+    retryCountRef.current = 0;
+    setReconnectKey(0);
+  }, [requestId]);
 
   useEffect(() => {
     if (!requestId) return;
 
-    setStatus('building');
-    setEvents([]);
+    // Only reset state on first connect (not retries)
+    if (retryCountRef.current === 0) {
+      setStatus('building');
+      setEvents([]);
+    }
 
     const eventSource = new EventSource(`/api/plugin/logs/${requestId}`);
 
     eventSource.onmessage = (event) => {
       try {
         const parsed: BuildEvent = JSON.parse(event.data);
+        // Reset retry count on any successful message
+        retryCountRef.current = 0;
+
         setEvents((prev) => {
           const next = [...prev, parsed];
           return next.length > 1000 ? next.slice(-1000) : next;
@@ -62,13 +81,22 @@ export function useBuildStatus(requestId: string | null) {
 
     eventSource.onerror = () => {
       eventSource.close();
-      setStatus((prev) => (prev === 'completed' ? prev : 'failed'));
+      if (retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current++;
+        const delay = 1000 * Math.pow(2, retryCountRef.current - 1);
+        retryTimerRef.current = setTimeout(() => {
+          setReconnectKey((k) => k + 1);
+        }, delay);
+      } else {
+        setStatus((prev) => (prev === 'completed' ? prev : 'failed'));
+      }
     };
 
     return () => {
       eventSource.close();
+      clearTimeout(retryTimerRef.current);
     };
-  }, [requestId]);
+  }, [requestId, reconnectKey]);
 
   const lastEvent = events.length > 0 ? events[events.length - 1] : null;
 

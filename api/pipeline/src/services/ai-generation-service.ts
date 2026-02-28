@@ -17,7 +17,7 @@ import {
   streamText,
   Output,
 } from '@mwashburn160/ai-core';
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger, ValidationError } from '@mwashburn160/api-core';
 import { z } from 'zod';
 
 export { getAvailableProviders, getProviderModels };
@@ -221,7 +221,7 @@ export async function generatePipelineConfig(request: GenerationRequest): Promis
   });
 
   if (!output) {
-    throw new Error('AI did not produce a pipeline configuration');
+    throw new ValidationError('AI did not produce a pipeline configuration');
   }
 
   const { description, keywords, ...props } = output;

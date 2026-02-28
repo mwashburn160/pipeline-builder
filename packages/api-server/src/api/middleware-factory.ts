@@ -9,14 +9,14 @@
 import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
 import { RequestHandler } from 'express';
 import { checkQuota } from './check-quota';
-import { authenticateToken } from './middleware';
+import { requireAuth } from './middleware';
 import { requireOrgId } from './require-org-id';
 
 /**
  * Creates a middleware chain for protected routes requiring authentication, org ID, and quota check.
  *
  * Applies middleware in order:
- * 1. authenticateToken - Validates JWT and extracts user identity
+ * 1. requireAuth - Validates JWT and extracts user identity
  * 2. requireOrgId - Ensures request has x-org-id header
  * 3. checkQuota - Validates quota for the specified resource type
  *
@@ -39,7 +39,7 @@ export function createProtectedRoute(
   quotaType: QuotaType,
 ): RequestHandler[] {
   return [
-    authenticateToken as RequestHandler,
+    requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     checkQuota(quotaService, quotaType) as RequestHandler,
   ];
@@ -49,7 +49,7 @@ export function createProtectedRoute(
  * Creates a middleware chain for authenticated routes with org ID requirement but no quota check.
  *
  * Applies middleware in order:
- * 1. authenticateToken - Validates JWT and extracts user identity
+ * 1. requireAuth - Validates JWT and extracts user identity
  * 2. requireOrgId - Ensures request has x-org-id header
  *
  * Use this for read-only routes that don't consume quota.
@@ -68,7 +68,7 @@ export function createProtectedRoute(
  */
 export function createAuthenticatedWithOrgRoute(): RequestHandler[] {
   return [
-    authenticateToken as RequestHandler,
+    requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
   ];
 }

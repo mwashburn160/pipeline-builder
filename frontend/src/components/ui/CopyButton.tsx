@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Copy, Check, X } from 'lucide-react';
 
 type CopyState = 'idle' | 'copied' | 'failed';
@@ -9,16 +9,21 @@ type CopyState = 'idle' | 'copied' | 'failed';
  */
 export function CopyButton({ text }: { text: string }) {
   const [state, setState] = useState<CopyState>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    return () => { clearTimeout(timerRef.current); };
+  }, []);
 
   const copy = async () => {
+    clearTimeout(timerRef.current);
     try {
       await navigator.clipboard.writeText(text);
       setState('copied');
-      setTimeout(() => setState('idle'), 2000);
     } catch {
       setState('failed');
-      setTimeout(() => setState('idle'), 2000);
     }
+    timerRef.current = setTimeout(() => setState('idle'), 2000);
   };
 
   return (

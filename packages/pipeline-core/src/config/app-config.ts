@@ -65,26 +65,36 @@ export class CoreConstants {
 /**
  * Configuration facade - composes domain-specific configs.
  * Delegates loading and validation to domain-specific config modules.
+ *
+ * Usage: `Config.get('server')`, `Config.get('auth')`, etc.
  */
 export class Config {
   private static instance: AppConfig | null = null;
 
   /**
-   * Get the application configuration
-   * Loads from environment variables with sensible defaults
+   * Get a specific configuration section.
+   *
+   * @param section - The configuration section key (e.g. 'server', 'auth', 'database')
+   * @returns The typed configuration for that section
+   *
+   * @example
+   * ```typescript
+   * const server = Config.get('server');  // ServerConfig
+   * const auth = Config.get('auth');      // AuthConfig
+   * ```
    */
-  static get(): AppConfig {
+  static get<K extends keyof AppConfig>(section: K): AppConfig[K] {
     if (!this.instance) {
       this.instance = this.loadConfig();
       this.validate(this.instance);
     }
-    return this.instance;
+    return this.instance[section];
   }
 
   /**
-   * Reset configuration (useful for testing)
+   * @internal Reset configuration (for testing only)
    */
-  static reset(): void {
+  static _resetForTesting(): void {
     this.instance = null;
   }
 
@@ -105,19 +115,18 @@ export class Config {
   }
 
   /**
-   * Validate infrastructure configuration (runs on every Config.get() call)
+   * Validate infrastructure configuration (runs on first Config.get() call)
    */
-  static validate(config: AppConfig): void {
+  private static validate(config: AppConfig): void {
     validateServerConfig(config.server);
     validateDatabaseConfig(config.database);
   }
 
   /**
-   * Validate auth configuration (JWT secrets, algorithms, expiration)
+   * Validate auth configuration (JWT secrets, algorithms, expiration).
    * Call this at server startup, not during CDK synthesis.
    */
-  static validateAuth(config?: AppConfig): void {
-    const cfg = config ?? this.get();
-    validateAuthConfig(cfg.auth);
+  static validateAuth(): void {
+    validateAuthConfig(this.get('auth'));
   }
 }

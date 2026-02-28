@@ -8,11 +8,11 @@
  * project/organization to non-default before inserting the new one.
  */
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema } from '@mwashburn160/api-core';
-import { createProtectedRoute, getContext } from '@mwashburn160/api-server';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota } from '@mwashburn160/api-core';
+import { createProtectedRoute, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
 
 const logger = createLogger('create-pipeline');
@@ -31,9 +31,7 @@ export function createCreatePipelineRoutes(
   router.post(
     '/',
     ...createProtectedRoute(quotaService, 'pipelines'),
-    async (req: Request, res: Response) => {
-      const ctx = getContext(req);
-
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);
       if (!validation.ok) {
@@ -56,8 +54,6 @@ export function createCreatePipelineRoutes(
         // Default pipelineName if not provided
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
-        if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
-        const orgId = ctx.identity.orgId.toLowerCase();
         ctx.log('INFO', 'Pipeline creation request received', { project, organization });
 
         const result = await pipelineService.createAsDefault(
@@ -70,14 +66,14 @@ export function createCreatePipelineRoutes(
             keywords: body.keywords ?? [],
             props: body.props as unknown as PipelineInsert['props'],
             accessModifier: accessModifier as AccessModifier,
-            createdBy: ctx.identity.userId || 'system',
+            createdBy: userId || 'system',
           },
-          ctx.identity.userId || 'system',
+          userId || 'system',
           project,
           organization,
         );
 
-        void quotaService.increment(orgId, 'pipelines', req.headers.authorization || '');
+        incrementQuota(quotaService, orgId, 'pipelines', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 
@@ -101,11 +97,11 @@ export function createCreatePipelineRoutes(
       } catch (error) {
         const message = errorMessage(error);
         const dbDetails = extractDbError(error);
-        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId: ctx.identity.orgId, ...dbDetails });
+        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
 
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
-    },
+    }),
   );
 
   return router;

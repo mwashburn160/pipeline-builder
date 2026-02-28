@@ -1,7 +1,7 @@
 /**
  * Tests for quota read routes (GET /quotas/*).
  *
- * Middleware (authenticateToken, authorizeOrg) is mocked to pass through —
+ * Middleware (requireAuth, authorizeOrg) is mocked to pass through —
  * those are tested separately in authorize-org.test.ts.
  */
 
@@ -30,7 +30,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
-  authenticateToken: () => (_req: any, _res: any, next: any) => next(),
+  requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   DEFAULT_TIER: 'developer',

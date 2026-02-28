@@ -1,7 +1,7 @@
 /**
  * Tests for seed-plans helper.
  *
- * Verifies that seedPlans() reads plan definitions from Config.get().billing.plans
+ * Verifies that seedPlans() reads plan definitions from Config.get('billing').plans
  * and inserts them into MongoDB when no plans exist.
  */
 
@@ -51,9 +51,10 @@ const mockPlans = [
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
   Config: {
-    get: () => ({
-      billing: { plans: mockPlans },
-    }),
+    get: (section: string) => {
+      if (section === 'billing') return { plans: mockPlans };
+      return {};
+    },
   },
 }));
 

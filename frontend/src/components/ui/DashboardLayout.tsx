@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { Menu, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useConfig } from '@/hooks/useConfig';
+import { useFeatures } from '@/hooks/useFeatures';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
@@ -44,8 +44,8 @@ export function DashboardLayout({
   maxWidth = '7xl',
   mainClassName = '',
 }: DashboardLayoutProps) {
-  const { user, isReady, isSystemOrg, isSysAdmin, isAdmin, logout } = useAuthGuard();
-  const { config, isLoaded: configLoaded } = useConfig();
+  const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
+  const { isLoaded: featuresLoaded } = useFeatures();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile } = useSidebarState();
   const router = useRouter();
@@ -67,7 +67,7 @@ export function DashboardLayout({
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 
-  if (!isReady || !user || !configLoaded) return <LoadingPage />;
+  if (!isReady || !user || !featuresLoaded) return <LoadingPage />;
 
   return (
     <>
@@ -80,8 +80,6 @@ export function DashboardLayout({
           <Sidebar
             isSysAdmin={isSysAdmin}
             isAdmin={isAdmin}
-            isSystemOrg={isSystemOrg}
-            billingEnabled={config.billingEnabled}
             user={user}
             unreadCount={unreadCount}
             currentPath={router.pathname}
@@ -113,8 +111,6 @@ export function DashboardLayout({
                 <Sidebar
                   isSysAdmin={isSysAdmin}
                   isAdmin={isAdmin}
-                  isSystemOrg={isSystemOrg}
-                  billingEnabled={config.billingEnabled}
                   user={user}
                   unreadCount={unreadCount}
                   currentPath={router.pathname}

@@ -65,9 +65,9 @@ async function populateRequestUser(req: Request, user: UserLike): Promise<void> 
  * @returns 401 if token is missing, invalid, or session is invalidated
  *
  * @example
- * router.get('/protected', authenticateToken, handler);
+ * router.get('/protected', requireAuth, handler);
  */
-export async function authenticateToken(
+export async function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction,
@@ -152,7 +152,7 @@ export async function isValidRefreshToken(
  * @returns 403 if user doesn't belong to the organization and is not an admin
  *
  * @example
- * router.get('/org/:orgId/data', authenticateToken, isOrgMember, handler);
+ * router.get('/org/:orgId/data', requireAuth, isOrgMember, handler);
  */
 export function isOrgMember(req: Request, res: Response, next: NextFunction): void {
   const orgId = req.params.orgId || req.body.organizationId;
@@ -175,8 +175,8 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
  * @returns 403 if user's role is not in the allowed list
  *
  * @example
- * router.delete('/admin-only', authenticateToken, requireRole('admin'), handler);
- * router.get('/members', authenticateToken, requireRole('user', 'admin'), handler);
+ * router.delete('/admin-only', requireAuth, requireRole('admin'), handler);
+ * router.get('/members', requireAuth, requireRole('user', 'admin'), handler);
  */
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {

@@ -156,7 +156,7 @@ upload_plugin() {
     --insecure 2>/dev/null || echo "000")
 
   case "$UPLOAD_STATUS" in
-    200|201)
+    200|201|202)
       echo "    OK (HTTP ${UPLOAD_STATUS})"
       SUCCEEDED=$((SUCCEEDED + 1))
       ;;
@@ -237,6 +237,11 @@ for category in $CATEGORIES; do
 
     zip_file="${plugin_dir}/plugin.zip"
     upload_plugin "$zip_file"
+
+    # Throttle uploads to avoid rate limiting (100 req / 15 min)
+    if [ "$DRY_RUN" = false ]; then
+      sleep 1
+    fi
   done
 done
 

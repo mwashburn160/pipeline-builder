@@ -85,6 +85,11 @@ jest.mock('@mwashburn160/api-core', () => ({
     'xai': 'XAI_API_KEY',
     'amazon-bedrock': 'AWS_ACCESS_KEY_ID',
   },
+  ValidationError: class ValidationError extends Error {
+    public readonly statusCode = 400;
+    public readonly code = 'VALIDATION_ERROR';
+    constructor(message: string) { super(message); this.name = 'ValidationError'; }
+  },
   getAIProviderModels: jest.fn((id: string) => {
     const catalog: Record<string, any[]> = {
       'anthropic': [

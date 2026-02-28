@@ -47,11 +47,34 @@ jest.mock('@mwashburn160/api-core', () => ({
     return { ok: true, value: req.body };
   }),
   PipelineCreateSchema: {},
+  incrementQuota: jest.fn(),
 }));
+
+const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
+  res.status(400).json({ success: false, statusCode: 400, message: msg });
+});
+const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
+  res.status(500).json({ success: false, statusCode: 500, message: msg });
+});
 
 jest.mock('@mwashburn160/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
+  withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
+    const ctx = req.context;
+    const orgId = ctx.identity.orgId?.toLowerCase() || '';
+    const userId = ctx.identity.userId || '';
+    const requireOrgId = options?.requireOrgId !== false;
+    if (requireOrgId && !orgId) {
+      return mockSendBadRequestForRoute(res, 'Organization ID is required');
+    }
+    try {
+      await handler({ req, res, ctx, orgId, userId });
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return mockSendInternalErrorForRoute(res, msg);
+    }
+  },
 }));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
@@ -61,7 +84,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   ),
 }));
 
-import { sendBadRequest, validateBody } from '@mwashburn160/api-core';
+import { sendBadRequest, validateBody, incrementQuota } from '@mwashburn160/api-core';
 import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
 
 // ---------------------------------------------------------------------------
@@ -202,7 +225,8 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Organization ID is required');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Organization ID is required' }));
   });
 
   it('increments quota after successful creation', async () => {
@@ -222,7 +246,7 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockIncrement).toHaveBeenCalledWith('org-1', 'pipelines', 'Bearer tok');
+    expect(incrementQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'pipelines', 'Bearer tok', expect.any(Function));
   });
 
   it('returns 500 on service error', async () => {

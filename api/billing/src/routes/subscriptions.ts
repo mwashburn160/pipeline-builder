@@ -10,8 +10,8 @@
  */
 
 import {
-  authenticateToken,
-  isSystemAdmin,
+  requireAuth,
+  requireSystemAdmin,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -37,18 +37,6 @@ const logger = createLogger('billing-subscriptions');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
-/** Only system administrators can create, change, cancel, or reactivate subscriptions. */
-function requireSysAdmin(req: Request, res: Response, next: () => void): void {
-  if (!isSystemAdmin(req)) {
-    return sendError(
-      res, 403,
-      'Only system administrators can modify subscriptions.',
-      ErrorCode.INSUFFICIENT_PERMISSIONS,
-    );
-  }
-  next();
-}
-
 /**
  * Create the subscription management router (authenticated).
  *
@@ -69,7 +57,7 @@ export function createSubscriptionRoutes(): Router {
 
   router.get(
     '/subscriptions',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -101,8 +89,8 @@ export function createSubscriptionRoutes(): Router {
 
   router.post(
     '/subscriptions',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireSysAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -178,8 +166,8 @@ export function createSubscriptionRoutes(): Router {
 
   router.put(
     '/subscriptions/:id',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireSysAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -262,8 +250,8 @@ export function createSubscriptionRoutes(): Router {
 
   router.post(
     '/subscriptions/:id/cancel',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireSysAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -316,8 +304,8 @@ export function createSubscriptionRoutes(): Router {
 
   router.post(
     '/subscriptions/:id/reactivate',
-    authenticateToken(AUTH_OPTS) as RequestHandler,
-    requireSysAdmin as RequestHandler,
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {

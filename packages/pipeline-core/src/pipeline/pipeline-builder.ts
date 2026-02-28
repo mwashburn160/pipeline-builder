@@ -101,7 +101,8 @@ export class PipelineBuilder extends Construct {
     // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
     this.config = new PipelineConfiguration(props);
 
-    const appConfig = Config.get();
+    const serverConfig = Config.get('server');
+    const awsConfig = Config.get('aws');
     const uniqueId = new UniqueId();
     const pluginLookup = new PluginLookup(
       this,
@@ -109,9 +110,9 @@ export class PipelineBuilder extends Construct {
       {
         organization: this.config.organization,
         project: this.config.project,
-        platformUrl: appConfig.server.platformUrl,
+        platformUrl: serverConfig.platformUrl,
         uniqueId,
-        runtime: appConfig.aws.lambda.runtime,
+        runtime: awsConfig.lambda.runtime,
       },
     );
 
@@ -119,7 +120,7 @@ export class PipelineBuilder extends Construct {
     const sourceBuilder = new SourceBuilder(this, this.config);
     const source = sourceBuilder.create(uniqueId);
     const plugin = pluginLookup.plugin(this.config.plugin);
-    const defaultComputeType = appConfig.aws.codeBuild.computeType;
+    const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
     const synth = createCodeBuildStep({

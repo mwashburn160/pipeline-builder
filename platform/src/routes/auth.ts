@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { login, logout, register, refresh } from '../controllers';
-import { authenticateToken, isValidRefreshToken } from '../middleware';
+import { requireAuth, isValidRefreshToken } from '../middleware';
 
 const router = Router();
 
@@ -19,6 +19,6 @@ router.post('/login', login);
 router.post('/refresh', isValidRefreshToken, refresh);
 
 /** POST /auth/logout - Invalidate current session */
-router.post('/logout', authenticateToken, logout);
+router.post('/logout', requireAuth, logout);
 
 export default router;

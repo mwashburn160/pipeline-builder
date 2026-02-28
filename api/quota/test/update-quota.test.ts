@@ -1,7 +1,7 @@
 /**
  * Tests for quota write routes (PUT/POST /quotas/*).
  *
- * Middleware (authenticateToken, authorizeOrg) is mocked to pass through —
+ * Middleware (requireAuth, authorizeOrg) is mocked to pass through —
  * those are tested separately in authorize-org.test.ts.
  */
 
@@ -31,7 +31,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
-  authenticateToken: () => (_req: any, _res: any, next: any) => next(),
+  requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   DEFAULT_TIER: 'developer',
@@ -49,6 +49,21 @@ jest.mock('@mwashburn160/api-core', () => ({
     pro: { plugins: 500, pipelines: 50, apiCalls: -1 },
     unlimited: { plugins: -1, pipelines: -1, apiCalls: -1 },
   } as Record<string, any>)[t],
+  validateBody: jest.fn((req: any, schema: any) => {
+    try {
+      const value = schema.parse(req.body);
+      return { ok: true, value };
+    } catch (err: any) {
+      const firstIssue = err.issues?.[0];
+      const message = firstIssue
+        ? `${firstIssue.path.join('.')}: ${firstIssue.message}`
+        : 'Validation failed';
+      return { ok: false, error: message };
+    }
+  }),
+  sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
+    mockSendError(res, 400, msg, code);
+  }),
 }));
 
 jest.mock('../src/middleware/authorize-org', () => ({
@@ -380,7 +395,7 @@ describe('POST /quotas/:orgId/increment', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockUpdateOne.mockRejectedValue(new Error('DB error'));
+    mockFindOneAndUpdate.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq({
       params: { orgId: 'org-123' },

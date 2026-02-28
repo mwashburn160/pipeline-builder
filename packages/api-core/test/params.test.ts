@@ -1,7 +1,5 @@
 import {
   getParam,
-  getRequiredParam,
-  getParams,
   getOrgId,
   getAuthHeader,
   parseQueryBoolean,
@@ -37,37 +35,6 @@ describe('getParam', () => {
 
   it('should return undefined for missing key', () => {
     expect(getParam({}, 'id')).toBeUndefined();
-  });
-});
-
-describe('getRequiredParam', () => {
-  it('should return string value', () => {
-    expect(getRequiredParam({ id: 'abc' }, 'id')).toBe('abc');
-  });
-
-  it('should throw for missing parameter', () => {
-    expect(() => getRequiredParam({}, 'id')).toThrow('Missing required parameter: id');
-  });
-
-  it('should throw for empty string', () => {
-    expect(() => getRequiredParam({ id: '' }, 'id')).toThrow('Missing required parameter: id');
-  });
-
-  it('should return first element from array', () => {
-    expect(getRequiredParam({ id: ['val'] }, 'id')).toBe('val');
-  });
-});
-
-describe('getParams', () => {
-  it('should extract multiple params', () => {
-    const params = { orgId: 'org-1', pluginId: 'plug-1' };
-    const result = getParams(params, ['orgId', 'pluginId']);
-    expect(result).toEqual({ orgId: 'org-1', pluginId: 'plug-1' });
-  });
-
-  it('should return undefined for missing params', () => {
-    const result = getParams({}, ['orgId']);
-    expect(result.orgId).toBeUndefined();
   });
 });
 

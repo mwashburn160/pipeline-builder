@@ -23,10 +23,10 @@ import {
   validateBody,
   AIGenerateBodySchema,
 } from '@mwashburn160/api-core';
-import { createAuthenticatedWithOrgRoute, getContext } from '@mwashburn160/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { getAvailableProviders, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';
 
 const logger = createLogger('generate-pipeline');
@@ -80,10 +80,10 @@ export function createGeneratePipelineRoutes(): Router {
   router.get(
     '/providers',
     ...createAuthenticatedWithOrgRoute(),
-    (_req: Request, res: Response) => {
+    withRoute(async ({ res }) => {
       const providers = getAvailableProviders();
       return sendSuccess(res, 200, { providers });
-    },
+    }),
   );
 
   // -- POST /generate — generate pipeline config from natural language --------
@@ -96,9 +96,7 @@ export function createGeneratePipelineRoutes(): Router {
   router.post(
     '/generate',
     ...createAuthenticatedWithOrgRoute(),
-    async (req: Request, res: Response) => {
-      const ctx = getContext(req);
-
+    withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
         return sendBadRequest(res, validation.error);
@@ -106,7 +104,6 @@ export function createGeneratePipelineRoutes(): Router {
       const { prompt, provider, model, apiKey } = validation.value;
 
       try {
-        const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
         ctx.log('INFO', 'AI pipeline generation requested', {
           promptLength: prompt.length,
           provider,
@@ -150,7 +147,7 @@ export function createGeneratePipelineRoutes(): Router {
           details: message,
         });
       }
-    },
+    }),
   );
 
   // -- POST /generate/stream — stream pipeline config as SSE events ----------
@@ -164,9 +161,7 @@ export function createGeneratePipelineRoutes(): Router {
   router.post(
     '/generate/stream',
     ...createAuthenticatedWithOrgRoute(),
-    async (req: Request, res: Response) => {
-      const ctx = getContext(req);
-
+    withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
         return sendBadRequest(res, validation.error);
@@ -174,7 +169,6 @@ export function createGeneratePipelineRoutes(): Router {
       const { prompt, provider, model, apiKey } = validation.value;
 
       try {
-        const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
         ctx.log('INFO', 'AI pipeline streaming generation requested', {
           promptLength: prompt.length,
           provider,
@@ -249,7 +243,7 @@ export function createGeneratePipelineRoutes(): Router {
         res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
         res.end();
       }
-    },
+    }),
   );
 
   return router;

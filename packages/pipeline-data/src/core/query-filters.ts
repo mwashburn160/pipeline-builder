@@ -3,7 +3,7 @@
  * @description Defines TypeScript filter interfaces used to specify query criteria for pipelines, plugins, and messages.
  */
 
-import { AccessModifier } from '@mwashburn160/api-core';
+import { AccessModifier, ValidationError } from '@mwashburn160/api-core';
 
 /**
  * Base filter interface containing common filter properties shared across all entity types.
@@ -209,7 +209,7 @@ export function validateCommonFilter(filter: CommonFilter): void {
   }
 
   if (errors.length > 0) {
-    throw new Error(`Filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+    throw new ValidationError(`Filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
   }
 }
 
@@ -231,7 +231,7 @@ export function validatePluginFilter(filter: PluginFilter): void {
   }
 
   if (errors.length > 0) {
-    throw new Error(`Plugin filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+    throw new ValidationError(`Plugin filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
   }
 }
 

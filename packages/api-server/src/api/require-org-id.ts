@@ -18,7 +18,7 @@ import { getContext } from './get-context';
  * ```typescript
  * const { app, sseManager } = createApp();
  *
- * app.get('/pipelines', authenticateToken, requireOrgId(), handler);
+ * app.get('/pipelines', requireAuth, requireOrgId(), handler);
  * ```
  */
 export function requireOrgId() {

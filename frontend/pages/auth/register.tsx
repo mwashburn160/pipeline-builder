@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { UserPlus, CheckCircle, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useConfig } from '@/hooks/useConfig';
+import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import type { Plan } from '@/types';
 import api from '@/lib/api';
@@ -38,7 +38,8 @@ function formatPrice(cents: number): string {
 export default function RegisterPage() {
   const router = useRouter();
   const { register, isLoading } = useAuth();
-  const { config } = useConfig();
+  const features = useFeatures();
+  const billingEnabled = features.isEnabled('billing');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,7 +51,7 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (!config.billingEnabled) return;
+    if (!billingEnabled) return;
     api.getPlans().then((res) => {
       if (res.success && res.data?.plans) {
         setPlans(res.data.plans);
@@ -58,7 +59,7 @@ export default function RegisterPage() {
     }).catch(() => {
       // Plans will fall back to empty — user can still register on default plan
     });
-  }, [config.billingEnabled]);
+  }, [billingEnabled]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -90,7 +91,7 @@ export default function RegisterPage() {
     }
 
     try {
-      await register(username, email, password, organizationName || undefined, config.billingEnabled ? selectedPlan : undefined);
+      await register(username, email, password, organizationName || undefined, billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
       setTimeout(() => router.push('/auth/login'), 2000);
     } catch (error) {

@@ -33,7 +33,7 @@ import {
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
 } from '@mwashburn160/api-core';
-import { checkQuota, getContext } from '@mwashburn160/api-server';
+import { checkQuota, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
@@ -60,10 +60,10 @@ export function createGeneratePluginRoutes(
    * Returns the list of AI providers that have API keys configured via
    * environment variables on the plugin service.
    */
-  router.get('/providers', (_req: Request, res: Response) => {
+  router.get('/providers', withRoute(async ({ res }) => {
     const providers = getAvailableProviders();
     return sendSuccess(res, 200, { providers });
-  });
+  }, { requireOrgId: false }));
 
   // -- POST /generate — generate plugin config from natural language ----------
   /**
@@ -72,9 +72,7 @@ export function createGeneratePluginRoutes(
    *
    * Validated with {@link AIGenerateBodySchema}.
    */
-  router.post('/generate', async (req: Request, res: Response) => {
-    const ctx = getContext(req);
-
+  router.post('/generate', withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -82,7 +80,6 @@ export function createGeneratePluginRoutes(
     const { prompt, provider, model, apiKey } = validation.value;
 
     try {
-      const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
       ctx.log('INFO', 'AI plugin generation requested', {
         promptLength: prompt.length,
         provider,
@@ -121,7 +118,7 @@ export function createGeneratePluginRoutes(
         details: message,
       });
     }
-  });
+  }));
 
   // -- POST /generate/stream — stream plugin config as SSE events -------------
   /**
@@ -131,9 +128,7 @@ export function createGeneratePluginRoutes(
    *
    * Events: {type:"partial", data:{...}} → {type:"done", data:{config,dockerfile}} → [DONE]
    */
-  router.post('/generate/stream', async (req: Request, res: Response) => {
-    const ctx = getContext(req);
-
+  router.post('/generate/stream', withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -141,7 +136,6 @@ export function createGeneratePluginRoutes(
     const { prompt, provider, model, apiKey } = validation.value;
 
     try {
-      const orgId = ctx.identity.orgId?.toLowerCase() ?? '';
       ctx.log('INFO', 'AI plugin streaming generation requested', {
         promptLength: prompt.length,
         provider,
@@ -221,7 +215,7 @@ export function createGeneratePluginRoutes(
       res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
       res.end();
     }
-  });
+  }));
 
   // -- POST /deploy-generated — build Docker + save to DB ---------------------
   /**
@@ -243,102 +237,87 @@ export function createGeneratePluginRoutes(
       next();
     }) as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
-    async (req: Request, res: Response) => {
-      const ctx = getContext(req);
-      const config = Config.get();
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const registry = Config.get('registry');
 
-      try {
-        if (!ctx.identity.orgId) return sendBadRequest(res, 'Organization ID is required');
-        const orgId = ctx.identity.orgId.toLowerCase();
-
-        const validation = validateBody(req, PluginDeployGeneratedSchema);
-        if (!validation.ok) {
-          return sendBadRequest(res, validation.error);
-        }
-        const {
-          name, description, version, pluginType, computeType, keywords,
-          primaryOutputDirectory, installCommands, commands, env, buildArgs,
-          dockerfile, accessModifier: rawAccess,
-        } = validation.value;
-
-        const accessModifier = resolveAccessModifier(req, rawAccess || 'private');
-
-        // Generate image tag
-        const imageTag = `p-${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
-
-        ctx.log('INFO', 'Deploying AI-generated plugin', {
-          pluginName: name,
-          version,
-          imageTag,
-          accessModifier,
-        });
-
-        // Create temp directory and write Dockerfile (worker will clean up)
-        const tempDir = path.join(process.cwd(), 'tmp', uuid());
-        fs.mkdirSync(tempDir, { recursive: true });
-        fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
-
-        // Queue build job (returns immediately)
-        const buildQueue = getQueue();
-        await buildQueue.add(
-          `deploy-generated-${name}-${imageTag}`,
-          {
-            requestId: ctx.requestId,
-            orgId,
-            userId: ctx.identity.userId || 'system',
-            authToken: req.headers.authorization || '',
-            buildRequest: {
-              contextDir: tempDir,
-              dockerfile: 'Dockerfile',
-              imageTag,
-              registry: config.registry,
-              buildArgs: buildArgs || {},
-            },
-            pluginRecord: {
-              orgId,
-              name,
-              description: description || null,
-              version,
-              metadata: {},
-              pluginType: pluginType || 'CodeBuildStep',
-              computeType: computeType || 'MEDIUM',
-              primaryOutputDirectory: primaryOutputDirectory || null,
-              dockerfile,
-              env: env || {},
-              buildArgs: buildArgs || {},
-              keywords: keywords || [],
-              installCommands: installCommands || [],
-              commands,
-              imageTag,
-              accessModifier,
-              timeout: null,
-              failureBehavior: 'fail',
-              secrets: [],
-            },
-          },
-        );
-
-        ctx.log('INFO', 'Build queued', {
-          pluginName: name,
-          imageTag,
-        });
-
-        return sendSuccess(res, 202, {
-          requestId: ctx.requestId,
-          pluginName: name,
-          imageTag,
-        }, 'Plugin build queued');
-      } catch (error) {
-        if (res.headersSent) {
-          logger.error('Deployment failed (response already sent)', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
-          return;
-        }
-
-        logger.error('AI plugin deployment failed', { requestId: ctx.requestId, error: errorMessage(error), orgId: ctx.identity.orgId });
-
-        return sendInternalError(res, 'Plugin deployment failed');
+      const validation = validateBody(req, PluginDeployGeneratedSchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error);
       }
-    },
+      const {
+        name, description, version, pluginType, computeType, keywords,
+        primaryOutputDirectory, installCommands, commands, env, buildArgs,
+        dockerfile, accessModifier: rawAccess,
+      } = validation.value;
+
+      const accessModifier = resolveAccessModifier(req, rawAccess || 'private');
+
+      // Generate image tag
+      const imageTag = `p-${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+
+      ctx.log('INFO', 'Deploying AI-generated plugin', {
+        pluginName: name,
+        version,
+        imageTag,
+        accessModifier,
+      });
+
+      // Create temp directory and write Dockerfile (worker will clean up)
+      const tempDir = path.join(process.cwd(), 'tmp', uuid());
+      fs.mkdirSync(tempDir, { recursive: true });
+      fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
+
+      // Queue build job (returns immediately)
+      const buildQueue = getQueue();
+      await buildQueue.add(
+        `deploy-generated-${name}-${imageTag}`,
+        {
+          requestId: ctx.requestId,
+          orgId,
+          userId: userId || 'system',
+          authToken: req.headers.authorization || '',
+          buildRequest: {
+            contextDir: tempDir,
+            dockerfile: 'Dockerfile',
+            imageTag,
+            registry,
+            buildArgs: buildArgs || {},
+          },
+          pluginRecord: {
+            orgId,
+            name,
+            description: description || null,
+            version,
+            metadata: {},
+            pluginType: pluginType || 'CodeBuildStep',
+            computeType: computeType || 'MEDIUM',
+            primaryOutputDirectory: primaryOutputDirectory || null,
+            dockerfile,
+            env: env || {},
+            buildArgs: buildArgs || {},
+            keywords: keywords || [],
+            installCommands: installCommands || [],
+            commands,
+            imageTag,
+            accessModifier,
+            timeout: null,
+            failureBehavior: 'fail',
+            secrets: [],
+          },
+        },
+      );
+
+      ctx.log('INFO', 'Build queued', {
+        pluginName: name,
+        imageTag,
+      });
+
+      return sendSuccess(res, 202, {
+        requestId: ctx.requestId,
+        pluginName: name,
+        imageTag,
+      }, 'Plugin build queued');
+    }),
   );
 
   return router;

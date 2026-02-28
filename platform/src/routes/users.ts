@@ -12,23 +12,23 @@ import {
   deleteUserById,
   updateUserFeatures,
 } from '../controllers';
-import { authenticateToken, requireRole } from '../middleware';
+import { requireAuth, requireRole } from '../middleware';
 
 const router = Router();
 
 /** GET /users - List all users (system admin only) */
-router.get('/', authenticateToken, requireRole('admin'), listAllUsers);
+router.get('/', requireAuth, requireRole('admin'), listAllUsers);
 
 /** GET /users/:id - Get user by ID (system admin only) */
-router.get('/:id', authenticateToken, requireRole('admin'), getUserById);
+router.get('/:id', requireAuth, requireRole('admin'), getUserById);
 
 /** PUT /users/:id - Update user by ID (system admin only) */
-router.put('/:id', authenticateToken, requireRole('admin'), updateUserById);
+router.put('/:id', requireAuth, requireRole('admin'), updateUserById);
 
 /** PUT /users/:id/features - Update user feature overrides (admin only) */
-router.put('/:id/features', authenticateToken, requireRole('admin'), updateUserFeatures);
+router.put('/:id/features', requireAuth, requireRole('admin'), updateUserFeatures);
 
 /** DELETE /users/:id - Delete user by ID (system admin only) */
-router.delete('/:id', authenticateToken, requireRole('admin'), deleteUserById);
+router.delete('/:id', requireAuth, requireRole('admin'), deleteUserById);
 
 export default router;

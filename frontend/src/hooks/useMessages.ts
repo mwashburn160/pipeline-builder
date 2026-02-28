@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import type { Message, MessageType, MessagePriority } from '@/types';
+import { useAsyncCallback } from './useAsync';
 
 /** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
@@ -60,6 +61,19 @@ export function useMessages(): UseMessagesReturn {
     }
   }, []);
 
+  const { execute: sendMessageRaw } = useAsyncCallback(async (data: {
+    recipientOrgId: string;
+    messageType: MessageType;
+    subject: string;
+    content: string;
+    priority?: MessagePriority;
+  }): Promise<Message | null> => {
+    const result = await api.sendMessage(data);
+    await fetchMessages();
+    await fetchUnreadCount();
+    return result.data || null;
+  });
+
   const sendMessage = useCallback(async (data: {
     recipientOrgId: string;
     messageType: MessageType;
@@ -67,26 +81,21 @@ export function useMessages(): UseMessagesReturn {
     content: string;
     priority?: MessagePriority;
   }): Promise<Message | null> => {
-    try {
-      const result = await api.sendMessage(data);
-      await fetchMessages();
-      await fetchUnreadCount();
-      return result.data || null;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-      return null;
-    }
-  }, [fetchMessages, fetchUnreadCount]);
+    const result = await sendMessageRaw(data);
+    if (!result) setError('Failed to send message');
+    return result;
+  }, [sendMessageRaw]);
+
+  const { execute: replyRaw } = useAsyncCallback(async (threadId: string, content: string): Promise<Message | null> => {
+    const result = await api.replyToMessage(threadId, content);
+    return result.data || null;
+  });
 
   const replyToMessage = useCallback(async (threadId: string, content: string): Promise<Message | null> => {
-    try {
-      const result = await api.replyToMessage(threadId, content);
-      return result.data || null;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send reply');
-      return null;
-    }
-  }, []);
+    const result = await replyRaw(threadId, content);
+    if (!result) setError('Failed to send reply');
+    return result;
+  }, [replyRaw]);
 
   const markAsRead = useCallback(async (id: string) => {
     try {
@@ -107,14 +116,19 @@ export function useMessages(): UseMessagesReturn {
     }
   }, [fetchUnreadCount]);
 
+  const { execute: deleteRaw } = useAsyncCallback(async (id: string) => {
+    await api.deleteMessage(id);
+    return id;
+  });
+
   const deleteMessage = useCallback(async (id: string) => {
-    try {
-      await api.deleteMessage(id);
-      setMessages(prev => prev.filter(m => m.id !== id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete message');
+    const deletedId = await deleteRaw(id);
+    if (deletedId) {
+      setMessages(prev => prev.filter(m => m.id !== deletedId));
+    } else {
+      setError('Failed to delete message');
     }
-  }, []);
+  }, [deleteRaw]);
 
   // Fetch messages on mount
   useEffect(() => {

@@ -82,7 +82,7 @@ export interface CreateAppResult {
  * ```typescript
  * const { app, sseManager } = createApp();
  *
- * app.post('/api/resource', authenticateToken, async (req, res) => {
+ * app.post('/api/resource', requireAuth, async (req, res) => {
  *   // Your route handler
  * });
  *
@@ -104,7 +104,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     openApiOptions,
   } = options;
 
-  const config = Config.get();
+  const serverConfig = Config.get('server');
   const app = express();
 
   // Security middleware
@@ -131,7 +131,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   }
 
   if (enableCors) {
-    app.use(cors(config.server.cors));
+    app.use(cors(serverConfig.cors));
   }
 
   // Body parsing
@@ -144,7 +144,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   }
 
   // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
-  app.set('trust proxy', config.server.trustProxy);
+  app.set('trust proxy', serverConfig.trustProxy);
 
   // Request ID — prefer existing header from nginx, otherwise generate one
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -157,23 +157,31 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Health check and metrics registered before rate limiter so they are never throttled
   if (!skipDefaultHealthCheck) {
+    let cachedHealth: { healthy: boolean; checkedAt: number } | null = null;
+    const HEALTH_CACHE_TTL_MS = 10_000; // 10s
+
     app.get('/health', async (_req: Request, res: Response) => {
       try {
-        const connection = getConnection();
-        const isHealthy = await connection.testConnection();
+        const now = Date.now();
+        if (!cachedHealth || now - cachedHealth.checkedAt > HEALTH_CACHE_TTL_MS) {
+          const connection = getConnection();
+          const isHealthy = await connection.testConnection();
+          cachedHealth = { healthy: isHealthy, checkedAt: now };
+        }
 
         const healthData = {
-          status: isHealthy ? 'healthy' : 'unhealthy',
+          status: cachedHealth.healthy ? 'healthy' : 'unhealthy',
           timestamp: new Date().toISOString(),
-          database: isHealthy ? 'connected' : 'disconnected',
+          database: cachedHealth.healthy ? 'connected' : 'disconnected',
         };
 
-        if (isHealthy) {
+        if (cachedHealth.healthy) {
           sendSuccess(res, 200, healthData);
         } else {
           sendError(res, 503, 'Service unhealthy', undefined, healthData);
         }
       } catch (error) {
+        cachedHealth = { healthy: false, checkedAt: Date.now() };
         sendError(res, 503, 'Service unhealthy', undefined, {
           status: 'unhealthy',
           timestamp: new Date().toISOString(),
@@ -198,9 +206,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Rate limiting
   if (enableRateLimit) {
+    const rateLimitConfig = Config.get('rateLimit');
     const limiter = rateLimit({
-      max: config.rateLimit.max,
-      windowMs: config.rateLimit.windowMs,
+      max: rateLimitConfig.max,
+      windowMs: rateLimitConfig.windowMs,
       message: 'Too many requests from this IP, please try again later.',
       standardHeaders: true,
       legacyHeaders: false,

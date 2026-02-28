@@ -2,7 +2,7 @@
  * @module middleware/authorize-org
  * @description Org-scoped authorization guard.
  *
- * Must be used after `authenticateToken`.
+ * Must be used after `requireAuth`.
  *
  * Access rules:
  *  - Same-org users can always access their own org's routes.
@@ -28,15 +28,15 @@ export interface AuthorizeOrgOptions {
  * Create middleware that checks the requesting user has access to
  * the target organization identified by `:orgId` in the route params.
  *
- * Must be used after `authenticateToken`.
+ * Must be used after `requireAuth`.
  *
  * @example
  * ```typescript
  * // Same-org or system admin
- * router.get('/:orgId', authenticateToken(authOpts), authorizeOrg(), handler);
+ * router.get('/:orgId', requireAuth(authOpts), authorizeOrg(), handler);
  *
  * // System admin only
- * router.put('/:orgId', authenticateToken(authOpts), authorizeOrg({ requireSystemAdmin: true }), handler);
+ * router.put('/:orgId', requireAuth(authOpts), authorizeOrg({ requireSystemAdmin: true }), handler);
  * ```
  */
 export function authorizeOrg(options: AuthorizeOrgOptions = {}) {

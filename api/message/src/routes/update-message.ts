@@ -5,14 +5,12 @@
 
 import {
   sendBadRequest,
-  sendInternalError,
   sendSuccess,
-  errorMessage,
   ErrorCode,
   getParam,
 } from '@mwashburn160/api-core';
-import { getContext } from '@mwashburn160/api-server';
-import { Router, Request, Response } from 'express';
+import { withRoute } from '@mwashburn160/api-server';
+import { Router } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
 
@@ -27,55 +25,39 @@ export function createUpdateMessageRoutes(): Router {
   const router = Router();
 
   // PUT /messages/:id/read — Mark message as read
-  router.put('/:id/read', async (req: Request, res: Response) => {
-    const ctx = getContext(req);
-    const orgId = ctx.identity.orgId?.toLowerCase() || '';
-    const userId = ctx.identity.userId || 'unknown';
+  router.put('/:id/read', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    try {
-      ctx.log('INFO', 'Marking message as read', { id });
+    ctx.log('INFO', 'Marking message as read', { id });
 
-      const message = await messageService.markAsRead(id, orgId, userId);
-      if (!message) {
-        return sendMessageNotFound(res);
-      }
-
-      ctx.log('COMPLETED', 'Message marked as read', { id });
-
-      return sendSuccess(res, 200, { message }, 'Message marked as read');
-    } catch (error) {
-      ctx.log('ERROR', 'Failed to mark message as read', { error: errorMessage(error) });
-      return sendInternalError(res, errorMessage(error));
+    const message = await messageService.markAsRead(id, orgId, userId);
+    if (!message) {
+      return sendMessageNotFound(res);
     }
-  });
+
+    ctx.log('COMPLETED', 'Message marked as read', { id });
+
+    return sendSuccess(res, 200, { message }, 'Message marked as read');
+  }));
 
   // PUT /messages/:id/thread/read — Mark entire thread as read
-  router.put('/:id/thread/read', async (req: Request, res: Response) => {
-    const ctx = getContext(req);
-    const orgId = ctx.identity.orgId?.toLowerCase() || '';
-    const userId = ctx.identity.userId || 'unknown';
+  router.put('/:id/thread/read', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    try {
-      ctx.log('INFO', 'Marking thread as read', { threadId: id });
+    ctx.log('INFO', 'Marking thread as read', { threadId: id });
 
-      // Also mark the root message as read
-      await messageService.markAsRead(id, orgId, userId);
-      const updatedMessages = await messageService.markThreadAsRead(id, orgId, userId);
+    // Also mark the root message as read
+    await messageService.markAsRead(id, orgId, userId);
+    const updatedMessages = await messageService.markThreadAsRead(id, orgId, userId);
 
-      ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: updatedMessages.length + 1 });
+    ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: updatedMessages.length + 1 });
 
-      return sendSuccess(res, 200, { updated: updatedMessages.length + 1 }, 'Thread marked as read');
-    } catch (error) {
-      ctx.log('ERROR', 'Failed to mark thread as read', { error: errorMessage(error) });
-      return sendInternalError(res, errorMessage(error));
-    }
-  });
+    return sendSuccess(res, 200, { updated: updatedMessages.length + 1 }, 'Thread marked as read');
+  }));
 
   return router;
 }

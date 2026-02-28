@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { Check, AlertCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useConfig } from '@/hooks/useConfig';
+import { useFeatures } from '@/hooks/useFeatures';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Toast } from '@/components/ui/Toast';
@@ -59,8 +59,8 @@ function formatDate(iso: string): string {
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isSystemOrg, isSysAdmin } = useAuthGuard();
-  const { config } = useConfig();
+  const { user, isReady, isSysAdmin } = useAuthGuard();
+  const features = useFeatures();
   const canChangePlan = isSysAdmin;
 
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -70,12 +70,12 @@ export default function BillingPage() {
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // System org or billing disabled — redirect to dashboard
+  // Billing not available (disabled or system org) — redirect to dashboard
   useEffect(() => {
-    if (isReady && (isSystemOrg || !config.billingEnabled)) {
+    if (isReady && !features.isEnabled('billing')) {
       router.replace('/dashboard');
     }
-  }, [isReady, isSystemOrg, config.billingEnabled, router]);
+  }, [isReady, features, router]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -160,7 +160,7 @@ export default function BillingPage() {
     }
   };
 
-  if (!isReady || loading || isSystemOrg || !config.billingEnabled) return <LoadingPage />;
+  if (!isReady || loading || !features.isEnabled('billing')) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Billing">

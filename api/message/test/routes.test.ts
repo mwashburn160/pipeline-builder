@@ -19,6 +19,7 @@ const mockCreate = jest.fn();
 const mockMarkAsRead = jest.fn();
 const mockMarkThreadAsRead = jest.fn();
 const mockDelete = jest.fn();
+const mockDeleteThread = jest.fn();
 
 jest.mock('../src/services/message-service', () => ({
   messageService: {
@@ -32,6 +33,7 @@ jest.mock('../src/services/message-service', () => ({
     markAsRead: mockMarkAsRead,
     markThreadAsRead: mockMarkThreadAsRead,
     delete: mockDelete,
+    deleteThread: mockDeleteThread,
   },
 }));
 
@@ -85,10 +87,34 @@ jest.mock('@mwashburn160/api-core', () => ({
   MessageReplySchema: {},
   MessageFilterSchema: {},
   validateQuery: jest.fn(() => ({ ok: true, value: {} })),
+  incrementQuota: jest.fn(),
 }));
 
+const mockGetContext = (req: any) => req.context;
+const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
+  res.status(400).json({ success: false, statusCode: 400, message: msg });
+});
+const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
+  res.status(500).json({ success: false, statusCode: 500, message: msg });
+});
+
 jest.mock('@mwashburn160/api-server', () => ({
-  getContext: (req: any) => req.context,
+  getContext: (req: any) => mockGetContext(req),
+  withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
+    const ctx = mockGetContext(req);
+    const orgId = ctx.identity.orgId?.toLowerCase() || '';
+    const userId = ctx.identity.userId || '';
+    const requireOrgId = options?.requireOrgId !== false;
+    if (requireOrgId && !orgId) {
+      return mockSendBadRequestForRoute(res, 'Organization ID is required');
+    }
+    try {
+      await handler({ req, res, ctx, orgId, userId });
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return mockSendInternalErrorForRoute(res, msg);
+    }
+  },
 }));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
@@ -677,7 +703,8 @@ describe('DELETE /messages/:id', () => {
 
   it('allows system admin to delete any message', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1' });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null });
+    mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
     const res = mockRes();
@@ -690,7 +717,8 @@ describe('DELETE /messages/:id', () => {
   it('allows message sender to self-delete', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdBy: 'user-1' });
-    mockDelete.mockResolvedValue({ id: 'msg-1' });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null });
+    mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
     const res = mockRes();

@@ -15,7 +15,7 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-import { createLogger, errorMessage } from '@mwashburn160/api-core';
+import { createLogger, errorMessage, ValidationError } from '@mwashburn160/api-core';
 
 const logger = createLogger('docker-build');
 
@@ -55,19 +55,21 @@ const BUILDER_NAME = process.env.DOCKER_BUILDER_NAME || 'plugin-builder';
 const VALID_NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const VALID_IMAGE_TAG_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const VALID_HOSTNAME_RE = /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/;
+const VALID_BUILD_ARG_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_BUILD_ARG_VALUE_LENGTH = 4096;
 
 function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
   if (!VALID_HOSTNAME_RE.test(registry.host)) {
-    throw new Error(`Invalid registry host: ${registry.host}`);
+    throw new ValidationError(`Invalid registry host: ${registry.host}`);
   }
   if (registry.port < 1 || registry.port > 65535 || !Number.isInteger(registry.port)) {
-    throw new Error(`Invalid registry port: ${registry.port}`);
+    throw new ValidationError(`Invalid registry port: ${registry.port}`);
   }
   if (!VALID_IMAGE_TAG_RE.test(imageTag)) {
-    throw new Error(`Invalid image tag format: ${imageTag}`);
+    throw new ValidationError(`Invalid image tag format: ${imageTag}`);
   }
   if (registry.network && !VALID_NETWORK_RE.test(registry.network)) {
-    throw new Error(`Invalid network name: ${registry.network}`);
+    throw new ValidationError(`Invalid network name: ${registry.network}`);
   }
 }
 
@@ -116,6 +118,12 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
     if (buildArgs) {
       for (const [key, value] of Object.entries(buildArgs)) {
+        if (!VALID_BUILD_ARG_KEY.test(key)) {
+          throw new ValidationError(`Invalid build arg key: ${key}`);
+        }
+        if (typeof value !== 'string' || value.length > MAX_BUILD_ARG_VALUE_LENGTH) {
+          throw new ValidationError(`Invalid build arg value for ${key}`);
+        }
         args.push('--build-arg', `${key}=${value}`);
       }
     }

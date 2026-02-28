@@ -9,13 +9,13 @@
 
 import * as fs from 'fs';
 
-import { createLogger, errorMessage, extractDbError } from '@mwashburn160/api-core';
+import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 
 import { buildAndPush } from '../helpers/docker-build';
@@ -188,7 +188,7 @@ export function startWorker(
 ): Worker<PluginBuildJobData> {
   if (worker) return worker;
 
-  const { concurrency } = Config.get().pluginBuild;
+  const { concurrency } = Config.get('pluginBuild');
 
   worker = new Worker<PluginBuildJobData>(
     QUEUE_NAME,
@@ -213,6 +213,14 @@ export function startWorker(
 
         // 2. Persist to database
         const result = await db.transaction(async (tx) => {
+          // Lock existing defaults with FOR UPDATE to prevent concurrent races
+          await tx.execute(
+            sql`SELECT id FROM ${schema.plugin}
+                WHERE ${schema.plugin.name} = ${pluginRecord.name}
+                  AND ${schema.plugin.isDefault} = true
+                FOR UPDATE`,
+          );
+
           await tx
             .update(schema.plugin)
             .set({
@@ -238,8 +246,8 @@ export function startWorker(
           return inserted;
         });
 
-        // 3. Increment quota (fire-and-forget)
-        void quotaService.increment(orgId, 'plugins', authToken);
+        // 3. Increment quota
+        incrementQuota(quotaService, orgId, 'plugins', authToken, logger.warn.bind(logger));
 
         // 4. Send completion SSE
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {

@@ -34,7 +34,7 @@ export interface RequestIdentity {
  *
  * @example
  * ```typescript
- * app.post('/api/resource', authenticateToken, async (req, res) => {
+ * app.post('/api/resource', requireAuth, async (req, res) => {
  *   const identity = getIdentity(req);
  *
  *   if (!identity.orgId) {

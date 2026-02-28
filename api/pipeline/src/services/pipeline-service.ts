@@ -12,7 +12,7 @@ import {
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
-import { SQL, eq, and } from 'drizzle-orm';
+import { SQL, eq, and, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -208,6 +208,15 @@ export class PipelineService extends CrudService<
     organization: string,
   ): Promise<Pipeline> {
     return db.transaction(async (tx) => {
+      // Lock existing defaults with FOR UPDATE to prevent concurrent createAsDefault races
+      await tx.execute(
+        sql`SELECT id FROM ${schema.pipeline}
+            WHERE ${schema.pipeline.project} = ${project}
+              AND ${schema.pipeline.organization} = ${organization}
+              AND ${schema.pipeline.isDefault} = true
+            FOR UPDATE`,
+      );
+
       // Clear existing defaults for this project/organization
       await tx
         .update(schema.pipeline)
