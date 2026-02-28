@@ -1,3 +1,18 @@
+## 1.7.2 (2026-02-28)
+
+### 🩹 Fixes
+
+- upgraded pipeline-server=1.29.1 ([ae342113](https://github.com/mwashburn160/pipeline-builder/commit/ae342113))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.29.2
+- Updated @mwashburn160/api-server to 1.27.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.1 (2026-02-28)
 
 ### 🩹 Fixes
