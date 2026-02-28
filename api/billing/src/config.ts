@@ -3,7 +3,7 @@
  * @description Typed application configuration from environment variables.
  */
 
-export type BillingProviderType = 'stub' | 'aws-marketplace';
+export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 
 export interface MarketplaceConfig {
   productCode: string;
@@ -11,6 +11,13 @@ export interface MarketplaceConfig {
   snsTopicArn: string;
   /** Map of AWS Marketplace dimension names to local plan IDs. */
   dimensionToPlanMap: Record<string, string>;
+}
+
+export interface StripeConfig {
+  secretKey: string;
+  webhookSecret: string;
+  /** Map of "{planId}_{interval}" keys to Stripe Price IDs. */
+  priceToPlanMap: Record<string, string>;
 }
 
 export interface AppConfig {
@@ -25,6 +32,7 @@ export interface AppConfig {
     port: number;
   };
   marketplace: MarketplaceConfig;
+  stripe: StripeConfig;
 }
 
 const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
@@ -51,6 +59,13 @@ export const config: AppConfig = {
     dimensionToPlanMap: JSON.parse(
       process.env.AWS_MARKETPLACE_DIMENSION_MAP
         || '{"developer":"developer","pro":"pro","unlimited":"unlimited"}',
+    ),
+  },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    priceToPlanMap: JSON.parse(
+      process.env.STRIPE_PRICE_MAP || '{}',
     ),
   },
 };

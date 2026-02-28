@@ -131,6 +131,11 @@
       "type": "runtime"
     },
     {
+      "name": "stripe",
+      "version": "17.7.0",
+      "type": "runtime"
+    },
+    {
       "name": "winston",
       "version": "3.19.0",
       "type": "runtime"
