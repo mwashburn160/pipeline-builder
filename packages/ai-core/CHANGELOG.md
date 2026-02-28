@@ -1,3 +1,13 @@
+## 1.2.2 (2026-02-28)
+
+### 🩹 Fixes
+
+- upgraded pipeline-server=1.29.1 ([ae342113](https://github.com/mwashburn160/pipeline-builder/commit/ae342113))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.2.1 (2026-02-28)
 
 ### 🩹 Fixes
