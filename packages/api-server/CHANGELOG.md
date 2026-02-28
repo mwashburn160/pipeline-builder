@@ -1,3 +1,9 @@
+## 1.28.1 (2026-02-28)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.30.1
+
 ## 1.28.0 (2026-02-28)
 
 ### 🚀 Features

@@ -1,3 +1,7 @@
+## 1.29.1 (2026-02-28)
+
+This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.
+
 ## 1.29.0 (2026-02-28)
 
 ### 🚀 Features
