@@ -964,6 +964,7 @@ plugin.addScripts({
   'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)'
 });
 // Disable problematic ESLint rules
+plugin.eslint?.addRules({ '@stylistic/max-len': 'off' });
 plugin.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
