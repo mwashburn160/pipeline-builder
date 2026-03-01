@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS plugins (
     -- Runtime Configuration
     env                 JSONB NOT NULL DEFAULT '{}',
     build_args          JSONB NOT NULL DEFAULT '{}',
-    install_commands    VARCHAR(512)[] NOT NULL DEFAULT '{}',
-    commands            VARCHAR(512)[] NOT NULL DEFAULT '{}',
+    install_commands    TEXT[] NOT NULL DEFAULT '{}',
+    commands            TEXT[] NOT NULL DEFAULT '{}',
     
     -- Docker Image
     image_tag           VARCHAR(128) NOT NULL UNIQUE,

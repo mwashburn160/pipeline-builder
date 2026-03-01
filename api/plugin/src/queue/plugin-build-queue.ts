@@ -230,7 +230,7 @@ export function startWorker(
             })
             .where(eq(schema.plugin.name, pluginRecord.name));
 
-          const [inserted] = await tx
+          const [upserted] = await tx
             .insert(schema.plugin)
             .values({
               ...pluginRecord,
@@ -241,9 +241,36 @@ export function startWorker(
               isActive: true,
               createdBy: userId,
             })
+            .onConflictDoUpdate({
+              target: [schema.plugin.name, schema.plugin.version, schema.plugin.orgId],
+              set: {
+                description: pluginRecord.description,
+                keywords: pluginRecord.keywords,
+                metadata: pluginRecord.metadata,
+                pluginType: pluginRecord.pluginType as PluginType,
+                computeType: pluginRecord.computeType as ComputeType,
+                timeout: pluginRecord.timeout,
+                failureBehavior: pluginRecord.failureBehavior,
+                secrets: pluginRecord.secrets,
+                primaryOutputDirectory: pluginRecord.primaryOutputDirectory,
+                env: pluginRecord.env,
+                buildArgs: pluginRecord.buildArgs,
+                installCommands: pluginRecord.installCommands,
+                commands: pluginRecord.commands,
+                imageTag: pluginRecord.imageTag,
+                dockerfile: pluginRecord.dockerfile,
+                accessModifier: pluginRecord.accessModifier as AccessModifier,
+                isDefault: true,
+                isActive: true,
+                deletedAt: null,
+                deletedBy: null,
+                updatedBy: userId,
+                updatedAt: new Date(),
+              },
+            })
             .returning();
 
-          return inserted;
+          return upserted;
         });
 
         // 3. Increment quota
