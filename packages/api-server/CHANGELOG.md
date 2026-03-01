@@ -1,3 +1,13 @@
+## 1.28.6 (2026-03-01)
+
+### 🩹 Fixes
+
+- rate limiter ([ee112170](https://github.com/mwashburn160/pipeline-builder/commit/ee112170))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.5 (2026-02-28)
 
 ### 🩹 Fixes
