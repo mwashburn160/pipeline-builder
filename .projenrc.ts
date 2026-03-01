@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/max-len */
 /**
  * Projen Configuration for Pipeline Builder Monorepo
  *

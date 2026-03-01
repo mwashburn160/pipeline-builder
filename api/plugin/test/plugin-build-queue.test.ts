@@ -289,7 +289,9 @@ describe('plugin-build-queue', () => {
         }),
         insert: jest.fn().mockReturnValue({
           values: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([insertedPlugin]),
+            onConflictDoUpdate: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([insertedPlugin]),
+            }),
           }),
         }),
       }));
@@ -328,7 +330,7 @@ describe('plugin-build-queue', () => {
       mockDbTransaction.mockImplementation(async (cb: any) => cb({
         execute: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
-        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }),
+        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ onConflictDoUpdate: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }) }),
       }));
       mockExistsSync.mockReturnValue(true);
 
@@ -379,7 +381,7 @@ describe('plugin-build-queue', () => {
       mockDbTransaction.mockImplementation(async (cb: any) => cb({
         execute: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
-        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }),
+        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ onConflictDoUpdate: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }) }),
       }));
       mockExistsSync.mockReturnValue(true);
       mockRmSync.mockImplementation(() => { throw new Error('permission denied'); });
