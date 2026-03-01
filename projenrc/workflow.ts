@@ -384,7 +384,7 @@ export class Workflow extends Component {
      *
      * Authentication:
      * - Uses PAT_TOKEN secret for GitHub package registry
-     * - Uses ENCODED_TOKEN secret for npm authentication
+     * - Uses PAT_TOKEN_ENCODED secret for npm authentication
      *
      * @returns Array of job steps common to all jobs
      */
@@ -435,7 +435,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Configure .npmrc',
-                run: 'export NODE_AUTH_TOKEN=$(echo ${{ secrets.ENCODED_TOKEN }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/\:_authToken $NODE_AUTH_TOKEN && npm config set \@mwashburn160\:registry https://npm.pkg.github.com/',
+                run: 'export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/\:_authToken $NODE_AUTH_TOKEN && npm config set \@mwashburn160\:registry https://npm.pkg.github.com/',
             },
             {
                 name: 'Install dependencies',
