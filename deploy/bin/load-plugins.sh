@@ -18,11 +18,13 @@ set -eu
 #   ./load-plugins.sh --category security,quality             # upload multiple categories
 #   ./load-plugins.sh --rebuild                              # force rebuild all plugin.zip
 #   ./load-plugins.sh --parallel 4                           # upload 4 plugins concurrently
+#   UPLOAD_DELAY=2 ./load-plugins.sh                         # 2s delay between uploads
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
+UPLOAD_DELAY=${UPLOAD_DELAY:-3}
 
 # Defaults
 DRY_RUN=false
@@ -239,8 +241,8 @@ for category in $CATEGORIES; do
     upload_plugin "$zip_file"
 
     # Throttle uploads to avoid rate limiting (100 req / 15 min)
-    if [ "$DRY_RUN" = false ]; then
-      sleep 1
+    if [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null; then
+      sleep "$UPLOAD_DELAY"
     fi
   done
 done
