@@ -1,3 +1,13 @@
+## 1.28.9 (2026-03-01)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.30.7 ([fe87c39e](https://github.com/mwashburn160/pipeline-builder/commit/fe87c39e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.8 (2026-03-01)
 
 ### 🩹 Fixes
