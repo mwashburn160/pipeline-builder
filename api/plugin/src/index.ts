@@ -13,6 +13,7 @@
  *   GET    /plugins/providers       — list available AI providers
  *   PUT    /plugins/:id    — update existing plugin
  *   DELETE /plugins/:id    — delete existing plugin
+ *   GET    /plugins/queue/status  — BullMQ build queue job counts (admin-only)
  */
 
 import { createLogger } from '@mwashburn160/api-core';
@@ -21,6 +22,7 @@ import { createApp, runServer, createQuotaService, createProtectedRoute, createA
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createGeneratePluginRoutes } from './routes/generate-plugin';
+import { createQueueStatusRoutes } from './routes/queue-status';
 import { createReadPluginRoutes } from './routes/read-plugins';
 import { createUpdatePluginRoutes } from './routes/update-plugin';
 import { createUploadPluginRoutes } from './routes/upload-plugin';
@@ -31,6 +33,9 @@ const { app, sseManager } = createApp();
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
+
+// -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
+app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
 
 // -- AI generation routes (MUST be before read routes to avoid /:id catching "providers"/"generate")
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes(quotaService));

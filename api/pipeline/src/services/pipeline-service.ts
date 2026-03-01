@@ -129,6 +129,10 @@ export class PipelineService extends CrudService<
     return schema.pipeline.organization;
   }
 
+  protected get conflictTarget(): AnyColumn[] {
+    return [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId];
+  }
+
   /**
    * Set a pipeline as the default for a project/organization
    *
@@ -233,10 +237,22 @@ export class PipelineService extends CrudService<
           ),
         );
 
-      // Create new pipeline as default
+      // Create new pipeline as default (upsert on conflict)
       const [result] = await tx
         .insert(schema.pipeline)
         .values({ ...data, isDefault: true, isActive: true })
+        .onConflictDoUpdate({
+          target: [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId],
+          set: {
+            ...data,
+            isDefault: true,
+            isActive: true,
+            deletedAt: null,
+            deletedBy: null,
+            updatedAt: new Date(),
+            updatedBy: userId,
+          } as any,
+        })
         .returning();
 
       return result as unknown as Pipeline;

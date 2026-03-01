@@ -6,6 +6,7 @@ import {
   MessageSquare,
   ScrollText,
   Activity,
+  Container,
   Users,
   Building2,
   BarChart3,
@@ -66,6 +67,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
+      { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
     ],
   },

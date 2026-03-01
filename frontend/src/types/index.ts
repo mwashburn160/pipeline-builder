@@ -117,6 +117,17 @@ export interface OrgAIConfig {
 }
 
 /**
+ * BullMQ build queue job counts (admin-only)
+ */
+export interface QueueStatus {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
+
+/**
  * Plugin model
  */
 export interface Plugin {

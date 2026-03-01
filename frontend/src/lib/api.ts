@@ -1,4 +1,4 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority } from '@/types';
+import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
@@ -762,6 +762,10 @@ class ApiClient {
       pluginName?: string;
       imageTag?: string;
     }>;
+  }
+
+  async getQueueStatus() {
+    return this.request<ApiResponse<QueueStatus>>('/api/plugin/queue/status');
   }
 
   async updatePlugin(id: string, data: {

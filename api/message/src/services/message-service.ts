@@ -50,6 +50,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     return schema.message.orgId;
   }
 
+  protected get conflictTarget(): AnyColumn[] {
+    return [schema.message.id];
+  }
+
   /**
    * Get all reply messages in a thread (excludes the root message).
    *

@@ -126,6 +126,10 @@ export class PluginService extends CrudService<
     return schema.plugin.orgId;
   }
 
+  protected get conflictTarget(): AnyColumn[] {
+    return [schema.plugin.name, schema.plugin.version, schema.plugin.orgId];
+  }
+
   /**
    * Set a plugin as the default for an organization
    *
