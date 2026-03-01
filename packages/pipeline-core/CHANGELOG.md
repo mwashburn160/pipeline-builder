@@ -1,3 +1,22 @@
+## 1.31.0 (2026-03-01)
+
+### 🚀 Features
+
+- added queue dashboard ([00e3a164](https://github.com/mwashburn160/pipeline-builder/commit/00e3a164))
+
+### 🩹 Fixes
+
+- updated conflict on insert ([8cf26014](https://github.com/mwashburn160/pipeline-builder/commit/8cf26014))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.31.0
+- Updated @mwashburn160/api-core to 1.30.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.12 (2026-03-01)
 
 ### 🩹 Fixes

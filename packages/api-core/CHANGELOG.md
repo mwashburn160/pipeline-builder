@@ -1,3 +1,14 @@
+## 1.30.0 (2026-03-01)
+
+### 🩹 Fixes
+
+- updated conflict on insert ([8cf26014](https://github.com/mwashburn160/pipeline-builder/commit/8cf26014))
+- updated api resp ([0673f3bd](https://github.com/mwashburn160/pipeline-builder/commit/0673f3bd))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.29.12 (2026-03-01)
 
 ### 🩹 Fixes
