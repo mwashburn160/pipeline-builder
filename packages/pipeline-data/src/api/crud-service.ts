@@ -92,6 +92,9 @@ export abstract class CrudService<
   /** Get the organization column for setDefault scoping */
   protected abstract getOrgColumn(): AnyColumn;
 
+  /** Get the unique constraint columns for onConflictDoUpdate */
+  protected abstract get conflictTarget(): AnyColumn[];
+
   /**
    * Find entities matching filter criteria
    */
@@ -212,6 +215,14 @@ export abstract class CrudService<
           createdBy: userId || 'system',
           updatedBy: userId || 'system',
         } as any)
+        .onConflictDoUpdate({
+          target: this.conflictTarget as any,
+          set: {
+            ...data,
+            updatedAt: new Date(),
+            updatedBy: userId || 'system',
+          } as any,
+        })
         .returning() as unknown as TEntity[];
 
       return created;

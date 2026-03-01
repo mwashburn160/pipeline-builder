@@ -2,8 +2,11 @@
 // Mock external dependencies — must be set up before importing the service
 // ---------------------------------------------------------------------------
 const mockTransactionSet = jest.fn().mockReturnValue({ where: jest.fn() });
-const mockTransactionValues = jest.fn().mockReturnValue({
+const mockTransactionOnConflict = jest.fn().mockReturnValue({
   returning: jest.fn().mockResolvedValue([{ id: 'new-pipeline', isDefault: true }]),
+});
+const mockTransactionValues = jest.fn().mockReturnValue({
+  onConflictDoUpdate: mockTransactionOnConflict,
 });
 
 jest.mock('@mwashburn160/pipeline-core', () => {

@@ -32,10 +32,13 @@ REBUILD=false
 CATEGORY_FILTER=""
 PARALLEL=1
 UPLOAD_TIMEOUT=900
+QUEUE_POLL_INTERVAL=${QUEUE_POLL_INTERVAL:-5}
+QUEUE_POLL_TIMEOUT=${QUEUE_POLL_TIMEOUT:-1800}
 SUCCEEDED=0
 FAILED=0
 SKIPPED=0
 TOTAL=0
+QUEUED=0
 
 # Parse arguments
 while [ $# -gt 0 ]; do
@@ -148,9 +151,10 @@ upload_plugin() {
   plugin_name="$(basename "$plugin_path")"
   category="$(basename "$(dirname "$plugin_path")")"
 
-  TOTAL=$((TOTAL + 1))
+  QUEUED=$((QUEUED + 1))
+  REMAINING=$((TOTAL - QUEUED))
 
-  echo "  [${category}/${plugin_name}]"
+  echo "  [$QUEUED/$TOTAL] ${category}/${plugin_name}  (remaining: $REMAINING)"
 
   # Validate manifest
   manifest="${plugin_path}/manifest.yaml"
@@ -236,12 +240,30 @@ START_TIME=$(date +%s)
 
 echo "=== Processing plugins ==="
 
-# Build list of categories to process
+# Build list of categories to process and pre-count total
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
   CATEGORIES=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
 fi
+
+# Pre-count total eligible plugins
+for category in $CATEGORIES; do
+  category_dir="${PLUGINS_DIR}/${category}"
+  [ -d "$category_dir" ] || continue
+  for plugin_dir in "${category_dir}"/*/; do
+    [ -d "$plugin_dir" ] || continue
+    [ -f "${plugin_dir}/manifest.yaml" ] || continue
+    plugin_type=$(grep "^pluginType:" "${plugin_dir}/manifest.yaml" 2>/dev/null | head -1 | sed 's/pluginType: *//')
+    if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "${plugin_dir}/Dockerfile" ]; then
+      continue
+    fi
+    TOTAL=$((TOTAL + 1))
+  done
+done
+
+echo "  Found $TOTAL plugin(s) to process"
+echo ""
 
 for category in $CATEGORIES; do
   category_dir="${PLUGINS_DIR}/${category}"
@@ -275,7 +297,8 @@ for category in $CATEGORIES; do
     upload_plugin "$zip_file"
 
     # Throttle uploads to avoid rate limiting (100 req / 15 min)
-    if [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null; then
+    REMAINING=$((TOTAL - QUEUED))
+    if [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$REMAINING" -gt 0 ]; then
       sleep "$UPLOAD_DELAY"
     fi
   done
@@ -285,8 +308,9 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 echo ""
-echo "=== Summary ==="
+echo "=== Upload Summary ==="
 echo "  Total:     $TOTAL"
+echo "  Queued:    $QUEUED"
 echo "  Succeeded: $SUCCEEDED"
 echo "  Failed:    $FAILED"
 echo "  Skipped:   $SKIPPED"
@@ -295,7 +319,57 @@ echo "  Duration:  ${DURATION}s"
 if [ "$FAILED" -gt 0 ]; then
   echo ""
   echo "WARNING: ${FAILED} plugin(s) failed to upload"
-  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Poll BullMQ queue until all builds complete
+# ---------------------------------------------------------------------------
+if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
+  echo ""
+  echo "=== Waiting for builds to complete ==="
+  POLL_START=$(date +%s)
+
+  while true; do
+    QUEUE_RESP=$(curl -s --max-time 10 \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      -H "x-org-id: system" \
+      "${PLATFORM_BASE_URL}/api/plugin/queue/status" \
+      --insecure 2>/dev/null || echo '{}')
+
+    Q_WAITING=$(echo "$QUEUE_RESP" | jq -r '.data.waiting // 0')
+    Q_ACTIVE=$(echo "$QUEUE_RESP" | jq -r '.data.active // 0')
+    Q_COMPLETED=$(echo "$QUEUE_RESP" | jq -r '.data.completed // 0')
+    Q_FAILED=$(echo "$QUEUE_RESP" | jq -r '.data.failed // 0')
+
+    ELAPSED=$(( $(date +%s) - POLL_START ))
+    echo "  [${ELAPSED}s] waiting=$Q_WAITING  active=$Q_ACTIVE  completed=$Q_COMPLETED  failed=$Q_FAILED"
+
+    # Exit when no jobs are pending or in progress
+    PENDING=$((Q_WAITING + Q_ACTIVE))
+    if [ "$PENDING" -eq 0 ]; then
+      echo ""
+      echo "  All builds finished."
+      break
+    fi
+
+    # Timeout check
+    if [ "$ELAPSED" -ge "$QUEUE_POLL_TIMEOUT" ]; then
+      echo ""
+      echo "  WARNING: Timed out after ${QUEUE_POLL_TIMEOUT}s with $PENDING job(s) still pending"
+      break
+    fi
+
+    sleep "$QUEUE_POLL_INTERVAL"
+  done
+
+  BUILD_END=$(date +%s)
+  BUILD_DURATION=$((BUILD_END - POLL_START))
+
+  echo ""
+  echo "=== Build Summary ==="
+  echo "  Completed: $Q_COMPLETED"
+  echo "  Failed:    $Q_FAILED"
+  echo "  Duration:  ${BUILD_DURATION}s"
 fi
 
 echo ""

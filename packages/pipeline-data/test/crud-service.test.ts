@@ -69,6 +69,7 @@ interface TestUpdate {
 const mockSchema = {} as PgTable;
 const mockProjectColumn = {} as AnyColumn;
 const mockOrgColumn = {} as AnyColumn;
+const mockConflictTarget = [{} as AnyColumn, {} as AnyColumn];
 
 class TestService extends CrudService<TestEntity, TestFilter, TestInsert, TestUpdate> {
   protected get schema(): PgTable {
@@ -90,6 +91,10 @@ class TestService extends CrudService<TestEntity, TestFilter, TestInsert, TestUp
 
   protected getOrgColumn(): AnyColumn {
     return mockOrgColumn;
+  }
+
+  protected get conflictTarget(): AnyColumn[] {
+    return mockConflictTarget;
   }
 }
 
@@ -230,27 +235,65 @@ describe('CrudService', () => {
         updatedBy: 'user1',
       };
 
-      const valuesChain = {
-        returning: jest.fn().mockResolvedValue([created]),
-      };
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue(valuesChain),
+        values: jest.fn().mockReturnValue({
+          onConflictDoUpdate: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
       });
 
       const result = await service.create({ name: 'New', orgId: 'org1' }, 'user1');
       expect(result).toEqual(created);
     });
 
+    it('should upsert on conflict', async () => {
+      const upserted: TestEntity = {
+        id: 'existing-id',
+        orgId: 'org1',
+        name: 'Updated',
+        isDefault: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        createdBy: 'original-user',
+        updatedBy: 'user1',
+      };
+
+      const onConflictMock = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([upserted]),
+      });
+      mockInsert.mockReturnValue({
+        values: jest.fn().mockReturnValue({
+          onConflictDoUpdate: onConflictMock,
+        }),
+      });
+
+      const result = await service.create({ name: 'Updated', orgId: 'org1' }, 'user1');
+      expect(result).toEqual(upserted);
+
+      // Verify onConflictDoUpdate was called with correct structure
+      const conflictArg = onConflictMock.mock.calls[0][0];
+      expect(conflictArg.target).toBe(mockConflictTarget);
+      expect(conflictArg.set).toMatchObject({
+        name: 'Updated',
+        orgId: 'org1',
+        updatedBy: 'user1',
+      });
+      expect(conflictArg.set.updatedAt).toBeInstanceOf(Date);
+    });
+
     it('should propagate insert errors', async () => {
       mockInsert.mockReturnValue({
         values: jest.fn().mockReturnValue({
-          returning: jest.fn().mockRejectedValue(new Error('Unique constraint violation')),
+          onConflictDoUpdate: jest.fn().mockReturnValue({
+            returning: jest.fn().mockRejectedValue(new Error('DB error')),
+          }),
         }),
       });
 
       await expect(
         service.create({ name: 'Duplicate', orgId: 'org1' }, 'user1'),
-      ).rejects.toThrow('Unique constraint violation');
+      ).rejects.toThrow('DB error');
     });
   });
 
