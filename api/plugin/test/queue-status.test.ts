@@ -35,8 +35,8 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-import { createQueueStatusRoutes } from '../src/routes/queue-status';
 import { isSystemAdmin } from '@mwashburn160/api-core';
+import { createQueueStatusRoutes } from '../src/routes/queue-status';
 
 // Minimal Express-like mocks
 function createMockReqRes() {
