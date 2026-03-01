@@ -222,15 +222,18 @@ export function extractDbError(error: unknown): Record<string, unknown> {
     return {};
   }
 
-  const dbError = error as Record<string, unknown>;
+  // Drizzle ORM wraps the original pg error in error.cause —
+  // check the cause first, then fall back to the error itself.
+  const err = error as Record<string, unknown>;
+  const source = (err.cause && typeof err.cause === 'object' ? err.cause : err) as Record<string, unknown>;
   const details: Record<string, unknown> = {};
 
-  if (dbError.code) details.dbCode = dbError.code;
-  if (dbError.detail) details.dbDetail = dbError.detail;
-  if (dbError.hint) details.dbHint = dbError.hint;
-  if (dbError.constraint) details.constraint = dbError.constraint;
-  if (dbError.table) details.table = dbError.table;
-  if (dbError.column) details.column = dbError.column;
+  if (source.code) details.dbCode = source.code;
+  if (source.detail) details.dbDetail = source.detail;
+  if (source.hint) details.dbHint = source.hint;
+  if (source.constraint) details.constraint = source.constraint;
+  if (source.table) details.table = source.table;
+  if (source.column) details.column = source.column;
 
   return details;
 }

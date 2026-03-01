@@ -70,11 +70,24 @@ validate_manifest() {
   plugin_name="$(basename "$plugin_path")"
   errors=""
 
-  for field in name description version pluginType computeType primaryOutputDirectory dockerfile installCommands commands; do
+  # Detect pluginType to determine required fields
+  plugin_type=$(grep "^pluginType:" "$manifest" 2>/dev/null | head -1 | sed 's/pluginType: *//')
+
+  # Common required fields for all plugin types
+  for field in name description version pluginType computeType; do
     if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
       errors="${errors}  Missing field: ${field}\n"
     fi
   done
+
+  # CodeBuildStep requires additional fields (Dockerfile-based plugins)
+  if [ "$plugin_type" != "ManualApprovalStep" ]; then
+    for field in primaryOutputDirectory dockerfile installCommands commands; do
+      if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
+        errors="${errors}  Missing field: ${field}\n"
+      fi
+    done
+  fi
 
   # Validate name matches directory
   manifest_name=$(grep "^name:" "$manifest" 2>/dev/null | head -1 | sed 's/name: *//')
@@ -83,8 +96,7 @@ validate_manifest() {
   fi
 
   # Validate pluginType
-  plugin_type=$(grep "^pluginType:" "$manifest" 2>/dev/null | head -1 | sed 's/pluginType: *//')
-  if [ "$plugin_type" != "CodeBuildStep" ]; then
+  if [ "$plugin_type" != "CodeBuildStep" ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
     errors="${errors}  Invalid pluginType: ${plugin_type}\n"
   fi
 
@@ -102,15 +114,29 @@ maybe_rebuild_zip() {
   dockerfile="${plugin_path}/Dockerfile"
   manifest="${plugin_path}/manifest.yaml"
 
+  # Determine which files to include in the zip
+  zip_files="manifest.yaml"
+  if [ -f "$dockerfile" ]; then
+    zip_files="Dockerfile manifest.yaml"
+  fi
+
   if [ "$REBUILD" = true ] || [ ! -f "$zip_file" ]; then
-    (cd "$plugin_path" && zip -q plugin.zip Dockerfile manifest.yaml)
+    (cd "$plugin_path" && zip -q plugin.zip $zip_files)
     echo "    Rebuilt plugin.zip"
     return
   fi
 
   # Check if sources are newer than zip
-  if [ "$dockerfile" -nt "$zip_file" ] || [ "$manifest" -nt "$zip_file" ]; then
-    (cd "$plugin_path" && zip -q plugin.zip Dockerfile manifest.yaml)
+  needs_rebuild=false
+  if [ "$manifest" -nt "$zip_file" ]; then
+    needs_rebuild=true
+  fi
+  if [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ]; then
+    needs_rebuild=true
+  fi
+
+  if [ "$needs_rebuild" = true ]; then
+    (cd "$plugin_path" && zip -q plugin.zip $zip_files)
     echo "    Rebuilt plugin.zip (sources changed)"
   fi
 }
@@ -230,9 +256,17 @@ for category in $CATEGORIES; do
   for plugin_dir in "${category_dir}"/*/; do
     [ -d "$plugin_dir" ] || continue
 
-    # Check for required files
-    if [ ! -f "${plugin_dir}/Dockerfile" ] || [ ! -f "${plugin_dir}/manifest.yaml" ]; then
-      echo "  [$(basename "$plugin_dir")] SKIP: Missing Dockerfile or manifest.yaml"
+    # Manifest is always required
+    if [ ! -f "${plugin_dir}/manifest.yaml" ]; then
+      echo "  [$(basename "$plugin_dir")] SKIP: Missing manifest.yaml"
+      SKIPPED=$((SKIPPED + 1))
+      continue
+    fi
+
+    # Detect pluginType — ManualApprovalStep does not require a Dockerfile
+    plugin_type=$(grep "^pluginType:" "${plugin_dir}/manifest.yaml" 2>/dev/null | head -1 | sed 's/pluginType: *//')
+    if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "${plugin_dir}/Dockerfile" ]; then
+      echo "  [$(basename "$plugin_dir")] SKIP: Missing Dockerfile"
       SKIPPED=$((SKIPPED + 1))
       continue
     fi
