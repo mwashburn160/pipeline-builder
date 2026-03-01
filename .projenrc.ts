@@ -214,6 +214,7 @@ let api_core = new PackageProject({
   ]
 });
 // Disable problematic ESLint rules for this package
+api_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
 api_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 api_core.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
 api_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
@@ -267,6 +268,7 @@ let pipeline_data = new PackageProject({
   ]
 });
 // Disable problematic ESLint rules for this package
+pipeline_data.eslint?.addRules({ '@stylistic/max-len': 'off' });
 pipeline_data.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 pipeline_data.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
@@ -327,6 +329,7 @@ let pipeline_core = new PackageProject({
   ]
 });
 // Disable problematic ESLint rules for this package
+pipeline_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
 pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 // Run tests sequentially — heavy CDK imports cause Jest worker pool timeout warnings
 if (pipeline_core.jest) {
@@ -404,6 +407,7 @@ let api_server = new PackageProject({
   ]
 });
 // Disable problematic ESLint rules for this package
+api_server.eslint?.addRules({ '@stylistic/max-len': 'off' });
 api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 api_server.eslint?.addRules({ 'import/no-unresolved': 'off' });
 api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
@@ -453,6 +457,8 @@ let ai_core = new PackageProject({
     `typescript@${typescriptVersion}`,
   ],
 });
+// Disable problematic ESLint rules for this package
+ai_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
 ai_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
 
 // =============================================================================
