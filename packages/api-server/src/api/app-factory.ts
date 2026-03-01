@@ -3,7 +3,7 @@
  * @description Factory for creating pre-configured Express applications with security, rate limiting, health checks, and SSE support.
  */
 
-import { sendSuccess, sendError, generateOpenApiSpec } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
@@ -210,9 +210,11 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     const limiter = rateLimit({
       max: rateLimitConfig.max,
       windowMs: rateLimitConfig.windowMs,
-      message: 'Too many requests from this IP, please try again later.',
       standardHeaders: true,
       legacyHeaders: false,
+      handler: (_req: Request, res: Response) => {
+        sendError(res, 429, 'Too many requests from this IP, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
+      },
     });
     app.use(limiter);
   }
