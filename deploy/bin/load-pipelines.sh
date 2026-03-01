@@ -5,12 +5,14 @@ set -eu
 # Usage:
 #   ./load-pipelines.sh                          # defaults to https://localhost:8443
 #   PLATFORM_BASE_URL=https://host ./load-pipelines.sh
+#   UPLOAD_DELAY=2 ./load-pipelines.sh              # 2s delay between uploads
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SAMPLES_DIR="$DEPLOY_DIR/samples"
 PIPELINES_DIR="$SAMPLES_DIR/pipelines"
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
+UPLOAD_DELAY=${UPLOAD_DELAY:-3}
 
 echo "=== Loading pipelines ==="
 echo "  URL: $PLATFORM_BASE_URL"
@@ -49,7 +51,8 @@ find "$PIPELINES_DIR" -type f -name "pipeline.json" -exec sh -c '
      -d "$BODY" \
      --insecure)
     echo "    HTTP $CREATE_STATUS"
-' _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" \;
+    sleep "$4"
+' _ {} "${PLATFORM_BASE_URL}" "${JWT_TOKEN}" "${UPLOAD_DELAY}" \;
 
 echo ""
 echo "=== Done ==="
