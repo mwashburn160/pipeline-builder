@@ -1,3 +1,13 @@
+## 1.28.13 (2026-03-01)
+
+### 🩹 Fixes
+
+- updated workflow ([c95b4b53](https://github.com/mwashburn160/pipeline-builder/commit/c95b4b53))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.12 (2026-03-01)
 
 ### 🩹 Fixes
