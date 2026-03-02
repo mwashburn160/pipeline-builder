@@ -1,4 +1,5 @@
 import { base64UrlDecode } from './api';
+import { EPOCH_MS_THRESHOLD } from './constants';
 
 export interface JwtPayload {
   [key: string]: unknown;
@@ -24,7 +25,7 @@ export function decodeJwt(token: string): JwtParts | null {
 
 export function formatTimestamp(value: unknown): string | null {
   if (typeof value !== 'number') return null;
-  const ms = value < 1e12 ? value * 1000 : value;
+  const ms = value < EPOCH_MS_THRESHOLD ? value * 1000 : value;
   return new Date(ms).toLocaleString();
 }
 

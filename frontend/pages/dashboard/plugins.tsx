@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, Puzzle, Plus } from 'lucide-react';
+import { Search, Puzzle, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -52,6 +52,7 @@ export default function PluginsPage() {
   const debouncedVersion = useDebounce(filters.version, 300);
   const debouncedImageTag = useDebounce(filters.imageTag, 300);
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
@@ -99,6 +100,12 @@ export default function PluginsPage() {
     return value !== '';
   });
 
+  const advancedFilterCount = Object.entries(filters).filter(([key, value]) => {
+    if (key === 'name') return false; // name is in the primary search bar
+    if (['access', 'status', 'default', 'pluginType', 'computeType'].includes(key)) return value !== 'all';
+    return value !== '';
+  }).length;
+
   const clearFilters = () => setFilters(initialFilters);
 
   // Server-side handles CommonFilter + PluginFilter; client-side only for pluginType/computeType
@@ -135,7 +142,10 @@ export default function PluginsPage() {
       sortValue: (p) => p.name,
       render: (p) => (
         <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.name}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {p.name}
+            {!p.isActive && <Badge color="red" className="ml-2">Inactive</Badge>}
+          </div>
           {p.description && (
             <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>
           )}
@@ -148,12 +158,6 @@ export default function PluginsPage() {
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.version,
       render: (p) => <>{p.version}</>,
-    },
-    {
-      id: 'keywords',
-      header: 'Keywords',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]',
-      render: (p) => <span title={p.keywords?.join(', ') || ''}>{p.keywords?.length ? p.keywords.join(', ') : ''}</span>,
     },
     {
       id: 'type',
@@ -170,29 +174,10 @@ export default function PluginsPage() {
       render: (p) => <>{p.computeType}</>,
     },
     {
-      id: 'timeout',
-      header: 'Timeout',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (p) => p.timeout ?? 0,
-      render: (p) => <>{p.timeout ? `${p.timeout}m` : '\u2014'}</>,
-    },
-    {
       id: 'access',
       header: 'Access',
       sortValue: (p) => p.accessModifier,
       render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      sortValue: (p) => p.isActive,
-      render: (p) => <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>,
-    },
-    {
-      id: 'default',
-      header: 'Default',
-      sortValue: (p) => p.isDefault,
-      render: (p) => p.isDefault ? <Badge color="blue">Default</Badge> : null,
     },
     {
       id: 'actions',
@@ -220,7 +205,7 @@ export default function PluginsPage() {
       title="Plugins"
       actions={
         isAdmin ? (
-          <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+          <button onClick={() => setShowCreateModal(true)} className="btn btn-secondary">
             <Plus className="w-4 h-4 mr-2" />
             Create Plugin
           </button>
@@ -235,51 +220,78 @@ export default function PluginsPage() {
         </div>
       )}
 
-      {/* Filter Bar */}
+      {/* Filter Bar — single search + collapsible advanced filters */}
       <div className="filter-bar">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Plugin name..." className="filter-input" />
+            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search plugins..." className="filter-input pl-10" />
           </div>
-          <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-          <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
-          <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
-          <input type="text" value={filters.imageTag} onChange={(e) => updateFilter('imageTag', e.target.value)} placeholder="Image tag..." className="filter-input max-w-[140px]" />
-          <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
-            <option value="all">All Types</option>
-            <option value="CodeBuildStep">CodeBuildStep</option>
-            <option value="ShellStep">ShellStep</option>
-            <option value="ManualApprovalStep">ManualApprovalStep</option>
-          </select>
-          <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
-            <option value="all">All Compute</option>
-            <option value="SMALL">SMALL</option>
-            <option value="MEDIUM">MEDIUM</option>
-            <option value="LARGE">LARGE</option>
-            <option value="X2_LARGE">X2_LARGE</option>
-          </select>
-          <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
-            <option value="all">All Default</option>
-            <option value="default">Default</option>
-            <option value="non-default">Non-Default</option>
-          </select>
-          {canViewPublic && (
-            <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
-              <option value="all">All Access</option>
-              <option value="public">Public</option>
-              <option value="private">Private</option>
-            </select>
-          )}
-          {hasActiveFilters && (
-            <button type="button" onClick={clearFilters} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">Clear filters</button>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+              showAdvanced || advancedFilterCount > 0
+                ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filters
+            {advancedFilterCount > 0 && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
+                {advancedFilterCount}
+              </span>
+            )}
+          </button>
         </div>
+
+        {showAdvanced && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-3">
+              <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
+                <option value="all">All Types</option>
+                <option value="CodeBuildStep">CodeBuildStep</option>
+                <option value="ShellStep">ShellStep</option>
+                <option value="ManualApprovalStep">ManualApprovalStep</option>
+              </select>
+              <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
+                <option value="all">All Compute</option>
+                <option value="SMALL">SMALL</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="LARGE">LARGE</option>
+                <option value="X2_LARGE">X2_LARGE</option>
+              </select>
+              <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
+                <option value="all">All Default</option>
+                <option value="default">Default</option>
+                <option value="non-default">Non-Default</option>
+              </select>
+              {canViewPublic && (
+                <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
+                  <option value="all">All Access</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              )}
+              <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
+              <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+              <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+              {advancedFilterCount > 0 && (
+                <button type="button" onClick={clearFilters} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                  <X className="w-3.5 h-3.5 inline mr-1" />
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {!isLoading && hasActiveFilters && (
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {plugins.length} plugins</p>
         )}

@@ -73,22 +73,19 @@ export function createStripeWebhookRoutes(): Router {
         return sendError(res, 400, 'Invalid webhook signature', ErrorCode.INSUFFICIENT_PERMISSIONS);
       }
 
+      /** Stripe event type → handler dispatch map. */
+      const eventHandlers: Record<string, (data: unknown) => Promise<void>> = {
+        'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
+        'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
+        'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
+      };
+
       try {
-        switch (event.type) {
-          case 'customer.subscription.updated':
-            await handleSubscriptionUpdated(event.data.object);
-            break;
-
-          case 'customer.subscription.deleted':
-            await handleSubscriptionDeleted(event.data.object);
-            break;
-
-          case 'invoice.payment_failed':
-            await handlePaymentFailed(event.data.object);
-            break;
-
-          default:
-            logger.debug('Unhandled Stripe event type', { type: event.type });
+        const handler = eventHandlers[event.type];
+        if (handler) {
+          await handler(event.data.object);
+        } else {
+          logger.debug('Unhandled Stripe event type', { type: event.type });
         }
 
         return sendSuccess(res, 200, { received: true });

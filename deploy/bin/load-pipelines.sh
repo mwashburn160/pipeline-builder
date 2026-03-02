@@ -53,6 +53,22 @@ echo "  URL:     $PLATFORM_BASE_URL"
 echo "  Dry-run: $DRY_RUN"
 echo ""
 
+# Prompt for credentials (env vars override prompts)
+DEFAULT_IDENTIFIER="admin@internal"
+DEFAULT_PASSWORD="SecurePassword123!"
+
+if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
+  printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
+  read -r PLATFORM_IDENTIFIER
+  PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
+fi
+
+if [ -z "${PLATFORM_PASSWORD:-}" ]; then
+  printf "Password [%s]: " "$DEFAULT_PASSWORD"
+  read -r PLATFORM_PASSWORD
+  PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
+fi
+
 # Login (skip in dry-run mode)
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
@@ -60,10 +76,7 @@ if [ "$DRY_RUN" = false ]; then
   LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
       -k -s \
       -H 'Content-Type: application/json' \
-      -d '{
-           "identifier": "admin@internal",
-           "password": "SecurePassword123!"
-          }' 2>&1) || true
+      -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
 
   JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
 

@@ -45,6 +45,9 @@ import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from 
 
 const logger = createLogger('generate-plugin');
 
+/** SSE stream timeout in ms (default 5 minutes). */
+const SSE_STREAM_TIMEOUT_MS = parseInt(process.env.SSE_STREAM_TIMEOUT_MS || '300000', 10);
+
 /**
  * Create and register AI plugin generation routes.
  *
@@ -148,7 +151,7 @@ export function createGeneratePluginRoutes(
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
-      res.setTimeout(300_000); // 5-minute timeout for SSE streams
+      res.setTimeout(SSE_STREAM_TIMEOUT_MS);
       res.flushHeaders();
 
       // Track client disconnect

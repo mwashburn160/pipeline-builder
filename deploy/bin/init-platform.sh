@@ -77,17 +77,28 @@ for i in $(seq 1 $MAX_RETRIES); do
     sleep $RETRY_INTERVAL
 done
 
+# Prompt for credentials (env vars override prompts)
+DEFAULT_IDENTIFIER="admin@internal"
+DEFAULT_PASSWORD="SecurePassword123!"
+
+if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
+  printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
+  read -r PLATFORM_IDENTIFIER
+  PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
+fi
+
+if [ -z "${PLATFORM_PASSWORD:-}" ]; then
+  printf "Password [%s]: " "$DEFAULT_PASSWORD"
+  read -r PLATFORM_PASSWORD
+  PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
+fi
+
 echo ""
 echo "=== Registering admin user ==="
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
      -k -s -o /dev/null -w "%{http_code}" \
      -H 'Content-Type: application/json' \
-     -d '{
-           "username": "admin",
-           "email": "admin@internal",
-           "password": "SecurePassword123!",
-           "organizationName": "system"
-         }')
+     -d "$(printf '{"username":"admin","email":"%s","password":"%s","organizationName":"system"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")")
 if [ "$REG_STATUS" = "201" ] || [ "$REG_STATUS" = "200" ]; then
     echo "  Admin user created."
 else
@@ -99,10 +110,7 @@ echo "=== Logging in ==="
 LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \
-    -d '{
-         "identifier": "admin@internal",
-         "password": "SecurePassword123!"
-        }' 2>&1) || true
+    -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
 
 JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
 
@@ -117,7 +125,7 @@ echo ""
 printf "Load plugins? [y/N] "
 read -r LOAD_PLUGINS
 if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" "$SCRIPT_DIR/load-plugins.sh"
+    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_IDENTIFIER="$PLATFORM_IDENTIFIER" PLATFORM_PASSWORD="$PLATFORM_PASSWORD" "$SCRIPT_DIR/load-plugins.sh"
 else
     echo "  Skipping plugin loading."
 fi
@@ -126,7 +134,7 @@ echo ""
 printf "Load sample pipelines? [y/N] "
 read -r LOAD_PIPELINES
 if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" "$SCRIPT_DIR/load-pipelines.sh"
+    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_IDENTIFIER="$PLATFORM_IDENTIFIER" PLATFORM_PASSWORD="$PLATFORM_PASSWORD" "$SCRIPT_DIR/load-pipelines.sh"
 else
     echo "  Skipping pipeline loading."
 fi

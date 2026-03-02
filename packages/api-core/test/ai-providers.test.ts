@@ -24,10 +24,11 @@ describe('AI_PROVIDER_CATALOG', () => {
     expect(AI_PROVIDER_CATALOG).toHaveProperty('google');
     expect(AI_PROVIDER_CATALOG).toHaveProperty('xai');
     expect(AI_PROVIDER_CATALOG).toHaveProperty('amazon-bedrock');
+    expect(AI_PROVIDER_CATALOG).toHaveProperty('ollama');
   });
 
-  it('has exactly 5 providers', () => {
-    expect(Object.keys(AI_PROVIDER_CATALOG)).toHaveLength(5);
+  it('has exactly 6 providers', () => {
+    expect(Object.keys(AI_PROVIDER_CATALOG)).toHaveLength(6);
   });
 
   it.each(Object.entries(AI_PROVIDER_CATALOG))(
@@ -77,6 +78,7 @@ describe('AI_PROVIDER_ENV_VARS', () => {
     expect(AI_PROVIDER_ENV_VARS.google).toBe('GOOGLE_GENERATIVE_AI_API_KEY');
     expect(AI_PROVIDER_ENV_VARS.xai).toBe('XAI_API_KEY');
     expect(AI_PROVIDER_ENV_VARS['amazon-bedrock']).toBe('AWS_ACCESS_KEY_ID');
+    expect(AI_PROVIDER_ENV_VARS.ollama).toBe('OLLAMA_BASE_URL');
   });
 });
 
@@ -114,6 +116,7 @@ describe('getAIProviderName', () => {
     expect(getAIProviderName('google')).toBe('Google');
     expect(getAIProviderName('xai')).toBe('xAI (Grok)');
     expect(getAIProviderName('amazon-bedrock')).toBe('Amazon Bedrock');
+    expect(getAIProviderName('ollama')).toBe('Ollama (Local)');
   });
 
   it('falls back to raw ID for unknown provider', () => {

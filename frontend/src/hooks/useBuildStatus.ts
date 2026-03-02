@@ -4,6 +4,7 @@
  * Includes automatic retry with exponential backoff on transient connection errors.
  */
 import { useState, useEffect, useRef } from 'react';
+import { BUILD_SSE_MAX_RETRIES, MAX_BUILD_EVENTS } from '@/lib/constants';
 
 /** Discriminator for SSE build event payloads. */
 export type BuildEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
@@ -20,8 +21,6 @@ export interface BuildEvent {
 
 /** Lifecycle state of a plugin build. */
 export type BuildStatus = 'idle' | 'building' | 'completed' | 'failed';
-
-const MAX_RETRIES = 3;
 
 /**
  * Listens for SSE build events by requestId.
@@ -64,7 +63,7 @@ export function useBuildStatus(requestId: string | null) {
 
         setEvents((prev) => {
           const next = [...prev, parsed];
-          return next.length > 1000 ? next.slice(-1000) : next;
+          return next.length > MAX_BUILD_EVENTS ? next.slice(-MAX_BUILD_EVENTS) : next;
         });
 
         switch (parsed.type) {
@@ -84,7 +83,7 @@ export function useBuildStatus(requestId: string | null) {
 
     eventSource.onerror = () => {
       eventSource.close();
-      if (retryCountRef.current < MAX_RETRIES) {
+      if (retryCountRef.current < BUILD_SSE_MAX_RETRIES) {
         retryCountRef.current++;
         const delay = 1000 * Math.pow(2, retryCountRef.current - 1);
         retryTimerRef.current = setTimeout(() => {

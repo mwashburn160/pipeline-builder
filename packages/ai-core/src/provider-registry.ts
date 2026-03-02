@@ -8,6 +8,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createXai } from '@ai-sdk/xai';
 import {
   AI_PROVIDER_CATALOG,
@@ -30,9 +31,24 @@ export interface ProviderEntry {
 
 const registry = new Map<string, ProviderEntry>();
 
+/** Default Ollama base URL when not explicitly configured. */
+const OLLAMA_DEFAULT_URL = 'http://localhost:11434/v1';
+
+/**
+ * Create an Ollama model factory via the OpenAI-compatible SDK.
+ *
+ * @param baseURL - Ollama server URL (e.g. "http://localhost:11434/v1")
+ * @returns Factory function that creates a LanguageModel for a given model ID
+ */
+function createOllamaFactory(baseURL: string): (modelId: string) => LanguageModel {
+  const ollama = createOpenAICompatible({ baseURL, name: 'ollama' });
+  return (modelId: string) => ollama.chatModel(modelId);
+}
+
 /**
  * Lazily initialize the provider registry from environment variables.
- * Only providers with configured API keys are registered.
+ * Only providers with configured API keys (or base URLs) are registered.
+ * Ollama is registered when OLLAMA_BASE_URL is set.
  */
 function initRegistry(): void {
   if (registry.size > 0) return;
@@ -43,6 +59,7 @@ function initRegistry(): void {
     'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
     'xai': (key) => createXai({ apiKey: key }),
     'amazon-bedrock': () => createAmazonBedrock(),
+    'ollama': (baseUrl) => createOllamaFactory(baseUrl || OLLAMA_DEFAULT_URL),
   };
 
   for (const [id, info] of Object.entries(AI_PROVIDER_CATALOG)) {
@@ -129,6 +146,8 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
       return createXai({ apiKey })(modelId);
     case 'amazon-bedrock':
       return createAmazonBedrock()(modelId);
+    case 'ollama':
+      return createOllamaFactory(apiKey || OLLAMA_DEFAULT_URL)(modelId);
     default:
       throw new Error(`Unsupported AI provider "${providerId}"`);
   }

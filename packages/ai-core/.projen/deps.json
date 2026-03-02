@@ -71,6 +71,11 @@
       "type": "runtime"
     },
     {
+      "name": "@ai-sdk/openai-compatible",
+      "version": "2.0.31",
+      "type": "runtime"
+    },
+    {
       "name": "@ai-sdk/openai",
       "version": "3.0.31",
       "type": "runtime"
@@ -82,7 +87,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.31.4",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

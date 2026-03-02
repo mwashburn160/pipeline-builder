@@ -6,6 +6,8 @@ interface BadgeProps {
   children: ReactNode;
   /** Color variant controlling background and text styling */
   color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow';
+  /** Additional CSS classes */
+  className?: string;
 }
 
 const colorStyles = {
@@ -18,9 +20,9 @@ const colorStyles = {
 };
 
 /** Small colored pill badge for displaying status labels or categories. */
-export function Badge({ children, color }: BadgeProps) {
+export function Badge({ children, color, className = '' }: BadgeProps) {
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colorStyles[color]}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colorStyles[color]} ${className}`}>
       {children}
     </span>
   );

@@ -66,7 +66,7 @@ export class ApiError extends Error {
 
 /** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
-  type: 'partial' | 'done' | 'error';
+  type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins';
   data?: unknown;
   message?: string;
 }
@@ -928,6 +928,18 @@ class ApiClient {
   async *streamPipelineGeneration(prompt: string, provider: string, model: string, apiKey?: string) {
     yield* this.streamRequest('/api/pipeline/generate/stream', {
       prompt, provider, model, ...(apiKey ? { apiKey } : {}),
+    });
+  }
+
+  /**
+   * Stream AI pipeline generation from a Git URL.
+   * Yields analyzing → analyzed → partial → done events.
+   */
+  async *streamPipelineFromUrl(gitUrl: string, provider: string, model: string, apiKey?: string, repoToken?: string) {
+    yield* this.streamRequest('/api/pipeline/generate/from-url/stream', {
+      gitUrl, provider, model,
+      ...(apiKey ? { apiKey } : {}),
+      ...(repoToken ? { repoToken } : {}),
     });
   }
 

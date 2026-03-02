@@ -14,6 +14,9 @@ resources:
   - postgres.yaml
   - redis.yaml
 
+  # AI / LLM
+  - ollama.yaml
+
   # API Gateway
   - nginx.yaml
 

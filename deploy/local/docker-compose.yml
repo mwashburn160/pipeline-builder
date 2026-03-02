@@ -57,6 +57,14 @@ x-quota-client-env: &quota-client-env
   QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
   QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
 
+# -- Env for services that use AI generation (pipeline, plugin) --
+x-ai-env: &ai-env
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+  XAI_API_KEY: ${XAI_API_KEY:-}
+
 # =============================================================================
 # Services
 # =============================================================================
@@ -217,6 +225,32 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # AI / LLM
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: 'ollama/ollama:latest'
+    container_name: ollama
+    restart: always
+    volumes:
+      - './data/ollama-data/:/root/.ollama:rw'
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
 
   # ---------------------------------------------------------------------------
   # Admin UIs
@@ -505,7 +539,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.27.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.28.5'
     container_name: frontend
     restart: always
     networks:
@@ -539,7 +573,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.26.5'
+    image: 'ghcr.io/mwashburn160/platform:1.27.5'
     container_name: platform
     depends_on:
       mongodb:
@@ -616,7 +650,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.25.5'
+    image: 'ghcr.io/mwashburn160/plugin:1.26.5'
     container_name: plugin
     depends_on:
       postgres:
@@ -625,12 +659,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
     group_add:
       - ${DOCKER_GID:-999}
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: plugin
       # Docker registry
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
@@ -647,15 +683,17 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.25.5'
+    image: 'ghcr.io/mwashburn160/pipeline:1.26.5'
     container_name: pipeline
     depends_on:
       postgres:
         condition: service_healthy
       quota:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: pipeline
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
 
@@ -664,7 +702,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/message:1.7.5'
+    image: 'ghcr.io/mwashburn160/message:1.8.5'
     container_name: message
     depends_on:
       postgres:
@@ -680,7 +718,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.24.5'
+    image: 'ghcr.io/mwashburn160/quota:1.25.5'
     container_name: quota
     depends_on:
       mongodb:
@@ -704,15 +742,17 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:1.9.5'
+    image: 'ghcr.io/mwashburn160/billing:1.10.5'
     container_name: billing
     depends_on:
       mongodb:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       quota:
         condition: service_healthy
     environment:
-      <<: *common-env
+      <<: [*common-env, *postgres-env]
       SERVICE_NAME: billing
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
