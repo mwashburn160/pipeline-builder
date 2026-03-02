@@ -20,6 +20,44 @@ const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000');
  */
 const DEFAULT_MAX_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2');
 const DEFAULT_RETRY_DELAY_MS = parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200');
+const DEFAULT_MAX_RATE_LIMIT_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RATE_LIMIT_RETRIES || '4');
+
+/** Max Retry-After value we'll honor (60 seconds). */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Parse a `Retry-After` header value into milliseconds.
+ * Supports numeric seconds (e.g. "5") and HTTP-date format.
+ * Returns `undefined` for missing or invalid values.
+ */
+export function parseRetryAfter(header: string | string[] | undefined): number | undefined {
+  if (!header) return undefined;
+  const value = Array.isArray(header) ? header[0] : header;
+  if (!value) return undefined;
+
+  // Try numeric seconds first
+  const seconds = Number(value);
+  if (!isNaN(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  }
+
+  // Try HTTP-date
+  const date = Date.parse(value);
+  if (!isNaN(date)) {
+    const delayMs = date - Date.now();
+    if (delayMs > 0) return Math.min(delayMs, MAX_RETRY_AFTER_MS);
+  }
+
+  return undefined;
+}
+
+/**
+ * Apply ±25% random jitter to a delay to prevent thundering herd.
+ */
+export function addJitter(delay: number): number {
+  const jitter = delay * 0.25 * (2 * Math.random() - 1); // -25% to +25%
+  return Math.max(0, Math.round(delay + jitter));
+}
 
 /**
  * HTTP request options.
@@ -33,6 +71,8 @@ export interface RequestOptions {
   maxRetries?: number;
   /** Base delay between retries in ms — doubles each attempt (default: 200) */
   retryDelayMs?: number;
+  /** Maximum retry attempts specifically for 429 rate limiting (default: 4) */
+  maxRateLimitRetries?: number;
 }
 
 /**
@@ -117,7 +157,13 @@ export class InternalHttpClient {
   }
 
   /**
-   * Request with retry logic for transient failures (timeouts, connection errors, 502/503/504).
+   * Request with retry logic for transient failures.
+   *
+   * - 429 (rate limit): respects `Retry-After` header, uses longer base delay (4x),
+   *   retries up to `maxRateLimitRetries` times (default 4).
+   * - 502/503/504 (server errors): standard exponential backoff, up to `maxRetries` (default 2).
+   * - Connection errors / timeouts: retries up to `maxRetries`.
+   * - All delays include ±25% jitter to prevent thundering herd.
    */
   private async requestWithRetry<T>(
     method: string,
@@ -126,19 +172,30 @@ export class InternalHttpClient {
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
     const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const maxRateLimitRetries = options?.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES;
     const baseDelay = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    const totalMaxAttempts = Math.max(maxRetries, maxRateLimitRetries);
 
     let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= totalMaxAttempts; attempt++) {
       try {
         const response = await this.request<T>(method, path, body, options);
 
-        // Retry on transient server errors and rate limiting
-        const retryable = [429, 502, 503, 504];
-        if (attempt < maxRetries && retryable.includes(response.statusCode)) {
+        // 429 rate limiting — use Retry-After or longer backoff
+        if (response.statusCode === 429 && attempt < maxRateLimitRetries) {
+          const retryAfter = parseRetryAfter(response.headers['retry-after']);
+          const delay = retryAfter ?? (baseDelay * 4 * Math.pow(2, attempt));
+          logger.debug('Rate limited, retrying', { method, path, attempt: attempt + 1, delayMs: delay });
+          await this.sleep(addJitter(delay));
+          continue;
+        }
+
+        // 5xx transient server errors — standard backoff
+        if ([502, 503, 504].includes(response.statusCode) && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
           logger.debug('Retrying on transient status', { method, path, statusCode: response.statusCode, attempt: attempt + 1 });
-          await this.sleep(baseDelay * Math.pow(2, attempt));
+          await this.sleep(addJitter(delay));
           continue;
         }
 
@@ -147,8 +204,9 @@ export class InternalHttpClient {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
-          await this.sleep(baseDelay * Math.pow(2, attempt));
+          await this.sleep(addJitter(delay));
           continue;
         }
       }
