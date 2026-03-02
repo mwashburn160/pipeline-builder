@@ -30,6 +30,8 @@ export interface PluginLookupProps {
   readonly project: string;
   readonly platformUrl: string;
   readonly uniqueId: UniqueId;
+  /** Tenant identifier — when set, plugin lookup finds org-owned (public + private) and public plugins */
+  readonly orgId?: string;
   readonly runtime?: Runtime;
   /** Lambda timeout (default: 30s) */
   readonly timeout?: Duration;
@@ -54,6 +56,7 @@ export class PluginLookup extends Construct {
   private readonly _uniqueId: UniqueId;
   private readonly _provider: Provider;
   private readonly _platformUrl: string;
+  private readonly _orgId?: string;
   private readonly _runtime: Runtime;
   private readonly _timeout: Duration;
   private readonly _memorySize: number;
@@ -67,6 +70,7 @@ export class PluginLookup extends Construct {
 
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
+    this._orgId = props.orgId;
     this._runtime = props.runtime ?? Runtime.NODEJS_22_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 256;
@@ -151,11 +155,26 @@ export class PluginLookup extends Construct {
   /**
    * Normalizes plugin input (string name or PluginOptions) into consistent PluginOptions format
    */
+  /**
+   * Build the default plugin filter.
+   * When orgId is available, omits accessModifier so the platform API applies
+   * its default "org-and-public" behavior (org-owned plugins + public plugins).
+   * Without orgId, falls back to accessModifier: 'public' only.
+   */
+  private defaultFilter(name: string): PluginFilter {
+    return {
+      name,
+      isActive: true,
+      isDefault: true,
+      ...(this._orgId ? { orgId: this._orgId } : { accessModifier: 'public' as const }),
+    };
+  }
+
   private normalize(plugin: string | PluginOptions): PluginOptions {
     if (typeof plugin === 'string') {
       return {
         name: plugin,
-        filter: { name: plugin, isActive: true, isDefault: true, accessModifier: 'public' },
+        filter: this.defaultFilter(plugin),
         alias: `${plugin}-alias`,
       };
     }
@@ -163,7 +182,7 @@ export class PluginLookup extends Construct {
     return {
       name: plugin.name,
       alias: plugin.alias ?? `${plugin.name}-alias`,
-      filter: plugin.filter ?? { name: plugin.name, isActive: true, isDefault: true, accessModifier: 'public' },
+      filter: plugin.filter ?? this.defaultFilter(plugin.name),
       metadata: plugin.metadata,
     };
   }

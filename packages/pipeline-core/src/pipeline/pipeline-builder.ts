@@ -112,6 +112,7 @@ export class PipelineBuilder extends Construct {
         project: this.config.project,
         platformUrl: serverConfig.platformUrl,
         uniqueId,
+        orgId: props.orgId,
         runtime: awsConfig.lambda.runtime,
       },
     );
