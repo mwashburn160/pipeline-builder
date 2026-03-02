@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
+import { bootstrap } from './commands/bootstrap';
 import { createPipeline } from './commands/create-pipeline';
 import { deploy } from './commands/deploy';
 import { getPipeline } from './commands/get-pipeline';
@@ -149,6 +150,7 @@ Examples:
   $ ${APP_NAME} version
   $ ${APP_NAME} list-pipelines --project my-app
   $ ${APP_NAME} get-pipeline --id pipe-123 --format json
+  $ ${APP_NAME} bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} deploy --id pipe-123 --profile production
 
 Documentation:
@@ -171,8 +173,9 @@ Documentation:
   createPipeline(program); // Create pipeline configuration
   uploadPlugin(program); // Upload and deploy plugin
 
-  // Deployment command
+  // Deployment commands
   printDebug('Registering deployment commands');
+  bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK
 
   printDebug('All commands registered successfully');

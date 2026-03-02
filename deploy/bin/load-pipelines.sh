@@ -57,16 +57,19 @@ echo ""
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
   echo "=== Authenticating ==="
-  JWT_TOKEN=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
+  LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
       -k -s \
       -H 'Content-Type: application/json' \
       -d '{
            "identifier": "admin@internal",
            "password": "SecurePassword123!"
-          }' | jq -r '.data.accessToken')
+          }' 2>&1) || true
+
+  JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
 
   if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
       echo "  Login failed — could not obtain JWT token" >&2
+      echo "  Response: ${LOGIN_RESP}" >&2
       exit 1
   fi
   echo "  Logged in successfully."

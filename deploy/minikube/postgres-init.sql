@@ -191,49 +191,72 @@ CREATE TRIGGER update_messages_modtime
 -- ============================================================================
 
 -- Plugins indexes
-CREATE INDEX IF NOT EXISTS idx_plugins_org_id 
+CREATE INDEX IF NOT EXISTS idx_plugins_org_id
     ON plugins(org_id) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_name 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_name
     ON plugins(name) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_name_version 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_name_version
     ON plugins(name, version) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier
     ON plugins(access_modifier) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_is_default 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_is_default
     ON plugins(name, is_default) WHERE is_default = true AND deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_is_active 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_is_active
     ON plugins(is_active) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_plugins_image_tag 
+
+CREATE INDEX IF NOT EXISTS idx_plugins_image_tag
     ON plugins(image_tag) WHERE deleted_at IS NULL;
 
+-- Plugins composite indexes (matching Drizzle schema)
+CREATE INDEX IF NOT EXISTS plugin_org_access_idx
+    ON plugins(org_id, access_modifier);
+
+-- Plugins unique constraint (required for ON CONFLICT upsert in plugin upload)
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_name_version_org_unique
+    ON plugins(name, version, org_id);
+
+-- Plugins version format check
+DO $$ BEGIN
+    ALTER TABLE plugins ADD CONSTRAINT plugin_version_check
+        CHECK (version ~ '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Pipelines indexes
-CREATE INDEX IF NOT EXISTS idx_pipelines_org_id 
+CREATE INDEX IF NOT EXISTS idx_pipelines_org_id
     ON pipelines(org_id) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_pipelines_project 
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_project
     ON pipelines(project) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_pipelines_organization 
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_organization
     ON pipelines(organization) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_pipelines_project_org 
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_project_org
     ON pipelines(project, organization) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_pipelines_access_modifier 
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_access_modifier
     ON pipelines(access_modifier) WHERE deleted_at IS NULL;
-    
-CREATE INDEX IF NOT EXISTS idx_pipelines_is_default 
-    ON pipelines(project, organization, is_default) 
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_is_default
+    ON pipelines(project, organization, is_default)
     WHERE is_default = true AND deleted_at IS NULL;
-    
+
 CREATE INDEX IF NOT EXISTS idx_pipelines_is_active
     ON pipelines(is_active) WHERE deleted_at IS NULL;
+
+-- Pipelines composite indexes (matching Drizzle schema)
+CREATE INDEX IF NOT EXISTS pipeline_org_access_idx
+    ON pipelines(org_id, access_modifier);
+
+-- Pipelines unique constraint (required for ON CONFLICT upsert in pipeline create)
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
+    ON pipelines(project, organization, org_id);
 
 -- Messages indexes
 CREATE INDEX IF NOT EXISTS message_org_id_idx

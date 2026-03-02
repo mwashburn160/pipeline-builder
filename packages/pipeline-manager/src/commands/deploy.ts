@@ -7,76 +7,18 @@
  *
  * @module commands/deploy
  */
-import { execSync } from 'child_process';
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import { Pipeline } from '../types';
 import { ApiClient } from '../utils/api-client';
+import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
+
+const { bold, cyan, dim, magenta } = pico;
 import { getConfig } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
-
-const { bold, cyan, dim, magenta } = pico;
-
-/**
- * Checks whether the AWS CDK CLI is installed and accessible on the PATH.
- * @returns `true` if `cdk --version` succeeds, `false` otherwise.
- */
-function checkCdkAvailable(): boolean {
-  try {
-    execSync('cdk --version', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Executes a CDK CLI command with the pipeline properties injected
- * as a Base64-encoded environment variable.
- *
- * @param command - The full CDK CLI command string (e.g., `cdk deploy ...`).
- * @param encodedProps - Base64-encoded JSON pipeline properties.
- * @param options - Optional execution settings.
- * @param options.debug - When `true`, prints the error to stderr on failure.
- * @param options.executionId - Correlation ID echoed back in the result.
- * @param options.showOutput - When `true`, inherits stdio so output streams to the terminal.
- * @returns An object with `success`, optional `executionId`, and `duration` in ms.
- */
-function executeCdkCommand(
-  command: string,
-  encodedProps: string,
-  options: { debug?: boolean; executionId?: string; showOutput?: boolean } = {},
-): { success: boolean; executionId?: string; duration?: number } {
-  const startTime = Date.now();
-
-  try {
-    const env = {
-      ...process.env,
-      PIPELINE_PROPS: encodedProps,
-    };
-
-    execSync(command, {
-      stdio: options.showOutput ? 'inherit' : 'pipe',
-      env,
-    });
-
-    const duration = Date.now() - startTime;
-
-    return {
-      success: true,
-      executionId: options.executionId,
-      duration,
-    };
-  } catch (error) {
-    if (options.debug) {
-      console.error('CDK execution failed:', error);
-    }
-    throw error;
-  }
-}
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -204,10 +146,10 @@ export function deploy(program: Command): void {
         console.log(''); // Empty line
 
         // Execute CDK command
-        const result = executeCdkCommand(command, encoded, {
+        const result = executeCdkShellCommand(command, {
           debug: program.opts().debug,
-          executionId,
           showOutput: true,
+          env: { PIPELINE_PROPS: encoded },
         });
 
         console.log(''); // Empty line
@@ -215,7 +157,7 @@ export function deploy(program: Command): void {
 
         if (result.success) {
           printKeyValue({
-            'Execution ID': result.executionId || executionId,
+            'Execution ID': executionId,
             'Duration': `${result.duration}ms`,
             'Output Directory': outputPath,
             'Status': '✓ Success',

@@ -24,7 +24,7 @@ export type OutputFormat = 'table' | 'json' | 'yaml' | 'csv';
 /**
  * Valid CDK commands
  */
-export type CdkCommand = 'synth' | 'deploy';
+export type CdkCommand = 'synth' | 'deploy' | 'bootstrap';
 
 /**
  * Default timeouts (in milliseconds)

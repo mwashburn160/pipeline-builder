@@ -1,18 +1,19 @@
 /**
  * @module routes/queue-status
- * @description Queue status endpoint for monitoring BullMQ plugin build queue.
+ * @description Queue status endpoints for monitoring BullMQ plugin build queue.
  *
  * GET /plugins/queue/status — returns job counts (waiting, active, completed, failed, delayed)
+ * GET /plugins/queue/failed — returns details of failed jobs (name, error, attempts)
  */
 
-import { ErrorCode, isSystemAdmin, sendError, sendSuccess } from '@mwashburn160/api-core';
+import { ErrorCode, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
 
 import { getQueue } from '../queue/plugin-build-queue';
 
 /**
- * Register queue status route.
+ * Register queue status routes.
  *
  * Expects middleware: requireAuth, requireOrgId
  */
@@ -34,6 +35,29 @@ export function createQueueStatusRoutes(): Router {
       failed: counts.failed ?? 0,
       delayed: counts.delayed ?? 0,
     });
+  }));
+
+  router.get('/failed', withRoute(async ({ req, res }) => {
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only administrators can view queue status', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    const limit = parseQueryInt(req.query.limit, 50);
+    const queue = getQueue();
+    const failedJobs = await queue.getJobs(['failed'], 0, limit - 1);
+
+    const jobs = failedJobs.map((job) => ({
+      id: job.id,
+      name: job.name,
+      pluginName: job.data?.pluginRecord?.name ?? null,
+      imageTag: job.data?.pluginRecord?.imageTag ?? null,
+      error: job.failedReason ?? null,
+      attemptsMade: job.attemptsMade,
+      maxAttempts: job.opts?.attempts ?? null,
+      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+    }));
+
+    return sendSuccess(res, 200, { jobs, total: jobs.length });
   }));
 
   return router;

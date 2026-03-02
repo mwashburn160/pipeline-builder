@@ -215,16 +215,19 @@ echo ""
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
   echo "=== Authenticating ==="
-  JWT_TOKEN=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
+  LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
       -k -s \
       -H 'Content-Type: application/json' \
       -d '{
            "identifier": "admin@internal",
            "password": "SecurePassword123!"
-          }' | jq -r '.data.accessToken')
+          }' 2>&1) || true
+
+  JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
 
   if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
       echo "  Login failed — could not obtain JWT token" >&2
+      echo "  Response: ${LOGIN_RESP}" >&2
       exit 1
   fi
   echo "  Logged in successfully."
@@ -334,12 +337,12 @@ if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
       -H "Authorization: Bearer ${JWT_TOKEN}" \
       -H "x-org-id: system" \
       "${PLATFORM_BASE_URL}/api/plugin/queue/status" \
-      --insecure 2>/dev/null || echo '{}')
+      --insecure 2>/dev/null) || QUEUE_RESP='{}'
 
-    Q_WAITING=$(echo "$QUEUE_RESP" | jq -r '.data.waiting // 0')
-    Q_ACTIVE=$(echo "$QUEUE_RESP" | jq -r '.data.active // 0')
-    Q_COMPLETED=$(echo "$QUEUE_RESP" | jq -r '.data.completed // 0')
-    Q_FAILED=$(echo "$QUEUE_RESP" | jq -r '.data.failed // 0')
+    Q_WAITING=$(printf '%s' "$QUEUE_RESP" | jq -r '.data.waiting // 0' 2>/dev/null) || Q_WAITING=0
+    Q_ACTIVE=$(printf '%s' "$QUEUE_RESP" | jq -r '.data.active // 0' 2>/dev/null) || Q_ACTIVE=0
+    Q_COMPLETED=$(printf '%s' "$QUEUE_RESP" | jq -r '.data.completed // 0' 2>/dev/null) || Q_COMPLETED=0
+    Q_FAILED=$(printf '%s' "$QUEUE_RESP" | jq -r '.data.failed // 0' 2>/dev/null) || Q_FAILED=0
 
     ELAPSED=$(( $(date +%s) - POLL_START ))
     echo "  [${ELAPSED}s] waiting=$Q_WAITING  active=$Q_ACTIVE  completed=$Q_COMPLETED  failed=$Q_FAILED"
@@ -370,6 +373,25 @@ if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
   echo "  Completed: $Q_COMPLETED"
   echo "  Failed:    $Q_FAILED"
   echo "  Duration:  ${BUILD_DURATION}s"
+
+  # Fetch and display failed job details
+  if [ "$Q_FAILED" -gt 0 ]; then
+    echo ""
+    echo "=== Failed Build Details ==="
+    FAILED_RESP=$(curl -s --max-time 10 \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      -H "x-org-id: system" \
+      "${PLATFORM_BASE_URL}/api/plugin/queue/failed?limit=${Q_FAILED}" \
+      --insecure 2>/dev/null) || FAILED_RESP='{}'
+
+    FAILED_COUNT=$(printf '%s' "$FAILED_RESP" | jq -r '.data.total // 0' 2>/dev/null) || FAILED_COUNT=0
+
+    if [ "$FAILED_COUNT" -gt 0 ]; then
+      printf '%s' "$FAILED_RESP" | jq -r '.data.jobs[] | "  [\(.pluginName // .name)] \(.error // "unknown error" | split("\n")[0])"' 2>/dev/null || echo "  (could not parse failure details)"
+    else
+      echo "  (no details available — check plugin service logs)"
+    fi
+  fi
 fi
 
 echo ""
