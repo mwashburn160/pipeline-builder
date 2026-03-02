@@ -252,6 +252,21 @@ services:
           cpus: '2.0'
           memory: 4G
 
+  # One-time init container that pulls the default Ollama model.
+  # Runs once on first boot, then exits. Model is persisted in the ollama-data volume.
+  ollama-pull:
+    image: 'ollama/ollama:latest'
+    container_name: ollama-pull
+    restart: 'no'
+    entrypoint: ['sh', '-c', 'ollama pull ${OLLAMA_DEFAULT_MODEL:-llama3}']
+    environment:
+      OLLAMA_HOST: ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - backend-network
+
   # ---------------------------------------------------------------------------
   # Admin UIs
   # ---------------------------------------------------------------------------

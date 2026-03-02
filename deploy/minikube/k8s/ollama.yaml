@@ -37,6 +37,28 @@ spec:
         app: ollama
         app.kubernetes.io/component: ai
     spec:
+      initContainers:
+        # Pull the default model on first boot. Runs to completion then exits.
+        # Skips if the model is already present in the PVC.
+        - name: model-pull
+          image: ollama/ollama:latest
+          command: ['sh', '-c']
+          args:
+            - |
+              ollama serve &
+              sleep 5
+              ollama pull ${OLLAMA_DEFAULT_MODEL:-llama3}
+              kill %1
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: 4Gi
+            requests:
+              cpu: "500m"
+              memory: 1Gi
       containers:
         - name: ollama
           image: ollama/ollama:latest
