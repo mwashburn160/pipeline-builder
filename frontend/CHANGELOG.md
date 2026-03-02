@@ -1,3 +1,19 @@
+## 1.29.0 (2026-03-02)
+
+### 🚀 Features
+
+- added ai model ([34288220](https://github.com/mwashburn160/pipeline-builder/commit/34288220))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.33.0
+- Updated @mwashburn160/api-server to 1.31.0
+- Updated @mwashburn160/api-core to 1.32.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.5 (2026-03-02)
 
 ### 🩹 Fixes
