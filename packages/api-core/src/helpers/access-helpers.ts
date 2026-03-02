@@ -9,6 +9,7 @@
 import type { Request, Response } from 'express';
 import { isSystemAdmin } from '../middleware/auth';
 import { ErrorCode } from '../types/error-codes';
+import { AccessModifier } from '../types/pipeline';
 import { sendError } from '../utils/response';
 
 /**
@@ -32,7 +33,7 @@ export function applyAccessControl<T extends { accessModifier?: string }>(
   req: Request,
 ): T {
   return !isSystemAdmin(req)
-    ? { ...filter, accessModifier: 'private' as const }
+    ? { ...filter, accessModifier: AccessModifier.PRIVATE }
     : filter;
 }
 
@@ -58,7 +59,7 @@ export function requirePublicAccess(
   res: Response,
   resource: { accessModifier?: string },
 ): boolean {
-  if (!isSystemAdmin(req) && resource.accessModifier !== 'private') {
+  if (!isSystemAdmin(req) && resource.accessModifier !== AccessModifier.PRIVATE) {
     sendError(
       res,
       403,

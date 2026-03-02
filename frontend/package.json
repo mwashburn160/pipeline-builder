@@ -31,7 +31,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.32.0",
+    "@mwashburn160/api-core": "workspace:*",
     "@mwashburn160/api-server": "workspace:*",
     "@mwashburn160/pipeline-core": "workspace:*",
     "clsx": "^2.1.1",

@@ -77,7 +77,7 @@ export function createCreatePipelineRoutes(
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 
-        const message = accessModifier === 'public'
+        const message = accessModifier === AccessModifier.PUBLIC
           ? 'Public pipeline created successfully (accessible to all organizations)'
           : `Private pipeline created successfully (accessible to ${orgId} only)`;
 

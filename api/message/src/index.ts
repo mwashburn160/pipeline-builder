@@ -51,7 +51,7 @@ app.get(
   requireAuth,
   // Set up SSE connection
   (req: Request, res: Response) => {
-    const orgId = (req as any).user?.organizationId?.toLowerCase();
+    const orgId = req.user?.organizationId?.toLowerCase();
     if (!orgId) {
       res.status(400).json({ success: false, message: 'Token missing organization' });
       return;

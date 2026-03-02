@@ -2,9 +2,13 @@
  * Tests for AccessControlQueryBuilder class.
  *
  * Exercises the buildCommonConditions() method which internally calls
- * buildAccessControl(), buildIdFilter(), buildBooleanFilters(), and
- * buildAccessModifierFilter(). In particular, validates that isActive
- * defaults to true when not explicitly provided in the filter (Fix 10).
+ * buildAccessControl(), buildIdFilter(), and buildBooleanFilters().
+ *
+ * Access control rules:
+ * - No orgId: system org public only (2 conditions)
+ * - With orgId, no accessModifier: own org public + system public (2 conditions)
+ * - With orgId, accessModifier='public': own org public only (2 conditions)
+ * - With orgId, accessModifier='private': own org private only (2 conditions)
  */
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -14,6 +18,8 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
+  SYSTEM_ORG_ID: 'system',
+  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
 }));
 
 import { AccessControlQueryBuilder } from '../src/api/access-control-builder';
@@ -24,13 +30,30 @@ const builder = new AccessControlQueryBuilder(schema.pipeline);
 const ORG_ID = 'org-abc-123';
 
 // ---------------------------------------------------------------------------
-// isActive default behavior (Fix 10)
+// Access control — no orgId (anonymous)
+// ---------------------------------------------------------------------------
+describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
+  it('should produce system-public-only conditions when no orgId', () => {
+    const conditions = builder.buildCommonConditions({});
+    // access control (2: orgId='system' + accessModifier='public') + isActive default (1) = 3
+    expect(conditions.length).toBe(3);
+  });
+
+  it('should produce same count with explicit isActive filter and no orgId', () => {
+    const withDefault = builder.buildCommonConditions({});
+    const withExplicit = builder.buildCommonConditions({ isActive: true });
+    expect(withDefault.length).toBe(withExplicit.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isActive default behavior
 // ---------------------------------------------------------------------------
 describe('AccessControlQueryBuilder - isActive default filter', () => {
   it('should include isActive=true by default when isActive is not in filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
-    // Should have: access control (1) + isActive default (1) = at least 2
-    expect(conditions.length).toBeGreaterThanOrEqual(2);
+    // access control (2) + isActive default (1) = 3
+    expect(conditions.length).toBeGreaterThanOrEqual(3);
 
     // Explicitly providing isActive=true should produce the same number of conditions
     const explicitTrue = builder.buildCommonConditions({ isActive: true }, ORG_ID);
@@ -64,7 +87,7 @@ describe('AccessControlQueryBuilder - isActive default filter', () => {
       ORG_ID,
     );
     // Still produces same number of conditions (access control + isActive)
-    expect(withStringFalse.length).toBeGreaterThanOrEqual(2);
+    expect(withStringFalse.length).toBeGreaterThanOrEqual(3);
   });
 
   it('should parse isActive string "true" as true', () => {
@@ -106,8 +129,8 @@ describe('AccessControlQueryBuilder - isDefault filter', () => {
 describe('AccessControlQueryBuilder - combined common conditions', () => {
   it('should include access control + isActive default for empty filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
-    // access control (1 for org-and-public) + isActive default (1) = 2
-    expect(conditions.length).toBe(2);
+    // access control (2: accessModifier='public' + or(orgId=$org, orgId='system')) + isActive default (1) = 3
+    expect(conditions.length).toBe(3);
   });
 
   it('should add id filter condition', () => {
@@ -124,7 +147,7 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
       { accessModifier: 'public' },
       ORG_ID,
     );
-    // access control for 'public' (1) + isActive default (1) + explicit accessModifier (1) = 3
+    // access control for explicit 'public' (2: orgId=$org + accessModifier='public') + isActive default (1) = 3
     expect(withPublic.length).toBe(3);
   });
 
@@ -138,7 +161,20 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
       },
       ORG_ID,
     );
-    // access control for 'private' (1) + id (1) + isDefault (1) + isActive (1) + accessModifier (1) = 5
+    // access control for 'private' (2: orgId=$org + accessModifier='private') + id (1) + isDefault (1) + isActive (1) = 5
     expect(conditions.length).toBe(5);
+  });
+
+  it('should produce fewer conditions for anonymous with all filters', () => {
+    const withOrg = builder.buildCommonConditions(
+      { accessModifier: 'public', isDefault: true },
+      ORG_ID,
+    );
+    const withoutOrg = builder.buildCommonConditions(
+      { isDefault: true },
+    );
+    // Both have 2 access control conditions + isActive (1) + isDefault (1) = 4
+    expect(withOrg.length).toBe(4);
+    expect(withoutOrg.length).toBe(4);
   });
 });

@@ -4,7 +4,7 @@
  */
 
 import { join } from 'path';
-import { createLogger } from '@mwashburn160/api-core';
+import { AccessModifier, createLogger } from '@mwashburn160/api-core';
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
@@ -153,20 +153,17 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Normalizes plugin input (string name or PluginOptions) into consistent PluginOptions format
-   */
-  /**
    * Build the default plugin filter.
-   * When orgId is available, omits accessModifier so the platform API applies
-   * its default "org-and-public" behavior (org-owned plugins + public plugins).
-   * Without orgId, falls back to accessModifier: 'public' only.
+   * Access control is handled by the query builder based on orgId presence:
+   * - With orgId: own org public + system org public
+   * - Without orgId: system org public only
    */
   private defaultFilter(name: string): PluginFilter {
     return {
       name,
       isActive: true,
       isDefault: true,
-      ...(this._orgId ? { orgId: this._orgId } : { accessModifier: 'public' as const }),
+      ...(this._orgId ? { orgId: this._orgId } : {}),
     };
   }
 
@@ -237,7 +234,7 @@ export class PluginLookup extends Construct {
       commands: [],
       imageTag: 'no_image_tag',
       dockerfile: null,
-      accessModifier: 'public',
+      accessModifier: AccessModifier.PUBLIC,
       isDefault: false,
       isActive: true,
       deletedAt: null,

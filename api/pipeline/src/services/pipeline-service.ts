@@ -96,7 +96,7 @@ export class PipelineService extends CrudService<
    * @param orgId - User's organization ID for access control
    * @returns Array of SQL conditions
    */
-  protected buildConditions(filter: Partial<PipelineFilter>, orgId: string): SQL[] {
+  protected buildConditions(filter: Partial<PipelineFilter>, orgId?: string): SQL[] {
     return buildPipelineConditions(filter, orgId);
   }
 

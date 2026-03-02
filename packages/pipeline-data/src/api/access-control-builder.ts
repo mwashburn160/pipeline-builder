@@ -3,6 +3,7 @@
  * @description Provides access control query building utilities for constructing multi-tenant SQL conditions based on organization ownership and public/private visibility.
  */
 
+import { AccessModifier, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { eq, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 
@@ -14,28 +15,6 @@ const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
  */
 export function escapeLikeWildcards(str: string): string {
   return str.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
-
-/**
- * Access control behavior based on accessModifier filter
- */
-export type AccessBehavior = 'public' | 'private' | 'org-and-public';
-
-/**
- * Determine access behavior from filter
- */
-export function getAccessBehavior(accessModifier?: string): AccessBehavior {
-  if (accessModifier === undefined) {
-    return 'org-and-public';
-  }
-
-  const normalized = typeof accessModifier === 'string'
-    ? accessModifier.toLowerCase()
-    : String(accessModifier).toLowerCase();
-
-  if (normalized === 'public') return 'public';
-  if (normalized === 'private') return 'private';
-  return 'org-and-public';
 }
 
 /**
@@ -96,36 +75,49 @@ export class AccessControlQueryBuilder<
   ) {}
 
   /**
-   * Build access control conditions based on accessModifier filter
+   * Build access control conditions based on orgId and accessModifier filter.
    *
-   * Behavior:
-   * - accessModifier='public': Only public records
-   * - accessModifier='private': Only user's org records
-   * - accessModifier not set: User's org records + public records
+   * Without orgId (anonymous):
+   *   orgId='system' AND accessModifier='public'
+   *
+   * With orgId:
+   *   - accessModifier='private': orgId=$org AND accessModifier='private'
+   *   - accessModifier='public':  orgId=$org AND accessModifier='public'
+   *   - no accessModifier:        accessModifier='public' AND (orgId=$org OR orgId='system')
    *
    * @param filter - Filter criteria
-   * @param orgId - User's organization ID
+   * @param orgId - User's organization ID (optional)
    * @returns Array of SQL conditions for access control
    */
-  protected buildAccessControl(filter: Partial<TFilter>, orgId: string): SQL[] {
+  protected buildAccessControl(filter: Partial<TFilter>, orgId?: string): SQL[] {
     const conditions: SQL[] = [];
-    const normalizedOrgId = orgId.toLowerCase();
-    const accessBehavior = getAccessBehavior(filter.accessModifier as string | undefined);
 
-    switch (accessBehavior) {
-      case 'public':
-        conditions.push(eq(this.schema.accessModifier, 'public'));
-        break;
-      case 'private':
-        conditions.push(eq(this.schema.orgId, normalizedOrgId));
-        break;
-      default:
-        conditions.push(
-          or(
-            eq(this.schema.orgId, normalizedOrgId),
-            eq(this.schema.accessModifier, 'public'),
-          )!,
-        );
+    if (!orgId) {
+      // No org context — only system org's public records
+      conditions.push(eq(this.schema.orgId, SYSTEM_ORG_ID));
+      conditions.push(eq(this.schema.accessModifier, AccessModifier.PUBLIC));
+      return conditions;
+    }
+
+    const normalizedOrgId = orgId.toLowerCase();
+    const accessModifier = filter.accessModifier as string | undefined;
+
+    if (accessModifier !== undefined) {
+      // Explicit filter: scope to user's org + requested access modifier
+      const normalized = typeof accessModifier === 'string'
+        ? accessModifier.toLowerCase()
+        : String(accessModifier).toLowerCase();
+      conditions.push(eq(this.schema.orgId, normalizedOrgId));
+      conditions.push(eq(this.schema.accessModifier, normalized));
+    } else {
+      // Default: user's org public + system org public
+      conditions.push(eq(this.schema.accessModifier, AccessModifier.PUBLIC));
+      conditions.push(
+        or(
+          eq(this.schema.orgId, normalizedOrgId),
+          eq(this.schema.orgId, SYSTEM_ORG_ID),
+        )!,
+      );
     }
 
     return conditions;
@@ -191,19 +183,19 @@ export class AccessControlQueryBuilder<
   }
 
   /**
-   * Build all common conditions (access control + ID + booleans + accessModifier)
+   * Build all common conditions (access control + ID + booleans)
    *
    * This combines all the generic filters that apply to any access-controlled entity.
    * Subclasses should call this and add entity-specific conditions.
    *
    * @param filter - Filter criteria
-   * @param orgId - User's organization ID
+   * @param orgId - User's organization ID (optional — falls back to system-public-only)
    * @returns Array of SQL conditions
    */
-  public buildCommonConditions(filter: Partial<TFilter>, orgId: string): SQL[] {
+  public buildCommonConditions(filter: Partial<TFilter>, orgId?: string): SQL[] {
     const conditions: SQL[] = [];
 
-    // Access control (multi-tenant)
+    // Access control (multi-tenant) — handles accessModifier internally
     conditions.push(...this.buildAccessControl(filter, orgId));
 
     // ID filter with prefix matching
@@ -212,10 +204,6 @@ export class AccessControlQueryBuilder<
 
     // Boolean filters
     conditions.push(...this.buildBooleanFilters(filter));
-
-    // Explicit accessModifier filter
-    const accessModifierCondition = this.buildAccessModifierFilter(filter.accessModifier);
-    if (accessModifierCondition) conditions.push(accessModifierCondition);
 
     return conditions;
   }

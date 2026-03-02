@@ -6,7 +6,7 @@
 import { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
-import { forCreation, withUpdateTimestamp, forSoftDelete } from './helpers';
+
 
 /**
  * Pipeline builder configuration properties stored in database.
@@ -396,74 +396,3 @@ export type PluginUpdate = Partial<Omit<PluginInsert, 'id' | 'createdAt' | 'crea
 export type PipelineUpdate = Partial<Omit<PipelineInsert, 'id' | 'createdAt' | 'createdBy'>>;
 export type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
 
-/**
- * Helper function to create a new plugin with timestamps.
- * Uses the generic forCreation helper.
- */
-export function createPlugin(data: Omit<PluginInsert, 'id' | 'createdAt' | 'updatedAt'>): PluginInsert {
-  return forCreation<PluginInsert>(data) as PluginInsert;
-}
-
-/**
- * Helper function to create a new pipeline with timestamps.
- * Uses the generic forCreation helper.
- */
-export function createPipeline(data: Omit<PipelineInsert, 'id' | 'createdAt' | 'updatedAt'>): PipelineInsert {
-  return forCreation<PipelineInsert>(data) as PipelineInsert;
-}
-
-/**
- * Helper function to create a new message with timestamps.
- * Uses the generic forCreation helper.
- */
-export function createMessage(data: Omit<MessageInsert, 'id' | 'createdAt' | 'updatedAt'>): MessageInsert {
-  return forCreation<MessageInsert>(data) as MessageInsert;
-}
-
-/**
- * Helper function to update plugin timestamp.
- * Uses the generic withUpdateTimestamp helper.
- */
-export function updatePluginTimestamp(updates: PluginUpdate, updatedBy: string): PluginUpdate {
-  return withUpdateTimestamp<PluginUpdate>(updates, updatedBy);
-}
-
-/**
- * Helper function to update pipeline timestamp.
- * Uses the generic withUpdateTimestamp helper.
- */
-export function updatePipelineTimestamp(updates: PipelineUpdate, updatedBy: string): PipelineUpdate {
-  return withUpdateTimestamp<PipelineUpdate>(updates, updatedBy);
-}
-
-/**
- * Helper function to update message timestamp.
- * Uses the generic withUpdateTimestamp helper.
- */
-export function updateMessageTimestamp(updates: MessageUpdate, updatedBy: string): MessageUpdate {
-  return withUpdateTimestamp<MessageUpdate>(updates, updatedBy);
-}
-
-/**
- * Helper function for soft deleting a plugin.
- * Uses the generic forSoftDelete helper.
- */
-export function softDeletePlugin(deletedBy: string): PluginUpdate {
-  return forSoftDelete<PluginUpdate>(deletedBy);
-}
-
-/**
- * Helper function for soft deleting a pipeline.
- * Uses the generic forSoftDelete helper.
- */
-export function softDeletePipeline(deletedBy: string): PipelineUpdate {
-  return forSoftDelete<PipelineUpdate>(deletedBy);
-}
-
-/**
- * Helper function for soft deleting a message.
- * Uses the generic forSoftDelete helper.
- */
-export function softDeleteMessage(deletedBy: string): MessageUpdate {
-  return forSoftDelete<MessageUpdate>(deletedBy);
-}
