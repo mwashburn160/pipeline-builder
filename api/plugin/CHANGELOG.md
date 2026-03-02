@@ -1,3 +1,13 @@
+## 1.25.6 (2026-03-02)
+
+### 🩹 Fixes
+
+- increased rate limit ([f507004a](https://github.com/mwashburn160/pipeline-builder/commit/f507004a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.25.5 (2026-03-02)
 
 ### 🩹 Fixes

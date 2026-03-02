@@ -1,3 +1,13 @@
+## 1.30.6 (2026-03-02)
+
+### 🩹 Fixes
+
+- updated re-try strategy ([4e5c102c](https://github.com/mwashburn160/pipeline-builder/commit/4e5c102c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.5 (2026-03-02)
 
 ### 🩹 Fixes
