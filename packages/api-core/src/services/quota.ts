@@ -5,9 +5,14 @@
  * All read and write operations go to a single service endpoint.
  */
 
-import { createSafeClient } from './http-client';
+import { createSafeClient, RequestOptions } from './http-client';
 import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';
+
+/** Retry options for quota calls — more patient with 429 rate limiting. */
+const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries'> = {
+  maxRateLimitRetries: 4,
+};
 
 const logger = createLogger('quota');
 
@@ -126,7 +131,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         success: boolean;
         data?: { quotaType: string; status: QuotaCheckResult };
         message?: string;
-      }>(path, { headers: buildHeaders(orgId, authHeader) });
+      }>(path, { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) {
         logger.warn('Quota service unavailable, allowing request (fail-open)', { orgId, quotaType });
@@ -147,7 +152,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
 
       const response = await client
-        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader) });
+        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response || response.statusCode !== 200) {
         logger.warn('Failed to increment quota', {
