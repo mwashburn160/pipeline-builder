@@ -104,3 +104,31 @@ export const PluginDeployGeneratedSchema = z.object({
 
 /** Validated type for plugin deploy-generated request body. */
 export type ValidatedPluginDeployGenerated = z.infer<typeof PluginDeployGeneratedSchema>;
+
+// ---------------------------------------------------------------------------
+// AI Generate From URL Request
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema for POST /pipelines/generate/from-url/stream request body.
+ * Validates Git URL + AI provider configuration for repo-based pipeline generation.
+ */
+export const AIGenerateFromUrlBodySchema = z.object({
+  /** Git repository URL (HTTPS, SSH, or git@ format). */
+  gitUrl: z.string().min(1, 'A Git repository URL is required').max(500, 'URL must be 500 characters or fewer'),
+
+  /** AI provider identifier (e.g. "ollama", "anthropic", "openai"). */
+  provider: z.string().min(1, 'A provider is required'),
+
+  /** AI model identifier (e.g. "llama3", "claude-sonnet-4-20250514"). */
+  model: z.string().min(1, 'A model is required'),
+
+  /** Optional custom API key (or base URL for Ollama) to override the server config. */
+  apiKey: z.string().min(1).optional(),
+
+  /** Optional authentication token for accessing private repositories. */
+  repoToken: z.string().min(1).optional(),
+});
+
+/** Validated type for AI generate-from-URL request body. */
+export type ValidatedAIGenerateFromUrlBody = z.infer<typeof AIGenerateFromUrlBodySchema>;

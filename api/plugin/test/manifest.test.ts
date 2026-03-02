@@ -183,10 +183,10 @@ describe('validateBuildArgs', () => {
     expect(() => validateBuildArgs({ [longKey]: 'value' })).toThrow('key exceeds 1000 characters');
   });
 
-  it('should reject values longer than 1000 characters', () => {
-    const longValue = 'v'.repeat(1001);
+  it('should reject values longer than 4096 characters', () => {
+    const longValue = 'v'.repeat(4097);
     expect(() => validateBuildArgs({ key: longValue })).toThrow(ValidationError);
-    expect(() => validateBuildArgs({ key: longValue })).toThrow('value for "key" exceeds 1000 characters');
+    expect(() => validateBuildArgs({ key: longValue })).toThrow('value for "key" exceeds 4096 characters');
   });
 });
 

@@ -15,12 +15,15 @@ const mockOpenAIModel = { provider: 'openai', modelId: '' };
 const mockGoogleModel = { provider: 'google', modelId: '' };
 const mockXaiModel = { provider: 'xai', modelId: '' };
 const mockBedrockModel = { provider: 'amazon-bedrock', modelId: '' };
+const mockOllamaModel = { provider: 'ollama', modelId: '' };
 
 const mockAnthropicFactory = jest.fn((id: string) => ({ ...mockAnthropicModel, modelId: id }));
 const mockOpenAIFactory = jest.fn((id: string) => ({ ...mockOpenAIModel, modelId: id }));
 const mockGoogleFactory = jest.fn((id: string) => ({ ...mockGoogleModel, modelId: id }));
 const mockXaiFactory = jest.fn((id: string) => ({ ...mockXaiModel, modelId: id }));
 const mockBedrockFactory = jest.fn((id: string) => ({ ...mockBedrockModel, modelId: id }));
+const mockOllamaChatModel = jest.fn((id: string) => ({ ...mockOllamaModel, modelId: id }));
+const mockOllamaCompatible = { chatModel: mockOllamaChatModel };
 
 jest.mock('@ai-sdk/anthropic', () => ({
   createAnthropic: jest.fn(() => mockAnthropicFactory),
@@ -36,6 +39,9 @@ jest.mock('@ai-sdk/xai', () => ({
 }));
 jest.mock('@ai-sdk/amazon-bedrock', () => ({
   createAmazonBedrock: jest.fn(() => mockBedrockFactory),
+}));
+jest.mock('@ai-sdk/openai-compatible', () => ({
+  createOpenAICompatible: jest.fn(() => mockOllamaCompatible),
 }));
 
 // ---------------------------------------------------------------------------
@@ -81,6 +87,7 @@ describe('ai-core provider-registry', () => {
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
+      delete process.env.OLLAMA_BASE_URL;
 
       const { getAvailableProviders } = freshImport();
       const providers = getAvailableProviders();
@@ -94,6 +101,7 @@ describe('ai-core provider-registry', () => {
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
+      delete process.env.OLLAMA_BASE_URL;
 
       const { getAvailableProviders } = freshImport();
       const providers = getAvailableProviders();
@@ -120,17 +128,48 @@ describe('ai-core provider-registry', () => {
       expect(ids).toContain('google');
     });
 
-    it('should return all five providers when all keys are set', () => {
+    it('should return all six providers when all keys are set', () => {
       process.env.ANTHROPIC_API_KEY = 'key-1';
       process.env.OPENAI_API_KEY = 'key-2';
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
+      process.env.OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 
       const { getAvailableProviders } = freshImport();
       const providers = getAvailableProviders();
 
-      expect(providers).toHaveLength(5);
+      expect(providers).toHaveLength(6);
+    });
+
+    it('should register Ollama when OLLAMA_BASE_URL is set', () => {
+      process.env.OLLAMA_BASE_URL = 'http://localhost:11434/v1';
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.XAI_API_KEY;
+      delete process.env.AWS_ACCESS_KEY_ID;
+
+      const { getAvailableProviders } = freshImport();
+      const providers = getAvailableProviders();
+
+      expect(providers).toHaveLength(1);
+      expect(providers[0].id).toBe('ollama');
+      expect(providers[0].name).toBe('Ollama (Local)');
+    });
+
+    it('should not register Ollama when OLLAMA_BASE_URL is unset', () => {
+      delete process.env.OLLAMA_BASE_URL;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.XAI_API_KEY;
+      delete process.env.AWS_ACCESS_KEY_ID;
+
+      const { getAvailableProviders } = freshImport();
+      const providers = getAvailableProviders();
+
+      expect(providers).toEqual([]);
     });
 
     it('should include models in each provider entry', () => {
@@ -188,6 +227,7 @@ describe('ai-core provider-registry', () => {
       expect(getProviderModels('google').map((m) => m.id)).toContain('gemini-2.0-flash');
       expect(getProviderModels('xai').map((m) => m.id)).toContain('grok-3');
       expect(getProviderModels('amazon-bedrock').length).toBeGreaterThan(0);
+      expect(getProviderModels('ollama').map((m) => m.id)).toContain('llama3');
     });
   });
 
@@ -294,6 +334,7 @@ describe('ai-core provider-registry', () => {
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
+      process.env.OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 
       const { resolveModel } = freshImport();
 
@@ -302,6 +343,22 @@ describe('ai-core provider-registry', () => {
       expect(resolveModel('google', 'gemini-2.0-flash')).toBeDefined();
       expect(resolveModel('xai', 'grok-3')).toBeDefined();
       expect(resolveModel('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0')).toBeDefined();
+      expect(resolveModel('ollama', 'llama3')).toBeDefined();
+    });
+
+    it('should resolve Ollama model via openai-compatible SDK', () => {
+      process.env.OLLAMA_BASE_URL = 'http://localhost:11434/v1';
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.XAI_API_KEY;
+      delete process.env.AWS_ACCESS_KEY_ID;
+
+      const { resolveModel } = freshImport();
+      const model = resolveModel('ollama', 'llama3');
+
+      expect(model).toBeDefined();
+      expect(mockOllamaChatModel).toHaveBeenCalledWith('llama3');
     });
   });
 
@@ -379,6 +436,18 @@ describe('ai-core provider-registry', () => {
 
       expect(model).toBeDefined();
       expect(createAmazonBedrock).toHaveBeenCalled();
+    });
+
+    it('should create a model for Ollama with custom base URL', () => {
+      const { createModelWithKey } = freshImport();
+      const { createOpenAICompatible } = require('@ai-sdk/openai-compatible');
+
+      const model = createModelWithKey('ollama', 'llama3', 'http://custom:11434/v1');
+
+      expect(model).toBeDefined();
+      expect(createOpenAICompatible).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'http://custom:11434/v1', name: 'ollama' }),
+      );
     });
 
     it('should not affect the registry (uses ephemeral provider instances)', () => {

@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '@/lib/api';
+import { MESSAGE_SSE_MAX_RETRIES, MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
 
 /** Discriminator for message notification actions. */
 export type MessageNotificationAction = 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'UNREAD_COUNT';
@@ -28,9 +29,6 @@ export interface MessageNotification {
 
 /** Callback signature for notification listeners. */
 export type NotificationListener = (notification: MessageNotification) => void;
-
-const MAX_RETRIES = 5;
-const BASE_RETRY_DELAY_MS = 2000;
 
 /**
  * Connects to the message service SSE endpoint and provides real-time notifications.
@@ -95,9 +93,9 @@ export function useMessageNotifications(orgId: string | null) {
       eventSource.close();
       setConnected(false);
 
-      if (retryCountRef.current < MAX_RETRIES) {
+      if (retryCountRef.current < MESSAGE_SSE_MAX_RETRIES) {
         retryCountRef.current++;
-        const delay = BASE_RETRY_DELAY_MS * Math.pow(2, retryCountRef.current - 1);
+        const delay = MESSAGE_SSE_BASE_RETRY_DELAY_MS * Math.pow(2, retryCountRef.current - 1);
         retryTimerRef.current = setTimeout(() => {
           setReconnectKey(k => k + 1);
         }, delay);

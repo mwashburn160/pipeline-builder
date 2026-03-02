@@ -25,3 +25,18 @@ export const PLUGIN_BUILD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Default fetch request timeout in ms. */
 export const API_REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
+
+/** Maximum stored build events in SSE hook before trimming. */
+export const MAX_BUILD_EVENTS = 1000;
+
+/** Maximum SSE reconnection retries for build status. */
+export const BUILD_SSE_MAX_RETRIES = 3;
+
+/** Maximum SSE reconnection retries for message notifications. */
+export const MESSAGE_SSE_MAX_RETRIES = 5;
+
+/** Base retry delay (ms) for message notification reconnection. */
+export const MESSAGE_SSE_BASE_RETRY_DELAY_MS = 2000;
+
+/** Threshold for distinguishing seconds vs milliseconds epoch timestamps. */
+export const EPOCH_MS_THRESHOLD = 1e12;

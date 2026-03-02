@@ -153,24 +153,21 @@ export async function confirmSNSSubscription(subscribeUrl: string): Promise<void
 // Notification Mapping
 // ---------------------------------------------------------------------------
 
+/** Marketplace action → subscription status change lookup. */
+const ACTION_STATUS_MAP: Record<string, { status: 'active' | 'canceled' | 'incomplete'; cancelAtPeriodEnd: boolean }> = {
+  'subscribe-success': { status: 'active', cancelAtPeriodEnd: false },
+  'unsubscribe-pending': { status: 'active', cancelAtPeriodEnd: true },
+  'unsubscribe-success': { status: 'canceled', cancelAtPeriodEnd: false },
+  'subscribe-fail': { status: 'incomplete', cancelAtPeriodEnd: false },
+};
+
 /**
  * Map an AWS Marketplace notification action to a subscription status change.
  */
 export function mapActionToStatus(
   action: string,
 ): { status: 'active' | 'canceled' | 'incomplete'; cancelAtPeriodEnd: boolean } | null {
-  switch (action) {
-    case 'subscribe-success':
-      return { status: 'active', cancelAtPeriodEnd: false };
-    case 'unsubscribe-pending':
-      return { status: 'active', cancelAtPeriodEnd: true };
-    case 'unsubscribe-success':
-      return { status: 'canceled', cancelAtPeriodEnd: false };
-    case 'subscribe-fail':
-      return { status: 'incomplete', cancelAtPeriodEnd: false };
-    default:
-      return null;
-  }
+  return ACTION_STATUS_MAP[action] ?? null;
 }
 
 /**

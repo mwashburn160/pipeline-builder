@@ -351,7 +351,7 @@ export function startWorker(
 // ---------------------------------------------------------------------------
 
 /** Maximum age (ms) for orphaned temp directories before cleanup. */
-const TEMP_DIR_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || String(60 * 60 * 1000), 10);
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 

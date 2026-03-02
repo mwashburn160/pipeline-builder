@@ -36,8 +36,9 @@
     "@ai-sdk/anthropic": "3.0.47",
     "@ai-sdk/google": "3.0.31",
     "@ai-sdk/openai": "3.0.31",
+    "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@mwashburn160/api-core": "1.31.4",
+    "@mwashburn160/api-core": "workspace:*",
     "ai": "6.0.99"
   },
   "engines": {

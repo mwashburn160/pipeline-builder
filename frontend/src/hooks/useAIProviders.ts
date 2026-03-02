@@ -118,6 +118,13 @@ export function useAIProviders(
           ...orgProviders.filter((p) => !serverIds.has(p.id)),
         ];
 
+        // Sort: Ollama first (local, no API key needed), then alphabetical
+        merged.sort((a, b) => {
+          if (a.id === 'ollama') return -1;
+          if (b.id === 'ollama') return 1;
+          return a.name.localeCompare(b.name);
+        });
+
         setProviders(merged);
         if (merged.length > 0) {
           setSelectedProviderState(merged[0].id);

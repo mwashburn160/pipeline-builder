@@ -11,28 +11,28 @@ import type { SubscriptionStatus } from '../models/subscription';
 
 const logger = createLogger('stripe-helpers');
 
+/** Stripe status → internal SubscriptionStatus lookup. */
+const STRIPE_STATUS_MAP: Record<string, SubscriptionStatus> = {
+  active: 'active',
+  trialing: 'trialing',
+  past_due: 'past_due',
+  canceled: 'canceled',
+  unpaid: 'canceled',
+  incomplete: 'incomplete',
+  incomplete_expired: 'incomplete',
+};
+
 /**
  * Map a Stripe subscription status to our internal SubscriptionStatus.
  * @see https://docs.stripe.com/api/subscriptions/object#subscription_object-status
  */
 export function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
-  switch (stripeStatus) {
-    case 'active':
-      return 'active';
-    case 'trialing':
-      return 'trialing';
-    case 'past_due':
-      return 'past_due';
-    case 'canceled':
-    case 'unpaid':
-      return 'canceled';
-    case 'incomplete':
-    case 'incomplete_expired':
-      return 'incomplete';
-    default:
-      logger.warn('Unknown Stripe subscription status', { stripeStatus });
-      return 'incomplete';
+  const mapped = STRIPE_STATUS_MAP[stripeStatus];
+  if (!mapped) {
+    logger.warn('Unknown Stripe subscription status', { stripeStatus });
+    return 'incomplete';
   }
+  return mapped;
 }
 
 /**

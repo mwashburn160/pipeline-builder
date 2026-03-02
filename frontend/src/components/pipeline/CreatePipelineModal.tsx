@@ -3,7 +3,7 @@ import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
-import AIBuilderTab, { AIBuilderTabRef } from './AIBuilderTab';
+import GitUrlTab, { GitUrlTabRef } from './GitUrlTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
@@ -24,20 +24,22 @@ interface CreatePipelineModalProps {
   createSuccess: string | null;
   /** Whether the current user is allowed to create public pipelines. */
   canCreatePublic: boolean;
+  /** Optional pre-filled Git URL (opens on Git URL tab and starts generation). */
+  initialGitUrl?: string;
 }
 
 /**
  * Modal for creating a new pipeline configuration.
  *
- * Offers three input modes via tabs: Upload (JSON file/paste), Wizard (step-by-step form),
- * and AI Builder (natural language generation). The Wizard tab uses a multi-step flow
- * with Previous/Next navigation, while the other tabs submit directly.
+ * Offers three input modes via tabs: Git URL (repo analysis + AI generation),
+ * Upload (JSON file/paste), and Wizard (step-by-step form). The Wizard tab uses a
+ * multi-step flow with Previous/Next navigation, while the other tabs submit directly.
  */
 export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
-  createLoading, createError, createSuccess, canCreatePublic,
+  createLoading, createError, createSuccess, canCreatePublic, initialGitUrl,
 }: CreatePipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>('form');
+  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>(initialGitUrl ? 'ai' : 'ai');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function CreatePipelineModal({
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
-  const aiRef = useRef<AIBuilderTabRef>(null);
+  const aiRef = useRef<GitUrlTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Scroll to top when step changes
@@ -152,6 +154,16 @@ export default function CreatePipelineModal({
     <div className="border-b border-gray-200 dark:border-gray-700 px-6">
       <nav className="-mb-px flex space-x-8">
         <button
+          onClick={() => setActiveTab('ai')}
+          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+            activeTab === 'ai'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+          }`}
+        >
+          Git URL
+        </button>
+        <button
           onClick={() => setActiveTab('upload')}
           className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
             activeTab === 'upload'
@@ -159,7 +171,7 @@ export default function CreatePipelineModal({
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
           }`}
         >
-          Upload Configuration
+          Upload
         </button>
         <button
           onClick={() => setActiveTab('form')}
@@ -170,16 +182,6 @@ export default function CreatePipelineModal({
           }`}
         >
           Wizard
-        </button>
-        <button
-          onClick={() => setActiveTab('ai')}
-          className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === 'ai'
-              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
-        >
-          AI Builder
         </button>
       </nav>
     </div>
@@ -281,7 +283,7 @@ export default function CreatePipelineModal({
       {activeTab === 'upload' ? (
         <UploadConfigTab ref={uploadRef} disabled={createLoading} />
       ) : activeTab === 'ai' ? (
-        <AIBuilderTab ref={aiRef} disabled={createLoading} />
+        <GitUrlTab ref={aiRef} disabled={createLoading} initialUrl={initialGitUrl} autoGenerate={!!initialGitUrl} />
       ) : (
         <FormBuilderTab
           ref={formRef}

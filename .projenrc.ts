@@ -19,13 +19,13 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:      '1.31.4',
-  pipelineData: '1.32.4',
-  pipelineCore: '1.32.4',
-  apiServer:    '1.30.4',
-  aiCore:       '1.5.4',
+  apiCore:      ws,
+  pipelineData: ws,
+  pipelineCore: ws,
+  apiServer:    ws,
+  aiCore:       ws,
 };
 
 // -- Root project --
@@ -235,6 +235,7 @@ const aiCore = new PackageProject({
     '@ai-sdk/google@3.0.31',
     '@ai-sdk/xai@3.0.59',
     '@ai-sdk/amazon-bedrock@4.0.64',
+    '@ai-sdk/openai-compatible@2.0.31',
   ],
   devDeps: [
     '@types/node@25.3.0',

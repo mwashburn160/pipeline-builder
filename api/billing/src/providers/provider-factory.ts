@@ -26,37 +26,33 @@ let cachedProvider: PaymentProvider | null = null;
 export function getPaymentProvider(): PaymentProvider {
   if (cachedProvider) return cachedProvider;
 
-  switch (config.billingProvider) {
-    case 'aws-marketplace': {
+  /** Provider factories keyed by billing provider type. */
+  const factories: Record<string, () => PaymentProvider> = {
+    'aws-marketplace': () => {
       if (!config.marketplace.productCode) {
-        throw new Error(
-          'AWS_MARKETPLACE_PRODUCT_CODE is required when BILLING_PROVIDER=aws-marketplace',
-        );
+        throw new Error('AWS_MARKETPLACE_PRODUCT_CODE is required when BILLING_PROVIDER=aws-marketplace');
       }
-      cachedProvider = new AWSMarketplaceProvider(config.marketplace);
       logger.info('Using AWS Marketplace payment provider', {
         productCode: config.marketplace.productCode,
         region: config.marketplace.region,
       });
-      break;
-    }
-    case 'stripe': {
+      return new AWSMarketplaceProvider(config.marketplace);
+    },
+    'stripe': () => {
       if (!config.stripe.secretKey) {
-        throw new Error(
-          'STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe',
-        );
+        throw new Error('STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe');
       }
-      cachedProvider = new StripeProvider(config.stripe);
       logger.info('Using Stripe payment provider');
-      break;
-    }
-    case 'stub':
-    default: {
-      cachedProvider = new StubPaymentProvider();
+      return new StripeProvider(config.stripe);
+    },
+    'stub': () => {
       logger.info('Using stub payment provider');
-      break;
-    }
-  }
+      return new StubPaymentProvider();
+    },
+  };
+
+  const factory = factories[config.billingProvider] ?? factories.stub;
+  cachedProvider = factory();
 
   return cachedProvider;
 }

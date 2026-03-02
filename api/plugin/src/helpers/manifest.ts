@@ -118,8 +118,8 @@ export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Reco
     if (key.length > 1000) {
       throw new ValidationError(`buildArgs key exceeds 1000 characters: ${key.slice(0, 50)}...`);
     }
-    if (value.length > 1000) {
-      throw new ValidationError(`buildArgs value for "${key}" exceeds 1000 characters`);
+    if (value.length > 4096) {
+      throw new ValidationError(`buildArgs value for "${key}" exceeds 4096 characters`);
     }
   }
 }
