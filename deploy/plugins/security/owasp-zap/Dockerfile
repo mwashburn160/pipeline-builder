@@ -38,7 +38,7 @@ RUN ln -sf /opt/zap/versions/zap-2.16.0 /opt/zap/current
 ENV PATH="/opt/zap/current:${PATH}"
 
 # Install ZAP Python API client
-RUN pip3 install --no-cache-dir python-owasp-zap-v2.4==0.0.22
+RUN pip3 install --no-cache-dir --break-system-packages python-owasp-zap-v2.4==0.0.22
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — no tokens or secrets in ENV/ARG

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── ggshield (GitGuardian CLI) ───
-RUN pip3 install --no-cache-dir ggshield==1.33.0
+RUN pip3 install --no-cache-dir --break-system-packages ggshield==1.33.0
 
 # Non-sensitive config only
 ENV GG_SCAN_TYPE=path

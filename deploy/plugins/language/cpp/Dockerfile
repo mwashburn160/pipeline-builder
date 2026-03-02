@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Conan package manager
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
-    && pip3 install conan meson \
+    && pip3 install --break-system-packages conan meson \
     && rm -rf /var/lib/apt/lists/*
 
 # Build system selection (auto = detect from project files)

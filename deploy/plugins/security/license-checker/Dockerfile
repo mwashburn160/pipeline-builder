@@ -31,7 +31,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 RUN npm install -g license-checker@25.0.1
 
 # Python: pip-licenses
-RUN pip3 install --no-cache-dir pip-licenses==5.0.0
+RUN pip3 install --no-cache-dir --break-system-packages pip-licenses==5.0.0
 
 # Go: go-licenses (installed at runtime if needed)
 # Ruby: license_finder
