@@ -1,3 +1,13 @@
+## 1.25.5 (2026-03-02)
+
+### 🩹 Fixes
+
+- upgraded ai-core=1.5.4 ([2b3947eb](https://github.com/mwashburn160/pipeline-builder/commit/2b3947eb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.25.4 (2026-03-02)
 
 ### 🩹 Fixes
