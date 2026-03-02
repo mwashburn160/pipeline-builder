@@ -1,3 +1,20 @@
+## 1.26.0 (2026-03-02)
+
+### 🚀 Features
+
+- chat uses sse events ([3e3c15c3](https://github.com/mwashburn160/pipeline-builder/commit/3e3c15c3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.32.0
+- Updated @mwashburn160/api-server to 1.30.0
+- Updated @mwashburn160/api-core to 1.31.0
+- Updated @mwashburn160/ai-core to 1.5.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.25.6 (2026-03-02)
 
 ### 🩹 Fixes
