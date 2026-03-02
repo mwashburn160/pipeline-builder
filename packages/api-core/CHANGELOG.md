@@ -1,3 +1,13 @@
+## 1.32.0 (2026-03-02)
+
+### 🚀 Features
+
+- added ai model ([34288220](https://github.com/mwashburn160/pipeline-builder/commit/34288220))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.5 (2026-03-02)
 
 ### 🩹 Fixes
