@@ -15,8 +15,10 @@ import {
   validateBody,
   MessageCreateSchema,
   MessageReplySchema,
+  createLogger,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import type { SSEManager } from '@mwashburn160/api-server';
 import { schema } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
@@ -24,15 +26,18 @@ import { messageService } from '../services/message-service';
 
 type MessageInsert = typeof schema.message.$inferInsert;
 
+const logger = createLogger('create-message');
+
 /**
  * Create the message creation router (authenticated).
  *
  * Registers:
  * - POST /messages           -- create a new announcement or conversation
  * - POST /messages/:id/reply -- reply to an existing thread
+ * @param sseManager - SSE manager for pushing real-time notifications
  * @returns Express Router
  */
-export function createCreateMessageRoutes(): Router {
+export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // POST /messages — Create new message
@@ -77,6 +82,25 @@ export function createCreateMessageRoutes(): Router {
     const message = await messageService.create(messageData as MessageInsert, userId);
 
     ctx.log('COMPLETED', 'Message created', { id: message.id, messageType });
+
+    // Push SSE notification to recipient
+    try {
+      const notificationData = {
+        action: 'NEW_MESSAGE' as const,
+        messageId: message.id,
+        subject,
+        senderOrgId: orgId,
+        messageType,
+      };
+
+      if (recipientOrgId.toLowerCase() === '*') {
+        sseManager.broadcast('MESSAGE', 'New announcement', notificationData);
+      } else {
+        sseManager.send(recipientOrgId.toLowerCase(), 'MESSAGE', 'New message', notificationData);
+      }
+    } catch (err) {
+      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+    }
 
     return sendSuccess(res, 201, message, 'Message created successfully');
   }));
@@ -147,6 +171,20 @@ export function createCreateMessageRoutes(): Router {
     const reply = await messageService.create(replyData as MessageInsert, userId);
 
     ctx.log('COMPLETED', 'Reply created', { id: reply.id, threadId: id });
+
+    // Push SSE notification to the reply recipient
+    try {
+      sseManager.send(replyRecipientOrgId.toLowerCase(), 'MESSAGE', 'New reply', {
+        action: 'NEW_MESSAGE' as const,
+        messageId: reply.id,
+        threadId: id,
+        subject: rootMessage.subject,
+        senderOrgId: orgId,
+        messageType: rootMessage.messageType,
+      });
+    } catch (err) {
+      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+    }
 
     return sendSuccess(res, 201, reply, 'Reply sent successfully');
   }));

@@ -209,10 +209,11 @@ async function startServer(): Promise<void> {
       });
 
       // Force shutdown after timeout
+      const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '15000', 10);
       setTimeout(() => {
         logger.error('Forced shutdown after timeout');
         process.exit(1);
-      }, 15000);
+      }, shutdownTimeoutMs);
     };
 
     process.on('SIGINT', () => void shutdown('SIGINT'));

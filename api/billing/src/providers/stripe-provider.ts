@@ -11,8 +11,8 @@
  * from our side), not push-based (SNS notifications).
  */
 
-import Stripe from 'stripe';
 import { createLogger } from '@mwashburn160/api-core';
+import Stripe from 'stripe';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
 import type { StripeConfig } from '../config';
 import type { BillingInterval } from '../models/subscription';

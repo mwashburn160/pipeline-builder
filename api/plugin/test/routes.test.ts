@@ -330,7 +330,7 @@ describe('GET /plugins/:id', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('returns 404 when non-admin accesses public plugin', async () => {
+  it('allows non-admin to view public plugin (access control handled by service layer)', async () => {
     const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
     mockFindById.mockResolvedValue(plugin);
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
@@ -339,7 +339,7 @@ describe('GET /plugins/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('allows system admin to view public plugin', async () => {

@@ -69,12 +69,16 @@ export default function CreatePipelineModal({
   const handlePreview = async () => {
     setPreviewError(null);
     let props: BuilderProps | null = null;
-    if (activeTab === 'form') {
-      props = formRef.current?.getPropsPreview() ?? null;
-    } else if (activeTab === 'upload') {
-      props = await uploadRef.current?.getProps() ?? null;
-    } else if (activeTab === 'ai') {
-      props = await aiRef.current?.getProps() ?? null;
+    switch (activeTab) {
+      case 'form':
+        props = formRef.current?.getPropsPreview() ?? null;
+        break;
+      case 'upload':
+        props = await uploadRef.current?.getProps() ?? null;
+        break;
+      case 'ai':
+        props = await aiRef.current?.getProps() ?? null;
+        break;
     }
     if (props) {
       setPreviewJson(JSON.stringify(props, null, 2));
@@ -90,12 +94,15 @@ export default function CreatePipelineModal({
     // Description/keywords from upload or AI tabs
     let desc = '';
     let kw = '';
-    if (activeTab === 'upload') {
-      desc = uploadRef.current?.getDescription() ?? '';
-      kw = uploadRef.current?.getKeywords() ?? '';
-    } else if (activeTab === 'ai') {
-      desc = aiRef.current?.getDescription() ?? '';
-      kw = aiRef.current?.getKeywords() ?? '';
+    switch (activeTab) {
+      case 'upload':
+        desc = uploadRef.current?.getDescription() ?? '';
+        kw = uploadRef.current?.getKeywords() ?? '';
+        break;
+      case 'ai':
+        desc = aiRef.current?.getDescription() ?? '';
+        kw = aiRef.current?.getKeywords() ?? '';
+        break;
     }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
     await onSubmit(props, createAccess, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);

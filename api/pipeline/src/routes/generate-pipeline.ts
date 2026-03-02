@@ -182,7 +182,7 @@ export function createGeneratePipelineRoutes(): Router {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no');
-        res.setTimeout(0);
+        res.setTimeout(300_000); // 5-minute timeout for SSE streams
         res.flushHeaders();
 
         // Track client disconnect

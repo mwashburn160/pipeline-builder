@@ -198,6 +198,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteAccount = async () => {
+    setProfileError(null);
     setDeleteLoading(true);
     try {
       await api.deleteAccount();

@@ -100,15 +100,23 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       for await (const event of api.streamPluginGeneration(
         prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
       )) {
-        if (event.type === 'partial' && event.data) {
-          setStreamPreview(JSON.stringify(event.data, null, 2));
-        } else if (event.type === 'done' && event.data) {
-          const data = event.data as { config: GeneratedConfig; dockerfile: string };
-          setGeneratedConfig(data.config);
-          setGeneratedDockerfile(data.dockerfile);
-          setStreamPreview(null);
-        } else if (event.type === 'error') {
-          setError(event.message || 'Generation failed');
+        switch (event.type) {
+          case 'partial':
+            if (event.data) {
+              setStreamPreview(JSON.stringify(event.data, null, 2));
+            }
+            break;
+          case 'done':
+            if (event.data) {
+              const data = event.data as { config: GeneratedConfig; dockerfile: string };
+              setGeneratedConfig(data.config);
+              setGeneratedDockerfile(data.dockerfile);
+              setStreamPreview(null);
+            }
+            break;
+          case 'error':
+            setError(event.message || 'Generation failed');
+            break;
         }
       }
     } catch (err: unknown) {

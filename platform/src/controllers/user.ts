@@ -5,7 +5,7 @@
  * and admin endpoints for listing, viewing, updating, and deleting users.
  */
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import type { FeatureFlag, QuotaTier } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { Types } from 'mongoose';
@@ -121,7 +121,7 @@ export async function getUser(req: Request, res: Response): Promise<void> {
       const org = await Organization.findById(user.organizationId).select('name tier').lean();
       organizationName = org?.name || null;
       tier = (org?.tier as QuotaTier) || 'developer';
-      isSystem = user.organizationId.toString() === 'system';
+      isSystem = user.organizationId.toString() === SYSTEM_ORG_ID;
     }
 
     const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
@@ -374,7 +374,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
         organizationName = org.name;
         organization = { id: org._id.toString(), name: org.name, slug: org.slug };
         tier = (org.tier as QuotaTier) || 'developer';
-        isSystem = org._id.toString() === 'system';
+        isSystem = org._id.toString() === SYSTEM_ORG_ID;
       }
     }
 
@@ -589,7 +589,7 @@ export async function updateUserFeatures(req: Request, res: Response): Promise<v
       const org = await Organization.findById(user.organizationId).select('name tier').lean();
       organizationName = org?.name || null;
       tier = (org?.tier as QuotaTier) || 'developer';
-      isSystem = user.organizationId.toString() === 'system';
+      isSystem = user.organizationId.toString() === SYSTEM_ORG_ID;
     }
 
     const features = resolveUserFeatures(tier, overrides as Record<string, boolean>, isSystem);

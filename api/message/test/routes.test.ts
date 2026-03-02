@@ -56,6 +56,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   },
   isSystemAdmin: jest.fn(() => false),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  createLogger: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -138,10 +139,22 @@ const mockQuotaService = {
   getUsage: jest.fn(),
 } as any;
 
+const mockSseManager = {
+  send: jest.fn().mockReturnValue(1),
+  broadcast: jest.fn().mockReturnValue(5),
+  addClient: jest.fn(),
+  hasClients: jest.fn(),
+  getClientCount: jest.fn(),
+  getStats: jest.fn(),
+  closeRequest: jest.fn(),
+  shutdown: jest.fn(),
+  middleware: jest.fn(),
+} as any;
+
 const readRouter = createReadMessageRoutes(mockQuotaService);
-const createRouter = createCreateMessageRoutes();
-const updateRouter = createUpdateMessageRoutes();
-const deleteRouter = createDeleteMessageRoutes();
+const createRouter = createCreateMessageRoutes(mockSseManager);
+const updateRouter = createUpdateMessageRoutes(mockSseManager);
+const deleteRouter = createDeleteMessageRoutes(mockSseManager);
 
 function getHandler(router: any, method: string, path: string) {
   const layer = router.stack.find(
@@ -429,6 +442,13 @@ describe('POST /messages (create)', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockCreate).toHaveBeenCalled();
+    // Verify SSE notification was sent to recipient org
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'system',
+      'MESSAGE',
+      'New message',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-new' }),
+    );
   });
 
   it('returns 400 on invalid body', async () => {
@@ -481,6 +501,12 @@ describe('POST /messages (create)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
+    // Verify SSE broadcast was used for announcements
+    expect(mockSseManager.broadcast).toHaveBeenCalledWith(
+      'MESSAGE',
+      'New announcement',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-ann' }),
+    );
   });
 
   it('returns 403 when non-system org messages non-system org', async () => {
@@ -548,6 +574,13 @@ describe('POST /messages/:id/reply', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
+    // Verify SSE notification sent to reply recipient
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'system',
+      'MESSAGE',
+      'New reply',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-reply', threadId: 'msg-1' }),
+    );
   });
 
   it('returns 404 when root message not found', async () => {
@@ -613,6 +646,7 @@ describe('PUT /messages/:id/read', () => {
   it('marks a message as read', async () => {
     const message = { id: 'msg-1', isRead: true };
     mockMarkAsRead.mockResolvedValue(message);
+    mockGetUnreadCount.mockResolvedValue(3);
 
     const req = mockReq({ params: { id: 'msg-1' } });
     const res = mockRes();
@@ -620,6 +654,13 @@ describe('PUT /messages/:id/read', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockMarkAsRead).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
+    // Verify SSE unread count push
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'org-1',
+      'MESSAGE',
+      'Unread count updated',
+      expect.objectContaining({ action: 'UNREAD_COUNT', unreadCount: 3 }),
+    );
   });
 
   it('returns 404 when message not found', async () => {
@@ -659,6 +700,7 @@ describe('PUT /messages/:id/thread/read', () => {
   it('marks entire thread as read', async () => {
     mockMarkAsRead.mockResolvedValue({ id: 'msg-1', isRead: true });
     mockMarkThreadAsRead.mockResolvedValue([{ id: 'msg-2' }, { id: 'msg-3' }]);
+    mockGetUnreadCount.mockResolvedValue(0);
 
     const req = mockReq({ params: { id: 'msg-1' } });
     const res = mockRes();
@@ -670,6 +712,13 @@ describe('PUT /messages/:id/thread/read', () => {
         success: true,
         data: expect.objectContaining({ updated: 3 }),
       }),
+    );
+    // Verify SSE unread count push
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'org-1',
+      'MESSAGE',
+      'Unread count updated',
+      expect.objectContaining({ action: 'UNREAD_COUNT', unreadCount: 0 }),
     );
   });
 
@@ -703,7 +752,7 @@ describe('DELETE /messages/:id', () => {
 
   it('allows system admin to delete any message', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: 'system' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -712,12 +761,19 @@ describe('DELETE /messages/:id', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockDelete).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
+    // Verify SSE notification sent to the other party
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'system',
+      'MESSAGE',
+      'Message deleted',
+      expect.objectContaining({ action: 'MESSAGE_DELETED', messageId: 'msg-1' }),
+    );
   });
 
   it('allows message sender to self-delete', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdBy: 'user-1' });
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: 'system' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -725,6 +781,13 @@ describe('DELETE /messages/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    // Verify SSE notification sent to the other party
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'system',
+      'MESSAGE',
+      'Message deleted',
+      expect.objectContaining({ action: 'MESSAGE_DELETED', messageId: 'msg-1' }),
+    );
   });
 
   it('returns 403 when non-admin non-sender tries to delete', async () => {
@@ -782,5 +845,85 @@ describe('DELETE /messages/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('does not send SSE notification for broadcast message deletion', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'system', recipientOrgId: '*' });
+    mockDeleteThread.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { id: 'msg-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockSseManager.send).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SSE Notification Resilience
+// ---------------------------------------------------------------------------
+
+describe('SSE notification resilience', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does not fail HTTP response if SSE send throws on message create', async () => {
+    mockSseManager.send.mockImplementation(() => { throw new Error('SSE failure'); });
+    mockCreate.mockResolvedValue({ id: 'msg-1', subject: 'Test' });
+
+    const handler = getHandler(createRouter, 'post', '/');
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'system',
+        messageType: 'conversation',
+        subject: 'Test',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    // HTTP response should still succeed despite SSE failure
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('does not fail HTTP response if SSE send throws on mark as read', async () => {
+    mockSseManager.send.mockImplementation(() => { throw new Error('SSE failure'); });
+    mockMarkAsRead.mockResolvedValue({ id: 'msg-1', isRead: true });
+    mockGetUnreadCount.mockResolvedValue(0);
+
+    const handler = getHandler(updateRouter, 'put', '/:id/read');
+    const req = mockReq({ params: { id: 'msg-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('does not fail HTTP response if SSE broadcast throws on announcement', async () => {
+    mockSseManager.broadcast.mockImplementation(() => { throw new Error('SSE failure'); });
+    mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
+
+    const handler = getHandler(createRouter, 'post', '/');
+    const req = mockReq({
+      body: {
+        recipientOrgId: '*',
+        messageType: 'announcement',
+        subject: 'Update',
+        content: 'System update',
+        priority: 'normal',
+      },
+      context: {
+        identity: { orgId: 'system', userId: 'admin' },
+        log: jest.fn(),
+        requestId: 'req-1',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 });

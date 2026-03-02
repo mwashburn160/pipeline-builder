@@ -73,6 +73,8 @@ export interface RequestOptions {
   retryDelayMs?: number;
   /** Maximum retry attempts specifically for 429 rate limiting (default: 4) */
   maxRateLimitRetries?: number;
+  /** Optional request ID for distributed tracing (added as X-Request-Id header) */
+  requestId?: string;
 }
 
 /**
@@ -236,12 +238,17 @@ export class InternalHttpClient {
         ...options?.headers,
       };
 
+      // Propagate request ID for distributed tracing
+      if (options?.requestId) {
+        headers['X-Request-Id'] = options.requestId;
+      }
+
       if (bodyStr) {
         headers['Content-Length'] = Buffer.byteLength(bodyStr);
       }
 
       // Validate path to prevent protocol injection / request smuggling
-      if (path.includes('://') || path.startsWith('//')) {
+      if (path.includes('://') || path.startsWith('//') || /[\r\n\0]/.test(path)) {
         throw new Error(`Invalid request path: ${path}`);
       }
 

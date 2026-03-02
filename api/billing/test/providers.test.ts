@@ -45,9 +45,9 @@ jest.mock('stripe', () => {
   }));
 });
 
-import { StubPaymentProvider } from '../src/providers/stub-provider';
 import { AWSMarketplaceProvider } from '../src/providers/aws-marketplace-provider';
 import { StripeProvider } from '../src/providers/stripe-provider';
+import { StubPaymentProvider } from '../src/providers/stub-provider';
 
 // ---------------------------------------------------------------------------
 // StubPaymentProvider
@@ -108,7 +108,7 @@ describe('AWSMarketplaceProvider', () => {
       const result = await provider.createCustomer('org-1', 'user@test.com');
       expect(result).toBe('cust-abc-123');
       expect(mockFindOne).toHaveBeenCalledWith({
-        orgId: 'org-1',
+        'orgId': 'org-1',
         'metadata.provider': 'aws-marketplace',
       });
     });

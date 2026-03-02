@@ -5,6 +5,15 @@
  */
 import { useState, useEffect } from 'react';
 
+/** Read initial dark mode preference synchronously to prevent flash of wrong theme. */
+export function getInitialDark(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('theme');
+  if (stored === 'dark') return true;
+  if (stored === 'light') return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 /**
  * Manages dark mode state and toggles the `dark` class on `<html>`.
  * Persists the user's preference to localStorage under the "theme" key.
@@ -12,24 +21,14 @@ import { useState, useEffect } from 'react';
  * @returns Current dark mode state and a toggle callback
  */
 export function useDarkMode() {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(getInitialDark);
 
+  // Sync the DOM class on first render (synchronous init handles state, effect handles class)
   useEffect(() => {
-    const stored = localStorage.getItem('theme');
-    switch (stored) {
-      case 'dark':
-        setIsDark(true);
-        document.documentElement.classList.add('dark');
-        break;
-      case 'light':
-        setIsDark(false);
-        document.documentElement.classList.remove('dark');
-        break;
-      default: {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        setIsDark(prefersDark);
-        if (prefersDark) document.documentElement.classList.add('dark');
-      }
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
   }, []);
 

@@ -19,7 +19,7 @@ import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
 
-import { parsePluginZip, ValidationError } from '../helpers/manifest';
+import { parsePluginZip, validateBuildArgs, ValidationError } from '../helpers/manifest';
 import { getQueue } from '../queue/plugin-build-queue';
 
 const logger = createLogger('upload-plugin');
@@ -88,6 +88,7 @@ export function createUploadPluginRoutes(
 
         // -- Parse & validate ZIP ---------------------------------------------
         const plugin = parsePluginZip(zipPath);
+        validateBuildArgs(plugin.manifest.buildArgs);
 
         ctx.log('INFO', 'Manifest validated', {
           pluginName: plugin.manifest.name,

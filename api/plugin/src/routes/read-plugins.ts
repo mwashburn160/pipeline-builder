@@ -8,7 +8,7 @@
  * GET  /plugins/:id    — get a plugin by UUID
  */
 
-import { getParam, ErrorCode, applyAccessControl, isSystemAdmin, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Router } from 'express';
@@ -115,11 +115,6 @@ export function createReadPluginRoutes(
     const result = await pluginService.findById(id, orgId);
 
     if (!result) return sendPluginNotFound(res);
-
-    // Non-system-admins can only view private (org-scoped) plugins
-    if (!isSystemAdmin(req) && result.accessModifier !== 'private') {
-      return sendPluginNotFound(res);
-    }
 
     ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
     incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));

@@ -10,6 +10,7 @@ import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
 import { LoadingPage } from './Loading';
 import api from '@/lib/api';
+import { POLL_INTERVAL } from '@/hooks/useMessages';
 
 /** Props for the DashboardLayout component. */
 interface DashboardLayoutProps {
@@ -63,7 +64,7 @@ export function DashboardLayout({
 
   useEffect(() => {
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
+    const interval = setInterval(fetchUnreadCount, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 

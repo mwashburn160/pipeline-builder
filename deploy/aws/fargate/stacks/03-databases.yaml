@@ -13,6 +13,26 @@ Parameters:
     Type: String
     Description: Fully qualified domain name for the application (used for tagging)
 
+  AppSecretsName:
+    Type: String
+    Default: pipeline-builder/app-secrets
+    Description: Secrets Manager secret name for application secrets
+  PostgresImage:
+    Type: String
+    Default: postgres:16
+  MongoImage:
+    Type: String
+    Default: mongo:7.0
+  RedisImage:
+    Type: String
+    Default: redis:7-alpine
+  AwsCliImage:
+    Type: String
+    Default: amazon/aws-cli:2.24.0
+  DefaultDesiredCount:
+    Type: Number
+    Default: 1
+
 Resources:
 
   # ===========================================================================
@@ -50,7 +70,7 @@ Resources:
         - Name: init-scripts
       ContainerDefinitions:
         - Name: postgres
-          Image: postgres:16
+          Image: !Ref PostgresImage
           Essential: true
           DependsOn:
             - ContainerName: postgres-init
@@ -65,7 +85,7 @@ Resources:
               Value: pipeline_builder
           Secrets:
             - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:POSTGRES_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
           MountPoints:
             - SourceVolume: postgres-data
               ContainerPath: /var/lib/postgresql/data
@@ -89,7 +109,7 @@ Resources:
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: postgres
         - Name: postgres-init
-          Image: amazon/aws-cli:latest
+          Image: !Ref AwsCliImage
           Essential: false
           Command:
             - s3
@@ -128,7 +148,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PostgresTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -196,7 +216,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: mongodb
-          Image: mongo:7.0
+          Image: !Ref MongoImage
           Essential: true
           PortMappings:
             - ContainerPort: 27017
@@ -213,7 +233,7 @@ Resources:
               Value: platform
           Secrets:
             - Name: MONGO_INITDB_ROOT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGO_INITDB_ROOT_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
           MountPoints:
             - SourceVolume: mongodb-data
               ContainerPath: /data/db
@@ -237,7 +257,7 @@ Resources:
               awslogs-stream-prefix: mongodb
 
         - Name: mongo-init
-          Image: mongo:7.0
+          Image: !Ref MongoImage
           Essential: false
           DependsOn:
             - ContainerName: mongodb
@@ -259,7 +279,7 @@ Resources:
               Value: admin
           Secrets:
             - Name: MONGO_INITDB_ROOT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGO_INITDB_ROOT_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -285,7 +305,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref MongoTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -342,7 +362,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       ContainerDefinitions:
         - Name: redis
-          Image: redis:7-alpine
+          Image: !Ref RedisImage
           Essential: true
           PortMappings:
             - ContainerPort: 6379
@@ -387,7 +407,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref RedisTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED

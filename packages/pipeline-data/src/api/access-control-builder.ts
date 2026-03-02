@@ -9,6 +9,14 @@ import type { AnyColumn } from 'drizzle-orm/column';
 const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Escape SQL LIKE wildcard characters to prevent wildcard injection.
+ * Replaces `%` → `\\%`, `_` → `\\_`, and `\\` → `\\\\`.
+ */
+export function escapeLikeWildcards(str: string): string {
+  return str.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
  * Access control behavior based on accessModifier filter
  */
 export type AccessBehavior = 'public' | 'private' | 'org-and-public';
@@ -139,7 +147,9 @@ export class AccessControlQueryBuilder<
     if (FULL_UUID.test(idString)) {
       return eq(this.schema.id, idString);
     } else {
-      return sql`${this.schema.id}::text LIKE ${idString + '%'}`;
+      // Escape SQL LIKE wildcards to prevent wildcard injection
+      const escaped = escapeLikeWildcards(idString);
+      return sql`${this.schema.id}::text LIKE ${escaped + '%'} ESCAPE '\\'`;
     }
   }
 
@@ -158,6 +168,9 @@ export class AccessControlQueryBuilder<
 
     if (filter.isActive !== undefined) {
       conditions.push(eq(this.schema.isActive, parseBooleanFilter(filter.isActive)));
+    } else {
+      // Default to active records only to exclude soft-deleted entities
+      conditions.push(eq(this.schema.isActive, true));
     }
 
     return conditions;

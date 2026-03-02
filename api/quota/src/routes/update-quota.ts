@@ -90,7 +90,10 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// POST /quotas/:orgId/increment — increment usage (same-org or system admin)
+// POST /quotas/:orgId/increment — increment usage (internal service use only)
+// Accepts same-org or system admin auth. This endpoint is intended for
+// internal service-to-service calls (pipeline, plugin services) and should
+// not be exposed directly to end users.
 // ---------------------------------------------------------------------------
 
 router.post(

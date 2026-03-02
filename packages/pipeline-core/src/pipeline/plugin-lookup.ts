@@ -31,6 +31,12 @@ export interface PluginLookupProps {
   readonly platformUrl: string;
   readonly uniqueId: UniqueId;
   readonly runtime?: Runtime;
+  /** Lambda timeout (default: 30s) */
+  readonly timeout?: Duration;
+  /** Lambda memory in MB (default: 256) */
+  readonly memorySize?: number;
+  /** Log retention (default: ONE_WEEK) */
+  readonly logRetention?: RetentionDays;
 }
 
 /**
@@ -49,6 +55,8 @@ export class PluginLookup extends Construct {
   private readonly _provider: Provider;
   private readonly _platformUrl: string;
   private readonly _runtime: Runtime;
+  private readonly _timeout: Duration;
+  private readonly _memorySize: number;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
@@ -60,12 +68,14 @@ export class PluginLookup extends Construct {
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
     this._runtime = props.runtime ?? Runtime.NODEJS_22_X;
+    this._timeout = props.timeout ?? Duration.seconds(30);
+    this._memorySize = props.memorySize ?? 256;
 
     const onEventHandler = this.createLambdaFunction();
 
     const logGroup = new LogGroup(this, this._uniqueId.generate('log:group'), {
       logGroupName: `/aws/lambda/${this._uniqueId.generate('plugin:lookup')}`,
-      retention: RetentionDays.ONE_WEEK,
+      retention: props.logRetention ?? RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -118,8 +128,8 @@ export class PluginLookup extends Construct {
 
     const fn = new NodejsFunction(this, handlerId, {
       runtime: this._runtime,
-      timeout: Duration.seconds(30),
-      memorySize: 256,
+      timeout: this._timeout,
+      memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
       entry: entrypoint,
       environment: {

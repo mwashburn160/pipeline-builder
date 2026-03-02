@@ -57,6 +57,9 @@ export class CoreConstants {
   static readonly PIPELINE_NAME_MAX_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100');
   static readonly DEFAULT_PLUGIN_VERSION = process.env.DEFAULT_PLUGIN_VERSION || '1.0.0';
 
+  // Secrets Manager path prefix for org-scoped secrets
+  static readonly SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
+
   // Database connection retry
   static readonly DB_MAX_RETRIES = parseInt(process.env.DB_MAX_RETRIES || '3');
   static readonly DB_RETRY_DELAY_MS = parseInt(process.env.DB_RETRY_DELAY_MS || '1000');
@@ -120,6 +123,10 @@ export class Config {
   private static validate(config: AppConfig): void {
     validateServerConfig(config.server);
     validateDatabaseConfig(config.database);
+    // Validate auth at startup when JWT_SECRET is set (skip during CDK synthesis)
+    if (config.auth.jwt.secret) {
+      validateAuthConfig(config.auth);
+    }
   }
 
   /**

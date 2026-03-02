@@ -283,6 +283,44 @@ describe('InternalHttpClient retry behavior', () => {
     });
   });
 
+  describe('path validation', () => {
+    it('rejects paths with carriage return (\\r)', async () => {
+      await expect(
+        runWithTimers(client.get('/test\r/path', { maxRetries: 0, maxRateLimitRetries: 0 })),
+      ).rejects.toThrow('Invalid request path');
+    });
+
+    it('rejects paths with newline (\\n)', async () => {
+      await expect(
+        runWithTimers(client.get('/test\n/path', { maxRetries: 0, maxRateLimitRetries: 0 })),
+      ).rejects.toThrow('Invalid request path');
+    });
+
+    it('rejects paths with null byte (\\0)', async () => {
+      await expect(
+        runWithTimers(client.get('/test\0/path', { maxRetries: 0, maxRateLimitRetries: 0 })),
+      ).rejects.toThrow('Invalid request path');
+    });
+
+    it('rejects paths with protocol injection (://)', async () => {
+      await expect(
+        runWithTimers(client.get('http://evil.com/path', { maxRetries: 0, maxRateLimitRetries: 0 })),
+      ).rejects.toThrow('Invalid request path');
+    });
+
+    it('allows valid paths like /api/v1/resource', async () => {
+      setupMockResponses([
+        { statusCode: 200, body: '{"ok":true}' },
+      ]);
+
+      const response = await runWithTimers(
+        client.get('/api/v1/resource', { maxRetries: 0 }),
+      );
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
   describe('success on first try', () => {
     it('returns immediately without retries', async () => {
       setupMockResponses([

@@ -40,7 +40,7 @@ export function mapStripeStatus(stripeStatus: string): SubscriptionStatus {
  */
 export async function findSubscriptionByStripeId(stripeSubscriptionId: string) {
   return Subscription.findOne({
-    externalId: stripeSubscriptionId,
+    'externalId': stripeSubscriptionId,
     'metadata.provider': 'stripe',
   });
 }

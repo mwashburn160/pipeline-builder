@@ -67,12 +67,15 @@ export function useBuildStatus(requestId: string | null) {
           return next.length > 1000 ? next.slice(-1000) : next;
         });
 
-        if (parsed.type === 'COMPLETED') {
-          setStatus('completed');
-          eventSource.close();
-        } else if (parsed.type === 'ERROR') {
-          setStatus('failed');
-          // Don't close — BullMQ may retry. Worker sends ERROR on final failure too.
+        switch (parsed.type) {
+          case 'COMPLETED':
+            setStatus('completed');
+            eventSource.close();
+            break;
+          case 'ERROR':
+            setStatus('failed');
+            // Don't close — BullMQ may retry. Worker sends ERROR on final failure too.
+            break;
         }
       } catch {
         // Ignore malformed SSE data

@@ -6,7 +6,7 @@
  * are scoped to the authenticated user's organization.
  */
 
-import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
@@ -204,7 +204,7 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
   try {
     const { id } = req.params;
 
-    if (id === 'system') {
+    if (id === SYSTEM_ORG_ID) {
       return sendError(res, 400, 'Cannot delete system organization');
     }
 

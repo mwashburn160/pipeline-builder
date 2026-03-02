@@ -12,6 +12,7 @@ import type { ArtifactKey } from './artifact-manager';
 import { MetadataBuilder } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
+import { CoreConstants } from '../config/app-config';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 
 const log = createLogger('Helper');
@@ -129,9 +130,9 @@ function toSecretEnvVars(
 ): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
   return Object.fromEntries(
     secrets.map(({ name }) => {
-      const secretPath = `pipeline-builder/${orgId}/${name}`;
+      const secretPath = `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/${name}`;
       if (!VALID_SECRET_NAME.test(secretPath)) {
-        log.warn(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);
+        throw new Error(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);
       }
       return [
         name,

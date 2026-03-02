@@ -3,9 +3,9 @@
  * @description Factory for creating pre-configured Express applications with security, rate limiting, health checks, and SSE support.
  */
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
-import { Config, getConnection } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants, getConnection } from '@mwashburn160/pipeline-core';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -158,7 +158,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Health check and metrics registered before rate limiter so they are never throttled
   if (!skipDefaultHealthCheck) {
     let cachedHealth: { healthy: boolean; checkedAt: number } | null = null;
-    const HEALTH_CACHE_TTL_MS = 10_000; // 10s
+    const HEALTH_CACHE_TTL_MS = 3_000; // 3s
 
     app.get('/health', async (_req: Request, res: Response) => {
       try {
@@ -219,13 +219,30 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.use(limiter);
   }
 
-  // Express request timeout (env: HANDLER_TIMEOUT_MS, default: 30s)
-  const timeoutMs = parseInt(process.env.HANDLER_TIMEOUT_MS || '30000', 10);
+  // Express request timeout — uses CoreConstants to share the same default as Lambda handlers
+  const timeoutMs = CoreConstants.HANDLER_TIMEOUT_MS;
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setTimeout(timeoutMs, () => {
       if (!res.headersSent) {
         sendError(res, 503, 'Request timeout');
       }
+    });
+    next();
+  });
+
+  // Request duration logging
+  const durationLogger = createLogger('request-duration');
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      durationLogger.info(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`, {
+        method: req.method,
+        path: req.originalUrl,
+        statusCode: res.statusCode,
+        durationMs: duration,
+        requestId: req.requestId,
+      });
     });
     next();
   });

@@ -9,6 +9,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     debug: jest.fn(),
   })),
   sendError: jest.fn(),
+  SYSTEM_ORG_ID: 'system',
 }));
 
 jest.mock('mongoose', () => {

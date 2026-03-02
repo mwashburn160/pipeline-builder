@@ -5,6 +5,11 @@
 # Generates random secrets and stores them in AWS Secrets Manager.
 # Run once before deploying stacks, or re-run to rotate secrets.
 #
+# ROTATION: Secrets should be rotated every 90 days. Re-run this script to
+# generate new values. After rotation, restart all ECS services to pick up
+# the new secrets. Consider setting a calendar reminder or using AWS Config
+# rules to enforce rotation schedules.
+#
 # Usage: bash bin/init-secrets.sh --domain pipeline.example.com
 # =============================================================================
 set -euo pipefail

@@ -1,12 +1,13 @@
 /**
- * Messaging hook with automatic polling for unread counts.
+ * Messaging hook with SSE-driven real-time updates and polling fallback.
  * Provides CRUD operations for messages, thread replies, and read-state management.
- * Polls unread count every 30 seconds to keep the sidebar badge current.
+ * Uses SSE push notifications when connected; falls back to 30-second polling when not.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import type { Message, MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from './useAsync';
+import { useMessageNotifications } from './useMessageNotifications';
 
 /** Return type of the {@link useMessages} hook. */
 interface UseMessagesReturn {
@@ -23,21 +24,29 @@ interface UseMessagesReturn {
   deleteMessage: (id: string) => Promise<void>;
 }
 
-/** Polling interval for unread message count (30 seconds). */
-const POLL_INTERVAL = 30000;
+/** Polling interval for unread message count fallback (30 seconds). */
+export const POLL_INTERVAL = 30000;
 
 /**
- * Manages message state with automatic polling for unread counts.
- * Fetches messages on mount and polls unread count every 30 seconds.
+ * Manages message state with SSE-driven real-time updates.
+ * Falls back to polling when SSE is disconnected.
  *
+ * @param orgId - Organization ID for SSE subscription (optional, disables SSE if not provided)
  * @returns Message state, action callbacks, and unread count
  */
-export function useMessages(): UseMessagesReturn {
+export function useMessages(orgId?: string | null): UseMessagesReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // SSE notifications
+  const {
+    unreadCount: sseUnreadCount,
+    connected,
+    onNotification,
+  } = useMessageNotifications(orgId ?? null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -135,14 +144,45 @@ export function useMessages(): UseMessagesReturn {
     fetchMessages();
   }, [fetchMessages]);
 
-  // Poll unread count
+  // Sync SSE-provided unread count into local state
   useEffect(() => {
+    if (connected) {
+      setUnreadCount(sseUnreadCount);
+    }
+  }, [sseUnreadCount, connected]);
+
+  // Handle SSE notifications for real-time updates
+  useEffect(() => {
+    if (!connected) return;
+
+    const unsub = onNotification((notification) => {
+      switch (notification.data?.action) {
+        case 'NEW_MESSAGE':
+          fetchMessages();
+          fetchUnreadCount();
+          break;
+        case 'MESSAGE_DELETED':
+          if (notification.data.messageId) {
+            setMessages(prev => prev.filter(m => m.id !== notification.data!.messageId));
+          }
+          fetchUnreadCount();
+          break;
+      }
+    });
+
+    return unsub;
+  }, [connected, onNotification, fetchMessages, fetchUnreadCount]);
+
+  // Polling fallback: only poll when SSE is disconnected
+  useEffect(() => {
+    if (connected) return;
+
     fetchUnreadCount();
     pollRef.current = setInterval(fetchUnreadCount, POLL_INTERVAL);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchUnreadCount]);
+  }, [fetchUnreadCount, connected]);
 
   return {
     messages,

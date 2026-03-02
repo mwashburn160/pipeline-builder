@@ -1,4 +1,8 @@
 // Mock heavy dependencies to avoid open handles from CDK/Winston in test workers
+const mockCodeBuildStep = jest.fn();
+const mockShellStep = jest.fn();
+const mockManualApprovalStep = jest.fn();
+
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
@@ -13,10 +17,12 @@ jest.mock('aws-cdk-lib', () => ({
 }));
 jest.mock('aws-cdk-lib/aws-codebuild', () => ({
   ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE' },
+  BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER' },
 }));
 jest.mock('aws-cdk-lib/pipelines', () => ({
-  CodeBuildStep: jest.fn(),
-  ShellStep: jest.fn(),
+  CodeBuildStep: mockCodeBuildStep,
+  ShellStep: mockShellStep,
+  ManualApprovalStep: mockManualApprovalStep,
 }));
 jest.mock('aws-cdk-lib/aws-ec2', () => ({
   SubnetType: {
@@ -30,6 +36,18 @@ jest.mock('aws-cdk-lib/aws-ec2', () => ({
   Subnet: { fromSubnetId: jest.fn() },
 }));
 jest.mock('constructs', () => ({ Construct: jest.fn() }));
+jest.mock('../src/core/metadata-builder', () => ({
+  MetadataBuilder: {
+    from: jest.fn(() => ({
+      forCodeBuildStep: jest.fn(() => ({})),
+      forShellStep: jest.fn(() => ({})),
+      forBuildEnvironment: jest.fn(() => ({})),
+    })),
+  },
+}));
+jest.mock('../src/core/network', () => ({
+  resolveNetwork: jest.fn(() => ({})),
+}));
 
 import { merge, replaceNonAlphanumeric, extractMetadataEnv } from '../src/core/pipeline-helpers';
 
@@ -158,5 +176,59 @@ describe('extractMetadataEnv', () => {
       WORKDIR: './src',
       ENABLE_CACHE: 'true',
     });
+  });
+});
+
+/**
+ * Tests for the VALID_SECRET_NAME regex used in toSecretEnvVars (Fix 15).
+ * The regex validates AWS Secrets Manager secret path characters.
+ * The actual function is private, so we test the pattern directly.
+ */
+describe('VALID_SECRET_NAME pattern (Fix 15 — secret path validation)', () => {
+  // This matches the regex defined in pipeline-helpers.ts
+  const VALID_SECRET_NAME = /^[a-zA-Z0-9/_+=.@-]+$/;
+
+  function validateSecretPath(orgId: string, name: string): void {
+    const secretPath = `pipeline-builder/${orgId}/${name}`;
+    if (!VALID_SECRET_NAME.test(secretPath)) {
+      throw new Error(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);
+    }
+  }
+
+  it('should accept valid secret names', () => {
+    expect(() => validateSecretPath('org-123', 'MY_SECRET')).not.toThrow();
+    expect(() => validateSecretPath('org-123', 'db-password')).not.toThrow();
+    expect(() => validateSecretPath('org-123', 'api_key.v2')).not.toThrow();
+    expect(() => validateSecretPath('org-123', 'token@service')).not.toThrow();
+  });
+
+  it('should reject secret names containing spaces', () => {
+    expect(() => validateSecretPath('org-123', 'my secret')).toThrow(
+      /invalid characters for AWS Secrets Manager/,
+    );
+  });
+
+  it('should reject secret names containing quotes', () => {
+    expect(() => validateSecretPath('org-123', 'my"secret')).toThrow(
+      /invalid characters for AWS Secrets Manager/,
+    );
+  });
+
+  it('should reject secret names containing single quotes', () => {
+    expect(() => validateSecretPath('org-123', "my'secret")).toThrow(
+      /invalid characters for AWS Secrets Manager/,
+    );
+  });
+
+  it('should reject secret names with shell-unsafe characters', () => {
+    expect(() => validateSecretPath('org-123', 'secret;rm -rf /')).toThrow(
+      /invalid characters for AWS Secrets Manager/,
+    );
+  });
+
+  it('should include the offending path in the error message', () => {
+    expect(() => validateSecretPath('my-org', 'bad secret')).toThrow(
+      'Secret path "pipeline-builder/my-org/bad secret" contains invalid characters for AWS Secrets Manager',
+    );
   });
 });
