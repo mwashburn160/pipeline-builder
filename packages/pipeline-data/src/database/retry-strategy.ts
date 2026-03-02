@@ -135,7 +135,9 @@ export class ConnectionRetryStrategy {
    * @returns Delay in milliseconds
    */
   private calculateBackoff(attempt: number): number {
-    return this.config.baseDelay * Math.pow(2, attempt - 1);
+    const base = this.config.baseDelay * Math.pow(2, attempt - 1);
+    const jitter = Math.random() * 0.1 * base;
+    return base + jitter;
   }
 
   /**

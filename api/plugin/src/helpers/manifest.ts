@@ -95,6 +95,36 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
 }
 
 /**
+ * Validate Docker build arguments.
+ * Must be a plain object with string keys/values, max 20 entries,
+ * and max 1000 characters per key/value.
+ *
+ * @param buildArgs - Build arguments to validate
+ * @throws ValidationError if build arguments are invalid
+ */
+export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Record<string, string> {
+  if (buildArgs === undefined || buildArgs === null) return;
+  if (typeof buildArgs !== 'object' || Array.isArray(buildArgs)) {
+    throw new ValidationError('buildArgs must be a plain object');
+  }
+  const entries = Object.entries(buildArgs as Record<string, unknown>);
+  if (entries.length > 20) {
+    throw new ValidationError('buildArgs cannot have more than 20 entries');
+  }
+  for (const [key, value] of entries) {
+    if (typeof key !== 'string' || typeof value !== 'string') {
+      throw new ValidationError('buildArgs keys and values must be strings');
+    }
+    if (key.length > 1000) {
+      throw new ValidationError(`buildArgs key exceeds 1000 characters: ${key.slice(0, 50)}...`);
+    }
+    if (value.length > 1000) {
+      throw new ValidationError(`buildArgs value for "${key}" exceeds 1000 characters`);
+    }
+  }
+}
+
+/**
  * Validation error thrown when the plugin ZIP or manifest is invalid.
  * Route handlers should catch this and return a 400 response.
  */

@@ -91,4 +91,41 @@ describe('ConnectionRetryStrategy', () => {
       expect(strategy.getAttempts()).toBe(1);
     });
   });
+
+  describe('calculateBackoff jitter', () => {
+    it('should return a value >= base delay (jitter is additive)', () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
+      const calcBackoff = (s as any).calculateBackoff.bind(s);
+
+      for (let i = 0; i < 50; i++) {
+        const result = calcBackoff(1); // attempt 1 => base = 100 * 2^0 = 100
+        expect(result).toBeGreaterThanOrEqual(100);
+      }
+    });
+
+    it('should not exceed base + 10% (jitter is at most 10% of base)', () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
+      const calcBackoff = (s as any).calculateBackoff.bind(s);
+
+      for (let i = 0; i < 50; i++) {
+        const result = calcBackoff(1); // attempt 1 => base = 100
+        expect(result).toBeLessThanOrEqual(110); // 100 + 10% = 110
+      }
+    });
+
+    it('should scale exponentially with attempt number', () => {
+      const s = new ConnectionRetryStrategy({ maxRetries: 5, baseDelay: 100 });
+      const calcBackoff = (s as any).calculateBackoff.bind(s);
+
+      // attempt 2 => base = 100 * 2^1 = 200, max with jitter = 220
+      const result2 = calcBackoff(2);
+      expect(result2).toBeGreaterThanOrEqual(200);
+      expect(result2).toBeLessThanOrEqual(220);
+
+      // attempt 3 => base = 100 * 2^2 = 400, max with jitter = 440
+      const result3 = calcBackoff(3);
+      expect(result3).toBeGreaterThanOrEqual(400);
+      expect(result3).toBeLessThanOrEqual(440);
+    });
+  });
 });

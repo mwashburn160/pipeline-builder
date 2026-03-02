@@ -76,16 +76,24 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
         for await (const event of api.streamPipelineGeneration(
           prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse,
         )) {
-          if (event.type === 'partial' && event.data) {
-            setPreviewJson(JSON.stringify(event.data, null, 2));
-          } else if (event.type === 'done' && event.data) {
-            const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
-            setGeneratedProps(data.props);
-            setPreviewJson(JSON.stringify(data.props, null, 2));
-            setGeneratedDescription(data.description || '');
-            setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
-          } else if (event.type === 'error') {
-            setError(event.message || 'Generation failed');
+          switch (event.type) {
+            case 'partial':
+              if (event.data) {
+                setPreviewJson(JSON.stringify(event.data, null, 2));
+              }
+              break;
+            case 'done':
+              if (event.data) {
+                const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
+                setGeneratedProps(data.props);
+                setPreviewJson(JSON.stringify(data.props, null, 2));
+                setGeneratedDescription(data.description || '');
+                setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
+              }
+              break;
+            case 'error':
+              setError(event.message || 'Generation failed');
+              break;
           }
         }
       } catch (err: unknown) {

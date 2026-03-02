@@ -10,19 +10,24 @@ import {
   ErrorCode,
   isSystemAdmin,
   getParam,
+  createLogger,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import type { SSEManager } from '@mwashburn160/api-server';
 import { Router } from 'express';
 import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
+
+const logger = createLogger('delete-message');
 
 /**
  * Create delete routes for the message service.
  *
  * Routes:
  *   DELETE /messages/:id — Soft delete a message (admin only)
+ * @param sseManager - SSE manager for pushing real-time notifications
  */
-export function createDeleteMessageRoutes(): Router {
+export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // DELETE /messages/:id — Soft delete a message
@@ -59,6 +64,23 @@ export function createDeleteMessageRoutes(): Router {
     }
 
     ctx.log('COMPLETED', 'Message deleted', { id });
+
+    // Notify the other party about the deletion
+    try {
+      if (deleted.recipientOrgId && deleted.recipientOrgId !== '*') {
+        const otherOrgId = deleted.orgId.toLowerCase() === orgId
+          ? deleted.recipientOrgId.toLowerCase()
+          : deleted.orgId.toLowerCase();
+
+        sseManager.send(otherOrgId, 'MESSAGE', 'Message deleted', {
+          action: 'MESSAGE_DELETED' as const,
+          messageId: id,
+          threadId: deleted.threadId || undefined,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+    }
 
     return sendSuccess(res, 200, undefined, 'Message deleted successfully');
   }));

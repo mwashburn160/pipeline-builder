@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon } from 'lucide-react';
 import api from '@/lib/api';
@@ -49,6 +49,8 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
     (content: string) => api.replyToMessage(rootMessage.id, content),
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const onThreadReadRef = useRef(onThreadRead);
+  onThreadReadRef.current = onThreadRead;
 
   const fetchThread = async () => {
     try {
@@ -65,7 +67,7 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
   useEffect(() => {
     fetchThread();
     // Mark thread as read when viewing
-    onThreadRead(rootMessage.id);
+    onThreadReadRef.current(rootMessage.id);
   }, [rootMessage.id]);
 
   useEffect(() => {

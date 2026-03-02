@@ -51,6 +51,28 @@ Parameters:
     Default: ghcr.io/mwashburn160/frontend:1.27.5
     Description: Docker image for the Frontend service
 
+  AppSecretsName:
+    Type: String
+    Default: pipeline-builder/app-secrets
+    Description: Secrets Manager secret name for application secrets
+
+  GhcrAuthSecretName:
+    Type: String
+    Default: pipeline-builder/ghcr-auth
+    Description: Secrets Manager secret name for GHCR authentication
+
+  NginxImage:
+    Type: String
+    Default: nginx:1.27
+
+  FluentBitImage:
+    Type: String
+    Default: amazon/aws-for-fluent-bit:2.32.2
+
+  DefaultDesiredCount:
+    Type: Number
+    Default: 1
+
 Resources:
 
   # ===========================================================================
@@ -75,7 +97,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       ContainerDefinitions:
         - Name: nginx
-          Image: nginx:1.27
+          Image: !Ref NginxImage
           Essential: true
           EntryPoint:
             - /bin/sh
@@ -100,7 +122,7 @@ Resources:
                 Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -118,7 +140,7 @@ Resources:
               Labels: job=fluent-bit, service=nginx
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -142,7 +164,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref NginxTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -204,7 +226,7 @@ Resources:
           Image: !Ref PlatformImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -245,15 +267,15 @@ Resources:
               Value: platform
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -271,7 +293,7 @@ Resources:
               Labels: job=fluent-bit, service=platform
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -295,7 +317,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PlatformTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -352,7 +374,7 @@ Resources:
           Image: !Ref PipelineImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -393,13 +415,13 @@ Resources:
               Value: pipeline
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -417,7 +439,7 @@ Resources:
               Labels: job=fluent-bit, service=pipeline
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -441,7 +463,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PipelineTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -498,7 +520,7 @@ Resources:
           Image: !Ref PluginImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -545,17 +567,17 @@ Resources:
               Value: "1"
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: IMAGE_REGISTRY_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_USER::"
             - Name: IMAGE_REGISTRY_TOKEN
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_TOKEN::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -573,7 +595,7 @@ Resources:
               Labels: job=fluent-bit, service=plugin
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -597,7 +619,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PluginTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -654,7 +676,7 @@ Resources:
           Image: !Ref QuotaImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -695,15 +717,15 @@ Resources:
               Value: quota
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -721,7 +743,7 @@ Resources:
               Labels: job=fluent-bit, service=quota
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -745,7 +767,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref QuotaTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -802,7 +824,7 @@ Resources:
           Image: !Ref BillingImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -847,15 +869,15 @@ Resources:
               Value: stub
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -873,7 +895,7 @@ Resources:
               Labels: job=fluent-bit, service=billing
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -897,7 +919,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref BillingTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -954,7 +976,7 @@ Resources:
           Image: !Ref MessageImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -995,13 +1017,13 @@ Resources:
               Value: message
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:JWT_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_USER::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1019,7 +1041,7 @@ Resources:
               Labels: job=fluent-bit, service=message
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -1043,7 +1065,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref MessageTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -1100,7 +1122,7 @@ Resources:
           Image: !Ref FrontendImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: pipeline-builder/ghcr-auth
+            CredentialsParameter: !Ref GhcrAuthSecretName
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1124,7 +1146,7 @@ Resources:
               Labels: job=fluent-bit, service=frontend
               Line_Format: json
         - Name: log-router
-          Image: amazon/aws-for-fluent-bit:latest
+          Image: !Ref FluentBitImage
           Essential: true
           FirelensConfiguration:
             Type: fluentbit
@@ -1148,7 +1170,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref FrontendTaskDefinition
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:

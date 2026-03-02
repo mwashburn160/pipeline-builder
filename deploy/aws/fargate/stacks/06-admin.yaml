@@ -13,6 +13,26 @@ Parameters:
     Type: String
     Description: Fully qualified domain name for the application (used for tagging)
 
+  AppSecretsName:
+    Type: String
+    Default: pipeline-builder/app-secrets
+    Description: Secrets Manager secret name for application secrets
+  RegistryImage:
+    Type: String
+    Default: registry:2
+  PgadminImage:
+    Type: String
+    Default: dpage/pgadmin4:8
+  MongoExpressImage:
+    Type: String
+    Default: mongo-express:1.0
+  RegistryUIImage:
+    Type: String
+    Default: joxit/docker-registry-ui:2
+  DefaultDesiredCount:
+    Type: Number
+    Default: 1
+
 Resources:
 
   # ===========================================================================
@@ -49,7 +69,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: registry
-          Image: registry:2
+          Image: !Ref RegistryImage
           Essential: true
           PortMappings:
             - ContainerPort: 5000
@@ -59,7 +79,7 @@ Resources:
               Value: /var/lib/registry
           Secrets:
             - Name: REGISTRY_HTTP_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:IMAGE_REGISTRY_TOKEN::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
           MountPoints:
             - SourceVolume: registry-data
               ContainerPath: /var/lib/registry
@@ -97,7 +117,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref RegistryTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -165,7 +185,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: pgadmin
-          Image: dpage/pgadmin4:8
+          Image: !Ref PgadminImage
           Essential: true
           PortMappings:
             - ContainerPort: 80
@@ -175,9 +195,9 @@ Resources:
               Value: /pgadmin
           Secrets:
             - Name: PGADMIN_DEFAULT_EMAIL
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:PGADMIN_DEFAULT_EMAIL::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_EMAIL::"
             - Name: PGADMIN_DEFAULT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:PGADMIN_DEFAULT_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_PASSWORD::"
           MountPoints:
             - SourceVolume: pgadmin-data
               ContainerPath: /var/lib/pgadmin
@@ -215,7 +235,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PgadminTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -272,7 +292,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       ContainerDefinitions:
         - Name: mongo-express
-          Image: mongo-express:1.0
+          Image: !Ref MongoExpressImage
           Essential: true
           PortMappings:
             - ContainerPort: 8081
@@ -284,15 +304,15 @@ Resources:
               Value: "true"
           Secrets:
             - Name: ME_CONFIG_BASICAUTH_USERNAME
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_BASICAUTH_USERNAME::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_USERNAME::"
             - Name: ME_CONFIG_BASICAUTH_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_BASICAUTH_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_PASSWORD::"
             - Name: ME_CONFIG_MONGODB_ADMINUSERNAME
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_MONGODB_ADMINUSERNAME::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINUSERNAME::"
             - Name: ME_CONFIG_MONGODB_ADMINPASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:ME_CONFIG_MONGODB_ADMINPASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINPASSWORD::"
             - Name: ME_CONFIG_MONGODB_URL
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:MONGODB_URI::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -326,7 +346,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref MongoExpressTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -383,7 +403,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       ContainerDefinitions:
         - Name: registry-ui
-          Image: joxit/docker-registry-ui:2
+          Image: !Ref RegistryUIImage
           Essential: true
           PortMappings:
             - ContainerPort: 80
@@ -432,7 +452,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref RegistryUITaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED

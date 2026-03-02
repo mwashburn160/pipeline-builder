@@ -272,13 +272,16 @@ export function requireAdmin(
  * @param req - Express request with user attached
  * @returns True if user is in system organization
  */
+/** Organization ID/name that identifies the system (super-admin) tenant. */
+export const SYSTEM_ORG_ID = (process.env.SYSTEM_ORG_ID || 'system').toLowerCase();
+
 export function isSystemOrg(req: Request): boolean {
   if (!req.user) return false;
 
   const orgId = req.user.organizationId?.toLowerCase();
   const orgName = req.user.organizationName?.toLowerCase();
 
-  return orgId === 'system' || orgName === 'system';
+  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
 }
 
 /**

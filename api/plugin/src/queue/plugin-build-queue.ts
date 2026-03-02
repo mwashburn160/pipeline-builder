@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 
 import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
@@ -338,15 +339,65 @@ export function startWorker(
   });
 
   logger.info('Plugin build worker started', { concurrency });
+
+  // Start periodic cleanup of orphaned temp directories
+  startTempCleanup();
+
   return worker;
+}
+
+// ---------------------------------------------------------------------------
+// Periodic temp directory cleanup
+// ---------------------------------------------------------------------------
+
+/** Maximum age (ms) for orphaned temp directories before cleanup. */
+const TEMP_DIR_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Remove temp directories older than TEMP_DIR_MAX_AGE_MS. */
+function cleanupStaleTempDirs(): void {
+  const tmpRoot = path.join(process.cwd(), 'tmp');
+  if (!fs.existsSync(tmpRoot)) return;
+
+  try {
+    const entries = fs.readdirSync(tmpRoot, { withFileTypes: true });
+    const now = Date.now();
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = path.join(tmpRoot, entry.name);
+      try {
+        const stat = fs.statSync(dirPath);
+        if (now - stat.mtimeMs > TEMP_DIR_MAX_AGE_MS) {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+          logger.debug('Cleaned up stale temp dir', { path: dirPath });
+        }
+      } catch (err) {
+        logger.debug('Failed to clean temp dir', { path: dirPath, error: errorMessage(err) });
+      }
+    }
+  } catch (err) {
+    logger.debug('Temp dir cleanup scan failed', { error: errorMessage(err) });
+  }
+}
+
+/** Start periodic cleanup of orphaned temp directories. */
+function startTempCleanup(): void {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(cleanupStaleTempDirs, TEMP_DIR_MAX_AGE_MS);
+  cleanupTimer.unref(); // Don't prevent process exit
 }
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 
-/** Close worker, queue, and Redis connections. */
+/** Close worker, queue, Redis connections, and cleanup timer. */
 export async function shutdownQueue(): Promise<void> {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
   if (worker) {
     await worker.close();
     worker = null;

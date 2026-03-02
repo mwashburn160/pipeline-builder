@@ -4,7 +4,7 @@
  * authorization, error handling, and request parsing.
  */
 
-import { createLogger, sendError } from '@mwashburn160/api-core';
+import { createLogger, sendError, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 
@@ -18,7 +18,7 @@ export function isSystemAdmin(req: Request): boolean {
   if (req.user?.role !== 'admin') return false;
   const orgId = req.user?.organizationId?.toLowerCase();
   const orgName = req.user?.organizationName?.toLowerCase();
-  return orgId === 'system' || orgName === 'system';
+  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
 }
 
 export function isOrgAdmin(req: Request): boolean {

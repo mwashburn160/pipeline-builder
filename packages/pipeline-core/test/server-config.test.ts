@@ -271,4 +271,110 @@ describe('validateAuthConfig', () => {
       }),
     ).not.toThrow();
   });
+
+  // --- Fix 24: JWT expiration hard limit at 86400 seconds ---
+
+  it('throws when JWT expiration exceeds 24h hard limit (> 86400)', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 86401 },
+      }),
+    ).toThrow('must not exceed 24 hours');
+  });
+
+  it('throws when JWT expiration is far beyond the hard limit', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 604800 }, // 7 days
+      }),
+    ).toThrow('must not exceed 24 hours');
+  });
+
+  it('does not throw at exactly 86400 seconds (boundary)', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 86400 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('warns but does not throw when JWT expiration is between 2h and 24h', () => {
+    // 14400 = 4 hours, which is > 7200 but <= 86400
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 14400 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not warn or throw when JWT expiration is at or below 2h', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, expiresIn: 7200 },
+      }),
+    ).not.toThrow();
+  });
+
+  // --- Fix 25: Secret validation with length threshold ---
+
+  it('does not flag long secrets (>= 64 chars) that contain insecure substrings', () => {
+    // A 64+ character secret that happens to contain "password" should NOT be flagged
+    // because long secrets are likely generated and secure despite containing common substrings
+    const longSecretWithPassword =
+      'aB3dEfGhIjKlMnOpQrStUvWxYz0123456789passwordABCDEFGHIJKLMNOPQRSTUV';
+
+    expect(longSecretWithPassword.length).toBeGreaterThanOrEqual(64);
+    expect(longSecretWithPassword.toLowerCase()).toContain('password');
+
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, secret: longSecretWithPassword },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not flag long refresh token secrets (>= 64 chars) containing insecure substrings', () => {
+    const longRefreshSecret =
+      'xR9kW2mN5pQ8sT1vY4bE7gJ0lO3fU6hA9cdefaultI2dK5nP8rS1uX4aD7eH0jM3';
+
+    expect(longRefreshSecret.length).toBeGreaterThanOrEqual(64);
+    expect(longRefreshSecret.toLowerCase()).toContain('default');
+
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        refreshToken: { ...validConfig.refreshToken, secret: longRefreshSecret },
+      }),
+    ).not.toThrow();
+  });
+
+  it('still flags short secrets (< 32 chars) containing insecure substrings', () => {
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, secret: 'password' },
+      }),
+    ).toThrow('at least 32 characters');
+  });
+
+  it('still flags medium-length secrets (< 64 chars) containing insecure substrings', () => {
+    // 40 chars: long enough to pass the 32-char minimum, but short enough (< 64) to be checked
+    const mediumSecret = 'password-is-here-plus-extra-padding12345';
+
+    expect(mediumSecret.length).toBeGreaterThanOrEqual(32);
+    expect(mediumSecret.length).toBeLessThan(64);
+
+    expect(() =>
+      validateAuthConfig({
+        ...validConfig,
+        jwt: { ...validConfig.jwt, secret: mediumSecret },
+      }),
+    ).toThrow('insecure');
+  });
 });

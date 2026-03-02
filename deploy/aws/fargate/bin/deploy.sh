@@ -25,6 +25,8 @@ GHCR_TOKEN=""
 GHCR_USER="mwashburn160"
 REGION="${AWS_REGION:-us-east-1}"
 CERTIFICATE_ARN=""
+APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
+GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -82,7 +84,7 @@ fi
 # -----------------------------------------------------------------------
 echo ""
 echo "=== Step 2: Ensure secrets exist ==="
-if ! aws secretsmanager describe-secret --secret-id "pipeline-builder/app-secrets" --region "$REGION" >/dev/null 2>&1; then
+if ! aws secretsmanager describe-secret --secret-id "$APP_SECRETS_NAME" --region "$REGION" >/dev/null 2>&1; then
   echo "  Secrets not found. Running init-secrets.sh..."
   bash "$SCRIPT_DIR/init-secrets.sh" \
     --domain "$DOMAIN" \
@@ -115,6 +117,16 @@ deploy_stack() {
     --no-fail-on-empty-changeset
 
   echo "  Stack ${STACK_PREFIX}-${stack_name} deployed successfully"
+
+  # Trigger drift detection (non-blocking, informational only)
+  local drift_id
+  drift_id=$(aws cloudformation detect-stack-drift \
+    --stack-name "${STACK_PREFIX}-${stack_name}" \
+    --region "$REGION" \
+    --query "StackDriftDetectionId" --output text 2>/dev/null || true)
+  if [ -n "$drift_id" ] && [ "$drift_id" != "None" ]; then
+    echo "  Drift detection started: $drift_id"
+  fi
 }
 
 # -----------------------------------------------------------------------
@@ -168,12 +180,13 @@ echo "  Config files uploaded"
 # Step 5: Deploy remaining stacks in order
 # -----------------------------------------------------------------------
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${DOMAIN}")
+SECRETS_PARAMS=("AppSecretsName=${APP_SECRETS_NAME}" "GhcrAuthSecretName=${GHCR_AUTH_SECRET_NAME}")
 
 deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}"
-deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}"
-deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}"
-deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}"
-deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}"
+deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 
 # -----------------------------------------------------------------------
 # Done

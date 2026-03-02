@@ -25,8 +25,8 @@ export function loadRegistryConfig(): RegistryConfig {
   return {
     host: process.env.IMAGE_REGISTRY_HOST || 'registry',
     port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000'),
-    user: process.env.IMAGE_REGISTRY_USER || 'admin',
-    token: process.env.IMAGE_REGISTRY_TOKEN || 'password',
+    user: process.env.IMAGE_REGISTRY_USER || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_USER is required in production'); })() : 'admin'),
+    token: process.env.IMAGE_REGISTRY_TOKEN || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_TOKEN is required in production'); })() : 'password'),
     network: process.env.DOCKER_NETWORK || '',
   };
 }
@@ -54,7 +54,7 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
  * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `128`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
  * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
- * - `LOG_RETENTION` — Log retention in days (default: `1`)
+ * - `LOG_RETENTION` — Log retention in days (default: `7`)
  * - `LOG_REMOVAL_POLICY` — `'RETAIN'` or destroy (default: DESTROY)
  * - `CODEBUILD_COMPUTE_TYPE` — CodeBuild compute type (default: `'SMALL'`)
  *
@@ -72,7 +72,7 @@ export function loadAWSConfig(): AWSConfig {
     },
     logging: {
       groupName: process.env.LOG_GROUP_NAME || '/pipeline-builder/logs',
-      retention: parseRetention(process.env.LOG_RETENTION || '1'),
+      retention: parseRetention(process.env.LOG_RETENTION || '7'),
       removalPolicy: process.env.LOG_REMOVAL_POLICY === 'RETAIN'
         ? RemovalPolicy.RETAIN
         : RemovalPolicy.DESTROY,

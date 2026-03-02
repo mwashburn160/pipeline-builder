@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
-import { parsePluginZip, ValidationError } from '../src/helpers/manifest';
+import { parsePluginZip, validateBuildArgs, ValidationError } from '../src/helpers/manifest';
 
 // ---------------------------------------------------------------------------
 // Mock uuid to produce deterministic values
@@ -142,6 +142,51 @@ commands:
     const result = parsePluginZip(zipPath);
     expect(result.dockerfile).toBe('Dockerfile');
     expect(result.dockerfileContent).toBe('FROM alpine:3');
+  });
+});
+
+describe('validateBuildArgs', () => {
+  it('should accept a valid Record<string, string>', () => {
+    expect(() => validateBuildArgs({ NODE_ENV: 'production', VERSION: '1.0.0' })).not.toThrow();
+  });
+
+  it('should accept undefined (no-op)', () => {
+    expect(() => validateBuildArgs(undefined)).not.toThrow();
+  });
+
+  it('should accept null (no-op)', () => {
+    expect(() => validateBuildArgs(null)).not.toThrow();
+  });
+
+  it('should reject arrays', () => {
+    expect(() => validateBuildArgs(['a', 'b'])).toThrow(ValidationError);
+    expect(() => validateBuildArgs(['a', 'b'])).toThrow('buildArgs must be a plain object');
+  });
+
+  it('should reject non-string values', () => {
+    expect(() => validateBuildArgs({ key: 123 })).toThrow(ValidationError);
+    expect(() => validateBuildArgs({ key: 123 })).toThrow('keys and values must be strings');
+  });
+
+  it('should reject more than 20 entries', () => {
+    const tooMany: Record<string, string> = {};
+    for (let i = 0; i < 21; i++) {
+      tooMany[`key${i}`] = `value${i}`;
+    }
+    expect(() => validateBuildArgs(tooMany)).toThrow(ValidationError);
+    expect(() => validateBuildArgs(tooMany)).toThrow('cannot have more than 20 entries');
+  });
+
+  it('should reject keys longer than 1000 characters', () => {
+    const longKey = 'k'.repeat(1001);
+    expect(() => validateBuildArgs({ [longKey]: 'value' })).toThrow(ValidationError);
+    expect(() => validateBuildArgs({ [longKey]: 'value' })).toThrow('key exceeds 1000 characters');
+  });
+
+  it('should reject values longer than 1000 characters', () => {
+    const longValue = 'v'.repeat(1001);
+    expect(() => validateBuildArgs({ key: longValue })).toThrow(ValidationError);
+    expect(() => validateBuildArgs({ key: longValue })).toThrow('value for "key" exceeds 1000 characters');
   });
 });
 

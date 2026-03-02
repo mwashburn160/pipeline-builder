@@ -5,7 +5,7 @@
  * optionally provisions a billing subscription.
  */
 
-import { createLogger, sendError, sendSuccess, createSafeClient } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, createSafeClient, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
@@ -83,16 +83,16 @@ export async function register(req: Request, res: Response): Promise<void> {
         role: 'admin',
       });
 
-      const isSystemOrg = effectiveOrgName.toLowerCase() === 'system';
+      const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_ID;
 
       const orgData: Record<string, unknown> = {
-        name: isSystemOrg ? 'system' : effectiveOrgName,
+        name: isSystemOrg ? SYSTEM_ORG_ID : effectiveOrgName,
         owner: user._id,
         members: [user._id],
       };
 
       if (isSystemOrg) {
-        orgData._id = 'system';
+        orgData._id = SYSTEM_ORG_ID;
         orgData.tier = 'unlimited';
         orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
       }

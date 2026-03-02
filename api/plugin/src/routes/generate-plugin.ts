@@ -39,6 +39,7 @@ import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
+import { validateBuildArgs, ValidationError } from '../helpers/manifest';
 import { getQueue } from '../queue/plugin-build-queue';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';
 
@@ -147,7 +148,7 @@ export function createGeneratePluginRoutes(
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
-      res.setTimeout(0);
+      res.setTimeout(300_000); // 5-minute timeout for SSE streams
       res.flushHeaders();
 
       // Track client disconnect
@@ -251,6 +252,16 @@ export function createGeneratePluginRoutes(
       } = validation.value;
 
       const accessModifier = resolveAccessModifier(req, rawAccess || 'private');
+
+      // Validate buildArgs
+      try {
+        validateBuildArgs(buildArgs);
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          return sendBadRequest(res, error.message);
+        }
+        throw error;
+      }
 
       // Generate image tag
       const imageTag = `p-${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();

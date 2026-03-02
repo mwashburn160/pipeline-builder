@@ -2,6 +2,7 @@ import {
   getAccessBehavior,
   parseBooleanFilter,
   normalizeStringFilter,
+  escapeLikeWildcards,
 } from '../src/api/access-control-builder';
 
 describe('getAccessBehavior', () => {
@@ -61,5 +62,33 @@ describe('normalizeStringFilter', () => {
   it('should convert non-strings and lowercase', () => {
     expect(normalizeStringFilter(123)).toBe('123');
     expect(normalizeStringFilter(true)).toBe('true');
+  });
+});
+
+describe('escapeLikeWildcards', () => {
+  it('should escape % characters', () => {
+    expect(escapeLikeWildcards('100%')).toBe('100\\%');
+    expect(escapeLikeWildcards('%match%')).toBe('\\%match\\%');
+  });
+
+  it('should escape _ characters', () => {
+    expect(escapeLikeWildcards('some_value')).toBe('some\\_value');
+    expect(escapeLikeWildcards('_start')).toBe('\\_start');
+  });
+
+  it('should escape backslash characters', () => {
+    expect(escapeLikeWildcards('path\\to')).toBe('path\\\\to');
+    expect(escapeLikeWildcards('\\')).toBe('\\\\');
+  });
+
+  it('should return string unchanged when no wildcards', () => {
+    expect(escapeLikeWildcards('hello')).toBe('hello');
+    expect(escapeLikeWildcards('abc123')).toBe('abc123');
+    expect(escapeLikeWildcards('')).toBe('');
+  });
+
+  it('should handle mixed wildcards and normal text', () => {
+    expect(escapeLikeWildcards('50%_off\\deal')).toBe('50\\%\\_off\\\\deal');
+    expect(escapeLikeWildcards('a%b_c\\d')).toBe('a\\%b\\_c\\\\d');
   });
 });

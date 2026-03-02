@@ -4,6 +4,7 @@
  */
 
 import { createLogger } from '@mwashburn160/api-core';
+import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, PoolConfig, PoolClient } from 'pg';
 import { schema } from './drizzle-schema';
@@ -25,12 +26,12 @@ function getDatabaseConfig() {
   return {
     host: process.env.DB_HOST || 'postgres',
     port: parseIntEnv(process.env.DB_PORT, 5432),
-    database: process.env.DATABASE || 'pipeline-builder',
+    database: process.env.DATABASE || 'pipeline_builder',
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
+    password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() as string : ''),
     maxPoolSize: parseIntEnv(process.env.DRIZZLE_MAX_POOL_SIZE, 20),
     idleTimeoutMillis: parseIntEnv(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS, 30000),
-    connectionTimeoutMillis: parseIntEnv(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS, 10000),
+    connectionTimeoutMillis: parseIntEnv(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS, 5000),
   };
 }
 
@@ -234,7 +235,15 @@ export class Connection {
     timeoutMs: number = 30000,
   ): Promise<T> {
     let timer: ReturnType<typeof setTimeout>;
-    const txPromise = this.db.transaction(callback) as Promise<T>;
+    // Wrap callback to set PostgreSQL statement_timeout as a server-side guard.
+    // The Promise.race timeout below handles the JS side, but statement_timeout
+    // ensures the DB itself cancels long-running queries if the JS timeout fires
+    // but the connection isn't cleaned up.
+    const wrappedCallback: typeof callback = async (tx) => {
+      await tx.execute(sql`SET LOCAL statement_timeout = ${String(timeoutMs)}`);
+      return callback(tx);
+    };
+    const txPromise = this.db.transaction(wrappedCallback) as Promise<T>;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`Transaction timeout after ${timeoutMs}ms`)), timeoutMs);
     });

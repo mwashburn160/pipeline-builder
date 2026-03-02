@@ -30,7 +30,7 @@ export function loadDatabaseConfig(): DatabaseConfig {
       port: parseInt(process.env.DB_PORT || '5432'),
       database: process.env.DATABASE || 'pipeline_builder',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'password',
+      password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() : 'password'),
     },
     drizzle: {
       maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),

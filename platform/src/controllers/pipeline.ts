@@ -257,8 +257,11 @@ export async function createPipeline(req: Request, res: Response): Promise<void>
     if (!organization || typeof organization !== 'string') {
       return sendError(res, 400, 'organization is required and must be a string');
     }
-    if (!props || typeof props !== 'object') {
-      return sendError(res, 400, 'Pipeline props (builderProps) are required');
+    if (!props || typeof props !== 'object' || Array.isArray(props)) {
+      return sendError(res, 400, 'Pipeline props (builderProps) are required and must be an object');
+    }
+    if (!props.synth || typeof props.synth !== 'object') {
+      return sendError(res, 400, 'Pipeline props must include a synth configuration');
     }
 
     const resolvedProject = project;

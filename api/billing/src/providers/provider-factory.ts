@@ -12,8 +12,8 @@ import { createLogger } from '@mwashburn160/api-core';
 import { config } from '../config';
 import { AWSMarketplaceProvider } from './aws-marketplace-provider';
 import type { PaymentProvider } from './payment-provider';
-import { StubPaymentProvider } from './stub-provider';
 import { StripeProvider } from './stripe-provider';
+import { StubPaymentProvider } from './stub-provider';
 
 const logger = createLogger('provider-factory');
 

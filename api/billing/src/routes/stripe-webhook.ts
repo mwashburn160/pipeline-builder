@@ -18,13 +18,13 @@ import {
   createLogger,
   errorMessage,
 } from '@mwashburn160/api-core';
-import type Stripe from 'stripe';
 import { Router, Request, Response } from 'express';
+import type Stripe from 'stripe';
 import { createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers';
 import { Plan } from '../models/plan';
-import { StripeProvider } from '../providers/stripe-provider';
 import { getPaymentProvider } from '../providers/provider-factory';
+import { StripeProvider } from '../providers/stripe-provider';
 
 const logger = createLogger('billing-stripe-webhook');
 

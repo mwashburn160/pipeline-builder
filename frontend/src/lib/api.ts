@@ -1,8 +1,8 @@
 import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
-import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS } from './constants';
+import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
-const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'http://localhost:8443');
+const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'https://localhost:8443');
 
 export function base64UrlDecode(str: string): string {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -17,7 +17,9 @@ export class ApiError extends Error {
   statusCode: number;
   code?: string;
   details?: Record<string, unknown>;
-  
+  /** Seconds to wait before retrying (from Retry-After header on 429 responses). */
+  retryAfter?: number;
+
   constructor(message: string, statusCode: number, code?: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
@@ -265,7 +267,7 @@ class ApiClient {
 
     // Apply default timeout unless caller already provided an AbortSignal
     const controller = options.signal ? undefined : new AbortController();
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 30_000) : undefined;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS) : undefined;
 
     const response = await fetch(url, {
       ...options,
@@ -323,12 +325,20 @@ class ApiClient {
       const safeMessage = typeof data.message === 'string'
         ? data.message.replace(/<[^>]*>/g, '')
         : 'Request failed';
-      throw new ApiError(
+      const error = new ApiError(
         safeMessage,
         statusCode,
         data.code,
         data.details
       );
+      // Extract Retry-After header for rate-limited responses
+      if (statusCode === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        if (retryAfter) {
+          error.retryAfter = parseInt(retryAfter, 10) || undefined;
+        }
+      }
+      throw error;
     }
 
     return data;

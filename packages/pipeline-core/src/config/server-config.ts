@@ -142,12 +142,12 @@ export function validateAuthConfig(config: AuthConfig): void {
   ];
 
   const jwtSecretLower = config.jwt.secret.toLowerCase();
-  if (insecureSecrets.some(s => jwtSecretLower.includes(s))) {
+  if (insecureSecrets.some(s => jwtSecretLower === s || (config.jwt.secret.length < 64 && jwtSecretLower.includes(s)))) {
     errors.push('JWT secret appears to be insecure or default value');
   }
 
   const refreshSecretLower = config.refreshToken.secret.toLowerCase();
-  if (insecureSecrets.some(s => refreshSecretLower.includes(s))) {
+  if (insecureSecrets.some(s => refreshSecretLower === s || (config.refreshToken.secret.length < 64 && refreshSecretLower.includes(s)))) {
     errors.push('Refresh token secret appears to be insecure or default value');
   }
 
@@ -161,7 +161,9 @@ export function validateAuthConfig(config: AuthConfig): void {
   }
 
   // Check JWT expiration times
-  if (config.jwt.expiresIn > 7200) {
+  if (config.jwt.expiresIn > 86400) {
+    errors.push('JWT expiration must not exceed 24 hours (86400 seconds)');
+  } else if (config.jwt.expiresIn > 7200) {
     warnings.push('JWT expiration time is greater than 2 hours - shorter expiration recommended');
   }
 

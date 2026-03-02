@@ -13,6 +13,26 @@ Parameters:
     Type: String
     Description: Fully qualified domain name for the application (used for Grafana root URL)
 
+  AppSecretsName:
+    Type: String
+    Default: pipeline-builder/app-secrets
+    Description: Secrets Manager secret name for application secrets
+  PrometheusImage:
+    Type: String
+    Default: prom/prometheus:v3.2.1
+  LokiImage:
+    Type: String
+    Default: grafana/loki:3.4.2
+  GrafanaImage:
+    Type: String
+    Default: grafana/grafana:11.5.2
+  AwsCliImage:
+    Type: String
+    Default: amazon/aws-cli:2.24.0
+  DefaultDesiredCount:
+    Type: Number
+    Default: 1
+
 Resources:
 
   # ===========================================================================
@@ -50,7 +70,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: config-init
-          Image: amazon/aws-cli:latest
+          Image: !Ref AwsCliImage
           Essential: false
           EntryPoint:
             - /bin/sh
@@ -76,7 +96,7 @@ Resources:
               awslogs-stream-prefix: config-init
 
         - Name: prometheus
-          Image: prom/prometheus:v3.2.1
+          Image: !Ref PrometheusImage
           Essential: true
           DependsOn:
             - ContainerName: config-init
@@ -130,7 +150,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PrometheusTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -199,7 +219,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: config-init
-          Image: amazon/aws-cli:latest
+          Image: !Ref AwsCliImage
           Essential: false
           EntryPoint:
             - /bin/sh
@@ -225,7 +245,7 @@ Resources:
               awslogs-stream-prefix: config-init
 
         - Name: loki
-          Image: grafana/loki:3.4.2
+          Image: !Ref LokiImage
           Essential: true
           DependsOn:
             - ContainerName: config-init
@@ -275,7 +295,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref LokiTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -344,7 +364,7 @@ Resources:
               IAM: ENABLED
       ContainerDefinitions:
         - Name: config-init
-          Image: amazon/aws-cli:latest
+          Image: !Ref AwsCliImage
           Essential: false
           EntryPoint:
             - /bin/sh
@@ -376,7 +396,7 @@ Resources:
               awslogs-stream-prefix: config-init
 
         - Name: grafana
-          Image: grafana/grafana:11.5.2
+          Image: !Ref GrafanaImage
           Essential: true
           DependsOn:
             - ContainerName: config-init
@@ -405,7 +425,7 @@ Resources:
               Value: "true"
           Secrets:
             - Name: GF_SECURITY_ADMIN_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/app-secrets:GRAFANA_ADMIN_PASSWORD::"
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GRAFANA_ADMIN_PASSWORD::"
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume
@@ -446,7 +466,7 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref GrafanaTaskDefinition
       LaunchType: FARGATE
-      DesiredCount: 1
+      DesiredCount: !Ref DefaultDesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED

@@ -29,6 +29,8 @@ metadata:
   labels:
     app: postgres
 spec:
+  # Empty storageClassName opts out of dynamic provisioning and uses manual PV binding.
+  # This is intentional for hostPath-based local development (minikube).
   storageClassName: ""
   capacity:
     storage: 1Gi
@@ -80,9 +82,16 @@ spec:
         app: postgres
         app.kubernetes.io/component: database
     spec:
+      securityContext:
+        runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:
         - name: postgres
           image: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
           ports:
             - containerPort: 5432
               name: postgres

@@ -1,89 +1,35 @@
 /* eslint-disable @stylistic/max-len */
-/**
- * Projen Configuration for Pipeline Builder Monorepo
- *
- * This file defines the entire project structure using Projen, a project
- * configuration and build tool. It manages:
- * - Monorepo architecture with PNPM workspaces
- * - Core packages (api-core, api-server, pipeline-data, pipeline-core)
- * - Service projects (quota, plugin, pipeline, billing, message, platform, frontend)
- * - CLI tool (pipeline-manager)
- * - Build orchestration with Nx
- * - GitHub Actions workflows
- * - VSCode settings
- *
- * @see https://github.com/projen/projen
- */
-
 import { NodePackageManager, NpmAccess } from 'projen/lib/javascript';
+import { TypeScriptProject } from 'projen/lib/typescript';
 import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
 import { Workflow } from './projenrc/workflow';
 import { ManagerProject } from './projenrc/manager';
-import { FrontEndProject } from './projenrc/frontend'
+import { FrontEndProject } from './projenrc/frontend';
 import { FunctionProject } from './projenrc/function';
-import { TypeScriptProject } from 'projen/lib/typescript';
 import { PackageProject } from './projenrc/package';
-import { WebTokenProject } from './projenrc/web-token';
 
-// =============================================================================
-// Version Constants
-// =============================================================================
-// These centralized version numbers ensure consistency across all packages
-// and make it easier to update dependencies across the monorepo.
+// -- Version constants --
+const branch = 'main';
+const pnpmVersion = '10.25.0';
+const constructsVersion = '10.5.1';
+const typescriptVersion = '5.9.3';
+const cdkVersion = '2.240.0';
+const expressVersion = '5.2.1';
 
-/** Default Git branch for all projects */
-let branch = 'main';
+// Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
+const ws = 'workspace:*';
+const pkg = {
+  apiCore:      ws,
+  pipelineData: ws,
+  pipelineCore: ws,
+  apiServer:    ws,
+  aiCore:       ws,
+};
 
-/** PNPM package manager version (used in CI/CD workflows) */
-let pnpmVersion = '10.25.0';
-
-/** AWS CDK Constructs library version (for CDK infrastructure) */
-let constructsVersion = '10.5.1';
-
-/** TypeScript compiler version (consistent across all packages) */
-let typescriptVersion = '5.9.3';
-
-/** AWS CDK library version (for infrastructure as code) */
-let cdkVersion = '2.240.0';
-
-/** Express.js framework version (for API servers) */
-let expressVersion = '5.2.1'
-
-// Internal package versions — workspace protocol for pnpm-managed projects
-/** @mwashburn160/api-core package version */
-let apiCoreVersion = '1.30.4';
-
-/** @mwashburn160/pipeline-data package version */
-let pipelineDataVersion = '1.31.4';
-
-/** @mwashburn160/pipeline-core package version */
-let pipelineCoreVersion = '1.31.4';
-
-/** @mwashburn160/api-server package version */
-let apiServerVersion = '1.29.4';
-
-/** @mwashburn160/ai-core package version */
-let aiCoreVersion = '1.4.4';
-
-// =============================================================================
-// Root Project Configuration
-// =============================================================================
-/**
- * Root monorepo project definition.
- *
- * This TypeScript project serves as the root of the monorepo and defines:
- * - Package manager configuration (PNPM)
- * - TypeScript version for the entire workspace
- * - Global gitignore patterns
- * - Workspace-level dependencies
- * - Top-level scripts and tasks
- *
- * All child projects inherit settings from this root configuration unless
- * explicitly overridden.
- */
-let root = new TypeScriptProject({
+// -- Root project --
+const root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
@@ -99,511 +45,274 @@ let root = new TypeScriptProject({
   projenrcTs: true,
   jest: false,
   eslint: false,
-  buildWorkflow: false,  // Custom workflow defined separately
-  release: false,        // Manual release process
-  sampleCode: false,     // No sample code generation
+  buildWorkflow: false,
+  release: false,
+  sampleCode: false,
   npmAccess: NpmAccess.RESTRICTED,
   devDeps: [
-    '@swc-node/core@1.14.1',       // Fast TypeScript compiler for development
-    '@swc-node/register@1.11.1',   // SWC TypeScript loader for Node.js
-    `constructs@${constructsVersion}`, // AWS CDK constructs library
-    'npm-check-updates@19.3.2'     // Dependency update checker
-  ]
+    '@swc-node/core@1.14.1',
+    '@swc-node/register@1.11.1',
+    `constructs@${constructsVersion}`,
+    'npm-check-updates@19.3.2',
+  ],
 });
+root.addScripts({ 'npm-check': 'npx npm-check-updates' });
 
-/**
- * Add custom npm scripts to the root package.
- * These scripts are available from the workspace root.
- */
-root.addScripts({
-  // Check for outdated dependencies across the entire monorepo
-  'npm-check': 'npx npm-check-updates'
-});
+// -- Shared defaults --
+const baseDefaults = {
+  defaultReleaseBranch: branch,
+  packageManager: root.package.packageManager,
+  projenCommand: root.projenCommand,
+  minNodeVersion: root.minNodeVersion,
+  typescriptVersion,
+};
 
-/**
- * Package Architecture (Feb 2026 Refactoring - Final)
- *
- * Total Deduplication: ~1,250 lines of duplicate code eliminated
- *
- * Build Order (dependencies):
- * 1. api-core (no internal deps)
- * 2. pipeline-data → api-core
- * 3. pipeline-core → api-core + pipeline-data
- * 4. api-server → api-core + pipeline-core
- *
- * Responsibilities:
- * - api-core: Shared API utilities
- *   • Authentication middleware (JWT): requireAuth, requireAdmin, etc.
- *   • HTTP client: InternalHttpClient, createSafeClient
- *   • Response utilities: sendSuccess, sendError, sendPaginated
- *   • Logging, identity extraction, parameter parsing
- *   • Error codes and HTTP status constants
- *   • Quota service client interface
- *
- * - api-server: Express server infrastructure
- *   • App factory with middleware (CORS, Helmet, rate limiting)
- *   • Server lifecycle management with graceful shutdown
- *   • SSE connection manager for real-time events
- *   • Request context creation (identity + logging + SSE)
- *   • Re-exports api-core utilities for convenience
- *
- * - pipeline-data: Database layer
- *   • Drizzle ORM schemas (plugins, pipelines)
- *   • PostgreSQL connection management with retry logic
- *   • Type-safe query builders with generic CRUD operations
- *   • Query filters and pagination utilities
- *
- * - pipeline-core: CDK infrastructure + Configuration
- *   • AWS CDK constructs for pipeline building
- *   • Application configuration (Config class)
- *   • Pipeline types, helpers, and metadata
- *   • Network resolution (VPC/subnet lookup)
- *   • Re-exports pipeline-data and api-core utilities
- */
+const pkgDefaults = {
+  ...baseDefaults,
+  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
+  releaseToNpm: false,
+  npmAccess: NpmAccess.RESTRICTED,
+};
+
+// -- Docker scripts helper --
+function dockerScripts(name: string) {
+  return {
+    'start': 'node lib/index.js',
+    'docker:build': `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
+    'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
+    'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
+  };
+}
+
+// -- Common service dependencies (shared by all FunctionProject API services) --
+const commonServiceDeps = [
+  `@mwashburn160/api-core@${pkg.apiCore}`,
+  `@mwashburn160/api-server@${pkg.apiServer}`,
+  `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+  `express@${expressVersion}`,
+];
+const commonServiceDevDeps = [
+  '@types/express@5.0.6',
+  '@types/node@25.3.0',
+  '@jest/globals@30.2.0',
+];
 
 // =============================================================================
-// API Core - Shared API utilities (authentication, HTTP client, responses)
+// Packages
 // =============================================================================
-/**
- * Core API utilities package (@mwashburn160/api-core)
- *
- * This is the foundational package for all API services in the monorepo.
- * It has NO internal dependencies and provides shared functionality for:
- *
- * - JWT authentication middleware (requireAuth, requireAdmin, etc.)
- * - HTTP client utilities (InternalHttpClient, createSafeClient)
- * - Response standardization (sendSuccess, sendError, sendPaginated)
- * - Request identity extraction and validation
- * - Parameter parsing and validation
- * - Logging infrastructure (Winston)
- * - Error codes and HTTP status constants
- * - Quota service client interface
- * - Runtime type validation (Zod)
- *
- * All other packages depend on this package for common API functionality.
- *
- * @dependency express - Type definitions for Express Request/Response
- * @dependency jsonwebtoken - JWT token generation and validation
- * @dependency winston - Structured logging
- * @dependency zod - Runtime type validation and schema definitions
- */
-let api_core = new PackageProject({
+
+// -- API Core --
+const apiCore = new PackageProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/api-core',
   outdir: './packages/api-core',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
   deps: [
-    `express@${expressVersion}`,  // Express types for middleware definitions
-    'jsonwebtoken@9.0.3',         // JWT authentication
-    'winston@3.19.0',             // Structured logging
-    'zod@4.3.6',                  // Runtime type validation
-    '@asteasolutions/zod-to-openapi@8.4.0', // OpenAPI spec generation from Zod schemas
+    `express@${expressVersion}`,
+    'jsonwebtoken@9.0.3',
+    'winston@3.19.0',
+    'zod@4.3.6',
+    '@asteasolutions/zod-to-openapi@8.4.0',
   ],
   devDeps: [
-    '@types/express@5.0.6',       // Express type definitions
-    '@types/jsonwebtoken@9.0.10', // JWT type definitions
-    '@types/node@25.3.0',         // Node.js type definitions
-    `typescript@${typescriptVersion}`
-  ]
+    '@types/express@5.0.6',
+    '@types/jsonwebtoken@9.0.10',
+    '@types/node@25.3.0',
+    `typescript@${typescriptVersion}`,
+  ],
 });
-// Disable problematic ESLint rules for this package
-api_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
-api_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-api_core.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
-api_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+apiCore.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+  '@typescript-eslint/no-shadow': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+});
 
-// =============================================================================
-// Pipeline Data - Database layer (Drizzle ORM, query builders)
-// =============================================================================
-/**
- * Database layer package (@mwashburn160/pipeline-data)
- *
- * This package encapsulates all database interactions and provides:
- *
- * - Drizzle ORM schema definitions for plugins and pipelines
- * - PostgreSQL connection management with automatic retry logic
- * - Type-safe query builders with generic CRUD operations
- * - Query filters and pagination utilities
- * - Database helper functions (timestamps, soft delete)
- * - BaseQueryBuilder with reusable insert/update/delete methods
- *
- * Key Design Decision:
- * This package uses environment variables directly (no Config dependency)
- * to avoid circular dependencies. Configuration is kept minimal and
- * focused on database connectivity only.
- *
- * @dependency api-core - Logging and error handling
- * @dependency pg - PostgreSQL client library
- * @dependency drizzle-orm - Type-safe ORM with SQL query builder
- */
-let pipeline_data = new PackageProject({
+// -- Pipeline Data --
+const pipelineData = new PackageProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/pipeline-data',
   outdir: './packages/pipeline-data',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`, // Logging and utilities
-    'pg@8.18.0',                                 // PostgreSQL client
-    'drizzle-orm@0.45.1'                         // Type-safe ORM
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    'pg@8.18.0',
+    'drizzle-orm@0.45.1',
   ],
   devDeps: [
-    '@types/node@25.3.0',  // Node.js type definitions
-    '@types/pg@8.16.0',    // PostgreSQL type definitions
-    'drizzle-kit@0.31.9',  // Migration generation and management
-    `typescript@${typescriptVersion}`
-  ]
+    '@types/node@25.3.0',
+    '@types/pg@8.16.0',
+    'drizzle-kit@0.31.9',
+    `typescript@${typescriptVersion}`,
+  ],
 });
-// Disable problematic ESLint rules for this package
-pipeline_data.eslint?.addRules({ '@stylistic/max-len': 'off' });
-pipeline_data.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-pipeline_data.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
+pipelineData.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+});
 
-// =============================================================================
-// Pipeline Core - CDK infrastructure + Configuration
-// =============================================================================
-/**
- * CDK infrastructure and configuration package (@mwashburn160/pipeline-core)
- *
- * This package combines AWS CDK constructs with application configuration:
- *
- * - AWS CDK constructs for building CodePipeline infrastructure
- * - Application configuration (Config class with environment variables)
- * - Pipeline types, helpers, and metadata
- * - Network resolution utilities (VPC/subnet lookup)
- * - Re-exports pipeline-data for convenience (consumers get both)
- * - Re-exports api-core utilities (HTTP client, etc.)
- *
- * This package is used by:
- * - CDK stacks for infrastructure deployment
- * - CLI tools for pipeline management
- * - API services that need configuration and database access
- *
- * @dependency api-core - Shared utilities
- * @dependency pipeline-data - Database layer (re-exported)
- * @dependency aws-cdk-lib - AWS CDK infrastructure constructs
- * @dependency constructs - CDK construct base classes
- * @dependency jsonwebtoken - JWT utilities for service authentication
- * @dependency axios - HTTP client for AWS API calls
- * @dependency uuid - Unique identifier generation
- */
-let pipeline_core = new PackageProject({
+// -- Pipeline Core --
+const pipelineCore = new PackageProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/pipeline-core',
   outdir: './packages/pipeline-core',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // Shared utilities
-    `@mwashburn160/pipeline-data@${pipelineDataVersion}`, // Database layer
-    `constructs@${constructsVersion}`,                    // CDK constructs
-    `aws-cdk-lib@${cdkVersion}`,                          // AWS CDK library
-    'jsonwebtoken@9.0.3',                                 // JWT utilities
-    'axios@1.13.5',                                       // HTTP client
-    'uuid@13.0.0'                                         // UUID generation
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `@mwashburn160/pipeline-data@${pkg.pipelineData}`,
+    `constructs@${constructsVersion}`,
+    `aws-cdk-lib@${cdkVersion}`,
+    'jsonwebtoken@9.0.3',
+    'axios@1.13.5',
+    'uuid@13.0.0',
   ],
   devDeps: [
-    '@types/node@25.3.0',         // Node.js type definitions
-    '@types/aws-lambda@8.10.160', // AWS Lambda type definitions
-    '@types/jsonwebtoken@9.0.10', // JWT type definitions
-    '@jest/globals@30.2.0'        // Jest testing framework
-  ]
+    '@types/node@25.3.0',
+    '@types/aws-lambda@8.10.160',
+    '@types/jsonwebtoken@9.0.10',
+    '@jest/globals@30.2.0',
+  ],
 });
-// Disable problematic ESLint rules for this package
-pipeline_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
-pipeline_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-// Run tests sequentially — heavy CDK imports cause Jest worker pool timeout warnings
-if (pipeline_core.jest) {
-  pipeline_core.jest.config.maxWorkers = 1;
+pipelineCore.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+});
+if (pipelineCore.jest) {
+  pipelineCore.jest.config.maxWorkers = 1;
 }
-pipeline_core.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
 
-// =============================================================================
-// API Server - Express server infrastructure (SSE, request context)
-// =============================================================================
-/**
- * Express server infrastructure package (@mwashburn160/api-server)
- *
- * This package provides production-ready Express.js server infrastructure:
- *
- * - Application factory with pre-configured middleware (CORS, Helmet, rate limiting)
- * - Server lifecycle management with graceful shutdown handling
- * - SSE (Server-Sent Events) connection manager for real-time updates
- * - Request context creation (combines identity + logging + SSE)
- * - Re-exports authentication middleware from api-core for convenience
- *
- * All API services (quota, plugin, pipeline, platform) use this package
- * to standardize their Express server setup and lifecycle management.
- *
- * Key Features:
- * - Automatic error handling middleware
- * - Request ID generation and tracking
- * - Structured logging integration
- * - Security headers (Helmet)
- * - CORS configuration
- * - Rate limiting
- *
- * @dependency api-core - Shared utilities and authentication
- * @dependency pipeline-core - Configuration and database access
- * @dependency express - Web framework
- * @dependency express-rate-limit - Rate limiting middleware
- * @dependency helmet - Security headers middleware
- * @dependency cors - CORS middleware
- * @dependency jsonwebtoken - JWT authentication
- * @dependency uuid - Request ID generation
- * @dependency prom-client - Prometheus metrics collection
- */
-let api_server = new PackageProject({
+// -- API Server --
+const apiServer = new PackageProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/api-server',
   outdir: './packages/api-server',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // Shared utilities
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
-    `express@${expressVersion}`,                          // Web framework
-    'express-rate-limit@8.2.1',                           // Rate limiting
-    'helmet@8.1.0',                                       // Security headers
-    'cors@2.8.6',                                         // CORS middleware
-    'jsonwebtoken@9.0.3',                                 // JWT authentication
-    'uuid@13.0.0',                                        // UUID generation
-    'prom-client@15.1.3',                                  // Prometheus metrics
-    'swagger-ui-express@5.0.1',                            // Swagger UI for OpenAPI docs
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    `express@${expressVersion}`,
+    'express-rate-limit@8.2.1',
+    'helmet@8.1.0',
+    'cors@2.8.6',
+    'jsonwebtoken@9.0.3',
+    'uuid@13.0.0',
+    'prom-client@15.1.3',
+    'swagger-ui-express@5.0.1',
   ],
   devDeps: [
-    '@types/express@5.0.6',                // Express type definitions
-    '@types/express-serve-static-core@5.1.1', // Express core types
-    '@types/cors@2.8.19',                  // CORS type definitions
-    '@types/jsonwebtoken@9.0.10',          // JWT type definitions
-    '@types/swagger-ui-express@4.1.8',     // Swagger UI type definitions
-    '@types/node@25.3.0',                  // Node.js type definitions
-    `typescript@${typescriptVersion}`
-  ]
+    '@types/express@5.0.6',
+    '@types/express-serve-static-core@5.1.1',
+    '@types/cors@2.8.19',
+    '@types/jsonwebtoken@9.0.10',
+    '@types/swagger-ui-express@4.1.8',
+    '@types/node@25.3.0',
+    `typescript@${typescriptVersion}`,
+  ],
 });
-// Disable problematic ESLint rules for this package
-api_server.eslint?.addRules({ '@stylistic/max-len': 'off' });
-api_server.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-api_server.eslint?.addRules({ 'import/no-unresolved': 'off' });
-api_server.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
-// Run tests sequentially — heavy dependency imports cause Jest worker pool timeout warnings
-if (api_server.jest) {
-  api_server.jest.config.maxWorkers = 1;
+apiServer.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+  'import/no-unresolved': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+});
+if (apiServer.jest) {
+  apiServer.jest.config.maxWorkers = 1;
 }
 
-// =============================================================================
-// AI Core Package - Shared AI provider registry
-// =============================================================================
-/**
- * AI Core package (@mwashburn160/ai-core)
- *
- * Shared AI provider registry and model resolution for services that use
- * AI-powered generation (plugin, pipeline). Centralises the Vercel AI SDK
- * provider wrappers so each consuming service only needs domain-specific
- * code (prompts, schemas, generation logic).
- *
- * @dependency api-core - Provider catalog, env var mapping, logger
- * @dependency ai - Vercel AI SDK core (LanguageModel type, generateText)
- * @dependency @ai-sdk/* - Provider-specific SDK packages
- */
-let ai_core = new PackageProject({
+// -- AI Core --
+const aiCore = new PackageProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/ai-core',
   outdir: './packages/ai-core',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,  // Provider catalog + logger
-    'ai@6.0.99',                                  // Vercel AI SDK core
-    '@ai-sdk/anthropic@3.0.47',                   // Anthropic provider
-    '@ai-sdk/openai@3.0.31',                      // OpenAI provider
-    '@ai-sdk/google@3.0.31',                      // Google provider
-    '@ai-sdk/xai@3.0.59',                         // xAI (Grok) provider
-    '@ai-sdk/amazon-bedrock@4.0.64',              // Amazon Bedrock provider
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    'ai@6.0.99',
+    '@ai-sdk/anthropic@3.0.47',
+    '@ai-sdk/openai@3.0.31',
+    '@ai-sdk/google@3.0.31',
+    '@ai-sdk/xai@3.0.59',
+    '@ai-sdk/amazon-bedrock@4.0.64',
   ],
   devDeps: [
     '@types/node@25.3.0',
     `typescript@${typescriptVersion}`,
   ],
 });
-// Disable problematic ESLint rules for this package
-ai_core.eslint?.addRules({ '@stylistic/max-len': 'off' });
-ai_core.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+aiCore.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+});
 
 // =============================================================================
-// Pipeline Manager - CLI tool for pipeline management
+// Pipeline Manager CLI
 // =============================================================================
-/**
- * Pipeline Manager CLI tool (@mwashburn160/pipeline-manager)
- *
- * Command-line interface for managing CI/CD pipelines:
- *
- * - Interactive pipeline creation and deployment
- * - Plugin upload and management
- * - Pipeline YAML configuration
- * - AWS CDK stack deployment
- * - Progress tracking and status updates
- *
- * This is a binary package that can be installed globally or run via npx.
- *
- * @dependency pipeline-core - Pipeline configuration and CDK constructs
- * @dependency aws-cdk-lib - AWS CDK deployment
- * @dependency commander - CLI argument parsing
- * @dependency figlet - ASCII art banners
- * @dependency axios - HTTP client for API calls
- * @dependency progress - Progress bar rendering
- * @dependency picocolors - Terminal colors
- * @dependency yaml - YAML configuration parsing
- * @dependency ora - Terminal spinners
- * @dependency form-data - Multipart form uploads
- */
-let manager = new ManagerProject({
+
+const manager = new ManagerProject({
+  ...pkgDefaults,
   parent: root,
   name: '@mwashburn160/pipeline-manager',
   outdir: './packages/pipeline-manager',
-  defaultReleaseBranch: 'main',
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
-  releaseToNpm: false,
-  npmAccess: NpmAccess.RESTRICTED,
-  bin: {
-    'pipeline-manager': './dist/cli.js'  // CLI executable
-  },
+  bin: { 'pipeline-manager': './dist/cli.js' },
   deps: [
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Pipeline config
-    `typescript@${typescriptVersion}`,                    // TypeScript runtime
-    `aws-cdk-lib@${cdkVersion}`,                          // AWS CDK
-    'form-data@4.0.5',                                    // Multipart uploads
-    'commander@14.0.3',                                   // CLI framework
-    'figlet@1.10.0',                                      // ASCII art
-    'axios@1.13.5',                                       // HTTP client
-    'progress@2.0.3',                                    // Progress bars
-    'picocolors@1.1.1',                                   // Terminal colors
-    'yaml@2.8.2',                                         // YAML parsing
-    'ora@9.3.0'                                           // Terminal spinners
+    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    `typescript@${typescriptVersion}`,
+    `aws-cdk-lib@${cdkVersion}`,
+    'form-data@4.0.5',
+    'commander@14.0.3',
+    'figlet@1.10.0',
+    'axios@1.13.5',
+    'progress@2.0.3',
+    'picocolors@1.1.1',
+    'yaml@2.8.2',
+    'ora@9.3.0',
   ],
   devDeps: [
-    '@types/figlet@1.7.0',   // Figlet type definitions
-    '@types/progress@2.0.7', // Progress type definitions
-    'copyfiles@2.4.1'        // File copying utility
-  ]
-})
-// Disable problematic ESLint rules for this package
-manager.eslint?.addRules({ '@typescript-eslint/no-shadow': 'off' });
-manager.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-
-// Prevent npm pack from re-including its own tarball output (circular inclusion)
+    '@types/figlet@1.7.0',
+    '@types/progress@2.0.7',
+    'copyfiles@2.4.1',
+  ],
+});
+manager.eslint?.addRules({
+  '@typescript-eslint/no-shadow': 'off',
+  'import/no-extraneous-dependencies': 'off',
+});
 manager.addPackageIgnore('/dist/js/');
-
-/**
- * Post-compile tasks: Copy configuration files to dist directory
- * These files are needed at runtime by the CLI tool
- */
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 
 // =============================================================================
-// Platform Service - User authentication and organization management
+// Platform Service
 // =============================================================================
-/**
- * Platform service (platform)
- *
- * Multi-database platform service for user authentication and organization management:
- *
- * - User registration, login, and JWT token issuance
- * - OAuth authentication (third-party providers)
- * - Organization creation, management, and member roles
- * - Invitation system for organization onboarding
- * - Email verification and password reset flows
- * - User profile management
- * - Pipeline and plugin proxy routes (API gateway)
- * - MongoDB for user/organization data
- * - PostgreSQL for relational data
- *
- * This service issues JWT tokens that are used by other services for authentication.
- *
- * @dependency express - Web framework
- * @dependency express-rate-limit - Rate limiting for auth endpoints
- * @dependency nodemailer - Email sending (verification, password reset)
- * @dependency jsonwebtoken - JWT token generation
- * @dependency slugify - Generate URL-friendly organization slugs
- * @dependency winston - Structured logging
- * @dependency bcryptjs - Password hashing
- * @dependency mongoose - MongoDB ODM for user data
- * @dependency helmet - Security headers
- * @dependency cors - CORS middleware
- * @dependency pg - PostgreSQL client
- * @dependency drizzle-orm - PostgreSQL ORM
- * @dependency uuid - UUID generation
- * @dependency yaml - Configuration parsing
- * @dependency adm-zip - File archive handling
- * @dependency multer - File upload handling
- * @dependency prom-client - Prometheus metrics collection
- */
-let platform = new WebTokenProject({
+
+const platform = new FunctionProject({
+  ...baseDefaults,
   parent: root,
   name: 'platform',
   outdir: './platform',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`, // API core utilities (logging, validation, errors)
-    `express@${expressVersion}`,  // Web framework
-    'express-rate-limit@8.2.1',   // Rate limiting
-    'nodemailer@8.0.1',          // Email sending
-    'zod@4.3.6',                  // Runtime type validation
-    '@aws-sdk/client-sesv2@3.997.0', // AWS SES v2 email transport
-    'jsonwebtoken@9.0.3',         // JWT tokens
-    'slugify@1.6.6',              // URL slugs
-    'winston@3.19.0',             // Logging
-    'bcryptjs@3.0.3',             // Password hashing
-    'mongoose@9.2.2',             // MongoDB ODM
-    'helmet@8.1.0',               // Security headers
-    'cors@2.8.6',                 // CORS
-    'pg@8.18.0',                  // PostgreSQL client
-    'drizzle-orm@0.45.1',         // PostgreSQL ORM
-    'uuid@13.0.0',                // UUID generation
-    'yaml@2.8.2',                 // YAML parsing
-    'adm-zip@0.5.16',             // ZIP handling
-    'multer@2.0.2',               // File uploads
-    'prom-client@15.1.3',         // Prometheus metrics
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `express@${expressVersion}`,
+    'express-rate-limit@8.2.1',
+    'nodemailer@8.0.1',
+    'zod@4.3.6',
+    '@aws-sdk/client-sesv2@3.997.0',
+    'jsonwebtoken@9.0.3',
+    'slugify@1.6.6',
+    'winston@3.19.0',
+    'bcryptjs@3.0.3',
+    'mongoose@9.2.2',
+    'helmet@8.1.0',
+    'cors@2.8.6',
+    'pg@8.18.0',
+    'drizzle-orm@0.45.1',
+    'uuid@13.0.0',
+    'yaml@2.8.2',
+    'adm-zip@0.5.16',
+    'multer@2.0.2',
+    'prom-client@15.1.3',
   ],
   devDeps: [
     '@types/express@5.0.6',
@@ -615,564 +324,140 @@ let platform = new WebTokenProject({
     '@types/pg@8.16.0',
     '@types/adm-zip@0.5.7',
     '@types/multer@2.0.0',
-    '@jest/globals@30.2.0'
-  ]
+    '@jest/globals@30.2.0',
+  ],
+});
+platform.addScripts(dockerScripts('platform'));
+platform.eslint?.addRules({
+  '@stylistic/max-len': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+  'import/no-extraneous-dependencies': 'off',
 });
 
-/**
- * Add npm scripts for the platform service.
- * Docker scripts use environment variables for configuration:
- * - PROJECT_NAME: Docker image name (default: platform)
- * - REGISTRY: Container registry (default: ghcr.io/mwashburn160)
- * - WORKSPACE: Build context directory
- */
-platform.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-platform}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-platform}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules for this service
-platform.eslint?.addRules({ '@stylistic/max-len': 'off' });
-platform.eslint?.addRules({ '@typescript-eslint/member-ordering': 'off' });
-platform.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+// =============================================================================
+// Frontend
+// =============================================================================
 
-// =============================================================================
-// Frontend - Next.js web application
-// =============================================================================
-/**
- * Frontend web application (frontend)
- *
- * Next.js-based web interface for pipeline management:
- *
- * - User authentication and registration UI
- * - Pipeline creation and management interface
- * - Plugin upload and configuration
- * - Real-time pipeline status updates
- * - Organization and team management
- *
- * This is a server-side rendered React application built with Next.js 14.
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Server infrastructure
- * @dependency pipeline-core - Pipeline types and configuration
- * @dependency next - React framework with SSR
- * @dependency react - UI library
- * @dependency react-dom - React DOM renderer
- * @dependency lucide-react - Icon library
- * @dependency clsx - Conditional className utility
- * @dependency tailwindcss - Utility-first CSS framework
- * @dependency framer-motion - Animation and transition library
- */
-let frontend = new FrontEndProject({
+const frontend = new FrontEndProject({
+  ...baseDefaults,
   parent: root,
   name: 'frontend',
   outdir: './frontend',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
- gitignore : ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
+  gitignore: ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
   deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities (npm - yarn project)
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Server infrastructure (npm - yarn project)
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Pipeline types (npm - yarn project)
-    'next@16.1.6',                                        // React framework
-    'react@19.2.4',                                       // UI library
-    'react-dom@19.2.4',                                   // DOM renderer
-    'lucide-react@0.575.0',                               // Icons
-    'clsx@^2.1.1',                                        // Conditional classes
-    'tailwindcss@4.2.1',                                 // CSS framework
-    'framer-motion@12.34.3'                               // Animation library
+    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `@mwashburn160/api-server@${pkg.apiServer}`,
+    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    'next@16.1.6',
+    'react@19.2.4',
+    'react-dom@19.2.4',
+    'lucide-react@0.575.0',
+    'clsx@^2.1.1',
+    'tailwindcss@4.2.1',
+    'framer-motion@12.34.3',
   ],
   devDeps: [
-    '@types/node@25.3.0',              // Node.js types
-    '@types/react@19.2.14',            // React types
-    '@types/react-dom@19.2.3',         // React DOM types
-    '@types/jest@^30.0.0',             // Jest types
-    '@tailwindcss/postcss@4.2.1',     // Tailwind PostCSS plugin
-    'autoprefixer@10.4.24',            // CSS autoprefixer
-    'postcss@8.5.6',                   // CSS post-processor
-    'jest@^30.2.0',                    // Test runner
-    'ts-jest@^29.4.6',                 // TypeScript jest transformer
-    `typescript@${typescriptVersion}`   // TypeScript compiler
-  ]
-})
-
-/**
- * Configure test task to run jest for frontend utility tests.
- */
+    '@types/node@25.3.0',
+    '@types/react@19.2.14',
+    '@types/react-dom@19.2.3',
+    '@types/jest@^30.0.0',
+    '@tailwindcss/postcss@4.2.1',
+    'autoprefixer@10.4.24',
+    'postcss@8.5.6',
+    'jest@^30.2.0',
+    'ts-jest@^29.4.6',
+    `typescript@${typescriptVersion}`,
+  ],
+});
 frontend.testTask.exec('jest --passWithNoTests --config jest.config.ts');
-
-/**
- * Add npm scripts for the frontend application.
- * Docker scripts follow the same pattern as other services.
- */
-frontend.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)'
-});
+frontend.addScripts(dockerScripts('frontend'));
 
 // =============================================================================
-// Quota Service - Resource quota management
+// API Services (data-driven)
 // =============================================================================
-/**
- * Quota service (quota)
- *
- * Manages resource quotas and usage limits for organizations:
- *
- * - GET /quota/:orgId - Retrieve quota information
- * - POST /quota/:orgId - Update quota limits (admin only)
- * - Quota enforcement for pipelines, plugins, and other resources
- * - MongoDB for quota storage and tracking
- *
- * Other services call this service to check quotas before creating resources.
- *
- * Quota Types:
- * - PIPELINES: Maximum number of pipelines per organization
- * - PLUGINS: Maximum number of custom plugins per organization
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Express infrastructure
- * @dependency pipeline-core - Configuration
- * @dependency express - Web framework
- * @dependency cors - CORS middleware
- * @dependency express-rate-limit - Rate limiting
- * @dependency helmet - Security headers
- * @dependency jsonwebtoken - JWT authentication
- * @dependency mongoose - MongoDB ODM for quota data
- * @dependency winston - Structured logging
- * @dependency zod - Input validation
- */
-let quota = new FunctionProject({
-  parent: root,
-  name: 'quota',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Configuration
-    `express@${expressVersion}`,                          // Web framework
-    'cors@2.8.6',                                         // CORS
-    'express-rate-limit@8.2.1',                           // Rate limiting
-    'helmet@8.1.0',                                       // Security
-    'jsonwebtoken@9.0.3',                                 // JWT auth
-    'mongoose@9.2.2',                                     // MongoDB ODM
-    'winston@3.19.0',                                     // Logging
-    'zod@4.3.6'                                           // Input validation
-  ],
-  devDeps: [
-    '@types/express@5.0.6',       // Express types
-    '@types/jsonwebtoken@9.0.10', // JWT types
-    '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.3.0',         // Node.js types
-    '@jest/globals@30.2.0'        // Jest testing
-  ]
-});
 
-/**
- * Add npm scripts for the quota service.
- */
-quota.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-quota}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-quota}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-quota}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-quota}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules
-quota.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+const services: Array<{
+  name: string;
+  deps: string[];
+  devDeps?: string[];
+  eslint?: Record<string, string>;
+}> = [
+  {
+    name: 'quota',
+    deps: [
+      'cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0',
+      'jsonwebtoken@9.0.3', 'mongoose@9.2.2', 'winston@3.19.0', 'zod@4.3.6',
+    ],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
+  },
+  {
+    name: 'billing',
+    deps: [
+      'cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0',
+      'jsonwebtoken@9.0.3', 'mongoose@9.2.2', 'winston@3.19.0', 'zod@4.3.6',
+      '@aws-sdk/client-marketplace-metering@3.997.0',
+      '@aws-sdk/client-marketplace-entitlement-service@3.997.0',
+      'stripe@17.7.0',
+    ],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
+  },
+  {
+    name: 'plugin',
+    deps: [
+      'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
+      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
+      'adm-zip@0.5.16', 'multer@2.0.2',
+      `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+      'bullmq@5.34.8', 'ioredis@5.6.1',
+    ],
+    devDeps: [
+      '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
+      '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/multer@2.0.0',
+    ],
+    eslint: { '@stylistic/max-len': 'off' },
+  },
+  {
+    name: 'pipeline',
+    deps: [
+      'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
+      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
+      `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+    ],
+    devDeps: [
+      '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0',
+    ],
+  },
+  {
+    name: 'message',
+    deps: [
+      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6',
+    ],
+    devDeps: ['@types/pg@8.16.0'],
+  },
+];
 
-// =============================================================================
-// Billing Service - Subscription and plan management
-// =============================================================================
-/**
- * Billing service (billing)
- *
- * Manages subscription plans, billing lifecycle, and AWS Marketplace integration.
- *
- * **Disabled by default** (BILLING_ENABLED=false in .env). When disabled, billing
- * routes return 503 and the platform service skips subscription creation. Enable
- * by setting BILLING_ENABLED=true and configuring the billing provider.
- *
- * Routes:
- * - GET /billing/plans - List available plans
- * - GET /billing/subscriptions - Get current subscription
- * - POST /billing/subscriptions - Create subscription
- * - PUT /billing/subscriptions/:id - Change plan or interval
- * - POST /billing/subscriptions/:id/cancel - Cancel subscription
- * - POST /billing/subscriptions/:id/reactivate - Reactivate subscription
- * - POST /billing/marketplace/resolve - Resolve AWS Marketplace customer token
- * - Admin routes for subscription and event management
- *
- * Features:
- * - Plan definitions centralized in Config (pipeline-core/billing-config.ts)
- * - Pricing, descriptions, and features configurable via environment variables
- * - Plan management with tiered pricing (developer, pro, unlimited)
- * - Subscription lifecycle (create, upgrade, downgrade, cancel, reactivate)
- * - AWS Marketplace SaaS integration (ResolveCustomer, GetEntitlements)
- * - Billing event tracking and audit trail
- * - MongoDB for plan, subscription, and billing event storage
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Express infrastructure
- * @dependency pipeline-core - Configuration and billing plan definitions
- * @dependency express - Web framework
- * @dependency mongoose - MongoDB ODM for billing data
- * @dependency aws-sdk/client-marketplace-metering - AWS Marketplace ResolveCustomer
- * @dependency aws-sdk/client-marketplace-entitlement-service - AWS Marketplace GetEntitlements
- */
-let billing = new FunctionProject({
-  parent: root,
-  name: 'billing',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Configuration
-    `express@${expressVersion}`,                          // Web framework
-    'cors@2.8.6',                                         // CORS
-    'express-rate-limit@8.2.1',                           // Rate limiting
-    'helmet@8.1.0',                                       // Security
-    'jsonwebtoken@9.0.3',                                 // JWT auth
-    'mongoose@9.2.2',                                     // MongoDB ODM
-    'winston@3.19.0',                                     // Logging
-    'zod@4.3.6',                                          // Input validation
-    '@aws-sdk/client-marketplace-metering@3.997.0',       // AWS Marketplace ResolveCustomer
-    '@aws-sdk/client-marketplace-entitlement-service@3.997.0', // AWS Marketplace GetEntitlements
-    'stripe@17.7.0',                                       // Stripe payment processing
-  ],
-  devDeps: [
-    '@types/express@5.0.6',       // Express types
-    '@types/jsonwebtoken@9.0.10', // JWT types
-    '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.3.0',         // Node.js types
-    '@jest/globals@30.2.0'        // Jest testing
-  ]
-});
-
-/**
- * Add npm scripts for the billing service.
- */
-billing.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-billing}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-billing}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules
-billing.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-
-// =============================================================================
-// Plugin Service - Plugin upload and management
-// =============================================================================
-/**
- * Plugin service (plugin)
- *
- * Manages custom plugins for CI/CD pipelines:
- *
- * - POST /plugins - Upload and register a new plugin (multipart/form-data)
- * - POST /plugins/generate - AI-powered plugin generation
- * - GET /plugins - List plugins with filtering and pagination
- * - PUT /plugins/:id - Update plugin metadata
- * - DELETE /plugins/:id - Delete a plugin (soft delete)
- *
- * Features:
- * - AI-powered plugin generation (Anthropic, OpenAI, Google, xAI, Bedrock)
- * - Asynchronous build queue (BullMQ + Redis) for Docker image builds
- * - Plugin manifest validation (YAML)
- * - Docker image building and pushing to registry
- * - Quota enforcement (checks with quota service)
- * - Organization-based access control
- * - PostgreSQL storage via pipeline-data
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Express infrastructure
- * @dependency pipeline-core - Configuration and database
- * @dependency express - Web framework
- * @dependency express-rate-limit - Rate limiting
- * @dependency jsonwebtoken - JWT authentication
- * @dependency helmet - Security headers
- * @dependency cors - CORS middleware
- * @dependency pg - PostgreSQL client
- * @dependency drizzle-orm - PostgreSQL ORM
- * @dependency uuid - UUID generation
- * @dependency yaml - Manifest parsing
- * @dependency adm-zip - Plugin archive extraction
- * @dependency multer - File upload handling
- * @dependency ai - Vercel AI SDK for multi-provider LLM integration
- * @dependency zod - Schema validation for structured AI output
- * @dependency bullmq - Redis-backed job queue for async builds
- * @dependency ioredis - Redis client (required by BullMQ)
- */
-let plugin = new FunctionProject({
-  parent: root,
-  name: 'plugin',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
-    `express@${expressVersion}`,                          // Web framework
-    'express-rate-limit@8.2.1',                           // Rate limiting
-    'jsonwebtoken@9.0.3',                                 // JWT auth
-    'helmet@8.1.0',                                       // Security
-    'cors@2.8.6',                                         // CORS
-    'pg@8.18.0',                                          // PostgreSQL
-    'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
-    'uuid@13.0.0',                                        // UUID generation
-    'yaml@2.8.2',                                         // YAML parsing
-    'adm-zip@0.5.16',                                     // ZIP extraction
-    'multer@2.0.2',                                       // File uploads
-    `@mwashburn160/ai-core@${aiCoreVersion}`,              // AI provider registry
-    'zod@4.3.6',                                          // Schema validation (for structured output)
-    'bullmq@5.34.8',                                      // Job queue (Redis-backed)
-    'ioredis@5.6.1',                                      // Redis client (required by BullMQ)
-  ],
-  devDeps: [
-    '@types/express@5.0.6',       // Express types
-    '@types/jsonwebtoken@9.0.10', // JWT types
-    '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.3.0',         // Node.js types
-    '@types/pg@8.16.0',           // PostgreSQL types
-    '@types/adm-zip@0.5.7',       // ADM-ZIP types
-    '@types/multer@2.0.0',        // Multer types
-    '@jest/globals@30.2.0'        // Jest testing
-  ]
-});
-
-/**
- * Add npm scripts for the plugin service.
- */
-plugin.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-plugin}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-plugin}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules
-plugin.eslint?.addRules({ '@stylistic/max-len': 'off' });
-plugin.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-
-// =============================================================================
-// Pipeline Service - Pipeline creation and management
-// =============================================================================
-/**
- * Pipeline service (pipeline)
- *
- * Manages CI/CD pipeline configurations and metadata:
- *
- * - POST /pipelines - Create a new pipeline
- * - POST /pipelines/generate - AI-powered pipeline generation
- * - GET /pipelines - List pipelines with filtering and pagination
- * - PUT /pipelines/:id - Update pipeline configuration
- * - DELETE /pipelines/:id - Delete a pipeline (soft delete)
- *
- * Features:
- * - AI-powered pipeline generation (Anthropic, OpenAI, Google, xAI, Bedrock)
- * - Pipeline metadata storage (name, description, configuration)
- * - YAML configuration validation
- * - Quota enforcement (checks with quota service)
- * - Organization-based access control
- * - PostgreSQL storage via pipeline-data
- * - Real-time updates via SSE
- *
- * Pipelines reference plugins and are deployed to AWS CodePipeline
- * via the pipeline-manager CLI tool.
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Express infrastructure (includes SSE)
- * @dependency pipeline-core - Configuration and database
- * @dependency express - Web framework
- * @dependency express-rate-limit - Rate limiting
- * @dependency jsonwebtoken - JWT authentication
- * @dependency helmet - Security headers
- * @dependency cors - CORS middleware
- * @dependency pg - PostgreSQL client
- * @dependency drizzle-orm - PostgreSQL ORM
- * @dependency uuid - UUID generation
- * @dependency yaml - Configuration parsing
- * @dependency ai - Vercel AI SDK for multi-provider LLM integration
- * @dependency zod - Schema validation for structured AI output
- */
-let pipeline = new FunctionProject({
-  parent: root,
-  name: 'pipeline',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Express + SSE
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
-    `express@${expressVersion}`,                          // Web framework
-    'express-rate-limit@8.2.1',                           // Rate limiting
-    'jsonwebtoken@9.0.3',                                 // JWT auth
-    'helmet@8.1.0',                                       // Security
-    'cors@2.8.6',                                         // CORS
-    'pg@8.18.0',                                          // PostgreSQL
-    'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
-    'uuid@13.0.0',                                        // UUID generation
-    'yaml@2.8.2',                                          // YAML parsing
-    `@mwashburn160/ai-core@${aiCoreVersion}`,               // AI provider registry
-    'zod@4.3.6',                                           // Schema validation (for structured output)
-  ],
-  devDeps: [
-    '@types/express@5.0.6',       // Express types
-    '@types/jsonwebtoken@9.0.10', // JWT types
-    '@types/cors@2.8.19',         // CORS types
-    '@types/node@25.3.0',         // Node.js types
-    '@types/pg@8.16.0',           // PostgreSQL types
-    '@jest/globals@30.2.0'        // Jest testing
-  ]
-});
-
-/**
- * Add npm scripts for the pipeline service.
- */
-pipeline.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules
-pipeline.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
-
-// =============================================================================
-// Message Service - Internal messaging between organizations and system org
-// =============================================================================
-/**
- * Message service (message)
- *
- * Internal messaging system for org-to-system-org communication:
- *
- * - POST /messages - Create a new message or announcement
- * - POST /messages/:id/reply - Reply to a thread
- * - GET /messages - List inbox (conversations + announcements)
- * - GET /messages/announcements - List announcements
- * - GET /messages/conversations - List conversations
- * - GET /messages/unread/count - Get unread count
- * - GET /messages/:id - Get single message
- * - GET /messages/:id/thread - Get thread messages
- * - PUT /messages/:id/read - Mark message as read
- * - DELETE /messages/:id - Soft delete (admin only)
- *
- * Features:
- * - Announcements: System org broadcasts to all orgs
- * - Conversations: Two-way threaded messaging between org and system org
- * - Read tracking and unread counts
- * - Priority levels (normal, high, urgent)
- * - PostgreSQL storage via pipeline-data
- *
- * @dependency api-core - Shared API utilities
- * @dependency api-server - Express infrastructure
- * @dependency pipeline-core - Configuration and database
- * @dependency express - Web framework
- * @dependency pg - PostgreSQL client
- * @dependency drizzle-orm - PostgreSQL ORM
- * @dependency uuid - UUID generation
- * @dependency zod - Input validation
- */
-let message = new FunctionProject({
-  parent: root,
-  name: 'message',
-  defaultReleaseBranch: branch,
-  packageManager: root.package.packageManager,
-  projenCommand: root.projenCommand,
-  minNodeVersion: root.minNodeVersion,
-  typescriptVersion: typescriptVersion,
-  deps: [
-    `@mwashburn160/api-core@${apiCoreVersion}`,           // API utilities
-    `@mwashburn160/api-server@${apiServerVersion}`,       // Express infrastructure
-    `@mwashburn160/pipeline-core@${pipelineCoreVersion}`, // Config + database
-    `express@${expressVersion}`,                          // Web framework
-    'pg@8.18.0',                                          // PostgreSQL
-    'drizzle-orm@0.45.1',                                 // PostgreSQL ORM
-    'uuid@13.0.0',                                        // UUID generation
-    'zod@4.3.6',                                          // Input validation
-  ],
-  devDeps: [
-    '@types/express@5.0.6',       // Express types
-    '@types/node@25.3.0',         // Node.js types
-    '@types/pg@8.16.0',           // PostgreSQL types
-    '@jest/globals@30.2.0'        // Jest testing
-  ]
-});
-
-/**
- * Add npm scripts for the message service.
- */
-message.addScripts({
-  'start': 'node lib/index.js',
-  'docker:build': 'docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-message}:$(jq -r .version package.json) .',
-  'docker:tag': 'docker image tag ${PROJECT_NAME:-message}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)',
-  'docker:push': 'docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)'
-});
-// Disable problematic ESLint rules
-message.eslint?.addRules({ 'import/no-extraneous-dependencies': 'off' });
+for (const svc of services) {
+  const project = new FunctionProject({
+    ...baseDefaults,
+    parent: root,
+    name: svc.name,
+    deps: [...commonServiceDeps, ...svc.deps],
+    devDeps: [...commonServiceDevDeps, ...(svc.devDeps ?? [])],
+  });
+  project.addScripts(dockerScripts(svc.name));
+  project.eslint?.addRules({
+    'import/no-extraneous-dependencies': 'off',
+    ...svc.eslint,
+  });
+}
 
 // =============================================================================
 // Workspace Configuration
 // =============================================================================
-/**
- * Configure the monorepo workspace with additional tooling.
- *
- * These configurations enable:
- * - Nx: Build orchestration and caching for faster builds
- * - PnpmWorkspace: PNPM workspace configuration for monorepo
- * - VscodeSettings: Shared VSCode settings for consistent development
- * - Workflow: GitHub Actions CI/CD workflows
- */
 
-/**
- * Nx build orchestration
- * - Enables incremental builds with dependency graph
- * - Caches build outputs for faster rebuilds
- * - Parallelizes tasks across packages
- */
 new Nx(root);
-
-/**
- * PNPM workspace configuration
- * - Defines workspace packages in pnpm-workspace.yaml
- * - Enables shared dependencies and workspace protocols
- */
 new PnpmWorkspace(root);
-
-/**
- * VSCode settings
- * - Shared editor configuration
- * - TypeScript settings
- * - ESLint and Prettier integration
- */
 new VscodeSettings(root);
-
-/**
- * GitHub Actions workflow
- * - CI/CD pipeline for testing and building
- * - Uses the specified PNPM version
- */
 new Workflow(root, { pnpmVersion });
 
-/**
- * Synthesize all project configurations
- * This generates all project files (package.json, tsconfig.json, etc.)
- * based on the definitions above.
- */
 root.synth();
