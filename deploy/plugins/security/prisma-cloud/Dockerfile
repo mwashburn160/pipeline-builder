@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ─── Checkov (Prisma Cloud IaC scanner - open source) ───
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
-    && pip3 install --no-cache-dir checkov==3.2.345 \
+    && pip3 install --no-cache-dir --break-system-packages checkov==3.2.345 \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-sensitive config only

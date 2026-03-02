@@ -28,7 +28,7 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
     && rm -rf /tmp/aws /tmp/awscli.zip
 
 # ─── cfn-lint for CloudFormation template validation ───
-RUN pip3 install --no-cache-dir cfn-lint==1.31.1
+RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.31.1
 
 # ─── rain for CloudFormation deployment (modern CLI) ───
 RUN curl -fsSL https://github.com/aws-cloudformation/rain/releases/download/v1.18.0/rain-v1.18.0_linux-amd64.zip \

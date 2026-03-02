@@ -28,7 +28,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Coverage tools
 RUN npm install -g nyc@17.1.0 c8@10.1.3
-RUN pip3 install --no-cache-dir coverage==7.6.12
+RUN pip3 install --no-cache-dir --break-system-packages coverage==7.6.12
 
 # ─── Java for JaCoCo report processing ───
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Install twine and build ───
-RUN pip3 install --no-cache-dir twine==6.1.0 build==1.2.2
+RUN pip3 install --no-cache-dir --break-system-packages twine==6.1.0 build==1.2.2
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — TWINE_PASSWORD injected at runtime via CodeBuild secrets
