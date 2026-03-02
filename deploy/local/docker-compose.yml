@@ -505,7 +505,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.26.11'
+    image: 'ghcr.io/mwashburn160/frontend:1.27.5'
     container_name: frontend
     restart: always
     networks:
@@ -539,7 +539,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.25.11'
+    image: 'ghcr.io/mwashburn160/platform:1.26.5'
     container_name: platform
     depends_on:
       mongodb:
@@ -616,7 +616,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.24.11'
+    image: 'ghcr.io/mwashburn160/plugin:1.25.5'
     container_name: plugin
     depends_on:
       postgres:
@@ -647,7 +647,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.24.11'
+    image: 'ghcr.io/mwashburn160/pipeline:1.25.5'
     container_name: pipeline
     depends_on:
       postgres:
@@ -664,7 +664,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/message:1.6.11'
+    image: 'ghcr.io/mwashburn160/message:1.7.5'
     container_name: message
     depends_on:
       postgres:
@@ -680,7 +680,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.23.11'
+    image: 'ghcr.io/mwashburn160/quota:1.24.5'
     container_name: quota
     depends_on:
       mongodb:
@@ -692,7 +692,7 @@ services:
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-500}
       QUOTA_DEFAULT_PLUGINS: ${QUOTA_DEFAULT_PLUGINS:-100}
       QUOTA_DEFAULT_PIPELINES: ${QUOTA_DEFAULT_PIPELINES:-10}
       QUOTA_DEFAULT_API_CALLS: ${QUOTA_DEFAULT_API_CALLS:--1}
@@ -703,7 +703,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:1.8.11'
+    image: 'ghcr.io/mwashburn160/billing:1.9.5'
     container_name: billing
     depends_on:
       mongodb:

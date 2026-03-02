@@ -14,6 +14,7 @@
  *   PUT    /plugins/:id    — update existing plugin
  *   DELETE /plugins/:id    — delete existing plugin
  *   GET    /plugins/queue/status  — BullMQ build queue job counts (admin-only)
+ *   GET    /plugins/queue/failed  — failed job details with error messages (admin-only)
  */
 
 import { createLogger } from '@mwashburn160/api-core';
