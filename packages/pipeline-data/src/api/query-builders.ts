@@ -20,17 +20,18 @@ const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);
  * Build SQL conditions for pipeline queries
  *
  * Access control behavior:
- * - accessModifier='public': Only public records
- * - accessModifier='private': Only user's org records
- * - accessModifier not set: User's org records + public records
+ * - No orgId: system org public only
+ * - accessModifier='private': Own org private only
+ * - accessModifier='public': Own org public only
+ * - No accessModifier (default): Own org public + system org public
  *
  * @param filter - Pipeline filter criteria
- * @param orgId - User's organization ID
+ * @param orgId - User's organization ID (optional — anonymous gets system public only)
  * @returns Array of SQL conditions
  */
 export function buildPipelineConditions(
   filter: Partial<PipelineFilter>,
-  orgId: string,
+  orgId?: string,
 ): SQL[] {
   // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
   const conditions = pipelineBuilder.buildCommonConditions(filter, orgId);
@@ -51,17 +52,18 @@ export function buildPipelineConditions(
  * Build SQL conditions for plugin queries
  *
  * Access control behavior:
- * - accessModifier='public': Only public records
- * - accessModifier='private': Only user's org records
- * - accessModifier not set: User's org records + public records
+ * - No orgId: system org public only
+ * - accessModifier='private': Own org private only
+ * - accessModifier='public': Own org public only
+ * - No accessModifier (default): Own org public + system org public
  *
  * @param filter - Plugin filter criteria
- * @param orgId - User's organization ID
+ * @param orgId - User's organization ID (optional — anonymous gets system public only)
  * @returns Array of SQL conditions
  */
 export function buildPluginConditions(
   filter: Partial<PluginFilter>,
-  orgId: string,
+  orgId?: string,
 ): SQL[] {
   // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
   const conditions = pluginBuilder.buildCommonConditions(filter, orgId);

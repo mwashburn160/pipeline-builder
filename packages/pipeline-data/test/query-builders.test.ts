@@ -5,6 +5,8 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
+  SYSTEM_ORG_ID: 'system',
+  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
 }));
 
 import {

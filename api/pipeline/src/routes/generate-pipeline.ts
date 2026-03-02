@@ -26,6 +26,8 @@ import {
   validateBody,
   AIGenerateBodySchema,
   AIGenerateFromUrlBodySchema,
+  SYSTEM_ORG_ID,
+  AccessModifier,
 } from '@mwashburn160/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
@@ -71,9 +73,10 @@ async function getAvailablePlugins(orgId: string) {
       and(
         eq(schema.plugin.isActive, true),
         isNull(schema.plugin.deletedAt),
+        eq(schema.plugin.accessModifier, AccessModifier.PUBLIC),
         or(
           eq(schema.plugin.orgId, orgId),
-          eq(schema.plugin.accessModifier, 'public'),
+          eq(schema.plugin.orgId, SYSTEM_ORG_ID),
         ),
       ),
     );
@@ -486,9 +489,10 @@ async function autoCreateMissingPlugins(
           eq(schema.plugin.name, name),
           eq(schema.plugin.isActive, true),
           isNull(schema.plugin.deletedAt),
+          eq(schema.plugin.accessModifier, AccessModifier.PUBLIC),
           or(
             eq(schema.plugin.orgId, orgId),
-            eq(schema.plugin.accessModifier, 'public'),
+            eq(schema.plugin.orgId, SYSTEM_ORG_ID),
           ),
         ),
       )
@@ -523,7 +527,7 @@ async function autoCreateMissingPlugins(
         installCommands: [],
         commands: [`echo "Plugin ${name} — replace with real build commands"`],
         dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux2-x86_64-standard:5.0\nRUN echo "Plugin ${name}"`,
-        accessModifier: 'private',
+        accessModifier: AccessModifier.PRIVATE,
       }, {
         headers: {
           'Authorization': context.authToken,

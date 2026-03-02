@@ -7,6 +7,7 @@
  */
 
 import {
+  AccessModifier,
   sendError,
   sendBadRequest,
   sendSuccess,
@@ -76,7 +77,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       priority,
       createdBy: userId,
       updatedBy: userId,
-      accessModifier: 'private',
+      accessModifier: AccessModifier.PRIVATE,
     };
 
     const message = await messageService.create(messageData as MessageInsert, userId);
@@ -165,7 +166,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       priority: rootMessage.priority,
       createdBy: userId,
       updatedBy: userId,
-      accessModifier: 'private',
+      accessModifier: AccessModifier.PRIVATE,
     };
 
     const reply = await messageService.create(replyData as MessageInsert, userId);

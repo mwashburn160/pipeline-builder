@@ -81,7 +81,7 @@ export abstract class CrudService<
   protected abstract get schema(): PgTable;
 
   /** Build SQL conditions for filtering entities */
-  protected abstract buildConditions(filter: Partial<TFilter>, orgId: string): SQL[];
+  protected abstract buildConditions(filter: Partial<TFilter>, orgId?: string): SQL[];
 
   /** Get the schema column for sorting by field name */
   protected abstract getSortColumn(sortBy: string): AnyColumn | null;
@@ -97,8 +97,11 @@ export abstract class CrudService<
 
   /**
    * Find entities matching filter criteria
+   *
+   * @param filter - Filter criteria
+   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
-  async find(filter: Partial<TFilter>, orgId: string): Promise<TEntity[]> {
+  async find(filter: Partial<TFilter>, orgId?: string): Promise<TEntity[]> {
     try {
       const conditions = this.buildConditions(filter, orgId);
 
@@ -114,10 +117,14 @@ export abstract class CrudService<
 
   /**
    * Find entities with pagination and sorting
+   *
+   * @param filter - Filter criteria
+   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
+   * @param options - Pagination and sorting options
    */
   async findPaginated(
     filter: Partial<TFilter>,
-    orgId: string,
+    orgId?: string,
     options: QueryOptions = {},
   ): Promise<PaginatedResult<TEntity>> {
     try {
@@ -166,8 +173,11 @@ export abstract class CrudService<
 
   /**
    * Count entities matching filter criteria
+   *
+   * @param filter - Filter criteria
+   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
-  async count(filter: Partial<TFilter>, orgId: string): Promise<number> {
+  async count(filter: Partial<TFilter>, orgId?: string): Promise<number> {
     try {
       const conditions = this.buildConditions(filter, orgId);
 
@@ -185,8 +195,11 @@ export abstract class CrudService<
 
   /**
    * Find a single entity by ID
+   *
+   * @param id - Entity ID
+   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
-  async findById(id: string, orgId: string): Promise<TEntity | null> {
+  async findById(id: string, orgId?: string): Promise<TEntity | null> {
     try {
       const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
 

@@ -33,7 +33,7 @@ export function checkQuota(
   quotaType: QuotaType,
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const identity = req.context?.identity ?? getIdentity(req as unknown as HttpRequest);
+    const identity = req.context?.identity ?? getIdentity(req as HttpRequest);
     const orgId = identity.orgId;
     if (!orgId) {
       sendError(res, 400, 'Organization ID is required for quota check', ErrorCode.VALIDATION_ERROR);
