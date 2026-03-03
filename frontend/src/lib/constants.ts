@@ -20,8 +20,8 @@ export const QUOTA_WARNING_THRESHOLD = 70;
 /** Maximum character length for AI prompts. */
 export const AI_MAX_PROMPT_LENGTH = 5000;
 
-/** Timeout for plugin Docker build requests in ms. */
-export const PLUGIN_BUILD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+/** Timeout for plugin Docker build requests in ms. Configurable via VITE_PLUGIN_BUILD_TIMEOUT_MS env var. */
+export const PLUGIN_BUILD_TIMEOUT_MS = parseInt(import.meta.env.VITE_PLUGIN_BUILD_TIMEOUT_MS || String(5 * 60 * 1000), 10);
 
 /** Default fetch request timeout in ms. */
 export const API_REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
