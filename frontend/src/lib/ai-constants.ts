@@ -21,12 +21,12 @@ export interface AIModelInfo {
 /**
  * Provider info as seen by frontend components.
  * Includes a `source` field indicating whether the provider is configured
- * via server env vars or per-organization API keys.
+ * via server env vars, per-organization API keys, or not configured at all.
  */
 export interface AIProviderInfo {
   id: string;
   name: string;
-  source: 'server' | 'org';
+  source: 'server' | 'org' | 'none';
   models: AIModelInfo[];
 }
 
@@ -35,11 +35,12 @@ export interface AIProviderInfo {
 // ---------------------------------------------------------------------------
 
 /**
- * Standard model lists for providers configured at the org level.
+ * Standard model lists for all known providers.
  *
  * When a provider is configured via organization settings (not server env vars),
  * the backend doesn't return a model list. This catalog provides the models
- * so the frontend can still offer model selection.
+ * so the frontend can still offer model selection. Also used as the fallback
+ * catalog when providers aren't configured (source: 'none').
  */
 export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
   anthropic: [
@@ -64,11 +65,19 @@ export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
     { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
     { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
   ],
+  ollama: [
+    { id: 'llama3', name: 'Llama 3' },
+    { id: 'llama3:70b', name: 'Llama 3 70B' },
+    { id: 'codellama', name: 'Code Llama' },
+    { id: 'mistral', name: 'Mistral' },
+    { id: 'deepseek-coder-v2', name: 'DeepSeek Coder V2' },
+    { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder' },
+  ],
 };
 
 /**
  * Display names for AI provider IDs.
- * Used when constructing org-level provider entries.
+ * Used when constructing org-level or unconfigured provider entries.
  */
 export const AI_PROVIDER_NAMES: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -76,4 +85,14 @@ export const AI_PROVIDER_NAMES: Record<string, string> = {
   google: 'Google',
   xai: 'xAI (Grok)',
   'amazon-bedrock': 'Amazon Bedrock',
+  ollama: 'Ollama (Local)',
 };
+
+/**
+ * Returns a display label for a provider's source/configuration status.
+ */
+export function getProviderSourceLabel(provider: AIProviderInfo): string {
+  if (provider.id === 'ollama' && provider.source !== 'none') return 'No API key needed';
+  if (provider.source === 'none') return 'API key required';
+  return provider.source;
+}

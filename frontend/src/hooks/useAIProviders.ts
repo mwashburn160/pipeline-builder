@@ -6,7 +6,8 @@
  * 1. Fetch server-configured providers (env var keys)
  * 2. Fetch org-configured providers (saved API keys)
  * 3. Merge them with server taking priority
- * 4. Manage provider/model selection state
+ * 4. Fill in any missing providers from the catalog (source: 'none')
+ * 5. Manage provider/model selection state
  *
  * This hook encapsulates that logic so both components stay DRY.
  *
@@ -29,7 +30,7 @@ import api from '@/lib/api';
 
 /** Return type of the {@link useAIProviders} hook. */
 export interface UseAIProvidersResult {
-  /** Merged list of available providers (server + org). */
+  /** Merged list of available providers (server + org + unconfigured). */
   providers: AIProviderInfo[];
   /** Whether providers are still being fetched. */
   loading: boolean;
@@ -45,8 +46,8 @@ export interface UseAIProvidersResult {
   setSelectedModel: (id: string) => void;
   /** Models available for the currently selected provider. */
   currentModels: AIProviderInfo['models'];
-  /** Source of the currently selected provider ('server' or 'org'). */
-  currentSource: 'server' | 'org' | undefined;
+  /** Source of the currently selected provider ('server', 'org', or 'none'). */
+  currentSource: AIProviderInfo['source'] | undefined;
   /** Custom API key override value. */
   customApiKey: string;
   /** Update the custom API key. */
@@ -59,6 +60,11 @@ export interface UseAIProvidersResult {
 
 /**
  * Fetch and merge server + org AI providers, manage selection state.
+ *
+ * Always shows all known providers in the dropdown. Configured providers
+ * (server/org) are listed first, followed by unconfigured ones that require
+ * a custom API key. When an unconfigured provider is selected, the API key
+ * override section auto-expands.
  *
  * @param fetchServerProviders - Function to fetch server-configured providers
  *   (different endpoint per service: pipeline vs plugin)
@@ -118,8 +124,25 @@ export function useAIProviders(
           ...orgProviders.filter((p) => !serverIds.has(p.id)),
         ];
 
-        // Sort: Ollama first (local, no API key needed), then alphabetical
+        // Add unconfigured providers from the full catalog
+        const configuredIds = new Set(merged.map((p) => p.id));
+        for (const [id, name] of Object.entries(AI_PROVIDER_NAMES)) {
+          if (!configuredIds.has(id)) {
+            merged.push({
+              id,
+              name,
+              source: 'none',
+              models: ORG_PROVIDER_MODELS[id] ?? [],
+            });
+          }
+        }
+
+        // Sort: configured providers first (Ollama first among those),
+        // then unconfigured providers alphabetically
         merged.sort((a, b) => {
+          const aConfigured = a.source !== 'none' ? 0 : 1;
+          const bConfigured = b.source !== 'none' ? 0 : 1;
+          if (aConfigured !== bConfigured) return aConfigured - bConfigured;
           if (a.id === 'ollama') return -1;
           if (b.id === 'ollama') return 1;
           return a.name.localeCompare(b.name);
@@ -130,6 +153,10 @@ export function useAIProviders(
           setSelectedProviderState(merged[0].id);
           if (merged[0].models.length > 0) {
             setSelectedModel(merged[0].models[0].id);
+          }
+          // Auto-expand API key field if first provider is unconfigured
+          if (merged[0].source === 'none') {
+            setShowKeyOverride(true);
           }
         }
       } catch {
@@ -150,6 +177,10 @@ export function useAIProviders(
       setSelectedModel(provider.models[0].id);
     } else {
       setSelectedModel('');
+    }
+    // Auto-expand API key field for unconfigured providers
+    if (provider?.source === 'none') {
+      setShowKeyOverride(true);
     }
   };
 
