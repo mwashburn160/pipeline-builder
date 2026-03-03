@@ -1,3 +1,24 @@
+## 1.28.0 (2026-03-03)
+
+### 🚀 Features
+
+- upgraded nodejs to 24.14.0 ([626151c7](https://github.com/mwashburn160/pipeline-builder/commit/626151c7))
+
+### 🩹 Fixes
+
+- version ([19265a2c](https://github.com/mwashburn160/pipeline-builder/commit/19265a2c))
+- upgraded api-server=1.32.6 ([74f1a79a](https://github.com/mwashburn160/pipeline-builder/commit/74f1a79a))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.35.0
+- Updated @mwashburn160/api-server to 1.33.0
+- Updated @mwashburn160/api-core to 1.34.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.27.6 (2026-03-03)
 
 ### 🩹 Fixes
