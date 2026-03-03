@@ -328,13 +328,23 @@ Used by the platform service to route to microservices.
 
 ---
 
+## Message Routing
+
+Email-like aliases that are automatically resolved to the system organization when creating messages.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUPPORT_ALIASES` | *(empty)* | Comma-separated list of email aliases that resolve to the system org (e.g. `support@pipeline-builder,help@pipeline-builder`) |
+
+---
+
 ## AWS CDK / Lambda
 
 Used by pipeline-core for CDK infrastructure builds.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LAMBDA_RUNTIME` | `nodejs22.x` | Lambda runtime version |
+| `LAMBDA_RUNTIME` | `nodejs24.x` | Lambda runtime version |
 | `LAMBDA_TIMEOUT` | `900` | Lambda timeout in seconds (max 900) |
 | `LAMBDA_MEMORY_SIZE` | `128` | Lambda memory in MB |
 | `LAMBDA_ARCHITECTURE` | `ARM_64` | Architecture: `ARM_64` or `x86_64` |

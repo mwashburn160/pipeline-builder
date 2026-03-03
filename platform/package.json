@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.997.0",
-    "@mwashburn160/api-core": "1.33.6",
+    "@mwashburn160/api-core": "workspace:*",
     "adm-zip": "0.5.16",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",
@@ -63,7 +63,7 @@
     "zod": "4.3.6"
   },
   "engines": {
-    "node": ">= 24.9.0"
+    "node": ">= 24.14.0"
   },
   "license": "Apache-2.0",
   "publishConfig": {

@@ -67,7 +67,7 @@ export class PluginLookup extends Construct {
 
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
-    this._runtime = props.runtime ?? Runtime.NODEJS_22_X;
+    this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 256;
 

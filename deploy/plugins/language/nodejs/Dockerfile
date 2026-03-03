@@ -26,16 +26,16 @@ RUN mkdir -p ${NVM_DIR} \
 
 # Pre-install common Node.js versions
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 18 && \
     nvm install 20 && \
     nvm install 22 && \
-    nvm alias default 20"
+    nvm install 24 && \
+    nvm alias default 24"
 
 # Add nvm to PATH
-ENV PATH="${NVM_DIR}/versions/node/v20/bin:${PATH}"
+ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # Default Node.js version (overridden by NODE_VERSION env var at runtime)
-ENV NODE_VERSION=20
+ENV NODE_VERSION=24
 
 # Package manager selection (auto = detect from project files)
 ENV PACKAGE_MANAGER=auto

@@ -736,6 +736,7 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
       SERVICE_NAME: message
+      SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
 
   quota:
     restart: always

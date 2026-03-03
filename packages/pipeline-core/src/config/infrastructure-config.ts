@@ -49,7 +49,7 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
  * Load AWS infrastructure configuration from environment variables.
  *
  * Environment variables:
- * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs22.x'`; supports nodejs18.x, nodejs20.x)
+ * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; supports nodejs20.x, nodejs22.x, nodejs24.x)
  * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
  * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `128`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
@@ -63,7 +63,7 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
 export function loadAWSConfig(): AWSConfig {
   return {
     lambda: {
-      runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs22.x'),
+      runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs24.x'),
       timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900')),
       memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '128'),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
@@ -86,16 +86,16 @@ export function loadAWSConfig(): AWSConfig {
 /**
  * Parse Lambda runtime string into a CDK Runtime enum value.
  *
- * @param runtime - Runtime string (e.g. `'nodejs22.x'`)
- * @returns CDK Runtime enum; falls back to NODEJS_22_X for unknown values
+ * @param runtime - Runtime string (e.g. `'nodejs24.x'`)
+ * @returns CDK Runtime enum; falls back to NODEJS_24_X for unknown values
  */
 function parseRuntime(runtime: string): Runtime {
   const runtimeMap: Record<string, Runtime> = {
-    'nodejs18.x': Runtime.NODEJS_18_X,
     'nodejs20.x': Runtime.NODEJS_20_X,
     'nodejs22.x': Runtime.NODEJS_22_X,
+    'nodejs24.x': Runtime.NODEJS_24_X,
   };
-  return runtimeMap[runtime] || Runtime.NODEJS_22_X;
+  return runtimeMap[runtime] || Runtime.NODEJS_24_X;
 }
 
 /**

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { SUPPORT_ALIASES } from '@/lib/support-aliases';
 
 /** Props for the ComposeModal component. */
 interface ComposeModalProps {
@@ -31,6 +32,7 @@ function autoSubject(content: string): string {
 /** Modal for composing and sending new messages or announcements to organizations. */
 export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeModalProps) {
   const [recipientOrgId, setRecipientOrgId] = useState('');
+  const [selectedAlias, setSelectedAlias] = useState<string>(SUPPORT_ALIASES[0].value);
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
@@ -51,7 +53,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
       return;
     }
 
-    const recipient = isAnnouncement ? '*' : (isSystemOrg ? recipientOrgId.trim().toLowerCase() : 'system');
+    const recipient = isAnnouncement ? '*' : (isSystemOrg ? recipientOrgId.trim().toLowerCase() : selectedAlias);
     if (isSystemOrg && !isAnnouncement && !recipient) {
       setValidationError('Recipient organization is required');
       return;
@@ -141,10 +143,21 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
             />
           )}
 
-          {/* Non-system org info */}
+          {/* Non-system org: recipient alias dropdown */}
           {!isSystemOrg && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-              To: <span className="font-medium text-gray-700 dark:text-gray-300">System Admin</span>
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <span>To:</span>
+              <select
+                value={selectedAlias}
+                onChange={(e) => setSelectedAlias(e.target.value)}
+                className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0 cursor-pointer"
+              >
+                {SUPPORT_ALIASES.map((alias) => (
+                  <option key={alias.value} value={alias.value}>
+                    {alias.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 

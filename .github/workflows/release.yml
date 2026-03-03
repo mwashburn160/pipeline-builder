@@ -46,7 +46,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           cache: pnpm
-          node-version: 24.9.0
+          node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure .npmrc
         run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
@@ -116,7 +116,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           cache: pnpm
-          node-version: 24.9.0
+          node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure .npmrc
         run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
@@ -205,7 +205,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           cache: pnpm
-          node-version: 24.9.0
+          node-version: 24.14.0
           package-manager-cache: pnpm
       - name: Configure .npmrc
         run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/

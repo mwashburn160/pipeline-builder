@@ -17,6 +17,7 @@ import {
   MessageCreateSchema,
   MessageReplySchema,
   createLogger,
+  resolveRecipientAlias,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
@@ -49,7 +50,13 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { recipientOrgId, messageType, subject, content, priority } = validation.value;
+    const { recipientOrgId: rawRecipientOrgId, messageType, subject, content, priority } = validation.value;
+
+    // Resolve email-like aliases (e.g., support@pipeline-builder -> system)
+    const { resolvedOrgId: recipientOrgId, wasAlias, originalValue } = resolveRecipientAlias(rawRecipientOrgId);
+    if (wasAlias) {
+      ctx.log('INFO', 'Resolved recipient alias', { alias: originalValue, resolvedTo: recipientOrgId });
+    }
 
     // Business logic: announcements can only be created by system org
     if (messageType === 'announcement' && orgId !== 'system') {
