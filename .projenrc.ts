@@ -19,13 +19,13 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:      '1.33.6',
-  pipelineData: '1.34.6',
-  pipelineCore: '1.34.6',
-  apiServer:    '1.32.6',
-  aiCore:       '1.7.6',
+  apiCore:      ws,
+  pipelineData: ws,
+  pipelineCore: ws,
+  apiServer:    ws,
+  aiCore:       ws,
 };
 
 // -- Root project --
@@ -33,7 +33,7 @@ const root = new TypeScriptProject({
   name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
-  minNodeVersion: '24.9.0',
+  minNodeVersion: '24.14.0',
   minMajorVersion: 1,
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',

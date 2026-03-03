@@ -34,12 +34,12 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.33.6",
+    "@mwashburn160/api-core": "workspace:*",
     "drizzle-orm": "0.45.1",
     "pg": "8.18.0"
   },
   "engines": {
-    "node": ">= 24.9.0"
+    "node": ">= 24.14.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",

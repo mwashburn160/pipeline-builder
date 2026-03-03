@@ -1,5 +1,5 @@
 ARG ALPINE_VERSION=3.22
-ARG NODE_VERSION=24.9.0
+ARG NODE_VERSION=24.14.0
 # Cert stage
 FROM alpine:${ALPINE_VERSION} AS certs
 RUN apk update && \

@@ -90,6 +90,14 @@ jest.mock('@mwashburn160/api-core', () => ({
   MessageFilterSchema: {},
   validateQuery: jest.fn(() => ({ ok: true, value: {} })),
   incrementQuota: jest.fn(),
+  resolveRecipientAlias: jest.fn((recipientOrgId: string) => {
+    const aliases = new Set(['support@pipeline-builder', 'help@pipeline-builder']);
+    const normalized = recipientOrgId.trim().toLowerCase();
+    if (aliases.has(normalized)) {
+      return { resolvedOrgId: 'system', wasAlias: true, originalValue: recipientOrgId };
+    }
+    return { resolvedOrgId: normalized, wasAlias: false, originalValue: recipientOrgId };
+  }),
 }));
 
 const mockGetContext = (req: any) => req.context;
@@ -547,6 +555,78 @@ describe('POST /messages (create)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('resolves support alias to system org and creates message', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-alias', subject: 'Help request' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'support@pipeline-builder',
+        messageType: 'conversation',
+        subject: 'Help request',
+        content: 'Need help with pipeline',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: 'system' }),
+      'user-1',
+    );
+    expect(mockSseManager.send).toHaveBeenCalledWith(
+      'system',
+      'MESSAGE',
+      'New message',
+      expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-alias' }),
+    );
+  });
+
+  it('resolves help alias to system org and creates message', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-help', subject: 'Question' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'help@pipeline-builder',
+        messageType: 'conversation',
+        subject: 'Question',
+        content: 'How do I configure stages?',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: 'system' }),
+      'user-1',
+    );
+  });
+
+  it('does not resolve non-alias recipient org IDs', async () => {
+    mockCreate.mockResolvedValue({ id: 'msg-direct', subject: 'Direct message' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'system',
+        messageType: 'conversation',
+        subject: 'Direct message',
+        content: 'Directly addressed to system',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientOrgId: 'system' }),
+      'user-1',
+    );
   });
 });
 
