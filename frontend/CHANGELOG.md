@@ -1,3 +1,14 @@
+## 1.30.7 (2026-03-03)
+
+### 🩹 Fixes
+
+- env var ([200ce85f](https://github.com/mwashburn160/pipeline-builder/commit/200ce85f))
+- express routing ([d317dc80](https://github.com/mwashburn160/pipeline-builder/commit/d317dc80))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.6 (2026-03-03)
 
 ### 🩹 Fixes
