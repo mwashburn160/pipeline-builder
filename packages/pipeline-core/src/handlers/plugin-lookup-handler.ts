@@ -6,7 +6,12 @@
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { CoreConstants } from '../config/app-config';
+import {
+  HANDLER_TIMEOUT_MS,
+  HANDLER_DEFAULT_BASE_URL,
+  HANDLER_MAX_RETRIES,
+  HANDLER_RETRY_DELAY_MS,
+} from './handler-constants';
 
 /**
  * Simple structured logger for Lambda (outputs to CloudWatch)
@@ -28,77 +33,119 @@ const lambdaLog = {
 };
 
 /**
+ * Returns true for HTTP status codes that are safe to retry.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * Returns true for Axios error codes that indicate transient network failures.
+ */
+function isRetryableCode(code: string | undefined): boolean {
+  return code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT';
+}
+
+/**
+ * Sleeps for the given number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Creates a pre-configured Axios instance for API requests.
- * Includes JWT authorization from the AUTH_TOKEN environment variable
- * (set by the CDK construct from PLATFORM_TOKEN).
+ * Includes JWT authorization from the PLATFORM_TOKEN environment variable.
  *
  * @param baseURL - Base URL of the target API
  * @returns Configured Axios instance
+ * @throws Error if PLATFORM_TOKEN is not set
  */
 function create(baseURL: string): AxiosInstance {
-  const token = process.env.AUTH_TOKEN;
+  const token = process.env.PLATFORM_TOKEN;
   if (!token) {
-    lambdaLog.error('AUTH', 'AUTH_TOKEN environment variable is not set — API calls will be unauthenticated');
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    throw new Error('PLATFORM_TOKEN environment variable is not set — cannot authenticate API calls');
   }
 
   return axios.create({
     baseURL,
-    timeout: CoreConstants.HANDLER_TIMEOUT_MS,
-    headers,
+    timeout: HANDLER_TIMEOUT_MS,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
   });
 }
 
 /**
- * Fetches plugin configuration from the external API.
+ * Fetches plugin configuration from the external API with retry logic.
+ * Retries on transient failures (429, 502, 503, 504, network errors)
+ * with exponential backoff.
  *
  * @param api - Configured Axios instance
  * @param pluginFilter - Filter criteria for the plugin lookup
  * @returns The plugin data returned by the API
- * @throws Error on network failure, timeout or invalid response
+ * @throws Error on persistent failure, timeout or invalid response
  */
 async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Plugin> {
   lambdaLog.debug('FETCH', 'Starting plugin fetch', { filter: pluginFilter });
 
-  try {
-    const { data, status } = await api.post<Plugin>('/api/plugins/lookup', {
-      filter: pluginFilter,
-    });
+  let lastError: Error | undefined;
 
-    if (!data) {
-      throw new Error('Empty response data from API');
+  for (let attempt = 0; attempt <= HANDLER_MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = HANDLER_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+      lambdaLog.info('RETRY', `Attempt ${attempt + 1}/${HANDLER_MAX_RETRIES + 1} after ${delay}ms`);
+      await sleep(delay);
     }
 
-    lambdaLog.info('FETCH', 'Plugin fetched successfully', {
-      status,
-      plugin: data.name,
-      version: data.version,
-      id: data.id,
-    });
+    try {
+      const { data, status } = await api.post<Plugin>('/api/plugins/lookup', {
+        filter: pluginFilter,
+      });
 
-    return data;
-  } catch (error) {
-    if (error instanceof AxiosError) {
-      if (error.code === 'ECONNABORTED') {
-        lambdaLog.error('FETCH', `Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
-        throw new Error(`Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
+      if (!data) {
+        throw new Error('Empty response data from API');
       }
 
-      const msg = error.response
-        ? `API error ${error.response.status}: ${error.response.statusText}`
-        : error.code || error.message;
+      lambdaLog.info('FETCH', 'Plugin fetched successfully', {
+        status,
+        plugin: data.name,
+        version: data.version,
+        id: data.id,
+      });
 
-      lambdaLog.error('FETCH', msg, { responseData: error.response?.data });
+      return data;
+    } catch (error) {
+      if (error instanceof AxiosError) {
+        if (error.code === 'ECONNABORTED') {
+          lambdaLog.error('FETCH', `Plugin lookup timed out after ${HANDLER_TIMEOUT_MS}ms`);
+          throw new Error(`Plugin lookup timed out after ${HANDLER_TIMEOUT_MS}ms`);
+        }
 
-      throw new Error(`Failed to fetch plugin: ${msg}`);
+        const retryable = error.response
+          ? isRetryableStatus(error.response.status)
+          : isRetryableCode(error.code);
+
+        const msg = error.response
+          ? `API error ${error.response.status}: ${error.response.statusText}`
+          : error.code || error.message;
+
+        if (retryable && attempt < HANDLER_MAX_RETRIES) {
+          lambdaLog.info('RETRY', `Retryable error: ${msg}`, { attempt: attempt + 1 });
+          lastError = new Error(`Failed to fetch plugin: ${msg}`);
+          continue;
+        }
+
+        lambdaLog.error('FETCH', msg, { responseData: error.response?.data });
+        throw new Error(`Failed to fetch plugin: ${msg}`);
+      }
+
+      throw error instanceof Error ? error : new Error('Unknown error during plugin fetch');
     }
-
-    throw error instanceof Error ? error : new Error('Unknown error during plugin fetch');
   }
+
+  throw lastError ?? new Error('Failed to fetch plugin after retries');
 }
 
 /**
@@ -179,7 +226,7 @@ export const handler = async (
 
     // Extract and validate properties
     const pluginFilter = event.ResourceProperties.pluginFilter;
-    const baseURL = event.ResourceProperties.baseURL || CoreConstants.HANDLER_DEFAULT_BASE_URL;
+    const baseURL = event.ResourceProperties.baseURL || HANDLER_DEFAULT_BASE_URL;
 
     lambdaLog.info('CONFIG', 'Configuration loaded', { baseURL, pluginFilter });
 
