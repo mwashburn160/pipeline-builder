@@ -52,8 +52,8 @@ jest.mock('constructs', () => ({
 }));
 
 import { Token } from 'aws-cdk-lib';
-import { PluginLookup } from '../src/pipeline/plugin-lookup';
 import { UniqueId } from '../src/core/id-generator';
+import { PluginLookup } from '../src/pipeline/plugin-lookup';
 
 // Minimal mock scope
 const mockScope = {} as any;
