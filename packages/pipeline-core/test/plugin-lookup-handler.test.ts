@@ -68,11 +68,15 @@ describe('plugin-lookup-handler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(console, 'log').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    jest.spyOn(console, 'debug').mockImplementation();
     process.env = { ...originalEnv, PLATFORM_TOKEN: 'test-token' };
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    jest.restoreAllMocks();
   });
 
   describe('Delete requests', () => {
