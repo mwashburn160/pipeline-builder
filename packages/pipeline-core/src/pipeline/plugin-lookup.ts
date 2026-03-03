@@ -132,10 +132,7 @@ export class PluginLookup extends Construct {
       memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
       entry: entrypoint,
-      environment: {
-        PLATFORM_BASE_URL: this._platformUrl,
-        AUTH_TOKEN: process.env.PLATFORM_TOKEN || '',
-      },
+      environment: this.buildLambdaEnvironment(),
       bundling: {
         minify: true,
         sourceMap: true,
@@ -147,6 +144,23 @@ export class PluginLookup extends Construct {
     // for the function's log group — no explicit broad `Resource: '*'` grant needed.
 
     return fn;
+  }
+
+  /**
+   * Builds the Lambda environment variables. Fails fast if PLATFORM_TOKEN is not set
+   * at synth time, since deploying without it guarantees custom resource failure.
+   */
+  private buildLambdaEnvironment(): Record<string, string> {
+    const token = process.env.PLATFORM_TOKEN;
+    if (!token) {
+      throw new Error(
+        'PLATFORM_TOKEN environment variable is not set. '
+        + 'The plugin lookup Lambda requires a valid token to authenticate API calls. '
+        + 'Set it before running cdk synth: export PLATFORM_TOKEN=<jwt>',
+      );
+    }
+
+    return { PLATFORM_TOKEN: token };
   }
 
   /**
