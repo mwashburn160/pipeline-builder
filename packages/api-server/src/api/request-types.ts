@@ -61,10 +61,9 @@ export function createRequestContext(
   sseManager: SSEManager,
 ): RequestContext {
   const identity = getIdentity(req as HttpRequest);
-  const requestId = identity.requestId || uuid();
-
-  // Set request ID header for tracing
-  res.setHeader('X-Request-Id', requestId);
+  // Prefer the already-parsed requestId from app-factory middleware,
+  // fall back to identity header, then generate a new one.
+  const requestId = req.requestId || identity.requestId || uuid();
 
   // Create logger that outputs to Winston and SSE
   const log: RequestLogger = (type, message, data) => {

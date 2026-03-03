@@ -666,7 +666,14 @@ services:
     restart: always
     networks: *api-networks
     healthcheck: *api-healthcheck
-    deploy: *api-deploy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1536M
+        reservations:
+          cpus: '0.5'
+          memory: 768M
     image: 'ghcr.io/mwashburn160/plugin:1.28.6'
     container_name: plugin
     depends_on:

@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
-UPLOAD_DELAY=${UPLOAD_DELAY:-3}
+UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 
 # Defaults
 DRY_RUN=false
