@@ -47,7 +47,7 @@ deploy/**/.env
 !/test/
 !/tsconfig.json
 !/tsconfig.dev.json
-!/src/
+!/projenrc/
 /lib
 /dist/
 !/nx.json

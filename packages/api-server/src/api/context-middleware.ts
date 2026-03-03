@@ -54,9 +54,9 @@ declare global {
  * ```
  */
 export function attachRequestContext(sseManager: SSEManager): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
     // Create and attach context to request
-    req.context = createRequestContext(req, res, sseManager);
+    req.context = createRequestContext(req, sseManager);
     next();
   };
 }

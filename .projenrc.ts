@@ -19,7 +19,7 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
-///const ws = 'workspace:*';
+//const ws = 'workspace:*';
 const pkg = {
   apiCore:      '1.33.4',
   pipelineData: '1.34.4',
@@ -48,6 +48,7 @@ const root = new TypeScriptProject({
   buildWorkflow: false,
   release: false,
   sampleCode: false,
+  srcdir: 'projenrc',
   npmAccess: NpmAccess.RESTRICTED,
   devDeps: [
     '@swc-node/core@1.14.1',
