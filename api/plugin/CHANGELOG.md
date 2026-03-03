@@ -1,3 +1,17 @@
+## 1.28.4 (2026-03-03)
+
+### 🩹 Fixes
+
+- upgraded pipeline-server=1.34.3 ([9f9545d2](https://github.com/mwashburn160/pipeline-builder/commit/9f9545d2))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/ai-core to 1.7.4
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.3 (2026-03-03)
 
 ### 🩹 Fixes
