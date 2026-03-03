@@ -1,5 +1,14 @@
 import { CloudFormationCustomResourceEvent } from 'aws-lambda';
 
+// Mock handler-constants BEFORE importing handler — these are module-level constants
+// that freeze at import time, so process.env overrides in beforeEach have no effect.
+jest.mock('../src/handlers/handler-constants', () => ({
+  HANDLER_TIMEOUT_MS: 25000,
+  HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
+  HANDLER_MAX_RETRIES: 2,
+  HANDLER_RETRY_DELAY_MS: 1, // 1ms instead of 1000ms to keep tests fast
+}));
+
 // Mock axios before importing handler
 const mockPost = jest.fn();
 const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
@@ -18,10 +27,11 @@ jest.mock('axios', () => ({
   },
 }));
 
+import { handler } from '../src/handlers/plugin-lookup-handler';
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { AxiosError } = require('axios');
 
-import { handler } from '../src/handlers/plugin-lookup-handler';
 
 const MOCK_PLUGIN = {
   id: '123',
@@ -241,11 +251,6 @@ describe('plugin-lookup-handler', () => {
   });
 
   describe('retry logic', () => {
-    beforeEach(() => {
-      // Speed up tests by using minimal retry delay
-      process.env.HANDLER_RETRY_DELAY_MS = '1';
-    });
-
     it('should retry on 503 and succeed on second attempt', async () => {
       const axiosErr = new AxiosError(
         'Service Unavailable',
@@ -291,6 +296,25 @@ describe('plugin-lookup-handler', () => {
         undefined,
         undefined,
         { status: 502, statusText: 'Bad Gateway' },
+      );
+      mockPost
+        .mockRejectedValueOnce(axiosErr)
+        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+
+      const event = createEvent();
+      const result = await handler(event);
+
+      expect(result.Status).toBe('SUCCESS');
+      expect(mockPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('should retry on 504 (gateway timeout)', async () => {
+      const axiosErr = new AxiosError(
+        'Gateway Timeout',
+        '504',
+        undefined,
+        undefined,
+        { status: 504, statusText: 'Gateway Timeout' },
       );
       mockPost
         .mockRejectedValueOnce(axiosErr)
@@ -362,8 +386,6 @@ describe('plugin-lookup-handler', () => {
     });
 
     it('should fail after exhausting all retries', async () => {
-      process.env.HANDLER_MAX_RETRIES = '2';
-
       const axiosErr = new AxiosError(
         'Service Unavailable',
         '503',
@@ -387,7 +409,6 @@ describe('plugin-lookup-handler', () => {
 
   describe('fallback baseURL', () => {
     it('should use HANDLER_DEFAULT_BASE_URL when baseURL not in resource properties', async () => {
-      process.env.PLATFORM_BASE_URL = 'https://fallback.example.com';
       mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
 
       const event = createEvent({
@@ -397,12 +418,12 @@ describe('plugin-lookup-handler', () => {
         },
       });
 
-      // Need to re-import to pick up new env var for handler-constants
-      // Since constants are evaluated at module load, we test the handler behavior
       await handler(event);
 
-      // The handler was called — verifying it didn't error out due to missing baseURL
-      expect(mockAxiosCreate).toHaveBeenCalled();
+      // Verify the mocked default URL from handler-constants is used
+      expect(mockAxiosCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://default.example.com' }),
+      );
     });
   });
 });
