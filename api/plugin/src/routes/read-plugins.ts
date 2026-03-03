@@ -67,12 +67,14 @@ export function createReadPluginRoutes(
 
   // -------------------------------------------------------------------------
   // POST /plugins/lookup — find single plugin by body filter (CDK Lambda handler)
+  // Access control is handled by the query builder based on the JWT's orgId —
+  // no applyAccessControl needed here (would block public plugin lookups during deployment).
   // -------------------------------------------------------------------------
   router.post('/lookup', withRoute(async ({ req, res, ctx, orgId }) => {
     const { filter } = req.body;
     if (!filter) return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const plugins = await pluginService.find(applyAccessControl(filter, req), orgId);
+    const plugins = await pluginService.find(filter, orgId);
     const result = plugins[0];
 
     if (!result) return sendPluginNotFound(res);

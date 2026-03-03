@@ -28,6 +28,8 @@ const mockDbSelect = jest.fn();
 // ---------------------------------------------------------------------------
 
 jest.mock('@mwashburn160/api-core', () => ({
+  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+  SYSTEM_ORG_ID: 'system',
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     error: jest.fn(),
