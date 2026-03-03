@@ -15,7 +15,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGINS_DIR="$(cd "${SCRIPT_DIR}/../plugins" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+PLUGINS_DIR="$DEPLOY_DIR/plugins"
 MANIFEST_ONLY=false
 BUILD_IMAGES=false
 SPECIFIC_PLUGIN=""
