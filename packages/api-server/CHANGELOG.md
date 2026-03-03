@@ -1,3 +1,17 @@
+## 1.32.1 (2026-03-03)
+
+### 🩹 Fixes
+
+- upgraded api-core=1.33.0 ([8d3ba0a7](https://github.com/mwashburn160/pipeline-builder/commit/8d3ba0a7))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.34.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.32.0 (2026-03-03)
 
 ### 🚀 Features
