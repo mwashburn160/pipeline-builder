@@ -13,6 +13,7 @@ import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
+import { getProviderSourceLabel } from '@/lib/ai-constants';
 import api from '@/lib/api';
 import { AI_MAX_PROMPT_LENGTH } from '@/lib/constants';
 
@@ -113,17 +114,6 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
       );
     }
 
-    if (ai.providers.length === 0) {
-      return (
-        <div className="rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-6 text-center">
-          <p className="text-sm text-yellow-800 dark:text-yellow-300 font-medium">No AI providers configured</p>
-          <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-            Configure an API key in Settings or set an environment variable on the pipeline service.
-          </p>
-        </div>
-      );
-    }
-
     return (
       <div className="space-y-4">
         {/* Provider and Model Selection */}
@@ -138,7 +128,7 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
             >
               {ai.providers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.source})
+                  {p.name} — {getProviderSourceLabel(p)}
                 </option>
               ))}
             </select>
@@ -166,7 +156,7 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
             className="flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
           >
             {ai.showKeyOverride ? <ChevronUp className="w-3 h-3 mr-1" /> : <ChevronDown className="w-3 h-3 mr-1" />}
-            Use custom API key
+            {ai.currentSource === 'none' ? 'Enter API key' : 'Use custom API key'}
           </button>
           {ai.showKeyOverride && (
             <div className="mt-2">
@@ -174,12 +164,18 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
                 type="password"
                 value={ai.customApiKey}
                 onChange={(e) => ai.setCustomApiKey(e.target.value)}
-                placeholder={ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'}
+                placeholder={
+                  ai.currentSource === 'none'
+                    ? (ai.selectedProvider === 'ollama' ? 'Ollama base URL (e.g., http://localhost:11434/v1)' : 'Enter API key for this provider')
+                    : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
+                }
                 className="input text-sm"
                 disabled={disabled || generating}
               />
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                Overrides the {ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.
+                {ai.currentSource === 'none'
+                  ? 'An API key is required to use this provider.'
+                  : `Overrides the ${ai.currentSource === 'org' ? 'organization' : 'server'} key for this request only.`}
               </p>
             </div>
           )}

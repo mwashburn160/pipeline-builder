@@ -125,7 +125,7 @@ echo ""
 printf "Load plugins? [y/N] "
 read -r LOAD_PLUGINS
 if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_IDENTIFIER="$PLATFORM_IDENTIFIER" PLATFORM_PASSWORD="$PLATFORM_PASSWORD" "$SCRIPT_DIR/load-plugins.sh"
+    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh"
 else
     echo "  Skipping plugin loading."
 fi
@@ -134,7 +134,7 @@ echo ""
 printf "Load sample pipelines? [y/N] "
 read -r LOAD_PIPELINES
 if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_IDENTIFIER="$PLATFORM_IDENTIFIER" PLATFORM_PASSWORD="$PLATFORM_PASSWORD" "$SCRIPT_DIR/load-pipelines.sh"
+    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
 else
     echo "  Skipping pipeline loading."
 fi

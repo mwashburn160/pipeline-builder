@@ -59,6 +59,7 @@ while [ $# -gt 0 ]; do
       echo "  --timeout SECONDS      Upload timeout in seconds (default: 900)"
       echo ""
       echo "Environment:"
+      echo "  PLATFORM_TOKEN         JWT token (skips credential prompts and login)"
       echo "  PLATFORM_BASE_URL      Platform API URL (default: https://localhost:8443)"
       exit 0
       ;;
@@ -211,40 +212,46 @@ echo "  Categories: ${CATEGORY_FILTER:-all}"
 echo "  Parallel:   $PARALLEL"
 echo ""
 
-# Prompt for credentials (env vars override prompts)
-DEFAULT_IDENTIFIER="admin@internal"
-DEFAULT_PASSWORD="SecurePassword123!"
-
-if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
-  printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
-  read -r PLATFORM_IDENTIFIER
-  PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
-fi
-
-if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-  printf "Password [%s]: " "$DEFAULT_PASSWORD"
-  read -r PLATFORM_PASSWORD
-  PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
-fi
-
-# Login (skip in dry-run mode)
+# Authenticate — use PLATFORM_TOKEN if available, otherwise prompt for credentials
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
-  echo "=== Authenticating ==="
-  LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
-      -k -s \
-      -H 'Content-Type: application/json' \
-      -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
+  if [ -n "${PLATFORM_TOKEN:-}" ]; then
+    JWT_TOKEN="$PLATFORM_TOKEN"
+    echo "=== Using provided PLATFORM_TOKEN ==="
+    echo ""
+  else
+    # Prompt for credentials (env vars override prompts)
+    DEFAULT_IDENTIFIER="admin@internal"
+    DEFAULT_PASSWORD="SecurePassword123!"
 
-  JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
+    if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
+      printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
+      read -r PLATFORM_IDENTIFIER
+      PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
+    fi
 
-  if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
-      echo "  Login failed — could not obtain JWT token" >&2
-      echo "  Response: ${LOGIN_RESP}" >&2
-      exit 1
+    if [ -z "${PLATFORM_PASSWORD:-}" ]; then
+      printf "Password [%s]: " "$DEFAULT_PASSWORD"
+      read -r PLATFORM_PASSWORD
+      PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
+    fi
+
+    echo "=== Authenticating ==="
+    LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
+        -k -s \
+        -H 'Content-Type: application/json' \
+        -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
+
+    JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
+
+    if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
+        echo "  Login failed — could not obtain JWT token" >&2
+        echo "  Response: ${LOGIN_RESP}" >&2
+        exit 1
+    fi
+    echo "  Logged in successfully."
+    echo ""
   fi
-  echo "  Logged in successfully."
-  echo ""
 fi
 
 if [ ! -d "$PLUGINS_DIR" ]; then
