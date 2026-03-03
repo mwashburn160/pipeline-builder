@@ -23,7 +23,7 @@
 import { z } from 'zod';
 import { AccessModifierSchema } from './common-schemas';
 
-const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000');
+const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
 
 // ---------------------------------------------------------------------------
 // AI Generation Request

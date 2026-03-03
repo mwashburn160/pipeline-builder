@@ -13,9 +13,9 @@ import * as fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 
-const execFileAsync = promisify(execFile);
-
 import { createLogger, errorMessage, ValidationError } from '@mwashburn160/api-core';
+
+const execFileAsync = promisify(execFile);
 
 const logger = createLogger('docker-build');
 
@@ -139,7 +139,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
       network: registry.network || 'default',
     });
 
-    const buildTimeoutMs = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '300000');
+    const buildTimeoutMs = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '300000', 10);
     await execFileAsync('docker', args, { timeout: buildTimeoutMs });
 
     return { fullImage };

@@ -125,7 +125,7 @@ invitationSchema.pre('validate', function () {
     this.token = crypto.randomBytes(32).toString('hex');
   }
   if (!this.expiresAt) {
-    const expirationDays = parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7');
+    const expirationDays = parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7', 10);
     this.expiresAt = new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000);
   }
 });

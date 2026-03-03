@@ -21,7 +21,7 @@ export const QUOTA_WARNING_THRESHOLD = 70;
 export const AI_MAX_PROMPT_LENGTH = 5000;
 
 /** Timeout for plugin Docker build requests in ms. Configurable via NEXT_PUBLIC_PLUGIN_BUILD_TIMEOUT_MS env var. */
-export const PLUGIN_BUILD_TIMEOUT_MS = parseInt(process.env.NEXT_PUBLIC_PLUGIN_BUILD_TIMEOUT_MS || String(5 * 60 * 1000), 10);
+export const PLUGIN_BUILD_TIMEOUT_MS = parseInt(process.env.NEXT_PUBLIC_PLUGIN_BUILD_TIMEOUT_MS || '300000', 10); // 5 min
 
 /** Default fetch request timeout in ms. */
 export const API_REQUEST_TIMEOUT_MS = 30_000; // 30 seconds

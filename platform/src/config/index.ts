@@ -46,51 +46,57 @@ function parseQuotaLimit(value: string | undefined, defaultValue: number | 'unli
  */
 export const config = {
   app: {
-    port: parseInt(process.env.PORT || '3000'),
+    port: parseInt(process.env.PORT || '3000', 10),
     baseUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
   },
+
   server: {
-    trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
+    trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
   },
+
   logger: {
     level: process.env.LOG_LEVEL || 'debug',
   },
+
   cors: {
     credentials: process.env.CORS_CREDENTIALS !== 'false',
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
       : [process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443'],
   },
+
   rateLimit: {
-    max: parseInt(process.env.LIMITER_MAX || '100'),
-    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000'),
+    max: parseInt(process.env.LIMITER_MAX || '100', 10),
+    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10), // 15 min
     auth: {
-      max: parseInt(process.env.AUTH_LIMITER_MAX || '20'),
-      windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000'),
+      max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
+      windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min
     },
   },
   auth: {
-    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8'),
+    passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
     jwt: {
       secret: requireSecret('JWT_SECRET', 'JWT secret'),
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
+      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10), // 2 hr
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
+      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
     },
     refreshToken: {
       secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),
-      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
+      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10), // 30 days
     },
     cookie: {
       sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'strict' | 'none',
     },
   },
+
   mongodb: {
     // MONGODB_URI must be set via environment; no credentials in source code.
     // Example: mongodb://mongo:<password>@mongodb:27017/platform?replicaSet=rs0&authSource=admin
     uri: process.env.MONGODB_URI || (isDev ? 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin' : ''),
   },
+
   email: {
     enabled: process.env.EMAIL_ENABLED === 'true',
     from: process.env.EMAIL_FROM || 'noreply@example.com',
@@ -98,7 +104,7 @@ export const config = {
     provider: (process.env.EMAIL_PROVIDER || 'smtp') as 'smtp' | 'ses',
     smtp: {
       host: process.env.SMTP_HOST || 'localhost',
-      port: parseInt(process.env.SMTP_PORT || '587'),
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
@@ -109,15 +115,17 @@ export const config = {
       secretAccessKey: process.env.SES_SECRET_ACCESS_KEY || '',
     },
   },
+
   invitation: {
-    expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7'),
-    maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50'),
+    expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7', 10),
+    maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50', 10),
   },
+
   oauth: {
     /** Base URL for OAuth callback redirects (e.g. https://yourdomain.com) */
     callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
-    stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000'),
-    cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000'),
+    stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000', 10), // 10 min
+    cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000', 10), // 1 min
     google: {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || '',
@@ -127,6 +135,7 @@ export const config = {
       userinfoUrl: process.env.GOOGLE_USERINFO_URL || 'https://www.googleapis.com/oauth2/v2/userinfo',
     },
   },
+
   services: {
     listPlugins: process.env.LIST_PLUGINS_URL || 'https://localhost:8443',
     getPlugin: process.env.GET_PLUGIN_URL || 'https://localhost:8443',
@@ -134,17 +143,18 @@ export const config = {
     listPipelines: process.env.LIST_PIPELINES_URL || 'https://localhost:8443',
     getPipeline: process.env.GET_PIPELINE_URL || 'https://localhost:8443',
     createPipeline: process.env.CREATE_PIPELINE_URL || 'https://localhost:8443',
-    timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000'),
+    timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000', 10), // 30s
   },
+
   quota: {
     // Quota microservice connection
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
-    servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000'),
-    serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000'),
+    servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
+    serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000', 10), // 5s
     // Organization ID that bypasses all quotas
     bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
     // Default window in milliseconds (60 seconds)
-    defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+    defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10), // 1 min
     // Quota tier presets (each tier defines its own limits and reset periods)
     tier: {
       developer: {
@@ -164,43 +174,47 @@ export const config = {
     pipeline: {
       create: {
         limit: parseQuotaLimit(process.env.QUOTA_CREATE_PIPELINE_LIMIT, 'unlimited'),
-        windowMs: parseInt(process.env.QUOTA_CREATE_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+        windowMs: parseInt(process.env.QUOTA_CREATE_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
       },
       get: {
         limit: parseQuotaLimit(process.env.QUOTA_GET_PIPELINE_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_GET_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+        windowMs: parseInt(process.env.QUOTA_GET_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
       },
     },
     // Plugin quotas
     plugin: {
       create: {
         limit: parseQuotaLimit(process.env.QUOTA_CREATE_PLUGIN_LIMIT, 'unlimited'),
-        windowMs: parseInt(process.env.QUOTA_CREATE_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+        windowMs: parseInt(process.env.QUOTA_CREATE_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
       },
       get: {
         limit: parseQuotaLimit(process.env.QUOTA_GET_PLUGIN_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000'),
+        windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
       },
     },
   },
+
   billing: {
     enabled: (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.BILLING_SERVICE_HOST || 'billing',
-    servicePort: parseInt(process.env.BILLING_SERVICE_PORT || '3000'),
-    serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000'),
+    servicePort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
+    serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10), // 5s
   },
+
   loki: {
     url: process.env.LOKI_URL || 'http://loki:3100',
-    timeout: parseInt(process.env.LOKI_TIMEOUT || '10000'),
+    timeout: parseInt(process.env.LOKI_TIMEOUT || '10000', 10), // 10s
   },
+
   logs: {
-    defaultLimit: parseInt(process.env.LOG_DEFAULT_LIMIT || '100'),
-    maxLimit: parseInt(process.env.LOG_MAX_LIMIT || '1000'),
-    defaultLookbackMs: parseInt(process.env.LOG_DEFAULT_LOOKBACK_MS || '3600000'),
+    defaultLimit: parseInt(process.env.LOG_DEFAULT_LIMIT || '100', 10),
+    maxLimit: parseInt(process.env.LOG_MAX_LIMIT || '1000', 10),
+    defaultLookbackMs: parseInt(process.env.LOG_DEFAULT_LOOKBACK_MS || '3600000', 10), // 1 hr
   },
+
   pagination: {
-    defaultLimit: parseInt(process.env.PLATFORM_LIST_DEFAULT || '20'),
-    maxLimit: parseInt(process.env.PLATFORM_LIST_MAX || '100'),
+    defaultLimit: parseInt(process.env.PLATFORM_LIST_DEFAULT || '20', 10),
+    maxLimit: parseInt(process.env.PLATFORM_LIST_MAX || '100', 10),
   },
 } as const;
 

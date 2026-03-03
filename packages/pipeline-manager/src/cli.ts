@@ -77,7 +77,7 @@ function checkEnvironment(): void {
 
   // Check Node version
   const nodeVersion = process.version;
-  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0] || '0');
+  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0] || '0', 10);
   if (majorVersion < 18) {
     warnings.push(`Node.js ${nodeVersion} detected - version 18+ recommended`);
   }

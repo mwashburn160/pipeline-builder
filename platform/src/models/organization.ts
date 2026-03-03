@@ -324,7 +324,7 @@ organizationSchema.pre<OrganizationDocument>('validate', async function () {
   } else {
     const suffixes = existingOrgs.map((org: { slug: string }) => {
       const parts = org.slug.split('-');
-      const lastPart = parseInt(parts[parts.length - 1]);
+      const lastPart = parseInt(parts[parts.length - 1], 10);
       return isNaN(lastPart) ? 0 : lastPart;
     });
     const maxSuffix = Math.max(0, ...suffixes);

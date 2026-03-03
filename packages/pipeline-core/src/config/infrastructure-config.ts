@@ -24,7 +24,7 @@ import { getComputeType } from '../core/pipeline-helpers';
 export function loadRegistryConfig(): RegistryConfig {
   return {
     host: process.env.IMAGE_REGISTRY_HOST || 'registry',
-    port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000'),
+    port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
     user: process.env.IMAGE_REGISTRY_USER || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_USER is required in production'); })() : 'admin'),
     token: process.env.IMAGE_REGISTRY_TOKEN || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_TOKEN is required in production'); })() : 'password'),
     network: process.env.DOCKER_NETWORK || '',
@@ -64,12 +64,13 @@ export function loadAWSConfig(): AWSConfig {
   return {
     lambda: {
       runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs24.x'),
-      timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900')),
-      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '128'),
+      timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900', 10)),
+      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '128', 10),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
         ? Architecture.X86_64
         : Architecture.ARM_64,
     },
+
     logging: {
       groupName: process.env.LOG_GROUP_NAME || '/pipeline-builder/logs',
       retention: parseRetention(process.env.LOG_RETENTION || '7'),
@@ -77,6 +78,7 @@ export function loadAWSConfig(): AWSConfig {
         ? RemovalPolicy.RETAIN
         : RemovalPolicy.DESTROY,
     },
+
     codeBuild: {
       computeType: getComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
     },
