@@ -53,6 +53,14 @@ export function createUploadPluginRoutes(
   router.post(
     '/',
     upload.single('plugin') as RequestHandler,
+    // Handle multer/busboy errors (e.g. "Unexpected end of form") before proceeding
+    ((err: Error, _req: Request, res: Response, next: (err?: Error) => void) => {
+      if (err) {
+        logger.error('Multipart parse error', { error: err.message });
+        return sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
+      }
+      next();
+    }) as unknown as RequestHandler,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     // Admin check BEFORE quota — non-admins should be rejected without consuming quota

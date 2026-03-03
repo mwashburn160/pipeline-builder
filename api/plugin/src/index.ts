@@ -35,6 +35,11 @@ const { app, sseManager } = createApp();
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
 
+// -- Upload route FIRST — manages its own middleware (multer → auth → plugins quota).
+//    Must be registered before other /plugins routes so that their auth/quota
+//    middleware does not run on multipart uploads before multer can parse the body.
+app.use('/plugins', createUploadPluginRoutes(quotaService));
+
 // -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
 
@@ -49,9 +54,6 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createUpdatePluginRout
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeletePluginRoutes());
-
-// -- Upload route — manages its own middleware (multer → auth → plugins quota)
-app.use('/plugins', createUploadPluginRoutes(quotaService));
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);
