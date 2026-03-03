@@ -1,3 +1,13 @@
+## 1.28.6 (2026-03-03)
+
+### 🩹 Fixes
+
+- express routing ([d317dc80](https://github.com/mwashburn160/pipeline-builder/commit/d317dc80))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.28.5 (2026-03-03)
 
 ### 🩹 Fixes
