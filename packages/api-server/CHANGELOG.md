@@ -1,3 +1,18 @@
+## 1.32.0 (2026-03-03)
+
+### 🚀 Features
+
+- updated access control ([c84d1ecd](https://github.com/mwashburn160/pipeline-builder/commit/c84d1ecd))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.34.0
+- Updated @mwashburn160/api-core to 1.33.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.0 (2026-03-02)
 
 ### 🚀 Features
