@@ -1,3 +1,13 @@
+## 1.30.6 (2026-03-03)
+
+### 🩹 Fixes
+
+- updated plugin ux ([51f49453](https://github.com/mwashburn160/pipeline-builder/commit/51f49453))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.5 (2026-03-03)
 
 ### 🩹 Fixes
