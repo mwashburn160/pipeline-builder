@@ -15,10 +15,10 @@ set -eu
 #   UPLOAD_DELAY=2 ./load-pipelines.sh                         # 2s delay between uploads
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$SCRIPT_DIR/common.sh"
+
 SAMPLES_DIR="$DEPLOY_DIR/samples"
 PIPELINES_DIR="$SAMPLES_DIR/pipelines"
-PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
 UPLOAD_DELAY=${UPLOAD_DELAY:-3}
 
 # Defaults
@@ -54,46 +54,10 @@ echo "  URL:     $PLATFORM_BASE_URL"
 echo "  Dry-run: $DRY_RUN"
 echo ""
 
-# Authenticate — use PLATFORM_TOKEN if available, otherwise prompt for credentials
+# Authenticate
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
-  if [ -n "${PLATFORM_TOKEN:-}" ]; then
-    JWT_TOKEN="$PLATFORM_TOKEN"
-    echo "=== Using provided PLATFORM_TOKEN ==="
-    echo ""
-  else
-    # Prompt for credentials (env vars override prompts)
-    DEFAULT_IDENTIFIER="admin@internal"
-    DEFAULT_PASSWORD="SecurePassword123!"
-
-    if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
-      printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
-      read -r PLATFORM_IDENTIFIER
-      PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
-    fi
-
-    if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-      printf "Password [%s]: " "$DEFAULT_PASSWORD"
-      read -r PLATFORM_PASSWORD
-      PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
-    fi
-
-    echo "=== Authenticating ==="
-    LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
-        -k -s \
-        -H 'Content-Type: application/json' \
-        -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
-
-    JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
-
-    if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
-        echo "  Login failed — could not obtain JWT token" >&2
-        echo "  Response: ${LOGIN_RESP}" >&2
-        exit 1
-    fi
-    echo "  Logged in successfully."
-    echo ""
-  fi
+  require_auth
 fi
 
 if [ ! -d "$PIPELINES_DIR" ]; then
@@ -147,22 +111,13 @@ for pipeline_dir in "$PIPELINES_DIR"/*/; do
     -d "$BODY" \
     --insecure 2>/dev/null || echo "000")
 
-  case "$CREATE_STATUS" in
-    200|201|202)
-      echo "    OK (HTTP ${CREATE_STATUS})"
-      SUCCEEDED=$((SUCCEEDED + 1))
-      ;;
-    409)
-      echo "    SKIP (HTTP 409 - already exists)"
-      SKIPPED=$((SKIPPED + 1))
-      ;;
-    *)
-      echo "    FAIL (HTTP ${CREATE_STATUS})"
-      FAILED=$((FAILED + 1))
-      ;;
+  _result=$(classify_status "$CREATE_STATUS")
+  case "$_result" in
+    ok)     echo "    OK (HTTP ${CREATE_STATUS})";             SUCCEEDED=$((SUCCEEDED + 1)) ;;
+    exists) echo "    SKIP (HTTP 409 - already exists)";       SKIPPED=$((SKIPPED + 1)) ;;
+    fail)   echo "    FAIL (HTTP ${CREATE_STATUS})";           FAILED=$((FAILED + 1)) ;;
   esac
 
-  # Throttle uploads to avoid rate limiting
   if [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$REMAINING" -gt 0 ]; then
     sleep "$UPLOAD_DELAY"
   fi
@@ -171,19 +126,7 @@ done
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
-echo ""
-echo "=== Upload Summary ==="
-echo "  Total:     $TOTAL"
-echo "  Queued:    $QUEUED"
-echo "  Succeeded: $SUCCEEDED"
-echo "  Failed:    $FAILED"
-echo "  Skipped:   $SKIPPED"
-echo "  Duration:  ${DURATION}s"
-
-if [ "$FAILED" -gt 0 ]; then
-  echo ""
-  echo "WARNING: ${FAILED} pipeline(s) failed to create"
-fi
+print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
 
 echo ""
 echo "=== Done ==="
