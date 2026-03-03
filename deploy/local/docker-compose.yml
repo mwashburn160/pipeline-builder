@@ -556,7 +556,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.30.6'
+    image: 'ghcr.io/mwashburn160/frontend:1.30.7'
     container_name: frontend
     restart: always
     networks:
@@ -667,7 +667,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/plugin:1.28.5'
+    image: 'ghcr.io/mwashburn160/plugin:1.28.6'
     container_name: plugin
     depends_on:
       postgres:
@@ -700,7 +700,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.28.5'
+    image: 'ghcr.io/mwashburn160/pipeline:1.28.6'
     container_name: pipeline
     depends_on:
       postgres:
