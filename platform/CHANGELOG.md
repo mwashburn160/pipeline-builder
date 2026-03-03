@@ -1,3 +1,13 @@
+## 1.29.6 (2026-03-03)
+
+### 🩹 Fixes
+
+- tsconfig ([f7075c9a](https://github.com/mwashburn160/pipeline-builder/commit/f7075c9a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.29.5 (2026-03-03)
 
 ### 🩹 Fixes
