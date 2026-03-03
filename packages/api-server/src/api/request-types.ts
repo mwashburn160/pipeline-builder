@@ -4,7 +4,7 @@
  */
 
 import { getIdentity, RequestIdentity, createLogger, HttpRequest } from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
+import { Request } from 'express';
 import { v7 as uuid } from 'uuid';
 import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
 
@@ -30,18 +30,16 @@ export interface RequestContext {
 /**
  * Create a request context with identity and logging
  *
- * Sets X-Request-Id header on response and creates a logger
- * that outputs to both console and SSE.
+ * Creates a logger that outputs to both console and SSE.
  *
  * @param req - Express request
- * @param res - Express response
  * @param sseManager - SSE manager for real-time logs
  * @returns Request context with identity and logger
  *
  * @example
  * ```typescript
  * app.post('/api/resource', requireAuth, async (req, res) => {
- *   const ctx = createRequestContext(req, res, sseManager);
+ *   const ctx = createRequestContext(req, sseManager);
  *
  *   ctx.log('INFO', 'Processing request', { data: req.body });
  *
@@ -57,7 +55,6 @@ export interface RequestContext {
  */
 export function createRequestContext(
   req: Request,
-  res: Response,
   sseManager: SSEManager,
 ): RequestContext {
   const identity = getIdentity(req as HttpRequest);

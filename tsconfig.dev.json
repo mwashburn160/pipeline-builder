@@ -26,10 +26,9 @@
     "target": "ES2020"
   },
   "include": [
-    "src/**/*.ts",
+    "projenrc/**/*.ts",
     "test/**/*.ts",
-    ".projenrc.ts",
-    "projenrc/**/*.ts"
+    ".projenrc.ts"
   ],
   "exclude": [
     "node_modules"
