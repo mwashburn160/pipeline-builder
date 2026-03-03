@@ -21,9 +21,9 @@ set -eu
 #   UPLOAD_DELAY=2 ./load-plugins.sh                         # 2s delay between uploads
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$SCRIPT_DIR/common.sh"
+
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
-PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
 UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 
 # Defaults
@@ -74,17 +74,14 @@ validate_manifest() {
   plugin_name="$(basename "$plugin_path")"
   errors=""
 
-  # Detect pluginType to determine required fields
   plugin_type=$(grep "^pluginType:" "$manifest" 2>/dev/null | head -1 | sed 's/pluginType: *//')
 
-  # Common required fields for all plugin types
   for field in name description version pluginType computeType; do
     if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
       errors="${errors}  Missing field: ${field}\n"
     fi
   done
 
-  # CodeBuildStep requires additional fields (Dockerfile-based plugins)
   if [ "$plugin_type" != "ManualApprovalStep" ]; then
     for field in primaryOutputDirectory dockerfile installCommands commands; do
       if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
@@ -93,13 +90,11 @@ validate_manifest() {
     done
   fi
 
-  # Validate name matches directory
   manifest_name=$(grep "^name:" "$manifest" 2>/dev/null | head -1 | sed 's/name: *//')
   if [ "$manifest_name" != "$plugin_name" ]; then
     errors="${errors}  Name mismatch: manifest='${manifest_name}' dir='${plugin_name}'\n"
   fi
 
-  # Validate pluginType
   if [ "$plugin_type" != "CodeBuildStep" ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
     errors="${errors}  Invalid pluginType: ${plugin_type}\n"
   fi
@@ -118,7 +113,6 @@ maybe_rebuild_zip() {
   dockerfile="${plugin_path}/Dockerfile"
   manifest="${plugin_path}/manifest.yaml"
 
-  # Determine which files to include in the zip
   zip_files="manifest.yaml"
   if [ -f "$dockerfile" ]; then
     zip_files="Dockerfile manifest.yaml"
@@ -130,7 +124,6 @@ maybe_rebuild_zip() {
     return
   fi
 
-  # Check if sources are newer than zip
   needs_rebuild=false
   if [ "$manifest" -nt "$zip_file" ]; then
     needs_rebuild=true
@@ -157,7 +150,6 @@ upload_plugin() {
 
   echo "  [$QUEUED/$TOTAL] ${category}/${plugin_name}  (remaining: $REMAINING)"
 
-  # Validate manifest
   manifest="${plugin_path}/manifest.yaml"
   if [ ! -f "$manifest" ]; then
     echo "    SKIP: No manifest.yaml"
@@ -170,7 +162,6 @@ upload_plugin() {
     return
   fi
 
-  # Rebuild zip if needed
   maybe_rebuild_zip "$plugin_path"
 
   if [ "$DRY_RUN" = true ]; then
@@ -179,7 +170,6 @@ upload_plugin() {
     return
   fi
 
-  # Upload
   UPLOAD_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
     -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
@@ -188,19 +178,11 @@ upload_plugin() {
     -F "accessModifier=public" \
     --insecure 2>/dev/null || echo "000")
 
-  case "$UPLOAD_STATUS" in
-    200|201|202)
-      echo "    OK (HTTP ${UPLOAD_STATUS})"
-      SUCCEEDED=$((SUCCEEDED + 1))
-      ;;
-    409)
-      echo "    SKIP (HTTP 409 - already exists)"
-      SKIPPED=$((SKIPPED + 1))
-      ;;
-    *)
-      echo "    FAIL (HTTP ${UPLOAD_STATUS})"
-      FAILED=$((FAILED + 1))
-      ;;
+  _result=$(classify_status "$UPLOAD_STATUS")
+  case "$_result" in
+    ok)     echo "    OK (HTTP ${UPLOAD_STATUS})";             SUCCEEDED=$((SUCCEEDED + 1)) ;;
+    exists) echo "    SKIP (HTTP 409 - already exists)";       SKIPPED=$((SKIPPED + 1)) ;;
+    fail)   echo "    FAIL (HTTP ${UPLOAD_STATUS})";           FAILED=$((FAILED + 1)) ;;
   esac
 }
 
@@ -212,46 +194,10 @@ echo "  Categories: ${CATEGORY_FILTER:-all}"
 echo "  Parallel:   $PARALLEL"
 echo ""
 
-# Authenticate — use PLATFORM_TOKEN if available, otherwise prompt for credentials
+# Authenticate
 JWT_TOKEN=""
 if [ "$DRY_RUN" = false ]; then
-  if [ -n "${PLATFORM_TOKEN:-}" ]; then
-    JWT_TOKEN="$PLATFORM_TOKEN"
-    echo "=== Using provided PLATFORM_TOKEN ==="
-    echo ""
-  else
-    # Prompt for credentials (env vars override prompts)
-    DEFAULT_IDENTIFIER="admin@internal"
-    DEFAULT_PASSWORD="SecurePassword123!"
-
-    if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
-      printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
-      read -r PLATFORM_IDENTIFIER
-      PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
-    fi
-
-    if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-      printf "Password [%s]: " "$DEFAULT_PASSWORD"
-      read -r PLATFORM_PASSWORD
-      PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
-    fi
-
-    echo "=== Authenticating ==="
-    LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
-        -k -s \
-        -H 'Content-Type: application/json' \
-        -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
-
-    JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
-
-    if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
-        echo "  Login failed — could not obtain JWT token" >&2
-        echo "  Response: ${LOGIN_RESP}" >&2
-        exit 1
-    fi
-    echo "  Logged in successfully."
-    echo ""
-  fi
+  require_auth
 fi
 
 if [ ! -d "$PLUGINS_DIR" ]; then
@@ -263,7 +209,7 @@ START_TIME=$(date +%s)
 
 echo "=== Processing plugins ==="
 
-# Build list of categories to process and pre-count total
+# Build list of categories
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
@@ -301,14 +247,12 @@ for category in $CATEGORIES; do
   for plugin_dir in "${category_dir}"/*/; do
     [ -d "$plugin_dir" ] || continue
 
-    # Manifest is always required
     if [ ! -f "${plugin_dir}/manifest.yaml" ]; then
       echo "  [$(basename "$plugin_dir")] SKIP: Missing manifest.yaml"
       SKIPPED=$((SKIPPED + 1))
       continue
     fi
 
-    # Detect pluginType — ManualApprovalStep does not require a Dockerfile
     plugin_type=$(grep "^pluginType:" "${plugin_dir}/manifest.yaml" 2>/dev/null | head -1 | sed 's/pluginType: *//')
     if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "${plugin_dir}/Dockerfile" ]; then
       echo "  [$(basename "$plugin_dir")] SKIP: Missing Dockerfile"
@@ -319,7 +263,6 @@ for category in $CATEGORIES; do
     zip_file="${plugin_dir}/plugin.zip"
     upload_plugin "$zip_file"
 
-    # Throttle uploads to avoid rate limiting (100 req / 15 min)
     REMAINING=$((TOTAL - QUEUED))
     if [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$REMAINING" -gt 0 ]; then
       sleep "$UPLOAD_DELAY"
@@ -330,19 +273,7 @@ done
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
-echo ""
-echo "=== Upload Summary ==="
-echo "  Total:     $TOTAL"
-echo "  Queued:    $QUEUED"
-echo "  Succeeded: $SUCCEEDED"
-echo "  Failed:    $FAILED"
-echo "  Skipped:   $SKIPPED"
-echo "  Duration:  ${DURATION}s"
-
-if [ "$FAILED" -gt 0 ]; then
-  echo ""
-  echo "WARNING: ${FAILED} plugin(s) failed to upload"
-fi
+print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
 
 # ---------------------------------------------------------------------------
 # Poll BullMQ queue until all builds complete
@@ -367,7 +298,6 @@ if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
     ELAPSED=$(( $(date +%s) - POLL_START ))
     echo "  [${ELAPSED}s] waiting=$Q_WAITING  active=$Q_ACTIVE  completed=$Q_COMPLETED  failed=$Q_FAILED"
 
-    # Exit when no jobs are pending or in progress
     PENDING=$((Q_WAITING + Q_ACTIVE))
     if [ "$PENDING" -eq 0 ]; then
       echo ""
@@ -375,7 +305,6 @@ if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
       break
     fi
 
-    # Timeout check
     if [ "$ELAPSED" -ge "$QUEUE_POLL_TIMEOUT" ]; then
       echo ""
       echo "  WARNING: Timed out after ${QUEUE_POLL_TIMEOUT}s with $PENDING job(s) still pending"
@@ -394,7 +323,6 @@ if [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
   echo "  Failed:    $Q_FAILED"
   echo "  Duration:  ${BUILD_DURATION}s"
 
-  # Fetch and display failed job details
   if [ "$Q_FAILED" -gt 0 ]; then
     echo ""
     echo "=== Failed Build Details ==="

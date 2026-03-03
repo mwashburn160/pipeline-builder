@@ -8,7 +8,8 @@ set -eu
 #   ./init-platform.sh minikube     # Minikube (tunnels via minikube service)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+. "$SCRIPT_DIR/common.sh"
+
 TARGET="${1:-local}"
 PROFILE="pipeline-builder"
 NAMESPACE="pipeline-builder"
@@ -32,7 +33,6 @@ case "$TARGET" in
     else
       # Docker driver on macOS can't route to minikube IP directly.
       # Use kubectl port-forward to tunnel through to nginx.
-      # Reuse existing port-forward if already running on 8443.
       if curl -s -k -o /dev/null -w "" "https://localhost:8443/" 2>/dev/null; then
         echo "=== Reusing existing port-forward on localhost:8443 ==="
       else
@@ -58,43 +58,14 @@ esac
 echo ""
 echo "=== Initializing platform ($TARGET) ==="
 echo "  URL: $PLATFORM_BASE_URL"
-
-# Wait for platform service to be healthy
-MAX_RETRIES=30
-RETRY_INTERVAL=5
 echo ""
-echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/health ..."
-for i in $(seq 1 $MAX_RETRIES); do
-    STATUS=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/health" 2>/dev/null || true)
-    if [ "$STATUS" = "200" ]; then
-        echo "Platform is healthy."
-        break
-    fi
-    if [ "$i" = "$MAX_RETRIES" ]; then
-        echo "Platform failed to become healthy after $((MAX_RETRIES * RETRY_INTERVAL))s — aborting." >&2
-        exit 1
-    fi
-    sleep $RETRY_INTERVAL
-done
 
-# Prompt for credentials (env vars override prompts)
-DEFAULT_IDENTIFIER="admin@internal"
-DEFAULT_PASSWORD="SecurePassword123!"
+wait_for_health 30 5
 
-if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
-  printf "Identifier [%s]: " "$DEFAULT_IDENTIFIER"
-  read -r PLATFORM_IDENTIFIER
-  PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$DEFAULT_IDENTIFIER}"
-fi
-
-if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-  printf "Password [%s]: " "$DEFAULT_PASSWORD"
-  read -r PLATFORM_PASSWORD
-  PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$DEFAULT_PASSWORD}"
-fi
-
+# Register admin user
 echo ""
 echo "=== Registering admin user ==="
+prompt_credentials
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
      -k -s -o /dev/null -w "%{http_code}" \
      -H 'Content-Type: application/json' \
@@ -107,19 +78,7 @@ fi
 
 echo ""
 echo "=== Logging in ==="
-LOGIN_RESP=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
-    -k -s \
-    -H 'Content-Type: application/json' \
-    -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
-
-JWT_TOKEN=$(printf '%s' "$LOGIN_RESP" | jq -r '.data.accessToken' 2>/dev/null) || true
-
-if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
-    echo "Login failed — could not obtain JWT token" >&2
-    echo "Response: ${LOGIN_RESP}" >&2
-    exit 1
-fi
-echo "  Logged in successfully."
+login
 
 echo ""
 printf "Load plugins? [y/N] "
