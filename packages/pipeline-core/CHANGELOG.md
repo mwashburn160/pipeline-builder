@@ -1,3 +1,19 @@
+## 1.34.1 (2026-03-03)
+
+### 🩹 Fixes
+
+- updated unit tests ([5bfbbf29](https://github.com/mwashburn160/pipeline-builder/commit/5bfbbf29))
+- upgraded api-core=1.33.0 ([8d3ba0a7](https://github.com/mwashburn160/pipeline-builder/commit/8d3ba0a7))
+- added lambda unit tests ([0c8a922f](https://github.com/mwashburn160/pipeline-builder/commit/0c8a922f))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.34.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.0 (2026-03-03)
 
 ### 🚀 Features
