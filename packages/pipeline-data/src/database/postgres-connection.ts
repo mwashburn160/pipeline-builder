@@ -111,8 +111,8 @@ export class Connection {
     this.options = {
       enableLogging: options.enableLogging ?? true,
       enableAutoRetry: options.enableAutoRetry ?? true,
-      maxRetries: options.maxRetries ?? parseInt(process.env.DB_MAX_RETRIES || '3'),
-      retryDelay: options.retryDelay ?? parseInt(process.env.DB_RETRY_DELAY_MS || '1000'),
+      maxRetries: options.maxRetries ?? parseInt(process.env.DB_MAX_RETRIES || '3', 10),
+      retryDelay: options.retryDelay ?? parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10),
       ssl: options.ssl ?? false,
     };
 
@@ -232,7 +232,7 @@ export class Connection {
    */
   public async transaction<T>(
     callback: Parameters<typeof this.db.transaction>[0],
-    timeoutMs: number = 30000,
+    timeoutMs: number = parseIntEnv(process.env.DB_TRANSACTION_TIMEOUT_MS, 30000),
   ): Promise<T> {
     let timer: ReturnType<typeof setTimeout>;
     // Wrap callback to set PostgreSQL statement_timeout as a server-side guard.
@@ -283,7 +283,7 @@ export class Connection {
    * @param timeout - Maximum time to wait for connections to close (ms)
    * @returns Promise that resolves when pool is closed
    */
-  public async close(timeout: number = 5000): Promise<void> {
+  public async close(timeout: number = parseIntEnv(process.env.DB_CLOSE_TIMEOUT_MS, 5000)): Promise<void> {
     if (this.isShuttingDown) {
       logger.warn('Connection is already shutting down');
       return;

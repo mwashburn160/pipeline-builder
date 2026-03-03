@@ -43,7 +43,7 @@ export async function queryLogs(req: Request, res: Response): Promise<void> {
       effectiveOrgId = userOrgId;
     }
 
-    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 1000);
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 100, 1), 1000);
     const direction = req.query.direction === 'forward' ? 'forward' : 'backward';
 
     const result = await logService.queryLogs({

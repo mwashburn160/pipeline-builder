@@ -27,15 +27,16 @@ export function loadDatabaseConfig(): DatabaseConfig {
   return {
     postgres: {
       host: process.env.DB_HOST || 'postgres',
-      port: parseInt(process.env.DB_PORT || '5432'),
+      port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DATABASE || 'pipeline_builder',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() : 'password'),
     },
+
     drizzle: {
-      maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20'),
-      idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000'),
-      connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '5000'),
+      maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20', 10),
+      idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000', 10),
+      connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '5000', 10),
     },
   };
 }

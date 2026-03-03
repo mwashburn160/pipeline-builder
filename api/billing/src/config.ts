@@ -45,13 +45,16 @@ export const config: AppConfig = {
   enabled: billingEnabled,
   port: parseInt(process.env.PORT || '3000', 10),
   billingProvider: (process.env.BILLING_PROVIDER || 'stub') as BillingProviderType,
+
   mongodb: {
     uri: process.env.MONGODB_URI || '',
   },
+
   quotaService: {
     host: process.env.QUOTA_SERVICE_HOST || 'quota',
     port: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
   },
+
   marketplace: {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',
     region: process.env.AWS_MARKETPLACE_REGION || process.env.AWS_REGION || 'us-east-1',

@@ -13,14 +13,14 @@ const logger = createLogger('http-client');
 /**
  * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT`).
  */
-const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000');
+const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
 
 /**
  * Default retry configuration (env: `HTTP_CLIENT_MAX_RETRIES`, `HTTP_CLIENT_RETRY_DELAY_MS`).
  */
-const DEFAULT_MAX_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2');
-const DEFAULT_RETRY_DELAY_MS = parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200');
-const DEFAULT_MAX_RATE_LIMIT_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RATE_LIMIT_RETRIES || '4');
+const DEFAULT_MAX_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2', 10);
+const DEFAULT_RETRY_DELAY_MS = parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200', 10);
+const DEFAULT_MAX_RATE_LIMIT_RETRIES = parseInt(process.env.HTTP_CLIENT_MAX_RATE_LIMIT_RETRIES || '4', 10);
 
 /** Max Retry-After value we'll honor (60 seconds). */
 const MAX_RETRY_AFTER_MS = 60_000;

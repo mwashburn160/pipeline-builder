@@ -55,7 +55,7 @@ export async function syncTierToQuotaService(
     const client = createSafeClient({
       host: config.quotaService.host,
       port: config.quotaService.port,
-      timeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000'),
+      timeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10),
     });
 
     const response = await client.put(`/quotas/${orgId}`, { tier }, {

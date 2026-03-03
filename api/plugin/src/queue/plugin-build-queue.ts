@@ -25,10 +25,10 @@ import type { RegistryInfo } from '../helpers/docker-build';
 const logger = createLogger('plugin-build-queue');
 
 /** Retention period for completed jobs in seconds (env: `PLUGIN_BUILD_COMPLETED_RETENTION_SECS`). */
-const COMPLETED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600');
+const COMPLETED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600', 10);
 
 /** Retention period for failed jobs in seconds (env: `PLUGIN_BUILD_FAILED_RETENTION_SECS`). */
-const FAILED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400');
+const FAILED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10);
 
 // ---------------------------------------------------------------------------
 // Job data types
@@ -127,8 +127,8 @@ export function getQueue(): Queue<PluginBuildJobData> {
     queue = new Queue<PluginBuildJobData>(QUEUE_NAME, {
       connection: getConnection(),
       defaultJobOptions: {
-        attempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2'),
-        backoff: { type: 'exponential', delay: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000') },
+        attempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10),
+        backoff: { type: 'exponential', delay: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10) },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
         removeOnFail: { age: FAILED_JOB_RETENTION_SECS },
       },
@@ -151,7 +151,7 @@ export function isWorkerReady(): boolean {
  * Wait for the BullMQ worker to connect to Redis.
  * Resolves when ready, rejects after timeout.
  */
-export function waitForWorkerReady(timeoutMs = parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000')): Promise<void> {
+export function waitForWorkerReady(timeoutMs = parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10)): Promise<void> {
   return new Promise((resolve, reject) => {
     if (isWorkerReady()) {
       resolve();
@@ -350,8 +350,8 @@ export function startWorker(
 // Periodic temp directory cleanup
 // ---------------------------------------------------------------------------
 
-/** Maximum age (ms) for orphaned temp directories before cleanup. */
-const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || String(60 * 60 * 1000), 10);
+/** Maximum age (ms) for orphaned temp directories before cleanup (1 hour). */
+const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '3600000', 10);
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 

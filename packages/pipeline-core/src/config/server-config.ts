@@ -24,24 +24,26 @@ const log = createLogger('ServerConfig');
  */
 export function loadServerConfig(): ServerConfig {
   return {
-    port: parseInt(process.env.PORT || '3000'),
+    port: parseInt(process.env.PORT || '3000', 10),
     cors: {
       credentials: process.env.CORS_CREDENTIALS !== 'false',
       origin: process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
         : [process.env.PLATFORM_BASE_URL || 'https://localhost:8443'],
     },
-    trustProxy: parseInt(process.env.TRUST_PROXY || '1'),
+    trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
     platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
+
     httpClient: {
-      timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000'),
-      maxRetries: parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2'),
-      retryDelayMs: parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200'),
+      timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10),
+      maxRetries: parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2', 10),
+      retryDelayMs: parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200', 10),
     },
+
     sse: {
-      maxClientsPerRequest: parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10'),
-      clientTimeoutMs: parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000'),
-      cleanupIntervalMs: parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000'),
+      maxClientsPerRequest: parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10),
+      clientTimeoutMs: parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10),
+      cleanupIntervalMs: parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10),
     },
   };
 }
@@ -64,13 +66,13 @@ export function loadAuthConfig(): AuthConfig {
   return {
     jwt: {
       secret: process.env.JWT_SECRET || '',
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200'),
+      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12'),
+      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
     },
     refreshToken: {
       secret: process.env.REFRESH_TOKEN_SECRET || '',
-      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000'),
+      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10),
     },
   };
 }
@@ -86,8 +88,8 @@ export function loadAuthConfig(): AuthConfig {
  */
 export function loadRateLimitConfig(): RateLimitConfig {
   return {
-    max: parseInt(process.env.LIMITER_MAX || '100'),
-    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000'),
+    max: parseInt(process.env.LIMITER_MAX || '100', 10),
+    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10),
     legacyHeaders: false,
     standardHeaders: true,
   };
