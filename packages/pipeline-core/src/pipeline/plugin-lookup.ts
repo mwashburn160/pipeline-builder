@@ -4,7 +4,7 @@
  */
 
 import { join } from 'path';
-import { AccessModifier, createLogger } from '@mwashburn160/api-core';
+import { createLogger } from '@mwashburn160/api-core';
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
@@ -30,8 +30,6 @@ export interface PluginLookupProps {
   readonly project: string;
   readonly platformUrl: string;
   readonly uniqueId: UniqueId;
-  /** Tenant identifier — when set, plugin lookup finds org-owned (public + private) and public plugins */
-  readonly orgId?: string;
   readonly runtime?: Runtime;
   /** Lambda timeout (default: 30s) */
   readonly timeout?: Duration;
@@ -56,7 +54,6 @@ export class PluginLookup extends Construct {
   private readonly _uniqueId: UniqueId;
   private readonly _provider: Provider;
   private readonly _platformUrl: string;
-  private readonly _orgId?: string;
   private readonly _runtime: Runtime;
   private readonly _timeout: Duration;
   private readonly _memorySize: number;
@@ -70,7 +67,6 @@ export class PluginLookup extends Construct {
 
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
-    this._orgId = props.orgId;
     this._runtime = props.runtime ?? Runtime.NODEJS_22_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 256;
@@ -138,6 +134,7 @@ export class PluginLookup extends Construct {
       entry: entrypoint,
       environment: {
         PLATFORM_BASE_URL: this._platformUrl,
+        AUTH_TOKEN: process.env.PLATFORM_TOKEN || '',
       },
       bundling: {
         minify: true,
@@ -154,16 +151,14 @@ export class PluginLookup extends Construct {
 
   /**
    * Build the default plugin filter.
-   * Access control is handled by the query builder based on orgId presence:
-   * - With orgId: own org public + system org public
-   * - Without orgId: system org public only
+   * Access control (orgId scoping, public/private visibility) is handled by
+   * the platform's access control query builder based on the JWT's organizationId.
    */
   private defaultFilter(name: string): PluginFilter {
     return {
       name,
       isActive: true,
       isDefault: true,
-      ...(this._orgId ? { orgId: this._orgId } : {}),
     };
   }
 
@@ -234,7 +229,7 @@ export class PluginLookup extends Construct {
       commands: [],
       imageTag: 'no_image_tag',
       dockerfile: null,
-      accessModifier: AccessModifier.PUBLIC,
+      accessModifier: 'public',
       isDefault: false,
       isActive: true,
       deletedAt: null,

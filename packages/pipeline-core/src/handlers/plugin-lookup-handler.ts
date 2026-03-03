@@ -29,15 +29,27 @@ const lambdaLog = {
 
 /**
  * Creates a pre-configured Axios instance for API requests.
+ * Includes JWT authorization from the AUTH_TOKEN environment variable
+ * (set by the CDK construct from PLATFORM_TOKEN).
  *
  * @param baseURL - Base URL of the target API
  * @returns Configured Axios instance
  */
 function create(baseURL: string): AxiosInstance {
+  const token = process.env.AUTH_TOKEN;
+  if (!token) {
+    lambdaLog.error('AUTH', 'AUTH_TOKEN environment variable is not set — API calls will be unauthenticated');
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   return axios.create({
     baseURL,
     timeout: CoreConstants.HANDLER_TIMEOUT_MS,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
   });
 }
 

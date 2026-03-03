@@ -47,6 +47,7 @@ jest.mock('../src/helpers/message-helpers', () => ({
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
+  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
