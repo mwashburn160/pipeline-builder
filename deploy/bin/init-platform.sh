@@ -1,11 +1,12 @@
 #!/bin/sh
 set -eu
 
-# Platform initialization script — works with both local (Docker Compose) and minikube.
+# Initialize the platform — register admin, optionally load plugins and pipelines.
+#
 # Usage:
-#   ./init-platform.sh              # defaults to "local"
-#   ./init-platform.sh local        # Docker Compose (https://localhost:8443)
-#   ./init-platform.sh minikube     # Minikube (tunnels via minikube service)
+#   ./init-platform.sh                                         # defaults to "local"
+#   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
+#   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -13,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${1:-local}"
 NAMESPACE="pipeline-builder"
 TUNNEL_PID=""
+
+# ---- Cleanup ----
 
 cleanup() {
   if [ -n "$TUNNEL_PID" ]; then
@@ -22,6 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ---- Resolve platform URL ----
+
 case "$TARGET" in
   local)
     PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
@@ -30,8 +35,6 @@ case "$TARGET" in
     if [ -n "${PLATFORM_BASE_URL:-}" ]; then
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
-      # Docker driver on macOS can't route to minikube IP directly.
-      # Use kubectl port-forward to tunnel through to nginx.
       if curl -s -k -o /dev/null -w "" "https://localhost:8443/" 2>/dev/null; then
         echo "=== Reusing existing port-forward on localhost:8443 ==="
       else
@@ -54,6 +57,8 @@ case "$TARGET" in
     ;;
 esac
 
+# ---- Main ----
+
 echo ""
 echo "=== Initializing platform ($TARGET) ==="
 echo "  URL: $PLATFORM_BASE_URL"
@@ -66,35 +71,37 @@ echo ""
 echo "=== Registering admin user ==="
 prompt_credentials
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
-     -k -s -o /dev/null -w "%{http_code}" \
-     -H 'Content-Type: application/json' \
-     -d "$(printf '{"username":"admin","email":"%s","password":"%s","organizationName":"system"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")")
-if [ "$REG_STATUS" = "201" ] || [ "$REG_STATUS" = "200" ]; then
-    echo "  Admin user created."
-else
-    echo "  Admin user already exists (HTTP $REG_STATUS) — continuing."
-fi
+  -k -s -o /dev/null -w "%{http_code}" \
+  -H 'Content-Type: application/json' \
+  -d "$(printf '{"username":"admin","email":"%s","password":"%s","organizationName":"system"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")")
+
+case "$(classify_status "$REG_STATUS")" in
+  ok)   echo "  Admin user created." ;;
+  *)    echo "  Admin user already exists (HTTP $REG_STATUS) — continuing." ;;
+esac
 
 echo ""
 echo "=== Logging in ==="
 login
 
+# Load plugins
 echo ""
 printf "Load plugins? [y/N] "
 read -r LOAD_PLUGINS
 if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh"
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh"
 else
-    echo "  Skipping plugin loading."
+  echo "  Skipping plugin loading."
 fi
 
+# Load pipelines
 echo ""
 printf "Load sample pipelines? [y/N] "
 read -r LOAD_PIPELINES
 if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
-    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
 else
-    echo "  Skipping pipeline loading."
+  echo "  Skipping pipeline loading."
 fi
 
 echo ""
