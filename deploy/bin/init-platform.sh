@@ -11,7 +11,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 TARGET="${1:-local}"
-PROFILE="pipeline-builder"
 NAMESPACE="pipeline-builder"
 TUNNEL_PID=""
 

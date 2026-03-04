@@ -7,7 +7,7 @@ set -eu
 #   - Validates manifests before uploading
 #   - Rebuilds plugin.zip if Dockerfile or manifest.yaml is newer
 #   - Uploads plugins by category with progress tracking
-#   - Supports dry-run mode, category filtering, and parallel uploads
+#   - Supports dry-run mode and category filtering
 #   - Reports success/failure summary with timing
 #
 # Usage:
@@ -17,7 +17,6 @@ set -eu
 #   ./load-plugins.sh --category language                    # upload only language plugins
 #   ./load-plugins.sh --category security,quality             # upload multiple categories
 #   ./load-plugins.sh --rebuild                              # force rebuild all plugin.zip
-#   ./load-plugins.sh --parallel 4                           # upload 4 plugins concurrently
 #   UPLOAD_DELAY=2 ./load-plugins.sh                         # 2s delay between uploads
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,7 +29,6 @@ UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 DRY_RUN=false
 REBUILD=false
 CATEGORY_FILTER=""
-PARALLEL=1
 UPLOAD_TIMEOUT=900
 QUEUE_POLL_INTERVAL=${QUEUE_POLL_INTERVAL:-5}
 QUEUE_POLL_TIMEOUT=${QUEUE_POLL_TIMEOUT:-1800}
@@ -46,7 +44,6 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY_RUN=true; shift ;;
     --rebuild) REBUILD=true; shift ;;
     --category) CATEGORY_FILTER="$2"; shift 2 ;;
-    --parallel) PARALLEL="$2"; shift 2 ;;
     --timeout) UPLOAD_TIMEOUT="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
@@ -55,7 +52,6 @@ while [ $# -gt 0 ]; do
       echo "  --dry-run              Validate manifests and rebuild zips, but skip upload"
       echo "  --rebuild              Force rebuild all plugin.zip files"
       echo "  --category CATEGORIES  Comma-separated categories to upload (e.g., language,security)"
-      echo "  --parallel N           Upload N plugins concurrently (default: 1)"
       echo "  --timeout SECONDS      Upload timeout in seconds (default: 900)"
       echo ""
       echo "Environment:"
@@ -191,7 +187,6 @@ echo "  URL:        $PLATFORM_BASE_URL"
 echo "  Dry-run:    $DRY_RUN"
 echo "  Rebuild:    $REBUILD"
 echo "  Categories: ${CATEGORY_FILTER:-all}"
-echo "  Parallel:   $PARALLEL"
 echo ""
 
 # Authenticate
@@ -234,7 +229,12 @@ done
 echo "  Found $TOTAL plugin(s) to process"
 echo ""
 
+CATEGORY_INDEX=0
+CATEGORY_COUNT=0
+for _ in $CATEGORIES; do CATEGORY_COUNT=$((CATEGORY_COUNT + 1)); done
+
 for category in $CATEGORIES; do
+  CATEGORY_INDEX=$((CATEGORY_INDEX + 1))
   category_dir="${PLUGINS_DIR}/${category}"
   if [ ! -d "$category_dir" ]; then
     echo "  WARNING: Category not found: ${category}"
@@ -268,6 +268,13 @@ for category in $CATEGORIES; do
       sleep "$UPLOAD_DELAY"
     fi
   done
+
+  # Prompt between category groups to allow uploads to complete
+  if [ "$DRY_RUN" = false ] && [ "$CATEGORY_INDEX" -lt "$CATEGORY_COUNT" ]; then
+    echo ""
+    printf "  Category '%s' complete. Press Enter to continue with the next group... " "$category"
+    read -r _
+  fi
 done
 
 END_TIME=$(date +%s)
