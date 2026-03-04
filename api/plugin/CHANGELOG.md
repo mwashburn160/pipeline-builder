@@ -1,3 +1,13 @@
+## 1.29.6 (2026-03-04)
+
+### 🩹 Fixes
+
+- removed the builder config ([16cea69f](https://github.com/mwashburn160/pipeline-builder/commit/16cea69f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.29.5 (2026-03-04)
 
 ### 🩹 Fixes
