@@ -1,3 +1,13 @@
+## 1.35.2 (2026-03-04)
+
+### 🩹 Fixes
+
+- code review cleanup ([b613b2c3](https://github.com/mwashburn160/pipeline-builder/commit/b613b2c3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.35.1 (2026-03-04)
 
 ### 🩹 Fixes
