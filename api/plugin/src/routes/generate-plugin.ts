@@ -40,7 +40,8 @@ import { Router, Request, Response, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import { validateBuildArgs, ValidationError } from '../helpers/manifest';
+import { validateBuildArgs } from '../helpers/manifest';
+import { createBuildJobData, generateImageTag } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';
 
@@ -257,18 +258,10 @@ export function createGeneratePluginRoutes(
 
       const accessModifier = resolveAccessModifier(req, rawAccess || 'private');
 
-      // Validate buildArgs
-      try {
-        validateBuildArgs(buildArgs);
-      } catch (error) {
-        if (error instanceof ValidationError) {
-          return sendBadRequest(res, error.message);
-        }
-        throw error;
-      }
+      // Validate buildArgs (throws ValidationError → handled by withRoute)
+      validateBuildArgs(buildArgs);
 
-      // Generate image tag
-      const imageTag = `p-${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+      const imageTag = generateImageTag(name);
 
       ctx.log('INFO', 'Deploying AI-generated plugin', {
         pluginName: name,
@@ -283,44 +276,38 @@ export function createGeneratePluginRoutes(
       fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
 
       // Queue build job (returns immediately)
-      const buildQueue = getQueue();
-      await buildQueue.add(
-        `deploy-generated-${name}-${imageTag}`,
-        {
-          requestId: ctx.requestId,
-          orgId,
-          userId: userId || 'system',
-          authToken: req.headers.authorization || '',
-          buildRequest: {
-            contextDir: tempDir,
-            dockerfile: 'Dockerfile',
-            imageTag,
-            registry,
-            buildArgs: buildArgs || {},
-          },
-          pluginRecord: {
-            orgId,
-            name,
-            description: description || null,
-            version,
-            metadata: {},
-            pluginType: pluginType || 'CodeBuildStep',
-            computeType: computeType || 'MEDIUM',
-            primaryOutputDirectory: primaryOutputDirectory || null,
-            dockerfile,
-            env: env || {},
-            buildArgs: buildArgs || {},
-            keywords: keywords || [],
-            installCommands: installCommands || [],
-            commands,
-            imageTag,
-            accessModifier,
-            timeout: null,
-            failureBehavior: 'fail',
-            secrets: [],
-          },
+      const jobData = createBuildJobData({
+        requestId: ctx.requestId,
+        orgId,
+        userId: userId || 'system',
+        authToken: req.headers.authorization || '',
+        buildRequest: {
+          contextDir: tempDir,
+          dockerfile: 'Dockerfile',
+          imageTag,
+          registry,
+          buildArgs: buildArgs || {},
         },
-      );
+        pluginRecord: {
+          orgId,
+          name,
+          description: description || null,
+          version,
+          pluginType: pluginType || 'CodeBuildStep',
+          computeType: computeType || 'MEDIUM',
+          primaryOutputDirectory: primaryOutputDirectory || null,
+          dockerfile,
+          env: env || {},
+          buildArgs: buildArgs || {},
+          keywords: keywords || [],
+          installCommands: installCommands || [],
+          commands,
+          imageTag,
+          accessModifier,
+        },
+      });
+
+      await getQueue().add(`deploy-generated-${name}-${imageTag}`, jobData);
 
       ctx.log('INFO', 'Build queued', {
         pluginName: name,

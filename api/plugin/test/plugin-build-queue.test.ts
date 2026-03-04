@@ -56,19 +56,13 @@ jest.mock('../src/helpers/docker-build', () => ({
   buildAndPush: mockBuildAndPush,
 }));
 
-const mockDbTransaction = jest.fn();
-jest.mock('@mwashburn160/pipeline-core', () => ({
-  Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
-  db: { transaction: mockDbTransaction },
-  schema: { plugin: {} },
-  AccessModifier: {},
-  ComputeType: {},
-  PluginType: {},
+const mockDeployVersion = jest.fn();
+jest.mock('../src/services/plugin-service', () => ({
+  pluginService: { deployVersion: mockDeployVersion },
 }));
 
-jest.mock('drizzle-orm', () => ({
-  eq: jest.fn(),
-  sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
+jest.mock('@mwashburn160/pipeline-core', () => ({
+  Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -194,18 +188,12 @@ describe('plugin-build-queue', () => {
       buildAndPush: mockBuildAndPush,
     }));
 
-    jest.mock('@mwashburn160/pipeline-core', () => ({
-      Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
-      db: { transaction: mockDbTransaction },
-      schema: { plugin: {} },
-      AccessModifier: {},
-      ComputeType: {},
-      PluginType: {},
+    jest.mock('../src/services/plugin-service', () => ({
+      pluginService: { deployVersion: mockDeployVersion },
     }));
 
-    jest.mock('drizzle-orm', () => ({
-      eq: jest.fn(),
-      sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
+    jest.mock('@mwashburn160/pipeline-core', () => ({
+      Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
     }));
 
     jest.mock('@mwashburn160/api-core', () => ({
@@ -280,21 +268,7 @@ describe('plugin-build-queue', () => {
 
       const insertedPlugin = { id: 'plugin-1', name: 'my-plugin', version: '1.0.0', imageTag: 'p-test-abc123' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'registry:5000/plugin:p-test-abc123' });
-      mockDbTransaction.mockImplementation(async (cb: any) => cb({
-        execute: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockReturnValue({
-          set: jest.fn().mockReturnValue({
-            where: jest.fn().mockResolvedValue(undefined),
-          }),
-        }),
-        insert: jest.fn().mockReturnValue({
-          values: jest.fn().mockReturnValue({
-            onConflictDoUpdate: jest.fn().mockReturnValue({
-              returning: jest.fn().mockResolvedValue([insertedPlugin]),
-            }),
-          }),
-        }),
-      }));
+      mockDeployVersion.mockResolvedValue(insertedPlugin);
 
       const jobData = makeJobData();
       const job = makeJob(jobData);
@@ -303,6 +277,9 @@ describe('plugin-build-queue', () => {
 
       // Verify buildAndPush was called
       expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest);
+
+      // Verify deployVersion was called with plugin record and userId
+      expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1');
 
       // Verify SSE events
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
@@ -327,11 +304,7 @@ describe('plugin-build-queue', () => {
 
       const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
-      mockDbTransaction.mockImplementation(async (cb: any) => cb({
-        execute: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
-        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ onConflictDoUpdate: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }) }),
-      }));
+      mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
 
       await capturedWorkerProcessor!(makeJob(makeJobData()));
@@ -378,11 +351,7 @@ describe('plugin-build-queue', () => {
 
       const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
-      mockDbTransaction.mockImplementation(async (cb: any) => cb({
-        execute: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }) }),
-        insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ onConflictDoUpdate: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([insertedPlugin]) }) }) }),
-      }));
+      mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
       mockRmSync.mockImplementation(() => { throw new Error('permission denied'); });
 
