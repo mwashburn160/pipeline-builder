@@ -175,11 +175,15 @@ function setupBuilder(
     '',
   ].join('\n'));
 
-  // Clean up stale builder from a prior failed run
+  // Clean up stale builder + container from a prior run.
+  // The builder container may reference a now-deleted Docker network
+  // (e.g. after docker compose down/up), so force-remove both.
   try {
-    dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME], 'ignore');
-    dockerExec(configDir, ['buildx', 'rm', BUILDER_NAME], 'ignore');
-  } catch (error) { logger.debug('No stale builder to clean up', { error: errorMessage(error) }); }
+    dockerExec(configDir, ['buildx', 'rm', '--force', BUILDER_NAME], 'ignore');
+  } catch { /* builder doesn't exist — fine */ }
+  try {
+    execFileSync('docker', ['rm', '-f', `buildx_buildkit_${BUILDER_NAME}0`], { stdio: 'ignore' });
+  } catch { /* container doesn't exist — fine */ }
 
   logger.info('Creating buildx builder', { name: BUILDER_NAME, network });
 
