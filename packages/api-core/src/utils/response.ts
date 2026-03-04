@@ -4,7 +4,7 @@
  */
 
 import { Response } from 'express';
-import { createLogger } from '../logging/logger';
+import { createLogger } from './logger';
 import { QuotaInfo } from '../types/common';
 import { ErrorCode } from '../types/error-codes';
 
