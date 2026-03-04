@@ -49,6 +49,10 @@ export interface BuildResult {
   fullImage: string;
 }
 
+/** Root directory for Docker build temp files. Must be accessible to both
+ *  the container AND the Docker host so buildkitd.toml bind mounts resolve. */
+export const BUILD_TEMP_ROOT = process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp');
+
 const BUILDER_NAME = process.env.DOCKER_BUILDER_NAME || 'plugin-builder';
 
 // Validation patterns for Docker build inputs

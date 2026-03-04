@@ -67,7 +67,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin
+          image: ghcr.io/mwashburn160/plugin:1.29.6
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -105,7 +105,7 @@ spec:
           resources:
             limits:
               cpu: "1000m"
-              memory: 1Gi
+              memory: 1536Mi
             requests:
               cpu: "400m"
               memory: 384Mi

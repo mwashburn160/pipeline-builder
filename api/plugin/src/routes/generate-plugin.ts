@@ -39,6 +39,7 @@ import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
+import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
 import { validateBuildArgs, ValidationError } from '../helpers/manifest';
 import { getQueue } from '../queue/plugin-build-queue';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';
@@ -277,7 +278,7 @@ export function createGeneratePluginRoutes(
       });
 
       // Create temp directory and write Dockerfile (worker will clean up)
-      const tempDir = path.join(process.cwd(), 'tmp', uuid());
+      const tempDir = path.join(BUILD_TEMP_ROOT, uuid());
       fs.mkdirSync(tempDir, { recursive: true });
       fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
 
