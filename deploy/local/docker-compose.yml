@@ -556,7 +556,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.31.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.32.0'
     container_name: frontend
     restart: always
     networks:
