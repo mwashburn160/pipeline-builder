@@ -20,9 +20,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama (direct binary — avoids install.sh issues in Docker builds)
-RUN curl -fsSL -o /usr/local/bin/ollama https://ollama.com/download/ollama-linux-amd64 \
-    && chmod +x /usr/local/bin/ollama
+# Install Ollama (tarball — direct binary URL was removed upstream)
+RUN curl -fsSL https://ollama.com/download/ollama-linux-amd64.tgz | tar xz -C /usr
 
 # Runtime configuration defaults
 # OLLAMA_MODEL: Which model to use for generation (must be pulled at runtime)
