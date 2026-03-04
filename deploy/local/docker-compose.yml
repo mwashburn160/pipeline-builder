@@ -307,7 +307,7 @@ services:
           memory: 192M
 
   pgadmin:
-    image: 'dpage/pgadmin4:8'
+    image: 'dpage/pgadmin4:9'
     container_name: pgadmin
     restart: always
     ports:

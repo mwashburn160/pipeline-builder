@@ -16,7 +16,7 @@ import type { SSEManager } from '@mwashburn160/api-server';
 import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 
 import { buildAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
@@ -218,6 +218,7 @@ export function startWorker(
           await tx.execute(
             sql`SELECT id FROM ${schema.plugin}
                 WHERE ${schema.plugin.name} = ${pluginRecord.name}
+                  AND ${schema.plugin.orgId} = ${pluginRecord.orgId}
                   AND ${schema.plugin.isDefault} = true
                 FOR UPDATE`,
           );
@@ -229,7 +230,12 @@ export function startWorker(
               updatedAt: new Date(),
               updatedBy: userId,
             })
-            .where(eq(schema.plugin.name, pluginRecord.name));
+            .where(
+              and(
+                eq(schema.plugin.name, pluginRecord.name),
+                eq(schema.plugin.orgId, pluginRecord.orgId),
+              ),
+            );
 
           const [upserted] = await tx
             .insert(schema.plugin)
