@@ -1,3 +1,18 @@
+## 1.36.2 (2026-03-04)
+
+### 🩹 Fixes
+
+- code review cleanup ([b613b2c3](https://github.com/mwashburn160/pipeline-builder/commit/b613b2c3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.36.2
+- Updated @mwashburn160/api-core to 1.35.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.1 (2026-03-04)
 
 ### 🩹 Fixes
