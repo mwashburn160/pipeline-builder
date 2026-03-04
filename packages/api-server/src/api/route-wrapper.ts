@@ -1,15 +1,3 @@
-/**
- * @module api/route-wrapper
- * @description Standard route handler wrapper that eliminates boilerplate.
- *
- * Provides `withRoute()` which extracts request context, orgId, userId,
- * validates orgId presence, and catches errors — replacing the manual
- * `getContext(req)` + try/catch pattern in every route handler.
- *
- * All typed `AppError` subclasses are automatically mapped to the correct
- * HTTP status code and error code. Unknown errors return 500.
- */
-
 import {
   AppError,
   errorMessage,

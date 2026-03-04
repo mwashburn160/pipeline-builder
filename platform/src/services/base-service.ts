@@ -1,9 +1,3 @@
-/**
- * @module utils/base-service
- * @description Base service client for communicating with microservices.
- * Provides shared HTTP request logic, error handling, and query string building.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 
 const logger = createLogger('platform-api');

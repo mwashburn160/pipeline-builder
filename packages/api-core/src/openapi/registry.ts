@@ -1,15 +1,3 @@
-/**
- * @module openapi/registry
- * @description Central OpenAPI registry and spec generator.
- *
- * Uses @asteasolutions/zod-to-openapi to build an OpenAPI 3.1 specification
- * from Zod schemas registered across all services.
- *
- * Schema and route registrations are lazy — they only execute the first time
- * {@link generateOpenApiSpec} is called, so importing api-core never triggers
- * OpenAPI side effects.
- */
-
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
 
 /** Shared OpenAPI registry for all schema and path registrations. */

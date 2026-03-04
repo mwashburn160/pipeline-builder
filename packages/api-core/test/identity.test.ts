@@ -1,9 +1,7 @@
 import type { HttpRequest } from '../src/types/http';
 import { getIdentity, validateIdentity } from '../src/utils/identity';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function mockRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
     headers: {},
@@ -13,9 +11,7 @@ function mockRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('getIdentity', () => {
   it('should extract identity from headers', () => {

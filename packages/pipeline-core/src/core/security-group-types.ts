@@ -1,9 +1,4 @@
 /**
- * @module core/security-group-types
- * @description Defines discriminated union types for security group configuration strategies used in CodeBuild networking.
- */
-
-/**
  * Security group configuration using explicit security group IDs
  *
  * Looks up existing security groups by their IDs via `SecurityGroup.fromSecurityGroupId`.

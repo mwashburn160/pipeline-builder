@@ -1,19 +1,3 @@
-/**
- * @module metrics
- * @description Prometheus metrics middleware for Express services.
- *
- * Collects HTTP request duration, request counts, and default Node.js
- * process metrics (CPU, memory, heap, event loop lag, GC).
- *
- * Usage:
- * ```typescript
- * import { metricsMiddleware, metricsHandler } from './metrics';
- *
- * app.use(metricsMiddleware());
- * app.get('/metrics', metricsHandler());
- * ```
- */
-
 import { Request, Response, NextFunction } from 'express';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 

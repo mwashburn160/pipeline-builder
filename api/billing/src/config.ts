@@ -1,8 +1,3 @@
-/**
- * @module config
- * @description Typed application configuration from environment variables.
- */
-
 export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 
 export interface MarketplaceConfig {

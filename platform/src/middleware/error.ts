@@ -1,8 +1,3 @@
-/**
- * @module middleware/error
- * @description Global error handling middleware for Express application.
- */
-
 import { createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 

@@ -1,14 +1,3 @@
-/**
- * @module routes/subscriptions
- * @description Subscription management routes (authenticated).
- *
- * GET  /billing/subscriptions                — Get current org subscription
- * POST /billing/subscriptions                — Create subscription
- * PUT  /billing/subscriptions/:id            — Change plan or interval
- * POST /billing/subscriptions/:id/cancel     — Cancel at period end
- * POST /billing/subscriptions/:id/reactivate — Reactivate canceled subscription
- */
-
 import {
   requireAuth,
   requireSystemAdmin,
@@ -51,9 +40,7 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 export function createSubscriptionRoutes(): Router {
   const router: Router = Router();
 
-  // ---------------------------------------------------------------------------
   // GET /billing/subscriptions — get current org subscription
-  // ---------------------------------------------------------------------------
 
   router.get(
     '/subscriptions',
@@ -83,9 +70,7 @@ export function createSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // POST /billing/subscriptions — create a new subscription
-  // ---------------------------------------------------------------------------
 
   router.post(
     '/subscriptions',
@@ -160,9 +145,7 @@ export function createSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // PUT /billing/subscriptions/:id — change plan or interval
-  // ---------------------------------------------------------------------------
 
   router.put(
     '/subscriptions/:id',
@@ -244,9 +227,7 @@ export function createSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // POST /billing/subscriptions/:id/cancel — cancel at period end
-  // ---------------------------------------------------------------------------
 
   router.post(
     '/subscriptions/:id/cancel',
@@ -298,9 +279,7 @@ export function createSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // POST /billing/subscriptions/:id/reactivate — undo cancellation
-  // ---------------------------------------------------------------------------
 
   router.post(
     '/subscriptions/:id/reactivate',

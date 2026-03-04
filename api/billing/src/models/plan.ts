@@ -1,14 +1,7 @@
-/**
- * @module models/plan
- * @description Mongoose schema and model for billing plans.
- */
-
 import type { QuotaTier } from '@mwashburn160/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export interface PlanPrices {
   monthly: number;
@@ -29,9 +22,7 @@ export interface PlanDocument extends Document<string> {
   updatedAt: Date;
 }
 
-// ---------------------------------------------------------------------------
 // Schema
-// ---------------------------------------------------------------------------
 
 const planSchema = new Schema<PlanDocument>(
   {
@@ -54,9 +45,7 @@ const planSchema = new Schema<PlanDocument>(
   },
 );
 
-// ---------------------------------------------------------------------------
 // Model (safe for re-registration in tests)
-// ---------------------------------------------------------------------------
 
 export const Plan =
   (mongoose.models.Plan as mongoose.Model<PlanDocument>) ||

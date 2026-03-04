@@ -5,9 +5,7 @@
  * Mocks Mongoose models, billing helpers, and api-core utilities.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
@@ -94,9 +92,7 @@ import { createAdminSubscriptionRoutes } from '../src/routes/admin-subscriptions
 
 const router = createAdminSubscriptionRoutes();
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(
@@ -141,9 +137,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('GET /admin/subscriptions', () => {
   const handler = getHandler('get', '/admin/subscriptions');

@@ -1,9 +1,3 @@
-/**
- * @module routes/user
- * @description Current user profile management routes.
- * All routes require authentication.
- */
-
 import { Router } from 'express';
 import {
   changePassword,

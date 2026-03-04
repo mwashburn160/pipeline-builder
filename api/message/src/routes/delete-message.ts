@@ -1,8 +1,3 @@
-/**
- * @module routes/delete-message
- * @description Express route for soft-deleting messages, restricted to system admins or the original message sender.
- */
-
 import {
   sendError,
   sendBadRequest,

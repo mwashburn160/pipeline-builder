@@ -1,12 +1,3 @@
-/**
- * Version / diagnostics CLI command.
- *
- * Displays the CLI version, Node.js runtime details, AWS CDK
- * availability, and optionally validates the current configuration
- * and environment variables.  Supports JSON output for automation.
- *
- * @module commands/version
- */
 import { execSync } from 'child_process';
 import { Command } from 'commander';
 import pico from 'picocolors';

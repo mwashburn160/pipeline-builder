@@ -28,6 +28,8 @@ describe('loadServerConfig', () => {
     delete process.env.CORS_CREDENTIALS;
     delete process.env.TRUST_PROXY;
     delete process.env.PLATFORM_BASE_URL;
+    delete process.env.PLUGIN_SERVICE_HOST;
+    delete process.env.PLUGIN_SERVICE_PORT;
 
     const config = loadServerConfig();
 
@@ -35,6 +37,8 @@ describe('loadServerConfig', () => {
     expect(config.cors.credentials).toBe(true);
     expect(config.trustProxy).toBe(1);
     expect(config.platformUrl).toBe('https://localhost:8443');
+    expect(config.services.pluginHost).toBe('plugin');
+    expect(config.services.pluginPort).toBe(3000);
   });
 
   it('parses CORS_ORIGIN as comma-separated list', () => {
@@ -155,6 +159,7 @@ describe('loadRateLimitConfig', () => {
 describe('validateServerConfig', () => {
   const defaultHttpClient = { timeout: 5000, maxRetries: 2, retryDelayMs: 200 };
   const defaultSse = { maxClientsPerRequest: 10, clientTimeoutMs: 1800000, cleanupIntervalMs: 300000 };
+  const defaultServices = { pluginHost: 'plugin', pluginPort: 3000 };
 
   it('does not throw for valid config', () => {
     expect(() =>
@@ -165,6 +170,7 @@ describe('validateServerConfig', () => {
         platformUrl: 'https://example.com',
         httpClient: defaultHttpClient,
         sse: defaultSse,
+        services: defaultServices,
       }),
     ).not.toThrow();
   });
@@ -178,6 +184,7 @@ describe('validateServerConfig', () => {
         platformUrl: 'https://example.com',
         httpClient: defaultHttpClient,
         sse: defaultSse,
+        services: defaultServices,
       }),
     ).not.toThrow();
   });
@@ -191,6 +198,7 @@ describe('validateServerConfig', () => {
         platformUrl: 'http://example.com',
         httpClient: defaultHttpClient,
         sse: defaultSse,
+        services: defaultServices,
       }),
     ).not.toThrow();
   });
@@ -204,6 +212,7 @@ describe('validateServerConfig', () => {
         platformUrl: 'http://localhost:8443',
         httpClient: defaultHttpClient,
         sse: defaultSse,
+        services: defaultServices,
       }),
     ).not.toThrow();
   });

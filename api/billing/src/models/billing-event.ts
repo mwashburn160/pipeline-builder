@@ -1,13 +1,6 @@
-/**
- * @module models/billing-event
- * @description Mongoose schema and model for billing event audit log.
- */
-
 import mongoose, { Schema, Document } from 'mongoose';
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export type BillingEventType =
   | 'subscription_created'
@@ -27,9 +20,7 @@ export interface BillingEventDocument extends Document {
   createdAt: Date;
 }
 
-// ---------------------------------------------------------------------------
 // Schema
-// ---------------------------------------------------------------------------
 
 const billingEventSchema = new Schema<BillingEventDocument>(
   {
@@ -57,9 +48,7 @@ const billingEventSchema = new Schema<BillingEventDocument>(
   },
 );
 
-// ---------------------------------------------------------------------------
 // Model (safe for re-registration in tests)
-// ---------------------------------------------------------------------------
 
 export const BillingEvent =
   (mongoose.models.BillingEvent as mongoose.Model<BillingEventDocument>) ||

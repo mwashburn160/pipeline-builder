@@ -1,19 +1,3 @@
-/**
- * @module pipeline
- * @description Pipeline microservice.
- *
- * Routes mounted under /pipelines:
- *
- *   GET    /pipelines        — list with pagination, filtering, sorting
- *   GET    /pipelines/find   — find single pipeline by query-string filters
- *   GET    /pipelines/:id    — get by UUID
- *   POST   /pipelines        — create new pipeline
- *   PUT    /pipelines/:id    — update existing pipeline
- *   DELETE /pipelines/:id    — delete existing pipeline
- *   GET    /pipelines/providers — list available AI providers
- *   POST   /pipelines/generate  — generate pipeline config from natural language
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 

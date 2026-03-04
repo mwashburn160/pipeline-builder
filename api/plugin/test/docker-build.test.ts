@@ -5,9 +5,7 @@
  * build command construction, input validation, and cleanup logic.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockExecFile = jest.fn();
 const mockExecFileSync = jest.fn();
@@ -51,11 +49,24 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
+let mockInsecure = true;
+
+jest.mock('@mwashburn160/pipeline-core', () => ({
+  CoreConstants: {
+    DOCKER_BUILDER_NAME: 'plugin-builder',
+    DOCKER_BUILD_TIMEOUT_MS: 300000,
+  },
+  Config: {
+    get: (section: string) => {
+      if (section === 'registry') return { insecure: mockInsecure };
+      return {};
+    },
+  },
+}));
+
 import { buildAndPush, type BuildRequest, type RegistryInfo } from '../src/helpers/docker-build';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function makeRegistry(overrides: Partial<RegistryInfo> = {}): RegistryInfo {
   return {
@@ -78,9 +89,7 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('docker-build', () => {
   beforeEach(() => {
@@ -89,8 +98,8 @@ describe('docker-build', () => {
     mockExecFile.mockResolvedValue({ stdout: '', stderr: '' });
     // Default: execFileSync returns successfully
     mockExecFileSync.mockReturnValue(Buffer.from(''));
-    // Reset env
-    delete process.env.DOCKER_REGISTRY_INSECURE;
+    // Reset mock config
+    mockInsecure = true;
   });
 
   describe('input validation', () => {
@@ -240,8 +249,8 @@ describe('docker-build', () => {
       expect(tomlCall![1]).toContain('insecure = true');
     });
 
-    it('writes buildkitd.toml with insecure=false when DOCKER_REGISTRY_INSECURE=false', async () => {
-      process.env.DOCKER_REGISTRY_INSECURE = 'false';
+    it('writes buildkitd.toml with insecure=false when registry config insecure=false', async () => {
+      mockInsecure = false;
       const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
       await buildAndPush(req);
 

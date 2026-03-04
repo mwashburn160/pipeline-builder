@@ -1,8 +1,3 @@
-/**
- * @module controllers
- * @description Express route handlers implementing business logic for all API endpoints.
- */
-
 export * from './auth';
 export * from './oauth';
 export * from './user';

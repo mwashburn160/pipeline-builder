@@ -1,10 +1,3 @@
-/**
- * @module controllers/user
- * @description User management controller. Provides self-service profile
- * endpoints (get/update/delete profile, change password, generate tokens)
- * and admin endpoints for listing, viewing, updating, and deleting users.
- */
-
 import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import type { FeatureFlag, QuotaTier } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
@@ -17,9 +10,7 @@ import { updateProfileSchema, changePasswordSchema } from '../validation/schemas
 
 const logger = createLogger('UserController');
 
-// ============================================================================
 // Org Lookup Helper
-// ============================================================================
 
 /**
  * Look up an organization's display name by ID.
@@ -91,9 +82,7 @@ function formatUserResponse(
   };
 }
 
-// ============================================================================
 // User Profile Endpoints
-// ============================================================================
 
 /**
  * Get current user profile
@@ -267,9 +256,7 @@ export async function generateToken(req: Request, res: Response): Promise<void> 
   }
 }
 
-// ============================================================================
 // Admin User Management Endpoints
-// ============================================================================
 
 /**
  * List all users (System Admin) or organization users (Org Admin)

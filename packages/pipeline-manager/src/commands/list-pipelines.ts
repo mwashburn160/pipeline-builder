@@ -1,13 +1,3 @@
-/**
- * List pipelines CLI command.
- *
- * Queries the platform API for pipelines with comprehensive
- * filter, pagination, and sorting options.  Results can be
- * displayed as a table, JSON, YAML, or CSV and optionally
- * exported to a file.
- *
- * @module commands/list-pipelines
- */
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, formatDuration, validateBoolean } from '../config/cli.constants';

@@ -1,8 +1,3 @@
-/**
- * @module controllers/organization-members
- * @description Organization member management and ownership transfer.
- */
-
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
@@ -23,9 +18,7 @@ import {
 
 const logger = createLogger('OrganizationMembersController');
 
-// ============================================================================
 // Member Management (Admin endpoints)
-// ============================================================================
 
 /**
  * Get organization members

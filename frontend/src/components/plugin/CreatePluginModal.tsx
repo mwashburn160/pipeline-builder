@@ -1,14 +1,3 @@
-/**
- * @module components/plugin/CreatePluginModal
- * @description Tabbed modal for creating plugins via file upload or AI generation.
- *
- * Provides two creation modes:
- * - **Upload**: Drag-and-drop or select a .zip/.tar.gz plugin archive
- * - **AI Builder**: Generate a plugin config + Dockerfile from natural language
- *
- * The modal uses {@link AIPluginBuilderTab} for the AI builder workflow.
- */
-
 import { useState, useRef } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { Upload } from 'lucide-react';

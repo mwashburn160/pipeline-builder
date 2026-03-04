@@ -1,8 +1,3 @@
-/**
- * @module config/config-types
- * @description Defines TypeScript interfaces for all application configuration sections including server, auth, database, registry, AWS, and billing.
- */
-
 import type { QuotaTier } from '@mwashburn160/api-core';
 import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
@@ -18,6 +13,7 @@ export interface AppConfig {
   readonly auth: AuthConfig;
   readonly database: DatabaseConfig;
   readonly registry: RegistryConfig;
+  readonly redis: RedisConfig;
   readonly pluginBuild: PluginBuildConfig;
   readonly aws: AWSConfig;
   readonly rateLimit: RateLimitConfig;
@@ -53,6 +49,12 @@ export interface ServerConfig {
     readonly clientTimeoutMs: number;
     /** SSE cleanup interval in ms (env: `SSE_CLEANUP_INTERVAL_MS`). */
     readonly cleanupIntervalMs: number;
+  };
+  readonly services: {
+    /** Plugin service hostname (env: `PLUGIN_SERVICE_HOST`). */
+    readonly pluginHost: string;
+    /** Plugin service port (env: `PLUGIN_SERVICE_PORT`). */
+    readonly pluginPort: number;
   };
 }
 
@@ -107,6 +109,13 @@ export interface RegistryConfig {
   readonly token: string;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
+  /** Allow insecure (self-signed TLS) registry connections (env: `DOCKER_REGISTRY_INSECURE`). */
+  readonly insecure: boolean;
+}
+
+export interface RedisConfig {
+  readonly host: string;
+  readonly port: number;
 }
 
 export interface PluginBuildConfig {

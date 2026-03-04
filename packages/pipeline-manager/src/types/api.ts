@@ -1,17 +1,4 @@
 /**
- * API client type definitions.
- *
- * Provides shared types used by the {@link ApiClient} for making
- * HTTP requests to the platform API.
- *
- * Note: Unused interfaces (HttpClient, RequestConfig, ApiClientConfig,
- * TokenInfo, UploadProgress, PaginatedResponse, ApiResponse, ApiErrorResponse)
- * were removed during cleanup. Re-add as needed.
- *
- * @module types/api
- */
-
-/**
  * Supported HTTP methods for API requests.
  */
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

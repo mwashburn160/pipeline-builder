@@ -1,8 +1,3 @@
-/**
- * @module pipeline/source-types
- * @description Defines TypeScript interfaces for S3, GitHub, and CodeStar pipeline source configurations.
- */
-
 import type { SecretValue } from 'aws-cdk-lib';
 import type { TriggerType } from '../core/pipeline-types';
 

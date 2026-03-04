@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockFindPaginated = jest.fn();
 const mockFind = jest.fn();
@@ -112,9 +110,7 @@ import { isSystemAdmin, sendBadRequest, incrementQuota } from '@mwashburn160/api
 import { validateFilter } from '../src/helpers/plugin-helpers';
 import { createReadPluginRoutes } from '../src/routes/read-plugins';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const mockQuotaService = {
   increment: jest.fn().mockResolvedValue(undefined),
@@ -152,9 +148,7 @@ function mockRes(): any {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('GET /plugins (list)', () => {
   const handler = getHandler('get', '/');

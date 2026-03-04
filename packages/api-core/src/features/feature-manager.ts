@@ -1,9 +1,3 @@
-/**
- * @module features/feature-manager
- * @description Unified feature management that merges service-level toggles
- * (billing, email, OAuth) with per-user feature flags into a single API.
- */
-
 import { resolveUserFeatures, ALL_FEATURE_FLAGS, type FeatureFlag } from '../types/feature-flags';
 import type { QuotaTier } from '../types/quota-tiers';
 

@@ -1,8 +1,3 @@
-/**
- * @module pipeline/stage-builder
- * @description Builds and attaches pipeline stages (pre/post waves) with plugin-resolved CodeBuild steps to a CDK CodePipeline.
- */
-
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';

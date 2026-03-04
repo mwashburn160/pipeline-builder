@@ -1,9 +1,3 @@
-/**
- * @module controllers/pipeline
- * @description Pipeline controller that proxies pipeline CRUD operations
- * to the pipeline microservice via {@link pipelineService}.
- */
-
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { extractToken } from '../helpers/controller-helper';

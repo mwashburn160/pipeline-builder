@@ -5,9 +5,7 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 const mockSendQuotaExceeded = jest.fn();
@@ -93,9 +91,7 @@ jest.mock('../src/config', () => ({
 
 import updateQuotaRouter from '../src/routes/update-quota';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return { params: {}, query: {}, headers: {}, body: {}, user: {}, ...overrides };
@@ -138,9 +134,7 @@ function makeSaveableOrg(overrides: Partial<any> = {}) {
   return org;
 }
 
-// ---------------------------------------------------------------------------
 // Tests — PUT /quotas/:orgId
-// ---------------------------------------------------------------------------
 
 describe('PUT /quotas/:orgId (update org)', () => {
   const handler = getHandler('put', '/:orgId');
@@ -220,9 +214,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Tests — POST /quotas/:orgId/reset
-// ---------------------------------------------------------------------------
 
 describe('POST /quotas/:orgId/reset', () => {
   const handler = getHandler('post', '/:orgId/reset');
@@ -294,9 +286,7 @@ describe('POST /quotas/:orgId/reset', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Tests — POST /quotas/:orgId/increment
-// ---------------------------------------------------------------------------
 
 describe('POST /quotas/:orgId/increment', () => {
   const handler = getHandler('post', '/:orgId/increment');

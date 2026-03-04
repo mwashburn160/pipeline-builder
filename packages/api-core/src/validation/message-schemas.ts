@@ -1,8 +1,3 @@
-/**
- * @module validation/message-schemas
- * @description Zod schemas for message validation
- */
-
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas';
 

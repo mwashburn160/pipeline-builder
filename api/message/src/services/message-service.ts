@@ -1,8 +1,3 @@
-/**
- * @module services/message-service
- * @description Service layer for managing internal messages, threads, read tracking, and unread counts between organizations and the system org.
- */
-
 import { CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
 import { SQL, eq, and } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';

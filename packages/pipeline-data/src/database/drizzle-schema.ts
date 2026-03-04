@@ -1,8 +1,3 @@
-/**
- * @module database/drizzle-schema
- * @description Defines the Drizzle ORM database schema including table definitions, types, and interfaces for pipelines, plugins, and messages.
- */
-
 import { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';

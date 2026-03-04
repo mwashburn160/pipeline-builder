@@ -1,9 +1,4 @@
 /**
- * @module constants/http-status
- * @description HTTP status code constants for consistent usage across API microservices.
- */
-
-/**
  * HTTP status codes organized by category.
  */
 export const HttpStatus = {

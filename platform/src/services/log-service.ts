@@ -1,17 +1,9 @@
-/**
- * @module services/log-service
- * @description Loki HTTP client for querying logs with org-scoped filtering.
- * Constructs LogQL queries server-side to enforce tenant isolation.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { config } from '../config';
 
 const logger = createLogger('log-service');
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface LogQueryParams {
   /** Service name filter (e.g., 'pipeline', 'plugin') */
@@ -66,9 +58,7 @@ interface LokiLabelResponse {
   data: string[];
 }
 
-// ============================================================================
 // LogQL Construction
-// ============================================================================
 
 /**
  * Escape special characters in a LogQL string literal.
@@ -120,9 +110,7 @@ function buildLogQL(params: LogQueryParams): string {
     : streamSelector;
 }
 
-// ============================================================================
 // Loki Client
-// ============================================================================
 
 async function lokiFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(path, config.loki.url);
@@ -181,9 +169,7 @@ function nanoToISO(nanoTs: string): string {
   return new Date(ms).toISOString();
 }
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 /**
  * Query logs from Loki with org-scoped filtering.

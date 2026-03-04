@@ -4,9 +4,7 @@ import {
   validatePipelineFilter,
 } from '../src/core/query-filters';
 
-// ---------------------------------------------------------------------------
 // Validation
-// ---------------------------------------------------------------------------
 describe('validateCommonFilter', () => {
   it('should pass for valid filter', () => {
     expect(() => validateCommonFilter({ limit: 10, offset: 0, sort: 'name:asc' })).not.toThrow();

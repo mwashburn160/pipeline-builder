@@ -1,8 +1,3 @@
-/**
- * @module routes/update-message
- * @description Express routes for updating messages, including marking individual messages and entire threads as read.
- */
-
 import {
   sendBadRequest,
   sendSuccess,

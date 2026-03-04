@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockFindById = jest.fn();
 const mockUpdate = jest.fn();
@@ -102,9 +100,7 @@ import { sendBadRequest, validateBody, requirePublicAccess } from '@mwashburn160
 import { sendPipelineNotFound } from '../src/helpers/pipeline-helpers';
 import { createUpdatePipelineRoutes } from '../src/routes/update-pipeline';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const router = createUpdatePipelineRoutes();
 
@@ -150,9 +146,7 @@ function mockRes(): any {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('PUT /pipelines/:id (update)', () => {
   const handler = getHandler('put', '/:id');

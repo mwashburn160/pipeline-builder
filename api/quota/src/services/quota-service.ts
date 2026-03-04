@@ -1,13 +1,3 @@
-/**
- * @module services/quota-service
- * @description Service layer for quota CRUD operations on MongoDB organizations.
- *
- * Encapsulates all Mongoose database operations, keeping route handlers as thin
- * controllers. Unlike PipelineService/PluginService which extend the Drizzle-based
- * CrudService, this service works directly with Mongoose but follows the same
- * pattern: class with singleton export.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { config } from '../config';
@@ -25,9 +15,7 @@ import { Organization, OrganizationDocument } from '../models/organization';
 
 const logger = createLogger('quota-service');
 
-// ---------------------------------------------------------------------------
 // Error class
-// ---------------------------------------------------------------------------
 
 /** Thrown when an organization document is not found in MongoDB. */
 export class OrgNotFoundError extends Error {
@@ -37,9 +25,7 @@ export class OrgNotFoundError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Result types
-// ---------------------------------------------------------------------------
 
 /** Result returned by incrementUsage — tells the caller whether the quota was exceeded. */
 export interface IncrementResult {
@@ -61,9 +47,7 @@ export interface UpdateOrgData {
   quotas?: Partial<Record<QuotaType, number>>;
 }
 
-// ---------------------------------------------------------------------------
 // Service class
-// ---------------------------------------------------------------------------
 
 /**
  * Quota service encapsulating all Mongoose operations for organizations.
@@ -77,9 +61,7 @@ export interface UpdateOrgData {
  * - incrementUsage() — atomic increment with limit enforcement
  */
 export class QuotaService {
-  // -------------------------------------------------------------------------
   // Read operations
-  // -------------------------------------------------------------------------
 
   /**
    * List all organizations with their quota information.
@@ -122,9 +104,7 @@ export class QuotaService {
     return computeQuotaStatus(limit, usage);
   }
 
-  // -------------------------------------------------------------------------
   // Write operations
-  // -------------------------------------------------------------------------
 
   /**
    * Update an organization's name, slug, tier, and/or quota limits.

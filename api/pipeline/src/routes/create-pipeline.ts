@@ -1,13 +1,3 @@
-/**
- * @module routes/create-pipeline
- * @description Pipeline creation.
- *
- * POST /pipelines — create a new pipeline configuration
- *
- * Automatically sets any existing default pipeline for the same
- * project/organization to non-default before inserting the new one.
- */
-
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota } from '@mwashburn160/api-core';
 import { createProtectedRoute, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';

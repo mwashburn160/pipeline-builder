@@ -1,8 +1,3 @@
-/**
- * @module openapi/routes/pipeline-routes
- * @description OpenAPI route specs for the Pipeline service.
- */
-
 import { addRegistration, registry } from '../registry';
 
 const tags = ['Pipelines'];

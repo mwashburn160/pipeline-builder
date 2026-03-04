@@ -1,8 +1,3 @@
-/**
- * @module helpers/billing-helpers
- * @description Utility functions for billing operations.
- */
-
 import type { QuotaTier } from '@mwashburn160/api-core';
 import { createLogger, createSafeClient } from '@mwashburn160/api-core';
 import { config } from '../config';

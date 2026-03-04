@@ -10,9 +10,6 @@ export function base64UrlDecode(str: string): string {
   return atob(base64);
 }
 
-/**
- * Custom error class for API errors
- */
 export class ApiError extends Error {
   statusCode: number;
   code?: string;
@@ -28,40 +25,6 @@ export class ApiError extends Error {
     this.details = details;
   }
 
-  /**
-   * Check if error is a specific type
-   */
-  is(code: string): boolean {
-    return this.code === code;
-  }
-
-  /**
-   * Check if error is unauthorized
-   */
-  isUnauthorized(): boolean {
-    return this.statusCode === 401;
-  }
-
-  /**
-   * Check if error is forbidden
-   */
-  isForbidden(): boolean {
-    return this.statusCode === 403;
-  }
-
-  /**
-   * Check if error is not found
-   */
-  isNotFound(): boolean {
-    return this.statusCode === 404;
-  }
-
-  /**
-   * Check if error is rate limited
-   */
-  isRateLimited(): boolean {
-    return this.statusCode === 429;
-  }
 }
 
 /** SSE event received from AI streaming endpoints. */

@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockFindById = jest.fn();
 const mockDelete = jest.fn();
@@ -102,9 +100,7 @@ import { sendBadRequest, requirePublicAccess } from '@mwashburn160/api-core';
 import { sendPipelineNotFound } from '../src/helpers/pipeline-helpers';
 import { createDeletePipelineRoutes } from '../src/routes/delete-pipeline';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const router = createDeletePipelineRoutes();
 
@@ -147,9 +143,7 @@ function mockRes(): any {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('DELETE /pipelines/:id (delete)', () => {
   const handler = getHandler('delete', '/:id');

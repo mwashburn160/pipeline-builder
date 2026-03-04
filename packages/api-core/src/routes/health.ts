@@ -1,8 +1,3 @@
-/**
- * @module routes/health
- * @description Health check endpoint for API microservices.
- */
-
 import { Request, Response, Router } from 'express';
 import { HealthCheckResponse } from '../types/common';
 import { sendSuccess, sendError } from '../utils/response';

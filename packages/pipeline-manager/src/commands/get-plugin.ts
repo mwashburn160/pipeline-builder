@@ -1,12 +1,3 @@
-/**
- * Get plugin CLI command.
- *
- * Retrieves detailed information about a specific plugin by ID
- * from the platform API.  Supports multiple output formats (JSON,
- * YAML, table) and optional file export.
- *
- * @module commands/get-plugin
- */
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';

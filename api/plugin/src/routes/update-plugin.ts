@@ -1,10 +1,3 @@
-/**
- * @module routes/update-plugin
- * @description Plugin update.
- *
- * PUT /plugins/:id — update a plugin by its UUID
- */
-
 import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';

@@ -1,10 +1,3 @@
-/**
- * @module routes/organization
- * @description Organization management routes including CRUD, member management,
- * quota configuration, and ownership transfer.
- * System admins can access any organization; org admins can only access their own.
- */
-
 import { Router } from 'express';
 import {
   getMyOrganization,

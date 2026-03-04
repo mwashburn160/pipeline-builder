@@ -1,8 +1,3 @@
-/**
- * @module openapi/routes/plugin-routes
- * @description OpenAPI route specs for the Plugin service.
- */
-
 import { addRegistration, registry } from '../registry';
 
 const tags = ['Plugins'];

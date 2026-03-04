@@ -1,8 +1,6 @@
 import { extractListResponse } from '../src/utils/output-utils';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('extractListResponse', () => {
   it('should extract items using primary key', () => {

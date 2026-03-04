@@ -1,15 +1,3 @@
-/**
- * @module routes/delete-plugin
- * @description Plugin deletion.
- *
- * DELETE /plugins/:id — delete a plugin by its UUID
- *
- * Permissions:
- *   - System admins: can delete public and private plugins
- *   - Org admins: can delete private plugins only
- *   - Regular users: can delete private plugins only
- */
-
 import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';

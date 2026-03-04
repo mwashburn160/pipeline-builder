@@ -1,8 +1,3 @@
-/**
- * @module services/http-client
- * @description Internal HTTP client for service-to-service communication.
- */
-
 import * as http from 'http';
 import { HttpStatus } from '../constants/http-status';
 import { ServiceConfig } from '../types/common';

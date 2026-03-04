@@ -1,12 +1,4 @@
 /**
- * @module utils/headers
- * @description Utilities for handling Express 5 headers.
- *
- * In Express 5, headers can be `string | string[] | undefined`.
- * These utilities provide type-safe header extraction.
- */
-
-/**
  * Express 5 header type.
  */
 type HeaderValue = string | string[] | undefined;

@@ -1,10 +1,3 @@
-/**
- * @module types/billing
- * @description Shared billing and subscription type definitions.
- *
- * Used by the billing microservice, platform service, and frontend.
- */
-
 import type { QuotaTier } from './quota-tiers';
 
 /** Billing interval for subscriptions. */

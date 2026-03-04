@@ -5,9 +5,7 @@
  * the router. Mocks Mongoose models, payment provider, and helpers.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
@@ -104,9 +102,7 @@ import { createSubscriptionRoutes } from '../src/routes/subscriptions';
 
 const router = createSubscriptionRoutes();
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Extract the last handler from a route stack (skips middleware like
@@ -158,9 +154,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('GET /subscriptions', () => {
   const handler = getHandler('get', '/subscriptions');

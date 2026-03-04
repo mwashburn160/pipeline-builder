@@ -1,14 +1,4 @@
-/**
- * Integration tests for the POST /generate/from-url/stream route.
- * Tests the full SSE streaming pipeline: URL parsing -> repo analysis ->
- * AI generation -> auto-plugin creation.
- *
- * @module test/generate-from-url
- */
-
-// ---------------------------------------------------------------------------
 // Mock function references — must be defined before jest.mock() calls
-// ---------------------------------------------------------------------------
 
 const mockParseGitUrl = jest.fn();
 const mockAnalyzeRepository = jest.fn();
@@ -23,9 +13,7 @@ const mockCreateSafeClient = jest.fn();
 const mockPluginClientPost = jest.fn();
 const mockDbSelect = jest.fn();
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 jest.mock('@mwashburn160/api-core', () => ({
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
@@ -89,6 +77,15 @@ const mockDbChain = {
 };
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
+  CoreConstants: {
+    SSE_STREAM_TIMEOUT_MS: 300000,
+  },
+  Config: {
+    get: (section: string) => {
+      if (section === 'server') return { services: { pluginHost: 'plugin', pluginPort: 3000 } };
+      return {};
+    },
+  },
   db: {
     select: (...args: any[]) => {
       mockDbSelect(...args);
@@ -124,15 +121,11 @@ jest.mock('../src/services/ai-generation-service', () => ({
   generatePipelineConfig: jest.fn(),
 }));
 
-// ---------------------------------------------------------------------------
 // Imports — after mocks
-// ---------------------------------------------------------------------------
 
 import { createGeneratePipelineRoutes } from '../src/routes/generate-pipeline';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const router = createGeneratePipelineRoutes();
 
@@ -209,9 +202,7 @@ function parseSseEvents(chunks: string[]): Array<{ type?: string; data?: any; me
   });
 }
 
-// ---------------------------------------------------------------------------
 // Test Fixtures
-// ---------------------------------------------------------------------------
 
 const VALID_PARSED_URL = {
   host: 'github.com',
@@ -275,9 +266,7 @@ function createMockStreamResult(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('POST /generate/from-url/stream', () => {
   const handler = getHandler('post', '/generate/from-url/stream');
@@ -304,9 +293,7 @@ describe('POST /generate/from-url/stream', () => {
     mockDbChain.limit.mockResolvedValue([]);
   });
 
-  // -------------------------------------------------------------------------
   // Happy path — full streaming flow
-  // -------------------------------------------------------------------------
 
   it('streams analyzing -> analyzed -> partial -> done -> [DONE] for a valid GitHub URL', async () => {
     const partials = [
@@ -395,9 +382,7 @@ describe('POST /generate/from-url/stream', () => {
     }));
   });
 
-  // -------------------------------------------------------------------------
   // Validation failures
-  // -------------------------------------------------------------------------
 
   it('returns 400 when body validation fails (missing required fields)', async () => {
     mockValidateBody.mockReturnValue({ ok: false, error: 'gitUrl is required' });
@@ -433,9 +418,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.write).not.toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Repository analysis failure
-  // -------------------------------------------------------------------------
 
   it('sends SSE error event when repository analysis fails', async () => {
     mockAnalyzeRepository.mockRejectedValue(new Error('GitHub API error: 404'));
@@ -462,9 +445,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockStreamPipelineConfig).not.toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Auto-plugin creation — missing plugins
-  // -------------------------------------------------------------------------
 
   it('emits checking-plugins and creating-plugins events for missing plugins', async () => {
     // Final output references plugins via stages[].steps[].plugin.name
@@ -536,9 +517,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Auto-plugin creation — existing plugins skip creation
-  // -------------------------------------------------------------------------
 
   it('skips plugin creation when all referenced plugins already exist', async () => {
     const finalOutputWithActions = {
@@ -597,9 +576,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockPluginClientPost).not.toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Auto-plugin creation — mixed existing and missing
-  // -------------------------------------------------------------------------
 
   it('creates only missing plugins when some already exist', async () => {
     const finalOutputWithActions = {
@@ -674,9 +651,7 @@ describe('POST /generate/from-url/stream', () => {
     );
   });
 
-  // -------------------------------------------------------------------------
   // Auto-plugin creation — deploy failure records error
-  // -------------------------------------------------------------------------
 
   it('records error in builds when plugin deployment fails', async () => {
     const finalOutputWithActions = {
@@ -727,9 +702,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Auto-plugin creation — non-202 status records HTTP error
-  // -------------------------------------------------------------------------
 
   it('records HTTP error when plugin service returns non-success status', async () => {
     const finalOutputWithActions = {
@@ -779,9 +752,7 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // No stages or no pluginName references — auto-plugin skipped
-  // -------------------------------------------------------------------------
 
   it('skips auto-plugin creation when output has no stages with actions', async () => {
     const finalOutputNoStages = {
@@ -815,9 +786,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Streaming error after headers sent — SSE error event
-  // -------------------------------------------------------------------------
 
   it('sends SSE error event when an error occurs after headers are sent', async () => {
     mockStreamPipelineConfig.mockImplementation(() => {
@@ -845,9 +814,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Error before headers sent — returns HTTP error
-  // -------------------------------------------------------------------------
 
   it('returns HTTP 500 when error occurs before headers are sent (provider not configured)', async () => {
     mockStreamPipelineConfig.mockImplementation(() => {
@@ -897,9 +864,7 @@ describe('POST /generate/from-url/stream', () => {
     );
   });
 
-  // -------------------------------------------------------------------------
   // repoToken passed to analyzeRepository
-  // -------------------------------------------------------------------------
 
   it('passes repoToken to analyzeRepository when provided', async () => {
     mockValidateBody.mockReturnValue({
@@ -930,9 +895,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockAnalyzeRepository).toHaveBeenCalledWith(VALID_PARSED_URL, 'ghp_secret123');
   });
 
-  // -------------------------------------------------------------------------
   // apiKey passed to streamPipelineConfig
-  // -------------------------------------------------------------------------
 
   it('passes apiKey to streamPipelineConfig when provided', async () => {
     mockValidateBody.mockReturnValue({
@@ -967,9 +930,7 @@ describe('POST /generate/from-url/stream', () => {
     }));
   });
 
-  // -------------------------------------------------------------------------
   // Null final output — done event not sent, but [DONE] still sent
-  // -------------------------------------------------------------------------
 
   it('skips done event but sends [DONE] when AI returns null output', async () => {
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult(
@@ -997,9 +958,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
   // Deduplication of plugin names from extractPluginNames
-  // -------------------------------------------------------------------------
 
   it('deduplicates plugin names when the same plugin is referenced multiple times', async () => {
     const finalOutputDuplicatePlugins = {
@@ -1050,9 +1009,7 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Analyzed event includes correct subset of analysis fields
-  // -------------------------------------------------------------------------
 
   it('includes only the specified analysis fields in the analyzed event', async () => {
     const finalOutputNoStages = {
@@ -1093,9 +1050,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(analyzedEvent.data.host).toBeUndefined();
   });
 
-  // -------------------------------------------------------------------------
   // req.on('close') is registered for abort detection
-  // -------------------------------------------------------------------------
 
   it('registers a close handler on the request for abort detection', async () => {
     const finalOutputNoStages = {

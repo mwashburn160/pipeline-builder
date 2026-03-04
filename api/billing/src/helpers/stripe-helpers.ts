@@ -1,10 +1,3 @@
-/**
- * @module helpers/stripe-helpers
- * @description Helpers for Stripe payment provider integration.
- *
- * Maps Stripe subscription statuses and events to internal billing types.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { Subscription } from '../models/subscription';
 import type { SubscriptionStatus } from '../models/subscription';

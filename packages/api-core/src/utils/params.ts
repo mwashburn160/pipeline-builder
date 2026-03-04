@@ -1,11 +1,3 @@
-/**
- * @module utils/params
- * @description Utilities for handling Express 5 route parameters.
- *
- * In Express 5, route parameters can be `string | string[]`.
- * These utilities provide type-safe parameter extraction.
- */
-
 import { Request } from 'express';
 import { getHeaderString } from './headers';
 

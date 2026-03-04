@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockIsSystemAdmin = jest.fn((_req?: any) => false);
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
@@ -101,16 +99,12 @@ jest.mock('../src/helpers/plugin-helpers', () => ({
   }),
 }));
 
-// ---------------------------------------------------------------------------
 // Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 import { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } from '@mwashburn160/api-core';
 import { createUpdatePluginRoutes } from '../src/routes/update-plugin';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const router = createUpdatePluginRoutes();
 
@@ -154,9 +148,7 @@ const existingPlugin = {
   isDefault: false,
 };
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('PUT /plugins/:id (update)', () => {
   const handler = getHandler('put', '/:id');

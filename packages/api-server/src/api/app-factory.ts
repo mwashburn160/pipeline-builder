@@ -1,8 +1,3 @@
-/**
- * @module api/app-factory
- * @description Factory for creating pre-configured Express applications with security, rate limiting, health checks, and SSE support.
- */
-
 import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, CoreConstants, getConnection } from '@mwashburn160/pipeline-core';

@@ -1,8 +1,3 @@
-/**
- * @module core/artifact-manager
- * @description Manages build step artifacts with hierarchical key-based storage and lookup for resolving pipeline step inputs and outputs.
- */
-
 import { CodeBuildStep, FileSet, ShellStep } from 'aws-cdk-lib/pipelines';
 
 export interface ArtifactKey {

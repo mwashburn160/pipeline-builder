@@ -1,8 +1,3 @@
-/**
- * @module database/postgres-connection
- * @description Manages the PostgreSQL connection pool and Drizzle ORM instance with support for retry logic, health checks, and graceful shutdown.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';

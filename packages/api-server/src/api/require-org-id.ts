@@ -1,10 +1,3 @@
-/**
- * @module api/require-org-id
- * @description Middleware that validates the requesting user has an orgId.
- *
- * Must be used after `attachRequestContext`.
- */
-
 import { ErrorCode, sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context';

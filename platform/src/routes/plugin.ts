@@ -1,9 +1,3 @@
-/**
- * @module routes/plugin
- * @description Plugin management routes. Proxies requests to the plugin microservices.
- * Quota enforcement is handled by the API microservices.
- */
-
 import { Router } from 'express';
 import multer from 'multer';
 import {

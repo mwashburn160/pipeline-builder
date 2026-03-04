@@ -1,11 +1,4 @@
 /**
- * @module types/http
- * @description Framework-agnostic HTTP type definitions for api-core utilities.
- *
- * These types allow api-core to remain independent of Express or any specific framework.
- */
-
-/**
  * Generic HTTP headers representation.
  */
 export interface HttpHeaders {

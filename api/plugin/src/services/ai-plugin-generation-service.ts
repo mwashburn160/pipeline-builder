@@ -1,14 +1,3 @@
-/**
- * @module services/ai-plugin-generation-service
- * @description AI-powered plugin configuration generation using Vercel AI SDK.
- *
- * Uses generateText() with Output.object() to produce structured plugin
- * configuration JSON + Dockerfile from natural language descriptions.
- * Also provides streamPluginConfig() for streaming partial results via
- * streamText(). Supports multiple AI providers via the shared ai-core
- * provider registry.
- */
-
 import {
   getAvailableProviders,
   getProviderModels,
@@ -25,9 +14,7 @@ export { getAvailableProviders, getProviderModels };
 
 const logger = createLogger('ai-plugin-generation');
 
-// ---------------------------------------------------------------------------
 // Service-Specific Types
-// ---------------------------------------------------------------------------
 
 /** Parameters for plugin configuration generation. */
 export interface PluginGenerationRequest {
@@ -62,9 +49,7 @@ export interface PluginGenerationResult {
   dockerfile: string;
 }
 
-// ---------------------------------------------------------------------------
 // Zod Schema — Plugin configuration structure for structured AI output
-// ---------------------------------------------------------------------------
 
 const PluginGenerationSchema = z.object({
   name: z.string().describe('Plugin name (lowercase, alphanumeric with hyphens, e.g. "nodejs-build")'),
@@ -80,9 +65,7 @@ const PluginGenerationSchema = z.object({
   dockerfile: z.string().describe('Complete Dockerfile content for the plugin build environment'),
 });
 
-// ---------------------------------------------------------------------------
 // System Prompt
-// ---------------------------------------------------------------------------
 
 /**
  * Build the system prompt for AI plugin generation.
@@ -154,9 +137,7 @@ For a "Python test plugin":
 - Dockerfile: Based on python:3.12-slim with git`;
 }
 
-// ---------------------------------------------------------------------------
 // Main Generation Function
-// ---------------------------------------------------------------------------
 
 /**
  * Generate a plugin configuration from a natural language description.
@@ -213,9 +194,7 @@ export async function generatePluginConfig(request: PluginGenerationRequest): Pr
   };
 }
 
-// ---------------------------------------------------------------------------
 // Streaming Generation Function
-// ---------------------------------------------------------------------------
 
 /** Result of streaming AI plugin generation. */
 export interface StreamingPluginGenerationResult {

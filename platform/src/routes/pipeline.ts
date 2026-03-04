@@ -1,9 +1,3 @@
-/**
- * @module routes/pipeline
- * @description Pipeline management routes. Proxies requests to the pipeline microservices.
- * Quota enforcement is handled by the API microservices.
- */
-
 import { Router } from 'express';
 import {
   listPipelines,

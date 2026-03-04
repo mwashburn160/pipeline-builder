@@ -7,9 +7,7 @@ import {
   hasFeature,
 } from '../src/types/feature-flags';
 
-// ---------------------------------------------------------------------------
 // ALL_FEATURE_FLAGS
-// ---------------------------------------------------------------------------
 
 describe('ALL_FEATURE_FLAGS', () => {
   it('should contain all 6 feature flags', () => {
@@ -23,9 +21,7 @@ describe('ALL_FEATURE_FLAGS', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // TIER_FEATURES
-// ---------------------------------------------------------------------------
 
 describe('TIER_FEATURES', () => {
   it('developer tier has no features', () => {
@@ -51,9 +47,7 @@ describe('TIER_FEATURES', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // FEATURE_METADATA
-// ---------------------------------------------------------------------------
 
 describe('FEATURE_METADATA', () => {
   it('has metadata for every feature flag', () => {
@@ -65,9 +59,7 @@ describe('FEATURE_METADATA', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // isValidFeatureFlag
-// ---------------------------------------------------------------------------
 
 describe('isValidFeatureFlag', () => {
   it('returns true for valid flags', () => {
@@ -83,9 +75,7 @@ describe('isValidFeatureFlag', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // resolveUserFeatures
-// ---------------------------------------------------------------------------
 
 describe('resolveUserFeatures', () => {
   it('developer tier gets no features by default', () => {
@@ -173,9 +163,7 @@ describe('resolveUserFeatures', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // hasFeature
-// ---------------------------------------------------------------------------
 
 describe('hasFeature', () => {
   it('returns true for tier-included features', () => {

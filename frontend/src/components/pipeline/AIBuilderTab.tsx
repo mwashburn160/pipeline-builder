@@ -1,13 +1,3 @@
-/**
- * @module components/pipeline/AIBuilderTab
- * @description AI builder tab for the Create Pipeline modal.
- *
- * Provides a natural language prompt input and provider/model selection
- * for generating pipeline configurations (BuilderProps) via the AI SDK.
- * Uses {@link useAIProviders} for provider fetch/merge logic and
- * {@link useImperativeHandle} to expose generated props to the parent modal.
- */
-
 import { useState, useImperativeHandle, forwardRef } from 'react';
 import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { BuilderProps } from '@/types';

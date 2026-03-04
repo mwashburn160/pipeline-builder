@@ -1,8 +1,3 @@
-/**
- * @module routes
- * @description Express route handlers for all API endpoints.
- */
-
 export { default as authRoutes } from './auth';
 export { default as oauthRoutes } from './oauth';
 export { default as userRoutes } from './user';

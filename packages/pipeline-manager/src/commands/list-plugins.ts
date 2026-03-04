@@ -1,13 +1,3 @@
-/**
- * List plugins CLI command.
- *
- * Queries the platform API for plugins with comprehensive
- * filter, pagination, and sorting options.  Results can be
- * displayed as a table, JSON, YAML, or CSV and optionally
- * exported to a file.
- *
- * @module commands/list-plugins
- */
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, formatDuration, formatFileSize, validateBoolean } from '../config/cli.constants';

@@ -1,21 +1,3 @@
-/**
- * @module routes/generate-pipeline
- * @description AI-powered pipeline configuration generation.
- *
- * Provides four endpoints for the pipeline AI builder workflow:
- *
- * - **GET /pipelines/providers** — List available AI providers and their models.
- * - **POST /pipelines/generate** — Generate BuilderProps JSON from a natural
- *   language description using the AI SDK.
- * - **POST /pipelines/generate/stream** — Same as above but streams partial
- *   results as SSE events for real-time progressive output.
- * - **POST /pipelines/generate/from-url/stream** — Analyze a Git URL and
- *   stream AI-generated pipeline config as SSE events.
- *
- * Request validation uses the shared Zod schemas from api-core
- * ({@link AIGenerateBodySchema}, {@link AIGenerateFromUrlBodySchema}).
- */
-
 import {
   createLogger,
   createSafeClient,
@@ -30,7 +12,7 @@ import {
   AccessModifier,
 } from '@mwashburn160/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@mwashburn160/api-server';
-import { db, schema } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { getAvailableProviders, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';
@@ -38,13 +20,12 @@ import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services
 
 const logger = createLogger('generate-pipeline');
 
-/** SSE stream timeout in ms (default 5 minutes). */
-const SSE_STREAM_TIMEOUT_MS = parseInt(process.env.SSE_STREAM_TIMEOUT_MS || '300000', 10);
+const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
 
-/** Internal HTTP client for the plugin service (auto-plugin creation). */
+const { pluginHost, pluginPort } = Config.get('server').services;
 const pluginClient = createSafeClient({
-  host: process.env.PLUGIN_SERVICE_HOST || 'plugin',
-  port: parseInt(process.env.PLUGIN_SERVICE_PORT || '3000', 10),
+  host: pluginHost,
+  port: pluginPort,
   timeout: 30_000,
 });
 
@@ -419,9 +400,7 @@ export function createGeneratePipelineRoutes(): Router {
   return router;
 }
 
-// ---------------------------------------------------------------------------
 // Auto-Plugin Creation
-// ---------------------------------------------------------------------------
 
 /**
  * Extract plugin names referenced in a generated pipeline config.

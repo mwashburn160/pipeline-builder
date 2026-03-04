@@ -1,9 +1,3 @@
-/**
- * @module middleware/auth
- * @description Authentication and authorization middleware for protecting routes.
- * Handles JWT token validation, refresh token verification, and role-based access control.
- */
-
 import { sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { User, Organization } from '../models';

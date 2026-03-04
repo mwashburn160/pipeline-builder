@@ -1,8 +1,3 @@
-/**
- * @module controllers/auth-utils
- * @description Authentication utilities for token generation, validation, and password hashing
- */
-
 import crypto from 'crypto';
 import { createLogger, sendError } from '@mwashburn160/api-core';
 import { Response } from 'express';
@@ -15,9 +10,7 @@ import type { UserDocument } from '../models/user';
 
 const logger = createLogger('AuthUtils');
 
-// ============================================================================
 // Validation Schemas
-// ============================================================================
 
 /** Registration request body schema. */
 export const registerSchema = z.object({
@@ -39,9 +32,7 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
-// ============================================================================
 // Validation Helper
-// ============================================================================
 
 /**
  * Validate request body with Zod schema
@@ -73,9 +64,7 @@ export function validateBody<T>(
   }
 }
 
-// ============================================================================
 // Token Generation
-// ============================================================================
 
 /** JWT access token payload shape. */
 export interface TokenPayload {

@@ -1,23 +1,3 @@
-/**
- * @module message
- * @description Message microservice for internal org-to-system-org communication.
- *
- * Routes mounted under /messages:
- *
- *   GET    /messages/notifications     — SSE endpoint for real-time message notifications
- *   GET    /messages              — list inbox with pagination
- *   GET    /messages/announcements — list announcements
- *   GET    /messages/conversations — list conversations
- *   GET    /messages/unread/count  — get unread message count
- *   GET    /messages/:id           — get message by ID
- *   GET    /messages/:id/thread    — get all messages in a thread
- *   POST   /messages               — create new message or announcement
- *   POST   /messages/:id/reply     — reply to a thread
- *   PUT    /messages/:id/read      — mark message as read
- *   PUT    /messages/:id/thread/read — mark thread as read
- *   DELETE /messages/:id           — soft delete a message
- */
-
 import { createLogger, requireAuth } from '@mwashburn160/api-core';
 import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 import { Request, Response, NextFunction } from 'express';

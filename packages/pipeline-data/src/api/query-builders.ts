@@ -1,8 +1,3 @@
-/**
- * @module api/query-builders
- * @description Builds SQL condition arrays for pipeline, plugin, and message queries by combining access control, filtering, and entity-specific criteria.
- */
-
 import { eq, isNull, or, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,

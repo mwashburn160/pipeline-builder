@@ -1,14 +1,6 @@
-/**
- * @module test/provider-registry
- * @description Comprehensive tests for the ai-core provider registry:
- * lazy initialization, provider discovery, model resolution, and custom-key creation.
- */
-
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-// ---------------------------------------------------------------------------
 // Mock all AI SDK providers BEFORE importing the module under test
-// ---------------------------------------------------------------------------
 
 const mockAnthropicModel = { provider: 'anthropic', modelId: '' };
 const mockOpenAIModel = { provider: 'openai', modelId: '' };
@@ -44,9 +36,7 @@ jest.mock('@ai-sdk/openai-compatible', () => ({
   createOpenAICompatible: jest.fn(() => mockOllamaCompatible),
 }));
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * The registry is lazily initialized once — between test groups we need to
@@ -59,9 +49,7 @@ function freshImport() {
   return require('../src/provider-registry') as typeof import('../src/provider-registry');
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('ai-core provider-registry', () => {
   const originalEnv = process.env;
@@ -76,9 +64,7 @@ describe('ai-core provider-registry', () => {
     process.env = originalEnv;
   });
 
-  // -----------------------------------------------------------------------
   // getAvailableProviders
-  // -----------------------------------------------------------------------
   describe('getAvailableProviders', () => {
     it('should return an empty array when no API keys are set', () => {
       // Ensure all provider env vars are unset
@@ -189,9 +175,7 @@ describe('ai-core provider-registry', () => {
     });
   });
 
-  // -----------------------------------------------------------------------
   // getProviderModels
-  // -----------------------------------------------------------------------
   describe('getProviderModels', () => {
     it('should return models for a known provider', () => {
       const { getProviderModels } = freshImport();
@@ -231,9 +215,7 @@ describe('ai-core provider-registry', () => {
     });
   });
 
-  // -----------------------------------------------------------------------
   // Lazy initialization
-  // -----------------------------------------------------------------------
   describe('lazy initialization', () => {
     it('should only initialize the registry once (idempotent)', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -270,9 +252,7 @@ describe('ai-core provider-registry', () => {
     });
   });
 
-  // -----------------------------------------------------------------------
   // resolveModel
-  // -----------------------------------------------------------------------
   describe('resolveModel', () => {
     it('should throw when provider is not configured', () => {
       delete process.env.ANTHROPIC_API_KEY;
@@ -362,9 +342,7 @@ describe('ai-core provider-registry', () => {
     });
   });
 
-  // -----------------------------------------------------------------------
   // createModelWithKey
-  // -----------------------------------------------------------------------
   describe('createModelWithKey', () => {
     it('should throw for an unknown provider', () => {
       const { createModelWithKey } = freshImport();
@@ -470,9 +448,7 @@ describe('ai-core provider-registry', () => {
     });
   });
 
-  // -----------------------------------------------------------------------
   // Module exports
-  // -----------------------------------------------------------------------
   describe('module exports', () => {
     it('should export all expected functions', () => {
       const mod = freshImport();

@@ -1,14 +1,3 @@
-/**
- * @module hooks/useAsync
- * @description Generic hooks for async data fetching and async action execution.
- *
- * Replaces the manual `useState(loading)` + `try/catch/finally` pattern
- * used throughout the frontend with standardized, composable hooks.
- *
- * - `useAsync()` — auto-fetches on mount (or when deps change), returns data/loading/error
- * - `useAsyncCallback()` — wraps an async action, returns execute/loading/error
- */
-
 import { useState, useEffect, useCallback, useRef, type DependencyList } from 'react';
 
 /**

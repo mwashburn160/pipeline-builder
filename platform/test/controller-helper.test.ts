@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies
-// ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -53,9 +51,7 @@ import {
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function mockReq(user?: Partial<{
   role: string;
   organizationId: string;
@@ -69,9 +65,7 @@ function mockRes() {
   return {} as any;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 describe('controller-helper', () => {
   beforeEach(() => jest.clearAllMocks());
 

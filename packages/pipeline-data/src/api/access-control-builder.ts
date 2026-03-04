@@ -1,8 +1,3 @@
-/**
- * @module api/access-control-builder
- * @description Provides access control query building utilities for constructing multi-tenant SQL conditions based on organization ownership and public/private visibility.
- */
-
 import { AccessModifier, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { eq, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';

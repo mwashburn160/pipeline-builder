@@ -1,10 +1,3 @@
-/**
- * @module controllers/log
- * @description Log query endpoints with org-scoped access control.
- * Regular users see only their organization's logs.
- * System admins can query any org or view all logs.
- */
-
 import { sendSuccess, sendError } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { isSystemAdmin, requireAuth, handleControllerError } from '../helpers/controller-helper';

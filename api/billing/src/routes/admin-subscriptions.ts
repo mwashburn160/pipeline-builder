@@ -1,12 +1,3 @@
-/**
- * @module routes/admin-subscriptions
- * @description Admin-only billing routes (system admin required).
- *
- * GET  /billing/admin/subscriptions          — List all subscriptions
- * PUT  /billing/admin/subscriptions/:id      — Admin override subscription
- * GET  /billing/admin/events                 — List billing events
- */
-
 import {
   requireAuth,
   requireSystemAdmin,
@@ -44,9 +35,7 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 export function createAdminSubscriptionRoutes(): Router {
   const router: Router = Router();
 
-  // ---------------------------------------------------------------------------
   // GET /billing/admin/subscriptions — list all subscriptions
-  // ---------------------------------------------------------------------------
 
   router.get(
     '/admin/subscriptions',
@@ -76,9 +65,7 @@ export function createAdminSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // PUT /billing/admin/subscriptions/:id — admin override subscription
-  // ---------------------------------------------------------------------------
 
   router.put(
     '/admin/subscriptions/:id',
@@ -145,9 +132,7 @@ export function createAdminSubscriptionRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // GET /billing/admin/events — list billing events
-  // ---------------------------------------------------------------------------
 
   router.get(
     '/admin/events',

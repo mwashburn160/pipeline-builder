@@ -1,10 +1,3 @@
-/**
- * @module services/quota
- * @description Client for interacting with the consolidated quota-service.
- *
- * All read and write operations go to a single service endpoint.
- */
-
 import { createSafeClient, RequestOptions } from './http-client';
 import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';

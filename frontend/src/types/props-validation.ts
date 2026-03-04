@@ -1,8 +1,3 @@
-/**
- * @module props-validation
- * @description Validates FormBuilderState and returns a map of field-path to error messages.
- */
-
 import { FormBuilderState } from './form-types';
 
 /**

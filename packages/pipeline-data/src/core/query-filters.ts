@@ -1,8 +1,3 @@
-/**
- * @module core/query-filters
- * @description Defines TypeScript filter interfaces used to specify query criteria for pipelines, plugins, and messages.
- */
-
 import { AccessModifier, ValidationError } from '@mwashburn160/api-core';
 
 /**

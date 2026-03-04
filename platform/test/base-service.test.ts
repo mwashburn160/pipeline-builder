@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies
-// ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -12,9 +10,7 @@ jest.mock('@mwashburn160/api-core', () => ({
 
 import { ServiceError, BaseServiceClient } from '../src/services/base-service';
 
-// ---------------------------------------------------------------------------
 // Concrete implementation for testing
-// ---------------------------------------------------------------------------
 class TestServiceClient extends BaseServiceClient {
   protected serviceName = 'TestService';
 
@@ -32,9 +28,7 @@ class TestServiceClient extends BaseServiceClient {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('ServiceError', () => {
   it('should create error with message, statusCode, and code', () => {

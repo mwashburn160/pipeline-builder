@@ -1,12 +1,4 @@
-/**
- * Unit tests for the AI plugin generation service.
- *
- * @module test/ai-plugin-generation-service
- */
-
-// ---------------------------------------------------------------------------
 // Mock external dependencies — must be set up before importing the service
-// ---------------------------------------------------------------------------
 
 const mockGenerateText = jest.fn();
 
@@ -105,9 +97,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
-// ---------------------------------------------------------------------------
 // Import AFTER mocks
-// ---------------------------------------------------------------------------
 
 import {
   getAvailableProviders,
@@ -116,9 +106,7 @@ import {
   type PluginGenerationRequest,
 } from '../src/services/ai-plugin-generation-service';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('ai-plugin-generation-service', () => {
   const originalEnv = process.env;
@@ -134,9 +122,7 @@ describe('ai-plugin-generation-service', () => {
     process.env = originalEnv;
   });
 
-  // -------------------------------------------------------------------------
   // getProviderModels
-  // -------------------------------------------------------------------------
 
   describe('getProviderModels', () => {
     it('returns models for a valid provider', () => {
@@ -150,9 +136,7 @@ describe('ai-plugin-generation-service', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getAvailableProviders
-  // -------------------------------------------------------------------------
 
   describe('getAvailableProviders', () => {
     it('returns providers with configured env vars', () => {
@@ -164,9 +148,7 @@ describe('ai-plugin-generation-service', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // generatePluginConfig
-  // -------------------------------------------------------------------------
 
   describe('generatePluginConfig', () => {
     const baseRequest: PluginGenerationRequest = {

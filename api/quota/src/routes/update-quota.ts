@@ -1,12 +1,3 @@
-/**
- * @module routes/quota-write
- * @description Write-side quota routes.
- *
- * PUT  /quotas/:orgId            — update org name/slug/quotas (system admin only)
- * POST /quotas/:orgId/reset      — reset usage counters (system admin only)
- * POST /quotas/:orgId/increment  — increment usage (same-org or system admin)
- */
-
 import {
   requireAuth,
   isSystemOrg,
@@ -33,9 +24,7 @@ import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../va
 const logger = createLogger('quota-write');
 const router: Router = Router();
 
-// ---------------------------------------------------------------------------
 // PUT /quotas/:orgId — update org name, slug, and/or quota limits (system admin only)
-// ---------------------------------------------------------------------------
 
 router.put(
   '/:orgId',
@@ -59,9 +48,7 @@ router.put(
   },
 );
 
-// ---------------------------------------------------------------------------
 // POST /quotas/:orgId/reset — reset usage counters (system admin only)
-// ---------------------------------------------------------------------------
 
 router.post(
   '/:orgId/reset',
@@ -89,12 +76,10 @@ router.post(
   },
 );
 
-// ---------------------------------------------------------------------------
 // POST /quotas/:orgId/increment — increment usage (internal service use only)
 // Accepts same-org or system admin auth. This endpoint is intended for
 // internal service-to-service calls (pipeline, plugin services) and should
 // not be exposed directly to end users.
-// ---------------------------------------------------------------------------
 
 router.post(
   '/:orgId/increment',

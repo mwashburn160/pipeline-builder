@@ -1,12 +1,3 @@
-/**
- * Bootstrap CLI command.
- *
- * Provisions the AWS CDK toolkit stack (S3 bucket, IAM roles, ECR
- * repository) in a target AWS account and region by invoking
- * `cdk bootstrap`.
- *
- * @module commands/bootstrap
- */
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { ENV_VARS, generateExecutionId } from '../config/cli.constants';

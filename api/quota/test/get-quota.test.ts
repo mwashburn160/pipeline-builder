@@ -5,9 +5,7 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 const mockIsSystemAdmin = jest.fn();
@@ -63,9 +61,7 @@ jest.mock('../src/config', () => ({
 
 import getQuotaRouter from '../src/routes/read-quotas';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return { params: {}, query: {}, headers: {}, user: {}, ...overrides };
@@ -106,9 +102,7 @@ function makeOrg(overrides: Partial<any> = {}) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('GET /quotas (own org)', () => {
   const handler = getHandler('get', '/');

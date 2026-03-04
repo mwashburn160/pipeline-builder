@@ -1,8 +1,3 @@
-/**
- * @module config/server-config
- * @description Loads and validates server, authentication, and rate limiting configuration from environment variables.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
@@ -44,6 +39,11 @@ export function loadServerConfig(): ServerConfig {
       maxClientsPerRequest: parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10),
       clientTimeoutMs: parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10),
       cleanupIntervalMs: parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10),
+    },
+
+    services: {
+      pluginHost: process.env.PLUGIN_SERVICE_HOST || 'plugin',
+      pluginPort: parseInt(process.env.PLUGIN_SERVICE_PORT || '3000', 10),
     },
   };
 }

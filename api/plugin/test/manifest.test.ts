@@ -3,20 +3,27 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { parsePluginZip, validateBuildArgs, ValidationError } from '../src/helpers/manifest';
 
-// ---------------------------------------------------------------------------
 // Mock uuid to produce deterministic values
-// ---------------------------------------------------------------------------
 jest.mock('uuid', () => ({
   v7: jest.fn(() => '01234567-89ab-cdef-0123-456789abcdef'),
 }));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
   __esModule: true,
+  CoreConstants: {
+    PLUGIN_IMAGE_PREFIX: 'p-',
+    DOCKER_BUILDER_NAME: 'plugin-builder',
+    DOCKER_BUILD_TIMEOUT_MS: 300000,
+  },
+  Config: {
+    get: (section: string) => {
+      if (section === 'registry') return { insecure: true };
+      return {};
+    },
+  },
 }));
 
-// ---------------------------------------------------------------------------
 // Helper: build an in-memory ZIP with the given entries
-// ---------------------------------------------------------------------------
 function buildZip(entries: Record<string, string>): string {
   const zip = new AdmZip();
   for (const [name, content] of Object.entries(entries)) {
@@ -29,9 +36,7 @@ function buildZip(entries: Record<string, string>): string {
   return zipPath;
 }
 
-// ---------------------------------------------------------------------------
 // Cleanup after tests
-// ---------------------------------------------------------------------------
 afterAll(() => {
   const tmpDir = path.join(process.cwd(), 'tmp');
   if (fs.existsSync(tmpDir)) {
@@ -39,9 +44,7 @@ afterAll(() => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('parsePluginZip', () => {
   it('should parse a valid ZIP with manifest.yaml', () => {

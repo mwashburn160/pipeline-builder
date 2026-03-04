@@ -37,9 +37,7 @@ import {
   syncTierToQuotaService,
 } from '../src/helpers/billing-helpers';
 
-// ---------------------------------------------------------------------------
 // calculatePeriodEnd
-// ---------------------------------------------------------------------------
 
 describe('calculatePeriodEnd', () => {
   it('adds 1 month for monthly interval', () => {
@@ -64,9 +62,7 @@ describe('calculatePeriodEnd', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // createBillingEvent
-// ---------------------------------------------------------------------------
 
 describe('createBillingEvent', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -99,9 +95,7 @@ describe('createBillingEvent', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // buildSubscriptionResponse
-// ---------------------------------------------------------------------------
 
 describe('buildSubscriptionResponse', () => {
   const baseSub = {
@@ -150,9 +144,7 @@ describe('buildSubscriptionResponse', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // syncTierToQuotaService
-// ---------------------------------------------------------------------------
 
 describe('syncTierToQuotaService', () => {
   beforeEach(() => jest.clearAllMocks());

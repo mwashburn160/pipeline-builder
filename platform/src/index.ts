@@ -1,16 +1,3 @@
-/**
- * @module platform
- * @description Main entry point for the Platform microservice.
- * Provides user authentication, organization management, and proxies to plugin/pipeline services.
- *
- * Features:
- * - JWT-based authentication with refresh tokens
- * - Organization and user management
- * - Invitation system for onboarding
- * - Rate limiting and quota management
- * - Health check and metrics endpoints
- */
-
 import crypto from 'crypto';
 import net from 'net';
 import { createLogger, createHealthRouter } from '@mwashburn160/api-core';

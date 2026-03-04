@@ -5,24 +5,18 @@ import {
   validateParams,
 } from '../src/validation/middleware';
 
-// ---------------------------------------------------------------------------
 // Mock Request / Response / Next
-// ---------------------------------------------------------------------------
 function mockReq(overrides: Record<string, unknown> = {}) {
   return { query: {}, body: {}, params: {}, ...overrides } as any;
 }
 
-// ---------------------------------------------------------------------------
 // Schemas
-// ---------------------------------------------------------------------------
 const TestSchema = z.object({
   name: z.string().min(1),
   age: z.coerce.number().int().min(0).optional(),
 });
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('validateQuery', () => {
   it('should return ok with parsed value for valid query', () => {

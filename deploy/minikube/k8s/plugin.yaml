@@ -99,9 +99,13 @@ spec:
               value: "6379"
             - name: PLUGIN_BUILD_CONCURRENCY
               value: "1"
+            - name: DOCKER_BUILD_TEMP_ROOT
+              value: "/mnt/data/tmp"
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
+            - name: build-temp
+              mountPath: /mnt/data/tmp
           resources:
             limits:
               cpu: "1000m"
@@ -130,6 +134,10 @@ spec:
           hostPath:
             path: /var/run/docker.sock
             type: Socket
+        - name: build-temp
+          hostPath:
+            path: /mnt/data/tmp
+            type: DirectoryOrCreate
 
 ---
 # =============================================================================

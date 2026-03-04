@@ -1,8 +1,3 @@
-/**
- * @module api/request-types
- * @description Request context factory that combines identity extraction, request tracing, and dual-output logging via Winston and SSE.
- */
-
 import { getIdentity, RequestIdentity, createLogger, HttpRequest } from '@mwashburn160/api-core';
 import { Request } from 'express';
 import { v7 as uuid } from 'uuid';

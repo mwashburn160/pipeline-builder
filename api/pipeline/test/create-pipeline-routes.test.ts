@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockCreateAsDefault = jest.fn();
 const mockIncrement = jest.fn().mockResolvedValue(undefined);
@@ -87,9 +85,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
 import { sendBadRequest, validateBody, incrementQuota } from '@mwashburn160/api-core';
 import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const mockQuotaService = {
   increment: mockIncrement,
@@ -133,9 +129,7 @@ function mockRes(): any {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('POST /pipelines (create)', () => {
   const handler = getHandler('post', '/');

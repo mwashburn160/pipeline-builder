@@ -1,21 +1,9 @@
-/**
- * @module routes/upload-plugin
- * @description Plugin upload and deployment.
- *
- * POST /plugins — upload a ZIP containing manifest.yaml + Dockerfile,
- *                 build a container image, push to registry, store metadata
- *
- * This route manages its own middleware chain because:
- *   1. Multer (multipart form-data) must run before auth.
- *   2. It checks the `plugins` quota, not `apiCalls`.
- */
-
 import * as fs from 'fs';
 
 import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { requireAuth, checkQuota, requireOrgId, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
-import { Config } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
 
@@ -25,7 +13,7 @@ import { getQueue } from '../queue/plugin-build-queue';
 
 const logger = createLogger('upload-plugin');
 
-const MAX_UPLOAD_SIZE = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '50', 10) * 1024 * 1024;
+const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
 const upload = multer({
   limits: { files: 1, fileSize: MAX_UPLOAD_SIZE },

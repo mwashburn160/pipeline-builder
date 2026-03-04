@@ -1,13 +1,3 @@
-/**
- * @module providers/provider-factory
- * @description Factory to create the appropriate PaymentProvider based on config.
- *
- * Uses BILLING_PROVIDER env var:
- *   - 'stub' (default) — no-op provider for local dev
- *   - 'aws-marketplace' — AWS Marketplace SaaS integration
- *   - 'stripe' — Stripe payment processing
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { config } from '../config';
 import { AWSMarketplaceProvider } from './aws-marketplace-provider';

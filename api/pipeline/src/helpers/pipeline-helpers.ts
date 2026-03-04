@@ -1,11 +1,3 @@
-/**
- * @module helpers/pipeline-helpers
- * @description Shared domain logic for pipeline operations.
- *
- * Centralises update-data building, pagination, sorting, record
- * normalization, and standardised error responses.
- */
-
 import {
   normalizeArrayFields,
   sendEntityNotFound,
@@ -16,9 +8,7 @@ import {
 } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 
-// ---------------------------------------------------------------------------
 // Record normalization
-// ---------------------------------------------------------------------------
 
 /**
  * Normalize a pipeline record from the database before returning to clients.
@@ -28,9 +18,7 @@ export function normalizePipeline<T extends Record<string, unknown>>(record: T):
   return normalizeArrayFields(record, ['keywords']);
 }
 
-// ---------------------------------------------------------------------------
 // Filter validation (Zod-based)
-// ---------------------------------------------------------------------------
 
 /**
  * Validate pipeline filter params from query string using Zod schema.
@@ -43,9 +31,7 @@ export function validateFilter(req: Request): ValidationResult<ValidatedPipeline
   return validateQuery(req, PipelineFilterSchema);
 }
 
-// ---------------------------------------------------------------------------
 // Error helpers
-// ---------------------------------------------------------------------------
 
 /** Send a 404 "pipeline not found" response. */
 export function sendPipelineNotFound(res: Response): void {

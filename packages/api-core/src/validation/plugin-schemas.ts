@@ -1,8 +1,3 @@
-/**
- * @module validation/plugin-schemas
- * @description Zod schemas for plugin validation
- */
-
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema } from './common-schemas';
 

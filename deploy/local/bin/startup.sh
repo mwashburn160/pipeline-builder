@@ -74,7 +74,7 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
 
 # Docker build temp dir — must be the SAME absolute path on both host and
 # container so buildkitd.toml bind mounts resolve correctly.
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/plugin-builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/tmp}"
 mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 
 # -----------------------------------------------------------------------

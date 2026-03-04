@@ -1,8 +1,3 @@
-/**
- * @module routes/read-messages
- * @description Express routes for reading messages, including inbox listing, announcements, conversations, unread counts, and thread retrieval.
- */
-
 import {
   sendBadRequest,
   sendSuccess,

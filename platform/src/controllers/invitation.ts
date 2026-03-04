@@ -1,10 +1,3 @@
-/**
- * @module controllers/invitation
- * @description Invitation controller for managing organization invitations.
- * Supports sending, accepting (via email or OAuth), listing, revoking, and
- * resending invitations. All write operations are transactional.
- */
-
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
@@ -18,9 +11,7 @@ import { sendInvitationSchema } from '../validation/schemas';
 
 const logger = createLogger('InvitationController');
 
-// ============================================================================
 // Invitation Helpers
-// ============================================================================
 
 /**
  * Calculate an invitation expiration date from now.
@@ -80,9 +71,7 @@ async function processInvitationAcceptance(
   await notifyInviter(invitation, user, org, session);
 }
 
-// ============================================================================
 // Send Invitation
-// ============================================================================
 
 /**
  * Send invitation to join organization
@@ -203,9 +192,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
   }
 }
 
-// ============================================================================
 // Accept Invitation
-// ============================================================================
 
 /**
  * Accept invitation (supports both email/password and OAuth)
@@ -396,9 +383,7 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
   }
 }
 
-// ============================================================================
 // Get/List/Manage Invitations
-// ============================================================================
 
 /**
  * Get invitation details by token (public - for preview before accepting)

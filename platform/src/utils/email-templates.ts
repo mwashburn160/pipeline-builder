@@ -1,9 +1,3 @@
-/**
- * @module utils/email-templates
- * @description Email templates for invitation and notification emails.
- * Separates template content from the email transport layer.
- */
-
 import { config } from '../config';
 import type { InvitationEmailData } from './email';
 
@@ -13,9 +7,7 @@ interface EmailContent {
   html: string;
 }
 
-// ============================================================================
 // Shared Styles
-// ============================================================================
 
 const baseStyles = `
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
@@ -34,9 +26,7 @@ const invitationStyles = `
   .oauth-badge { display: inline-block; background: #f3f4f6; color: #374151; padding: 6px 12px; border-radius: 6px; font-size: 13px; margin: 4px; }
 `.trim();
 
-// ============================================================================
 // OAuth Helpers
-// ============================================================================
 
 function buildOAuthText(data: InvitationEmailData): string {
   switch (data.invitationType) {
@@ -95,9 +85,7 @@ function buildOAuthHtml(data: InvitationEmailData): string {
   }
 }
 
-// ============================================================================
 // Templates
-// ============================================================================
 
 /**
  * Build invitation email content (subject, text, html).

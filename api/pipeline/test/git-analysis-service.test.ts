@@ -1,10 +1,3 @@
-/**
- * Unit tests for the Git analysis service — URL parsing, project type inference,
- * package manager detection, framework detection, and enhanced prompt builder.
- *
- * @module test/git-analysis-service
- */
-
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -12,6 +5,13 @@ jest.mock('@mwashburn160/api-core', () => ({
     debug: jest.fn(),
     warn: jest.fn(),
   })),
+}));
+
+jest.mock('@mwashburn160/pipeline-core', () => ({
+  CoreConstants: {
+    GITHUB_API_BASE_URL: 'https://api.github.com',
+    BITBUCKET_API_BASE_URL: 'https://api.bitbucket.org/2.0',
+  },
 }));
 
 import {
@@ -23,9 +23,7 @@ import {
   type RepoAnalysis,
 } from '../src/services/git-analysis-service';
 
-// ---------------------------------------------------------------------------
 // parseGitUrl
-// ---------------------------------------------------------------------------
 
 describe('parseGitUrl', () => {
   it('parses GitHub HTTPS URL', () => {
@@ -112,9 +110,7 @@ describe('parseGitUrl', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // inferProjectType
-// ---------------------------------------------------------------------------
 
 describe('inferProjectType', () => {
   it('detects Node.js from package.json', () => {
@@ -154,9 +150,7 @@ describe('inferProjectType', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // inferPackageManager
-// ---------------------------------------------------------------------------
 
 describe('inferPackageManager', () => {
   it('detects pnpm from pnpm-lock.yaml', () => {
@@ -184,9 +178,7 @@ describe('inferPackageManager', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // inferFrameworks
-// ---------------------------------------------------------------------------
 
 describe('inferFrameworks', () => {
   it('detects Next.js from next.config.ts', () => {
@@ -219,9 +211,7 @@ describe('inferFrameworks', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // buildEnhancedPrompt
-// ---------------------------------------------------------------------------
 
 describe('buildEnhancedPrompt', () => {
   const baseAnalysis: RepoAnalysis = {

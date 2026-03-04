@@ -1,11 +1,3 @@
-/**
- * @module errors/app-errors
- * @description Typed error classes for API error handling.
- *
- * Throw these from service/route code. The `withRoute()` wrapper catches them
- * and sends the appropriate HTTP response automatically.
- */
-
 import { ErrorCode, getStatusForErrorCode } from '../types/error-codes';
 
 /**

@@ -1,9 +1,4 @@
 /**
- * @module config/billing-config
- * @description Loads billing plan configuration (pricing, features, and descriptions) from environment variables with sensible defaults.
- */
-
-/**
  * Load billing plan configuration from environment variables.
  *
  * Per-plan prices are the most likely to vary between environments:

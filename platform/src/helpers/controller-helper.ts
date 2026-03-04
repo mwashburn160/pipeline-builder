@@ -1,18 +1,10 @@
-/**
- * @module controllers/helpers
- * @description Shared helper functions for controller authentication,
- * authorization, error handling, and request parsing.
- */
-
 import { createLogger, sendError, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 
 const logger = createLogger('platform-api');
 
-// ============================================================================
 // Auth Helpers
-// ============================================================================
 
 export function isSystemAdmin(req: Request): boolean {
   if (req.user?.role !== 'admin') return false;
@@ -74,9 +66,7 @@ export function requireOrgMembership(req: Request, res: Response): string | null
   return orgId;
 }
 
-// ============================================================================
 // Admin Context
-// ============================================================================
 
 export interface AdminContext {
   isSysAdmin: boolean;
@@ -120,9 +110,7 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
   };
 }
 
-// ============================================================================
 // Auth Context (for service proxy controllers)
-// ============================================================================
 
 export interface AuthContext {
   userId: string;
@@ -154,9 +142,7 @@ export function getAuthContext(req: Request, res: Response, action: string): Aut
   return { userId: req.user.sub, orgId, token };
 }
 
-// ============================================================================
 // Token Extraction
-// ============================================================================
 
 /**
  * Extract JWT token from Authorization header.
@@ -169,9 +155,7 @@ export function extractToken(req: Request): string | null {
   return header.slice(7);
 }
 
-// ============================================================================
 // Error Handling
-// ============================================================================
 
 export type ErrorMap = Record<string, { status: number; message: string }>;
 
@@ -182,9 +166,7 @@ export function handleTransactionError(res: Response, err: unknown, errorMap: Er
   handleControllerError(res, err, fallbackMessage, errorMap);
 }
 
-// ============================================================================
 // Mongoose Error Handling
-// ============================================================================
 
 /**
  * Map Mongoose/MongoDB errors to appropriate HTTP responses.
@@ -254,9 +236,7 @@ export function handleControllerError(
   sendError(res, 500, fallbackMessage);
 }
 
-// ============================================================================
 // Transaction Helper
-// ============================================================================
 
 /**
  * Execute a callback within a MongoDB transaction, with automatic session cleanup.
@@ -276,9 +256,7 @@ export async function withTransaction<T>(
   }
 }
 
-// ============================================================================
 // ID Conversion
-// ============================================================================
 
 /**
  * Convert a string org ID to ObjectId when valid.

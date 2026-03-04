@@ -1,10 +1,3 @@
-/**
- * @module controllers/auth
- * @description Authentication controller handling user registration, login,
- * token refresh, and logout. Registration creates a user, organization, and
- * optionally provisions a billing subscription.
- */
-
 import { createLogger, sendError, sendSuccess, createSafeClient, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';

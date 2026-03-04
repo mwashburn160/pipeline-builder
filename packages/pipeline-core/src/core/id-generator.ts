@@ -1,9 +1,4 @@
 /**
- * @module core/id-generator
- * @description Generates unique CDK construct IDs by appending auto-incrementing counters to colon-separated label namespaces.
- */
-
-/**
  * Generates unique CDK construct IDs by appending auto-incrementing counters to labels.
  * Labels that already end with a numeric counter (e.g., 'cdk:pipeline:1') are returned as-is.
  *

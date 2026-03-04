@@ -1,15 +1,3 @@
-/**
- * @module middleware/authorize-org
- * @description Org-scoped authorization guard.
- *
- * Must be used after `requireAuth`.
- *
- * Access rules:
- *  - Same-org users can always access their own org's routes.
- *  - Cross-org access requires system admin (role=admin + org=system).
- *  - Routes with `requireSystemAdmin: true` reject same-org non-admins entirely.
- */
-
 import { isSystemAdmin, sendError, ErrorCode, getParam, createLogger } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { sendMissingOrgId } from '../helpers/quota-helpers';

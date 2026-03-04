@@ -1,8 +1,3 @@
-/**
- * @module pipeline/source-builder
- * @description Creates CodePipelineSource instances from pipeline configuration, supporting S3, GitHub, and CodeStar connection sources.
- */
-
 import { SecretValue } from 'aws-cdk-lib';
 import { GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-codepipeline-actions';
 import { Bucket } from 'aws-cdk-lib/aws-s3';

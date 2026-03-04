@@ -1,12 +1,3 @@
-/**
- * Upload plugin CLI command.
- *
- * Validates a local plugin ZIP archive, then uploads it to the
- * platform API as a multipart form.  Supports dry-run validation,
- * optional name/version override, and public/private visibility.
- *
- * @module commands/upload-plugin
- */
 import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';

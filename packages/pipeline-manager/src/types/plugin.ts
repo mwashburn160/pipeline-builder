@@ -1,14 +1,4 @@
 /**
- * Plugin type definitions.
- *
- * Describes the plugin domain model, including metadata,
- * configuration, the full entity shape, upload request
- * payloads, list query parameters, and paginated response format.
- *
- * @module types/plugin
- */
-
-/**
  * Package-level metadata extracted from the plugin archive.
  */
 export interface PluginMetadata {

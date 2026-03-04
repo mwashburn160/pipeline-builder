@@ -1,9 +1,3 @@
-/**
- * Unit tests for the shared AI provider catalog and helpers.
- *
- * @module test/ai-providers
- */
-
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
@@ -13,9 +7,7 @@ import {
   type AIModelInfo,
 } from '../src/constants/ai-providers';
 
-// ---------------------------------------------------------------------------
 // Catalog Structure
-// ---------------------------------------------------------------------------
 
 describe('AI_PROVIDER_CATALOG', () => {
   it('contains all supported providers', () => {
@@ -59,9 +51,7 @@ describe('AI_PROVIDER_CATALOG', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Environment Variable Mapping
-// ---------------------------------------------------------------------------
 
 describe('AI_PROVIDER_ENV_VARS', () => {
   it('has entries for all catalog providers', () => {
@@ -82,9 +72,7 @@ describe('AI_PROVIDER_ENV_VARS', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // getAIProviderModels
-// ---------------------------------------------------------------------------
 
 describe('getAIProviderModels', () => {
   it('returns models for a valid provider', () => {
@@ -105,9 +93,7 @@ describe('getAIProviderModels', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // getAIProviderName
-// ---------------------------------------------------------------------------
 
 describe('getAIProviderName', () => {
   it('returns display name for valid providers', () => {

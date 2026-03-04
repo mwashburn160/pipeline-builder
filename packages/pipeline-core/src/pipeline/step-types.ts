@@ -1,8 +1,3 @@
-/**
- * @module pipeline/step-types
- * @description Defines TypeScript interfaces for pipeline step configuration including plugin options, stage options, synth options, and CodeBuild step customization.
- */
-
 import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';

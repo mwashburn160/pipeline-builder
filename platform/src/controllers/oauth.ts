@@ -1,20 +1,3 @@
-/**
- * @module controllers/oauth
- * @description OAuth authentication controller (Google only).
- *
- * Implements server-side authorization code exchange for Google OAuth.
- *
- *   1. GET  /auth/oauth/google/url       → returns authorization URL
- *   2. POST /auth/oauth/google/callback   → exchanges code → issues JWT
- *   3. GET  /auth/oauth/providers         → returns enabled providers
- *
- * On callback the controller:
- *   - Exchanges the authorization code for a Google access token
- *   - Fetches the authenticated user's profile from Google
- *   - Finds or creates a local User (linking the Google OAuth provider)
- *   - Issues a platform JWT token pair (access + refresh)
- */
-
 import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
@@ -25,9 +8,7 @@ import { oauthCallbackSchema } from '../validation/schemas';
 
 const logger = createLogger('OAuthController');
 
-// ---------------------------------------------------------------------------
 // OAuth State (CSRF protection)
-// ---------------------------------------------------------------------------
 
 /** In-memory store for OAuth state tokens. Each expires after the configured TTL. */
 const pendingOAuthStates = new Map<string, number>();
@@ -39,9 +20,7 @@ setInterval(() => {
   }
 }, config.oauth.cleanupIntervalMs);
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /** Normalized user profile returned by an OAuth provider. */
 interface OAuthUserInfo {
@@ -51,9 +30,7 @@ interface OAuthUserInfo {
   picture?: string;
 }
 
-// ---------------------------------------------------------------------------
 // Google provider
-// ---------------------------------------------------------------------------
 
 const GOOGLE_AUTHORIZE_URL = config.oauth.google.authorizeUrl;
 const GOOGLE_TOKEN_URL = config.oauth.google.tokenUrl;
@@ -182,9 +159,7 @@ async function findOrCreateUser(userInfo: OAuthUserInfo) {
   return newUser;
 }
 
-// ---------------------------------------------------------------------------
 // Route handlers
-// ---------------------------------------------------------------------------
 
 /**
  * GET /auth/oauth/google/url

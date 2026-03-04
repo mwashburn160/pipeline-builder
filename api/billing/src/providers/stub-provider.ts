@@ -1,11 +1,3 @@
-/**
- * @module providers/stub-provider
- * @description No-op payment provider for development/testing.
- *
- * All operations succeed immediately with no external calls.
- * Replace with a real provider (e.g., StripeProvider) when ready.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
 import type { BillingInterval } from '../models/subscription';

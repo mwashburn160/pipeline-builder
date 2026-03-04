@@ -1,15 +1,3 @@
-/**
- * @module @mwashburn160/pipeline-core
- * @description CDK infrastructure and pipeline building utilities
- *
- * This package contains:
- * - Pipeline builder and configuration
- * - CDK construct helpers
- * - Network resolution (VPC/subnet lookup)
- * - Metadata extraction
- * - Unique ID generation
- */
-
 // Configuration
 export * from './config/app-config';
 export * from './config/config-types';

@@ -41,6 +41,11 @@ mkdir -p "$DATA_DIR/db-data/postgres" "$DATA_DIR/db-data/mongodb" \
          "$DATA_DIR/db-data/prometheus" \
          "$DATA_DIR/registry-data" "$DATA_DIR/pgadmin-data"
 
+# Docker build temp dir — must be under /mnt/data so both the pod
+# and BuildKit (on the minikube node) can access the same path.
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
+mkdir -p "$DATA_DIR/tmp"
+
 echo ""
 echo "=== Cleaning up stale Docker network (if any) ==="
 docker network rm "$PROFILE" 2>/dev/null || true
