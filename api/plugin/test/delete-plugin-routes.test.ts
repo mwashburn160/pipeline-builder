@@ -9,7 +9,6 @@
 // Mocks — must be defined before imports
 // ---------------------------------------------------------------------------
 
-const mockIsSystemAdmin = jest.fn((_req?: any) => false);
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
 });
@@ -21,22 +20,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
   },
-  isSystemAdmin: mockIsSystemAdmin,
-  createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
-  resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
-  pickDefined: jest.fn((obj: any) => {
-    const result: any = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (v !== undefined) result[k] = v;
-    }
-    return result;
-  }),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -46,21 +32,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg, code });
   }),
-  sendError: jest.fn((res: any, status: number, msg: string, code?: string) => {
-    res.status(status).json({ success: false, statusCode: status, message: msg, code });
-  }),
-  sendInternalError: jest.fn((res: any, msg: string) => {
-    res.status(500).json({ success: false, statusCode: 500, message: msg });
-  }),
-  validateBody: jest.fn((req: any) => {
-    return { ok: true, value: req.body };
-  }),
-  PluginUpdateSchema: {},
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({
-  getContext: (req: any) => req.context,
-  createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -78,12 +52,6 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
-  PluginType: {},
-  ComputeType: {},
-  AccessModifier: {},
-}));
-
 const mockFindById = jest.fn();
 const mockDelete = jest.fn();
 
@@ -95,7 +63,6 @@ jest.mock('../src/services/plugin-service', () => ({
 }));
 
 jest.mock('../src/helpers/plugin-helpers', () => ({
-  normalizePlugin: jest.fn((p: any) => p),
   sendPluginNotFound: jest.fn((res: any) => {
     res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
   }),
@@ -105,7 +72,7 @@ jest.mock('../src/helpers/plugin-helpers', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { sendBadRequest, sendSuccess, requirePublicAccess } from '@mwashburn160/api-core';
+import { sendBadRequest, requirePublicAccess, sendSuccess } from '@mwashburn160/api-core';
 import { createDeletePluginRoutes } from '../src/routes/delete-plugin';
 
 // ---------------------------------------------------------------------------

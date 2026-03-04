@@ -6,12 +6,14 @@
 import * as fs from 'fs';
 import path from 'path';
 
+import { ValidationError } from '@mwashburn160/api-core';
 import type { PluginManifest } from '@mwashburn160/pipeline-core';
 import AdmZip from 'adm-zip';
 import { v7 as uuid } from 'uuid';
 import YAML from 'yaml';
 
 import { BUILD_TEMP_ROOT } from './docker-build';
+import { generateImageTag } from './plugin-helpers';
 
 /** Parsed and validated result from a plugin ZIP. */
 export interface ParsedPlugin {
@@ -90,8 +92,7 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
   }
 
   // --- Image tag -----------------------------------------------------------
-  const prefix = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
-  const imageTag = `${prefix}${manifest.name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+  const imageTag = generateImageTag(manifest.name);
 
   return { manifest, extractDir, dockerfile, dockerfileContent, imageTag };
 }
@@ -126,13 +127,5 @@ export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Reco
   }
 }
 
-/**
- * Validation error thrown when the plugin ZIP or manifest is invalid.
- * Route handlers should catch this and return a 400 response.
- */
-export class ValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ValidationError';
-  }
-}
+// Re-export for consumers that imported from here previously
+export { ValidationError } from '@mwashburn160/api-core';

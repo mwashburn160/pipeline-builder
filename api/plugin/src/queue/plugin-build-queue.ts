@@ -8,19 +8,20 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
+import path from 'path';
 
 import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
-import { Config, db, schema, AccessModifier, ComputeType, PluginType } from '@mwashburn160/pipeline-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
-import { and, eq, sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 
 import { buildAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import type { RegistryInfo } from '../helpers/docker-build';
+import type { PluginBuildJobData } from '../helpers/plugin-helpers';
+import { pluginService } from '../services/plugin-service';
+import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -30,51 +31,8 @@ const COMPLETED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED
 /** Retention period for failed jobs in seconds (env: `PLUGIN_BUILD_FAILED_RETENTION_SECS`). */
 const FAILED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10);
 
-// ---------------------------------------------------------------------------
-// Job data types
-// ---------------------------------------------------------------------------
-
-/** Build request data stored in the BullMQ job. */
-interface BuildRequestData {
-  contextDir: string;
-  dockerfile: string;
-  imageTag: string;
-  registry: RegistryInfo;
-  buildArgs?: Record<string, string>;
-}
-
-/** Plugin record data stored in the BullMQ job for DB insertion. */
-interface PluginRecordData {
-  orgId: string;
-  name: string;
-  description: string | null;
-  version: string;
-  metadata: Record<string, string | number | boolean>;
-  pluginType: string;
-  computeType: string;
-  primaryOutputDirectory: string | null;
-  dockerfile: string | null;
-  env: Record<string, string>;
-  buildArgs: Record<string, string>;
-  keywords: string[];
-  installCommands: string[];
-  commands: string[];
-  imageTag: string;
-  accessModifier: string;
-  timeout: number | null;
-  failureBehavior: string;
-  secrets: Array<{ name: string; required: boolean; description?: string }>;
-}
-
-/** Data stored in each BullMQ job. */
-export interface PluginBuildJobData {
-  requestId: string;
-  orgId: string;
-  userId: string;
-  authToken: string;
-  buildRequest: BuildRequestData;
-  pluginRecord: PluginRecordData;
-}
+// Re-export for consumers that imported from here previously
+export type { PluginBuildJobData } from '../helpers/plugin-helpers';
 
 // ---------------------------------------------------------------------------
 // Queue name & singleton state
@@ -157,14 +115,18 @@ export function waitForWorkerReady(timeoutMs = parseInt(process.env.PLUGIN_BUILD
       resolve();
       return;
     }
+
+    const onReady = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+
     const timer = setTimeout(() => {
+      worker?.off('ready', onReady);
       reject(new Error(`Worker not ready after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    worker?.on('ready', () => {
-      clearTimeout(timer);
-      resolve();
-    });
+    worker?.on('ready', onReady);
   });
 }
 
@@ -212,73 +174,8 @@ export function startWorker(
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 
-        // 2. Persist to database
-        const result = await db.transaction(async (tx) => {
-          // Lock existing defaults with FOR UPDATE to prevent concurrent races
-          await tx.execute(
-            sql`SELECT id FROM ${schema.plugin}
-                WHERE ${schema.plugin.name} = ${pluginRecord.name}
-                  AND ${schema.plugin.orgId} = ${pluginRecord.orgId}
-                  AND ${schema.plugin.isDefault} = true
-                FOR UPDATE`,
-          );
-
-          await tx
-            .update(schema.plugin)
-            .set({
-              isDefault: false,
-              updatedAt: new Date(),
-              updatedBy: userId,
-            })
-            .where(
-              and(
-                eq(schema.plugin.name, pluginRecord.name),
-                eq(schema.plugin.orgId, pluginRecord.orgId),
-              ),
-            );
-
-          const [upserted] = await tx
-            .insert(schema.plugin)
-            .values({
-              ...pluginRecord,
-              pluginType: pluginRecord.pluginType as PluginType,
-              computeType: pluginRecord.computeType as ComputeType,
-              accessModifier: pluginRecord.accessModifier as AccessModifier,
-              isDefault: true,
-              isActive: true,
-              createdBy: userId,
-            })
-            .onConflictDoUpdate({
-              target: [schema.plugin.name, schema.plugin.version, schema.plugin.orgId],
-              set: {
-                description: pluginRecord.description,
-                keywords: pluginRecord.keywords,
-                metadata: pluginRecord.metadata,
-                pluginType: pluginRecord.pluginType as PluginType,
-                computeType: pluginRecord.computeType as ComputeType,
-                timeout: pluginRecord.timeout,
-                failureBehavior: pluginRecord.failureBehavior,
-                secrets: pluginRecord.secrets,
-                primaryOutputDirectory: pluginRecord.primaryOutputDirectory,
-                env: pluginRecord.env,
-                buildArgs: pluginRecord.buildArgs,
-                installCommands: pluginRecord.installCommands,
-                commands: pluginRecord.commands,
-                imageTag: pluginRecord.imageTag,
-                dockerfile: pluginRecord.dockerfile,
-                accessModifier: pluginRecord.accessModifier as AccessModifier,
-                isDefault: true,
-                isActive: true,
-                deletedAt: null,
-                deletedBy: null,
-                updatedBy: userId,
-                updatedAt: new Date(),
-              },
-            })
-            .returning();
-
-          return upserted;
-        });
+        // 2. Persist to database (name-scoped default + upsert)
+        const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId);
 
         // 3. Increment quota
         incrementQuota(quotaService, orgId, 'plugins', authToken, logger.warn.bind(logger));

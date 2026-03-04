@@ -19,7 +19,8 @@ import { Config } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
 
-import { parsePluginZip, validateBuildArgs, ValidationError } from '../helpers/manifest';
+import { parsePluginZip, validateBuildArgs } from '../helpers/manifest';
+import { createBuildJobData } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
 
 const logger = createLogger('upload-plugin');
@@ -104,47 +105,46 @@ export function createUploadPluginRoutes(
         });
 
         // -- Queue build job (returns immediately) ----------------------------
-        const buildQueue = getQueue();
-        await buildQueue.add(
-          `upload-${plugin.manifest.name}-${plugin.imageTag}`,
-          {
-            requestId: ctx.requestId,
-            orgId,
-            userId: userId || 'system',
-            authToken: req.headers.authorization || '',
-            buildRequest: {
-              contextDir: plugin.extractDir,
-              dockerfile: plugin.dockerfile,
-              imageTag: plugin.imageTag,
-              registry,
-              buildArgs: plugin.manifest.buildArgs || {},
-            },
-            pluginRecord: {
-              orgId,
-              name: plugin.manifest.name,
-              description: plugin.manifest.description || null,
-              version: plugin.manifest.version || '0.0.0',
-              metadata: (plugin.manifest.metadata || {}) as Record<string, string | number | boolean>,
-              pluginType: plugin.manifest.pluginType || 'CodeBuildStep',
-              computeType: plugin.manifest.computeType || 'SMALL',
-              primaryOutputDirectory: plugin.manifest.primaryOutputDirectory || null,
-              dockerfile: plugin.dockerfileContent,
-              env: plugin.manifest.env || {},
-              buildArgs: plugin.manifest.buildArgs || {},
-              keywords: plugin.manifest.keywords || [],
-              installCommands: plugin.manifest.installCommands || [],
-              commands: plugin.manifest.commands || [],
-              imageTag: plugin.imageTag,
-              accessModifier,
-              timeout: plugin.manifest.timeout ?? null,
-              failureBehavior: plugin.manifest.failureBehavior || 'fail',
-              secrets: plugin.manifest.secrets || [],
-            },
+        const m = plugin.manifest;
+        const jobData = createBuildJobData({
+          requestId: ctx.requestId,
+          orgId,
+          userId: userId || 'system',
+          authToken: req.headers.authorization || '',
+          buildRequest: {
+            contextDir: plugin.extractDir,
+            dockerfile: plugin.dockerfile,
+            imageTag: plugin.imageTag,
+            registry,
+            buildArgs: m.buildArgs || {},
           },
-        );
+          pluginRecord: {
+            orgId,
+            name: m.name,
+            description: m.description || null,
+            version: m.version || '0.0.0',
+            metadata: (m.metadata || {}) as Record<string, string | number | boolean>,
+            pluginType: m.pluginType || 'CodeBuildStep',
+            computeType: m.computeType || 'SMALL',
+            primaryOutputDirectory: m.primaryOutputDirectory || null,
+            dockerfile: plugin.dockerfileContent,
+            env: m.env || {},
+            buildArgs: m.buildArgs || {},
+            keywords: m.keywords || [],
+            installCommands: m.installCommands || [],
+            commands: m.commands || [],
+            imageTag: plugin.imageTag,
+            accessModifier,
+            timeout: m.timeout ?? null,
+            failureBehavior: m.failureBehavior || 'fail',
+            secrets: m.secrets || [],
+          },
+        });
+
+        await getQueue().add(`upload-${m.name}-${plugin.imageTag}`, jobData);
 
         ctx.log('INFO', 'Build queued', {
-          pluginName: plugin.manifest.name,
+          pluginName: m.name,
           imageTag: plugin.imageTag,
         });
 
@@ -156,17 +156,9 @@ export function createUploadPluginRoutes(
 
         return sendSuccess(res, 202, {
           requestId: ctx.requestId,
-          pluginName: plugin.manifest.name,
+          pluginName: m.name,
           imageTag: plugin.imageTag,
         }, 'Plugin build queued');
-      } catch (error) {
-        // Handle manifest ValidationError as 400 before withRoute's generic handler
-        if (error instanceof ValidationError) {
-          return sendBadRequest(res, error.message);
-        }
-
-        // Re-throw for withRoute's error handling (AppError → proper status, others → 500)
-        throw error;
       } finally {
         // Clean up zip if not already removed (error path)
         if (zipPath && fs.existsSync(zipPath)) {

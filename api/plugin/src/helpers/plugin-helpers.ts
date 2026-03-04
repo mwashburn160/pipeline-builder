@@ -15,6 +15,9 @@ import {
   type ValidationResult,
 } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
+import { v7 as uuid } from 'uuid';
+
+import type { RegistryInfo } from './docker-build';
 
 // ---------------------------------------------------------------------------
 // Record normalization
@@ -50,4 +53,95 @@ export function validateFilter(req: Request): ValidationResult<ValidatedPluginFi
 /** Send a 404 "plugin not found" response. */
 export function sendPluginNotFound(res: Response): void {
   sendEntityNotFound(res, 'Plugin');
+}
+
+// ---------------------------------------------------------------------------
+// Image tag generation
+// ---------------------------------------------------------------------------
+
+const IMAGE_TAG_PREFIX = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
+
+/** Generate a unique, lowercase image tag for a plugin. */
+export function generateImageTag(name: string): string {
+  return `${IMAGE_TAG_PREFIX}${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// Build job types & factory
+// ---------------------------------------------------------------------------
+
+/** Build request data stored in the BullMQ job. */
+export interface BuildRequestData {
+  contextDir: string;
+  dockerfile: string;
+  imageTag: string;
+  registry: RegistryInfo;
+  buildArgs?: Record<string, string>;
+}
+
+/** Plugin record data stored in the BullMQ job for DB insertion. */
+export interface PluginRecordData {
+  orgId: string;
+  name: string;
+  description: string | null;
+  version: string;
+  metadata: Record<string, string | number | boolean>;
+  pluginType: string;
+  computeType: string;
+  primaryOutputDirectory: string | null;
+  dockerfile: string | null;
+  env: Record<string, string>;
+  buildArgs: Record<string, string>;
+  keywords: string[];
+  installCommands: string[];
+  commands: string[];
+  imageTag: string;
+  accessModifier: string;
+  timeout: number | null;
+  failureBehavior: string;
+  secrets: Array<{ name: string; required: boolean; description?: string }>;
+}
+
+/** Data stored in each BullMQ job. */
+export interface PluginBuildJobData {
+  requestId: string;
+  orgId: string;
+  userId: string;
+  authToken: string;
+  buildRequest: BuildRequestData;
+  pluginRecord: PluginRecordData;
+}
+
+/** Parameters for creating a plugin build job. */
+export interface CreateBuildJobParams {
+  requestId: string;
+  orgId: string;
+  userId: string;
+  authToken: string;
+  buildRequest: BuildRequestData;
+  pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'imageTag' | 'accessModifier'>;
+}
+
+/** Create a PluginBuildJobData with defaults applied. */
+export function createBuildJobData(params: CreateBuildJobParams): PluginBuildJobData {
+  const { pluginRecord, ...envelope } = params;
+  return {
+    ...envelope,
+    pluginRecord: {
+      description: null,
+      metadata: {},
+      pluginType: 'CodeBuildStep',
+      computeType: 'SMALL',
+      primaryOutputDirectory: null,
+      dockerfile: null,
+      env: {},
+      buildArgs: {},
+      keywords: [],
+      installCommands: [],
+      timeout: null,
+      failureBehavior: 'fail',
+      secrets: [],
+      ...pluginRecord,
+    },
+  };
 }

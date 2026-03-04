@@ -1,8 +1,14 @@
-import { normalizePlugin, validateFilter, sendPluginNotFound } from '../src/helpers/plugin-helpers';
+import { normalizePlugin, validateFilter, sendPluginNotFound, generateImageTag, createBuildJobData } from '../src/helpers/plugin-helpers';
 
 // ---------------------------------------------------------------------------
-// Mock api-core
+// Mocks
 // ---------------------------------------------------------------------------
+jest.mock('uuid', () => ({
+  v7: () => 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+}));
+
+jest.mock('../src/helpers/docker-build', () => ({}));
+
 jest.mock('@mwashburn160/api-core', () => ({
   normalizeArrayFields: jest.fn(<T extends Record<string, unknown>>(record: T, fields: (keyof T)[]) => {
     const result = { ...record };
@@ -106,6 +112,80 @@ describe('plugin-helpers', () => {
       sendPluginNotFound(res);
 
       expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Plugin');
+    });
+  });
+
+  describe('generateImageTag', () => {
+    it('should generate a lowercase tag with prefix and uuid suffix', () => {
+      const tag = generateImageTag('My-Plugin');
+      expect(tag).toBe('p-myplugin-aaaaaaaa');
+    });
+
+    it('should strip non-alphanumeric characters', () => {
+      const tag = generateImageTag('test@plugin#v2');
+      expect(tag).toBe('p-testpluginv2-aaaaaaaa');
+    });
+  });
+
+  describe('createBuildJobData', () => {
+    it('should apply defaults for omitted pluginRecord fields', () => {
+      const result = createBuildJobData({
+        requestId: 'req-1',
+        orgId: 'org-1',
+        userId: 'user-1',
+        authToken: 'Bearer tok',
+        buildRequest: {
+          contextDir: '/tmp/ctx',
+          dockerfile: 'Dockerfile',
+          imageTag: 'p-test-1234',
+          registry: { host: 'reg', port: 5000, user: 'u', token: 't', network: '' },
+        },
+        pluginRecord: {
+          orgId: 'org-1',
+          name: 'test',
+          version: '1.0.0',
+          commands: ['echo hi'],
+          imageTag: 'p-test-1234',
+          accessModifier: 'private',
+        },
+      });
+
+      expect(result.pluginRecord.pluginType).toBe('CodeBuildStep');
+      expect(result.pluginRecord.computeType).toBe('SMALL');
+      expect(result.pluginRecord.failureBehavior).toBe('fail');
+      expect(result.pluginRecord.keywords).toEqual([]);
+      expect(result.pluginRecord.secrets).toEqual([]);
+      expect(result.pluginRecord.description).toBeNull();
+    });
+
+    it('should preserve explicitly provided fields', () => {
+      const result = createBuildJobData({
+        requestId: 'req-1',
+        orgId: 'org-1',
+        userId: 'user-1',
+        authToken: 'Bearer tok',
+        buildRequest: {
+          contextDir: '/tmp/ctx',
+          dockerfile: 'Dockerfile',
+          imageTag: 'p-test-1234',
+          registry: { host: 'reg', port: 5000, user: 'u', token: 't', network: '' },
+        },
+        pluginRecord: {
+          orgId: 'org-1',
+          name: 'test',
+          version: '2.0.0',
+          commands: ['npm run build'],
+          imageTag: 'p-test-1234',
+          accessModifier: 'public',
+          pluginType: 'ManualApprovalStep',
+          computeType: 'LARGE',
+          description: 'Custom desc',
+        },
+      });
+
+      expect(result.pluginRecord.pluginType).toBe('ManualApprovalStep');
+      expect(result.pluginRecord.computeType).toBe('LARGE');
+      expect(result.pluginRecord.description).toBe('Custom desc');
     });
   });
 });
