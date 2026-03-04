@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV RBENV_ROOT=/opt/rbenv
 RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} \
     && git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build \
-    && ${RBENV_ROOT}/bin/rbenv install 3.3.6 \
-    && ${RBENV_ROOT}/bin/rbenv global 3.3.6
+    && ${RBENV_ROOT}/bin/rbenv install 3.3.10 \
+    && ${RBENV_ROOT}/bin/rbenv global 3.3.10
 ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
 
 # ─── Bundler and Fastlane ───
@@ -41,7 +41,7 @@ RUN gem install bundler fastlane --no-document
 # ─── Android SDK command-line tools ───
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
-    && curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+    && curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-14742923_latest.zip \
     -o /tmp/cmdline-tools.zip \
     && unzip -q /tmp/cmdline-tools.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools \
     && mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest \

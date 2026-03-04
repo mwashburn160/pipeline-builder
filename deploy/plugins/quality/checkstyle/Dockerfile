@@ -22,10 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 17.0.13-tem && \
+    sdk install java 17.0.18-tem && \
     sdk install maven 3.9.9 && \
     sdk install gradle 8.12 && \
-    sdk default java 17.0.13-tem"
+    sdk default java 17.0.18-tem"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
 # ─── Checkstyle CLI — multi-version ───
@@ -49,7 +49,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/master/sr
 # ─── Runtime configuration defaults ───
 ENV CHECKSTYLE_VERSION=10.21.1
 ENV CHECKSTYLE_CONFIG=google
-ENV JAVA_VERSION=17.0.13-tem
+ENV JAVA_VERSION=17.0.18-tem
 
 # Working directory for pipeline source
 WORKDIR /app

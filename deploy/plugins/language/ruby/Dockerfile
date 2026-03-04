@@ -29,15 +29,15 @@ RUN git clone https://github.com/rbenv/rbenv.git ${RBENV_ROOT} \
     && git clone https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
 
 # Pre-install common Ruby versions
-RUN ${RBENV_ROOT}/bin/rbenv install 3.2.6 && \
-    ${RBENV_ROOT}/bin/rbenv install 3.3.6 && \
-    ${RBENV_ROOT}/bin/rbenv global 3.3.6
+RUN ${RBENV_ROOT}/bin/rbenv install 3.2.10 && \
+    ${RBENV_ROOT}/bin/rbenv install 3.3.10 && \
+    ${RBENV_ROOT}/bin/rbenv global 3.3.10
 
 # Add rbenv to PATH
 ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
 
 # Default Ruby version (overridden by RUBY_VERSION env var at runtime)
-ENV RUBY_VERSION=3.3.6
+ENV RUBY_VERSION=3.3.10
 
 # Working directory for pipeline source
 WORKDIR /app
