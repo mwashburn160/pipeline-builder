@@ -556,7 +556,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.32.0'
+    image: 'ghcr.io/mwashburn160/frontend:1.33.7'
     container_name: frontend
     restart: always
     networks:
@@ -590,7 +590,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.30.5'
+    image: 'ghcr.io/mwashburn160/platform:1.31.7'
     container_name: platform
     depends_on:
       mongodb:
@@ -674,7 +674,7 @@ services:
         reservations:
           cpus: '0.5'
           memory: 768M
-    image: 'ghcr.io/mwashburn160/plugin:1.29.7'
+    image: 'ghcr.io/mwashburn160/plugin:1.30.7'
     container_name: plugin
     depends_on:
       postgres:
@@ -709,7 +709,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.29.5'
+    image: 'ghcr.io/mwashburn160/pipeline:1.30.7'
     container_name: pipeline
     depends_on:
       postgres:
@@ -728,7 +728,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/message:1.11.5'
+    image: 'ghcr.io/mwashburn160/message:1.12.7'
     container_name: message
     depends_on:
       postgres:
@@ -745,7 +745,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.28.5'
+    image: 'ghcr.io/mwashburn160/quota:1.29.7'
     container_name: quota
     depends_on:
       mongodb:
@@ -769,7 +769,7 @@ services:
     networks: *api-networks
     healthcheck: *api-healthcheck
     deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:1.13.5'
+    image: 'ghcr.io/mwashburn160/billing:1.14.7'
     container_name: billing
     depends_on:
       mongodb:
