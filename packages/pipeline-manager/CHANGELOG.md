@@ -1,3 +1,17 @@
+## 1.32.0 (2026-03-04)
+
+### 🚀 Features
+
+- redesign plugin buildx ([ccda4076](https://github.com/mwashburn160/pipeline-builder/commit/ccda4076))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.36.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.5 (2026-03-04)
 
 ### 🩹 Fixes
