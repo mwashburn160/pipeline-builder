@@ -1,3 +1,18 @@
+## 1.35.0 (2026-03-04)
+
+### 🚀 Features
+
+- redesign plugin buildx ([ccda4076](https://github.com/mwashburn160/pipeline-builder/commit/ccda4076))
+
+### 🩹 Fixes
+
+- logger ([825a52d1](https://github.com/mwashburn160/pipeline-builder/commit/825a52d1))
+- cannot set headers after they are sent ([28abbc9c](https://github.com/mwashburn160/pipeline-builder/commit/28abbc9c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.5 (2026-03-04)
 
 ### 🩹 Fixes
