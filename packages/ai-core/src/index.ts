@@ -1,9 +1,3 @@
-/**
- * @module ai-core
- * @description Shared AI provider registry and model resolution for services
- * that use AI-powered generation (plugin, pipeline).
- */
-
 export {
   getAvailableProviders,
   getProviderModels,

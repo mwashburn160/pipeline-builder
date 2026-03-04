@@ -1,8 +1,3 @@
-/**
- * @module validation/schemas
- * @description Zod validation schemas for billing routes.
- */
-
 import { z } from 'zod';
 
 const BillingIntervalSchema = z.enum(['monthly', 'annual']);

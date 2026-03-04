@@ -1,11 +1,7 @@
-/**
- * @module pipeline/pipeline-configuration
- * @description Validates, sanitizes, and processes pipeline builder props into a structured configuration with merged metadata ready for CDK synthesis.
- */
-
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types';
+import { CoreConstants } from '../config/app-config';
 import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types';
 import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
 import type { MetaDataType, SourceType } from '../core/pipeline-types';
@@ -113,7 +109,7 @@ export class PipelineConfiguration {
     }
 
     // Validate pipeline name length (AWS max 100 characters)
-    const MAX_PIPELINE_NAME_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100', 10);
+    const MAX_PIPELINE_NAME_LENGTH = CoreConstants.PIPELINE_NAME_MAX_LENGTH;
     const pipelineName = props.pipelineName
       ?? `${replaceNonAlphanumeric(props.organization ?? '', '_').toLowerCase()}-${replaceNonAlphanumeric(props.project ?? '', '_').toLowerCase()}-pipeline`;
     if (pipelineName.length > MAX_PIPELINE_NAME_LENGTH) {

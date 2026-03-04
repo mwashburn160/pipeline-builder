@@ -1,8 +1,3 @@
-/**
- * @module helpers/database
- * @description Mongoose connection lifecycle management.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import mongoose from 'mongoose';
 

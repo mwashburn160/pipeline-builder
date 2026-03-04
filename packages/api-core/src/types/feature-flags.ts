@@ -1,17 +1,6 @@
-/**
- * @module types/feature-flags
- * @description Per-user feature flag definitions and resolution logic.
- *
- * This is the single source of truth for feature flag identifiers,
- * tier-to-feature mapping, and the algorithm that resolves a user's
- * effective feature set from their org tier plus any per-user overrides.
- */
-
 import type { QuotaTier } from './quota-tiers';
 
-// ---------------------------------------------------------------------------
 // Feature flag identifiers
-// ---------------------------------------------------------------------------
 
 /** Canonical feature flag identifiers. */
 export type FeatureFlag =
@@ -37,9 +26,7 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
   return (ALL_FEATURE_FLAGS as readonly string[]).includes(value);
 }
 
-// ---------------------------------------------------------------------------
 // Tier-to-feature mapping
-// ---------------------------------------------------------------------------
 
 /** Features enabled by default for each tier. */
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
@@ -48,9 +35,7 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   unlimited: [...ALL_FEATURE_FLAGS],
 };
 
-// ---------------------------------------------------------------------------
 // Feature metadata (for display)
-// ---------------------------------------------------------------------------
 
 /** Human-readable metadata for each feature flag. */
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
@@ -80,9 +65,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   },
 };
 
-// ---------------------------------------------------------------------------
 // Resolution logic
-// ---------------------------------------------------------------------------
 
 /**
  * Resolve a user's effective feature set.

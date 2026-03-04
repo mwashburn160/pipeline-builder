@@ -1,14 +1,7 @@
-/**
- * @module controllers/validation-schemas
- * @description Zod validation schemas for platform API controllers
- */
-
 import { z } from 'zod';
 import { emailSchema } from '../utils/validation';
 
-// ============================================================================
 // Invitation Schemas
-// ============================================================================
 
 export const sendInvitationSchema = z.object({
   email: emailSchema,
@@ -17,18 +10,14 @@ export const sendInvitationSchema = z.object({
   allowedOAuthProviders: z.array(z.enum(['google'])).optional(),
 });
 
-// ============================================================================
 // OAuth Schemas
-// ============================================================================
 
 export const oauthCallbackSchema = z.object({
   code: z.string().min(1, 'Authorization code is required'),
   state: z.string().min(1, 'State parameter is required'),
 });
 
-// ============================================================================
 // Organization Member Schemas
-// ============================================================================
 
 export const addMemberSchema = z.object({
   userId: z.string().min(1).optional(),
@@ -46,9 +35,7 @@ export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
 });
 
-// ============================================================================
 // Organization Schemas
-// ============================================================================
 
 export const updateOrganizationSchema = z.object({
   name: z.string().min(2, 'Organization name must be at least 2 characters').optional(),
@@ -66,9 +53,7 @@ export const updateQuotasSchema = z.object({
   apiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
 });
 
-// ============================================================================
 // User Schemas
-// ============================================================================
 
 export const updateProfileSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').optional(),

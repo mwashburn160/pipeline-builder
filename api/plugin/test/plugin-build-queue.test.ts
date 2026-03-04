@@ -5,9 +5,7 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
-// ---------------------------------------------------------------------------
 // Mock state — must be hoisted before imports
-// ---------------------------------------------------------------------------
 
 const mockQueueAdd = jest.fn();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
@@ -61,8 +59,18 @@ jest.mock('../src/services/plugin-service', () => ({
   pluginService: { deployVersion: mockDeployVersion },
 }));
 
+const mockPipelineCoreConfig: Record<string, any> = {
+  pluginBuild: { concurrency: 1 },
+  redis: { host: 'localhost', port: 6379 },
+};
+
 jest.mock('@mwashburn160/pipeline-core', () => ({
-  Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
+  CoreConstants: {
+    PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
+    PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
+    PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
+  },
+  Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {} },
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -79,15 +87,11 @@ jest.mock('@mwashburn160/api-core', () => ({
 
 jest.mock('@mwashburn160/api-server', () => ({}));
 
-// ---------------------------------------------------------------------------
 // Import after mocks
-// ---------------------------------------------------------------------------
 
 import type { PluginBuildJobData } from '../src/queue/plugin-build-queue';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function makeSseManager() {
   return { send: jest.fn() } as any;
@@ -143,9 +147,7 @@ function makeJob(data: PluginBuildJobData) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('plugin-build-queue', () => {
   // Re-require the module fresh for each test to reset singleton state
@@ -193,7 +195,12 @@ describe('plugin-build-queue', () => {
     }));
 
     jest.mock('@mwashburn160/pipeline-core', () => ({
-      Config: { get: () => ({ pluginBuild: { concurrency: 1 } }) },
+      CoreConstants: {
+        PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
+        PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
+        PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
+      },
+      Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {} },
     }));
 
     jest.mock('@mwashburn160/api-core', () => ({

@@ -29,9 +29,7 @@ import { schema } from '../src/database/drizzle-schema';
 const builder = new AccessControlQueryBuilder(schema.pipeline);
 const ORG_ID = 'org-abc-123';
 
-// ---------------------------------------------------------------------------
 // Access control — no orgId (anonymous)
-// ---------------------------------------------------------------------------
 describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
   it('should produce system-public-only conditions when no orgId', () => {
     const conditions = builder.buildCommonConditions({});
@@ -46,9 +44,7 @@ describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // isActive default behavior
-// ---------------------------------------------------------------------------
 describe('AccessControlQueryBuilder - isActive default filter', () => {
   it('should include isActive=true by default when isActive is not in filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
@@ -100,9 +96,7 @@ describe('AccessControlQueryBuilder - isActive default filter', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // isDefault filter (complementary to isActive tests)
-// ---------------------------------------------------------------------------
 describe('AccessControlQueryBuilder - isDefault filter', () => {
   it('should not include isDefault condition when not in filter', () => {
     const withoutDefault = builder.buildCommonConditions({}, ORG_ID);
@@ -123,9 +117,7 @@ describe('AccessControlQueryBuilder - isDefault filter', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Combined filters
-// ---------------------------------------------------------------------------
 describe('AccessControlQueryBuilder - combined common conditions', () => {
   it('should include access control + isActive default for empty filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);

@@ -1,11 +1,3 @@
-/**
- * @module routes/queue-status
- * @description Queue status endpoints for monitoring BullMQ plugin build queue.
- *
- * GET /plugins/queue/status — returns job counts (waiting, active, completed, failed, delayed)
- * GET /plugins/queue/failed — returns details of failed jobs (name, error, attempts)
- */
-
 import { ErrorCode, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';

@@ -1,13 +1,3 @@
-/**
- * @module config
- * @description Application configuration loaded from environment variables.
- * Provides sensible defaults for all settings.
- *
- * @example
- * import { config } from './config';
- * console.log(config.app.port); // 3000
- */
-
 import { QUOTA_TIERS } from '@mwashburn160/api-core';
 import { Algorithm } from 'jsonwebtoken';
 

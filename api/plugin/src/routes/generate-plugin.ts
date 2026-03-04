@@ -1,21 +1,3 @@
-/**
- * @module routes/generate-plugin
- * @description AI-powered plugin configuration generation and deployment.
- *
- * Provides four endpoints for the plugin AI builder workflow:
- *
- * - **GET /plugins/providers** — List available AI providers and their models.
- * - **POST /plugins/generate** — Generate plugin config + Dockerfile from
- *   a natural language description using the AI SDK.
- * - **POST /plugins/generate/stream** — Same as above but streams partial
- *   results as SSE events for real-time progressive output.
- * - **POST /plugins/deploy-generated** — Build Docker image from the
- *   generated Dockerfile and save the plugin to the database.
- *
- * Request validation uses shared Zod schemas from api-core
- * ({@link AIGenerateBodySchema}, {@link PluginDeployGeneratedSchema}).
- */
-
 import * as fs from 'fs';
 import path from 'path';
 
@@ -35,7 +17,7 @@ import {
 } from '@mwashburn160/api-core';
 import { checkQuota, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
-import { Config } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
@@ -47,8 +29,7 @@ import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from 
 
 const logger = createLogger('generate-plugin');
 
-/** SSE stream timeout in ms (default 5 minutes). */
-const SSE_STREAM_TIMEOUT_MS = parseInt(process.env.SSE_STREAM_TIMEOUT_MS || '300000', 10);
+const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
 
 /**
  * Create and register AI plugin generation routes.

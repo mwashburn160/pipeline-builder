@@ -7,9 +7,7 @@ import {
   parseQueryString,
 } from '../src/utils/params';
 
-// ---------------------------------------------------------------------------
 // Mock Express Request
-// ---------------------------------------------------------------------------
 function mockReq(overrides: Record<string, unknown> = {}) {
   return {
     params: {},
@@ -20,9 +18,7 @@ function mockReq(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('getParam', () => {
   it('should return string value', () => {

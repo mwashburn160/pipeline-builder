@@ -1,8 +1,3 @@
-/**
- * @module database/retry-strategy
- * @description Implements an exponential backoff retry strategy for establishing reliable database connections.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 
 const logger = createLogger('RetryStrategy');

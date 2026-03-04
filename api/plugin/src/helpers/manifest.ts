@@ -1,8 +1,3 @@
-/**
- * @module helpers/manifest
- * @description ZIP archive extraction and manifest.yaml validation.
- */
-
 import * as fs from 'fs';
 import path from 'path';
 

@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock config before importing schemas that depend on it
-// ---------------------------------------------------------------------------
 jest.mock('../src/config', () => ({
   config: {
     auth: { passwordMinLength: 8 },
@@ -23,9 +21,7 @@ import {
   updateQuotasSchema,
 } from '../src/utils/validation';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('emailSchema', () => {
   it('should accept valid emails', () => {

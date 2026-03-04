@@ -1,8 +1,3 @@
-/**
- * @module utils/identity
- * @description Identity extraction utilities for multi-tenant applications.
- */
-
 import { getHeaderString } from './headers';
 import { HttpRequest } from '../types/http';
 

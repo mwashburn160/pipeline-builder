@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies before imports
-// ---------------------------------------------------------------------------
 jest.mock('fs');
 jest.mock('yaml');
 
@@ -8,9 +6,7 @@ import * as fs from 'fs';
 import * as yaml from 'yaml';
 import { getConfig, getToken, hasToken } from '../src/utils/config-loader';
 
-// ---------------------------------------------------------------------------
 // Environment helpers
-// ---------------------------------------------------------------------------
 const ENV_KEYS = [
   'PLATFORM_TOKEN', 'PLATFORM_BASE_URL', 'CLI_CONFIG_PATH',
   'TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG',
@@ -18,9 +14,7 @@ const ENV_KEYS = [
 
 let savedEnv: Record<string, string | undefined>;
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('config.loader', () => {
   beforeEach(() => {

@@ -1,9 +1,3 @@
-/**
- * @module provider-registry
- * @description Shared AI provider registry that lazily initialises SDK wrappers
- * from environment variables and exposes model resolution helpers.
- */
-
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -19,9 +13,7 @@ import {
 } from '@mwashburn160/api-core';
 import type { LanguageModel } from 'ai';
 
-// ---------------------------------------------------------------------------
 // Provider Registry
-// ---------------------------------------------------------------------------
 
 /** Registered provider with model factory function. */
 export interface ProviderEntry {

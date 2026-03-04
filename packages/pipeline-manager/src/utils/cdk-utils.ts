@@ -1,11 +1,3 @@
-/**
- * Shared AWS CDK CLI utilities.
- *
- * Provides helpers for checking CDK availability and executing
- * CDK CLI commands as child processes.
- *
- * @module utils/cdk-utils
- */
 import { execSync } from 'child_process';
 
 /**

@@ -1,9 +1,4 @@
 /**
- * @module utils/object
- * @description Object manipulation utilities.
- */
-
-/**
  * Filter an object to only include entries where the value is not `undefined`.
  * Keeps `null`, `false`, `0`, and empty string — only removes `undefined`.
  *

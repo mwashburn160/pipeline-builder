@@ -1,8 +1,3 @@
-/**
- * @module config/database-config
- * @description Loads and validates PostgreSQL and Drizzle ORM database configuration from environment variables.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import type { DatabaseConfig } from './config-types';
 

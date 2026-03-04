@@ -1,8 +1,3 @@
-/**
- * @module routes/log
- * @description Log query routes. Proxies Loki queries with org-scoped access control.
- */
-
 import { Router } from 'express';
 import { queryLogs, getLogServices, getLogLevels } from '../controllers';
 import { requireAuth } from '../middleware';

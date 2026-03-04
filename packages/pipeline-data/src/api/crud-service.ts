@@ -1,11 +1,3 @@
-/**
- * @module api/crud-service
- * @description Abstract base class for CRUD operations with access control.
- *
- * Provides generic implementation of common database operations (Create, Read, Update, Delete)
- * with multi-tenant access control, pagination, and sorting.
- */
-
 import { createLogger, NotFoundError } from '@mwashburn160/api-core';
 import { SQL, eq, and, asc, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -216,9 +208,7 @@ export abstract class CrudService<
     }
   }
 
-  // -------------------------------------------------------------------------
   // Mutation operations
-  // -------------------------------------------------------------------------
 
   /**
    * Create a new entity

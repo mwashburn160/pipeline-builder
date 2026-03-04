@@ -1,8 +1,3 @@
-/**
- * @module openapi/routes/quota-routes
- * @description OpenAPI route specs for the Quota service.
- */
-
 import { addRegistration, registry } from '../registry';
 
 const tags = ['Quotas'];

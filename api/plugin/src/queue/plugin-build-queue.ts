@@ -1,19 +1,10 @@
-/**
- * @module queue/plugin-build-queue
- * @description BullMQ queue for async Docker plugin builds.
- *
- * Architecture: Queue + Worker run in the same plugin service process.
- * The worker calls buildAndPush() asynchronously and sends SSE events
- * on progress, completion, and failure.
- */
-
 import * as fs from 'fs';
 import path from 'path';
 
 import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
-import { Config } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
 import IORedis from 'ioredis';
@@ -25,33 +16,27 @@ import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('plugin-build-queue');
 
-/** Retention period for completed jobs in seconds (env: `PLUGIN_BUILD_COMPLETED_RETENTION_SECS`). */
-const COMPLETED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600', 10);
-
-/** Retention period for failed jobs in seconds (env: `PLUGIN_BUILD_FAILED_RETENTION_SECS`). */
-const FAILED_JOB_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10);
+const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
+const FAILED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS;
 
 // Re-export for consumers that imported from here previously
 export type { PluginBuildJobData } from '../helpers/plugin-helpers';
 
-// ---------------------------------------------------------------------------
 // Queue name & singleton state
-// ---------------------------------------------------------------------------
 
-const QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';
+const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
 
 let connection: IORedis | null = null;
 let queue: Queue<PluginBuildJobData> | null = null;
 let worker: Worker<PluginBuildJobData> | null = null;
 
-// ---------------------------------------------------------------------------
 // Redis connection
-// ---------------------------------------------------------------------------
 
 function getConnection(): IORedis {
   if (!connection) {
-    const host = process.env.REDIS_HOST || 'localhost';
-    const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+    const redis = Config.get('redis');
+    const host = redis.host;
+    const port = redis.port;
 
     connection = new IORedis({
       host,
@@ -75,9 +60,7 @@ function getConnection(): IORedis {
   return connection;
 }
 
-// ---------------------------------------------------------------------------
 // Queue
-// ---------------------------------------------------------------------------
 
 /** Get (or create) the shared BullMQ queue for plugin builds. */
 export function getQueue(): Queue<PluginBuildJobData> {
@@ -95,9 +78,7 @@ export function getQueue(): Queue<PluginBuildJobData> {
   return queue;
 }
 
-// ---------------------------------------------------------------------------
 // Worker
-// ---------------------------------------------------------------------------
 
 /** Returns true if the worker is connected and ready to process jobs. */
 export function isWorkerReady(): boolean {
@@ -249,9 +230,7 @@ export function startWorker(
   return worker;
 }
 
-// ---------------------------------------------------------------------------
 // Periodic temp directory cleanup
-// ---------------------------------------------------------------------------
 
 /** Maximum age (ms) for orphaned temp directories before cleanup (1 hour). */
 const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '3600000', 10);
@@ -291,9 +270,7 @@ function startTempCleanup(): void {
   cleanupTimer.unref(); // Don't prevent process exit
 }
 
-// ---------------------------------------------------------------------------
 // Graceful shutdown
-// ---------------------------------------------------------------------------
 
 /** Close worker, queue, Redis connections, and cleanup timer. */
 export async function shutdownQueue(): Promise<void> {

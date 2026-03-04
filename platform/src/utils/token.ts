@@ -1,10 +1,3 @@
-/**
- * @module utils/token
- * @description JWT token generation and verification utilities.
- * Provides functions for creating, signing, verifying, and persisting
- * access and refresh token pairs.
- */
-
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';

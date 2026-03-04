@@ -1,9 +1,3 @@
-/**
- * @module routes/users
- * @description System admin user management routes.
- * All routes require authentication and system admin privileges (checked in controller).
- */
-
 import { Router } from 'express';
 import {
   listAllUsers,

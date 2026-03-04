@@ -1,8 +1,3 @@
-/**
- * @module core/metadata-builder
- * @description Extracts and maps pipeline metadata key-value pairs into typed CDK construct props for ShellStep, CodeBuildStep, and CodePipeline.
- */
-
 import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
 import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
 import { CDK_METADATA_PREFIX } from './pipeline-types';

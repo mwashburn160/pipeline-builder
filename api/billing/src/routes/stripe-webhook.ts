@@ -1,16 +1,3 @@
-/**
- * @module routes/stripe-webhook
- * @description Stripe webhook endpoint for subscription lifecycle events.
- *
- * POST /billing/stripe/webhook — Receive Stripe webhook events
- *
- * Stripe sends events for subscription changes, payment outcomes, etc.
- * This endpoint verifies the webhook signature and processes relevant events.
- *
- * IMPORTANT: This route must receive the raw request body (not JSON-parsed)
- * for signature verification. The raw body parser is mounted in index.ts.
- */
-
 import {
   sendSuccess,
   sendError,
@@ -102,9 +89,7 @@ export function createStripeWebhookRoutes(): Router {
   return router;
 }
 
-// ---------------------------------------------------------------------------
 // Event Handlers
-// ---------------------------------------------------------------------------
 
 /**
  * Handle subscription updates from Stripe.

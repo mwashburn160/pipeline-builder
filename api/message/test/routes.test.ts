@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockFindPaginated = jest.fn();
 const mockFindAnnouncements = jest.fn();
@@ -138,9 +136,7 @@ import { createDeleteMessageRoutes } from '../src/routes/delete-message';
 import { createReadMessageRoutes } from '../src/routes/read-messages';
 import { createUpdateMessageRoutes } from '../src/routes/update-message';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const mockQuotaService = {
   increment: jest.fn().mockResolvedValue(undefined),
@@ -195,9 +191,7 @@ function mockRes(): any {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Read Routes
-// ---------------------------------------------------------------------------
 
 describe('GET /messages (inbox)', () => {
   const handler = getHandler(readRouter, 'get', '/');
@@ -424,9 +418,7 @@ describe('GET /messages/:id/thread', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Create Routes
-// ---------------------------------------------------------------------------
 
 describe('POST /messages (create)', () => {
   const handler = getHandler(createRouter, 'post', '/');
@@ -715,9 +707,7 @@ describe('POST /messages/:id/reply', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Update Routes
-// ---------------------------------------------------------------------------
 
 describe('PUT /messages/:id/read', () => {
   const handler = getHandler(updateRouter, 'put', '/:id/read');
@@ -822,9 +812,7 @@ describe('PUT /messages/:id/thread/read', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Delete Routes
-// ---------------------------------------------------------------------------
 
 describe('DELETE /messages/:id', () => {
   const handler = getHandler(deleteRouter, 'delete', '/:id');
@@ -942,9 +930,7 @@ describe('DELETE /messages/:id', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // SSE Notification Resilience
-// ---------------------------------------------------------------------------
 
 describe('SSE notification resilience', () => {
   beforeEach(() => jest.clearAllMocks());

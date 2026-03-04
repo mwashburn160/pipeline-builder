@@ -37,9 +37,7 @@ function signToken(payload: Record<string, unknown>, options?: jwt.SignOptions):
   return jwt.sign(payload, TEST_SECRET, options);
 }
 
-// ============================================================================
 // requireAuth
-// ============================================================================
 
 describe('requireAuth', () => {
   it('should reject request with no Authorization header', () => {
@@ -153,9 +151,7 @@ describe('requireAuth', () => {
   });
 });
 
-// ============================================================================
 // optionalAuth
-// ============================================================================
 
 describe('optionalAuth', () => {
   it('should call next without error when no Authorization header', () => {
@@ -206,9 +202,7 @@ describe('optionalAuth', () => {
   });
 });
 
-// ============================================================================
 // requireOrganization
-// ============================================================================
 
 describe('requireOrganization', () => {
   it('should reject when no user', () => {
@@ -246,9 +240,7 @@ describe('requireOrganization', () => {
   });
 });
 
-// ============================================================================
 // requireAdmin
-// ============================================================================
 
 describe('requireAdmin', () => {
   it('should reject when no user', () => {
@@ -286,9 +278,7 @@ describe('requireAdmin', () => {
   });
 });
 
-// ============================================================================
 // isSystemOrg / isSystemAdmin
-// ============================================================================
 
 describe('isSystemOrg', () => {
   it('should return false when no user', () => {
@@ -341,9 +331,7 @@ describe('isSystemAdmin', () => {
   });
 });
 
-// ============================================================================
 // resolveAccessModifier
-// ============================================================================
 
 describe('resolveAccessModifier', () => {
   it('should return "public" when system admin requests public', () => {

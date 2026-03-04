@@ -1,10 +1,3 @@
-/**
- * @module routes/update-pipeline
- * @description Pipeline update.
- *
- * PUT /pipelines/:id — update a pipeline by its UUID
- */
-
 import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PipelineUpdateSchema, pickDefined } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';

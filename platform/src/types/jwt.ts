@@ -1,9 +1,4 @@
 /**
- * @module types/jwt
- * @description JWT token payload type definitions.
- */
-
-/**
  * Access token payload structure.
  * Contains user identity and permissions for API authorization.
  */

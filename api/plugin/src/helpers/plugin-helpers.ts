@@ -1,11 +1,3 @@
-/**
- * @module helpers/plugin-helpers
- * @description Shared domain logic for plugin operations.
- *
- * Centralises update-data building, pagination, sorting, record
- * normalization, and standardised error responses.
- */
-
 import {
   normalizeArrayFields,
   sendEntityNotFound,
@@ -14,14 +6,13 @@ import {
   type ValidatedPluginFilter,
   type ValidationResult,
 } from '@mwashburn160/api-core';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import type { RegistryInfo } from './docker-build';
 
-// ---------------------------------------------------------------------------
 // Record normalization
-// ---------------------------------------------------------------------------
 
 /**
  * Normalize a plugin record from the database before returning to clients.
@@ -31,9 +22,7 @@ export function normalizePlugin<T extends Record<string, unknown>>(record: T): T
   return normalizeArrayFields(record, ['keywords', 'installCommands', 'commands']);
 }
 
-// ---------------------------------------------------------------------------
 // Filter validation (Zod-based)
-// ---------------------------------------------------------------------------
 
 /**
  * Validate plugin filter params from query string using Zod schema.
@@ -46,29 +35,23 @@ export function validateFilter(req: Request): ValidationResult<ValidatedPluginFi
   return validateQuery(req, PluginFilterSchema);
 }
 
-// ---------------------------------------------------------------------------
 // Error helpers
-// ---------------------------------------------------------------------------
 
 /** Send a 404 "plugin not found" response. */
 export function sendPluginNotFound(res: Response): void {
   sendEntityNotFound(res, 'Plugin');
 }
 
-// ---------------------------------------------------------------------------
 // Image tag generation
-// ---------------------------------------------------------------------------
 
-const IMAGE_TAG_PREFIX = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
+const IMAGE_TAG_PREFIX = CoreConstants.PLUGIN_IMAGE_PREFIX;
 
 /** Generate a unique, lowercase image tag for a plugin. */
 export function generateImageTag(name: string): string {
   return `${IMAGE_TAG_PREFIX}${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
 }
 
-// ---------------------------------------------------------------------------
 // Build job types & factory
-// ---------------------------------------------------------------------------
 
 /** Build request data stored in the BullMQ job. */
 export interface BuildRequestData {

@@ -1,9 +1,4 @@
 /**
- * @module types/common
- * @description Common type definitions for API microservices.
- */
-
-/**
  * Quota type identifiers.
  */
 export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls';

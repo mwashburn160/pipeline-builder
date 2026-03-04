@@ -1,13 +1,3 @@
-/**
- * @module routes/quota-read
- * @description Read-side quota routes.
- *
- * GET /quotas                    — own org quotas (from JWT)
- * GET /quotas/all                — all organizations with quotas (system admin only)
- * GET /quotas/:orgId             — all quotas for a specific org
- * GET /quotas/:orgId/:quotaType  — single quota type status
- */
-
 import {
   requireAuth,
   isSystemAdmin,
@@ -32,9 +22,7 @@ import { quotaService } from '../services/quota-service';
 const logger = createLogger('quota-read');
 const router: Router = Router();
 
-// ---------------------------------------------------------------------------
 // GET /quotas — own org quotas (orgId from JWT / header)
-// ---------------------------------------------------------------------------
 
 router.get(
   '/',
@@ -53,10 +41,8 @@ router.get(
   },
 );
 
-// ---------------------------------------------------------------------------
 // GET /quotas/all — all organizations with quotas (system admin only)
 // NOTE: Must be registered before /:orgId to avoid being caught by that route.
-// ---------------------------------------------------------------------------
 
 router.get(
   '/all',
@@ -80,9 +66,7 @@ router.get(
   },
 );
 
-// ---------------------------------------------------------------------------
 // GET /quotas/:orgId — all quotas for a specific org
-// ---------------------------------------------------------------------------
 
 router.get(
   '/:orgId',
@@ -101,9 +85,7 @@ router.get(
   },
 );
 
-// ---------------------------------------------------------------------------
 // GET /quotas/:orgId/:quotaType — single quota type status
-// ---------------------------------------------------------------------------
 
 router.get(
   '/:orgId/:quotaType',

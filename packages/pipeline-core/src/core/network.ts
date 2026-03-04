@@ -1,8 +1,3 @@
-/**
- * @module core/network
- * @description Resolves VPC and subnet network configurations into CDK networking props for CodeBuild steps.
- */
-
 import { ISecurityGroup, IVpc, SecurityGroup, Subnet, SubnetSelection, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
 import { UniqueId } from './id-generator';

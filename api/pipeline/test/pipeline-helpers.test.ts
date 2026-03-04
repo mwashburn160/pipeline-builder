@@ -1,8 +1,6 @@
 import { normalizePipeline, validateFilter, sendPipelineNotFound } from '../src/helpers/pipeline-helpers';
 
-// ---------------------------------------------------------------------------
 // Mock api-core
-// ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
   normalizeArrayFields: jest.fn(<T extends Record<string, unknown>>(record: T, fields: (keyof T)[]) => {
     const result = { ...record };
@@ -38,9 +36,7 @@ jest.mock('drizzle-orm', () => ({
   desc: jest.fn(),
 }));
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('pipeline-helpers', () => {
   describe('normalizePipeline', () => {

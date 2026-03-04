@@ -1,8 +1,3 @@
-/**
- * @module validation/pipeline-schemas
- * @description Zod schemas for pipeline validation
- */
-
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, AccessModifierSchema } from './common-schemas';
 

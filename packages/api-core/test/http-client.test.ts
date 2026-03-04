@@ -18,9 +18,7 @@ jest.mock('http');
 import * as http from 'http';
 import { parseRetryAfter, addJitter, InternalHttpClient } from '../src/services/http-client';
 
-// ---------------------------------------------------------------------------
 // parseRetryAfter
-// ---------------------------------------------------------------------------
 describe('parseRetryAfter', () => {
   it('returns ms from numeric seconds header', () => {
     expect(parseRetryAfter('5')).toBe(5000);
@@ -64,9 +62,7 @@ describe('parseRetryAfter', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // addJitter
-// ---------------------------------------------------------------------------
 describe('addJitter', () => {
   it('returns value within ±25% of input', () => {
     const base = 1000;
@@ -88,9 +84,7 @@ describe('addJitter', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // InternalHttpClient retry behavior
-// ---------------------------------------------------------------------------
 describe('InternalHttpClient retry behavior', () => {
   let mockRequest: jest.Mock;
   let client: InternalHttpClient;

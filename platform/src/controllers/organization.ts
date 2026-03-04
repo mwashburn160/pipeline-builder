@@ -1,11 +1,3 @@
-/**
- * @module controllers/organization
- * @description Organization management controller. Provides CRUD operations
- * for organizations, quota management, and AI provider key configuration.
- * System admin endpoints operate on any organization; regular user endpoints
- * are scoped to the authenticated user's organization.
- */
-
 import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
@@ -28,9 +20,7 @@ import { updateOrganizationSchema, updateQuotasSchema } from '../validation/sche
 
 const logger = createLogger('OrganizationController');
 
-// ============================================================================
 // Quota Helpers
-// ============================================================================
 
 /**
  * Format a quota limit for API responses.
@@ -54,9 +44,7 @@ function parseQuotaValue(value: unknown): number | undefined {
   return !isNaN(num) && num >= -1 ? num : undefined;
 }
 
-// ============================================================================
 // Organization CRUD (System Admin)
-// ============================================================================
 
 /**
  * Get all organizations (System Admin only)
@@ -231,9 +219,7 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
   }
 }
 
-// ============================================================================
 // Quota Management (System Admin)
-// ============================================================================
 
 /**
  * Get organization quotas (System Admin only)
@@ -373,9 +359,7 @@ export async function updateOrganizationQuotas(req: Request, res: Response): Pro
   }
 }
 
-// ============================================================================
 // Current User's Organization
-// ============================================================================
 
 /**
  * Get current user's organization
@@ -405,9 +389,7 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
   }
 }
 
-// ============================================================================
 // AI Provider Configuration
-// ============================================================================
 
 /** Supported AI provider identifiers. */
 const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;

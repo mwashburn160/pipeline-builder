@@ -1,22 +1,3 @@
-/**
- * @module plugin
- * @description Plugin microservice.
- *
- * Routes mounted under /plugins:
- *
- *   GET    /plugins        — list with pagination, filtering, sorting
- *   GET    /plugins/find   — find single plugin by query-string filters
- *   GET    /plugins/:id    — get by UUID
- *   POST   /plugins        — upload ZIP, build Docker image, store metadata
- *   POST   /plugins/generate        — AI-generate plugin config + Dockerfile
- *   POST   /plugins/deploy-generated — build Docker + save from AI config
- *   GET    /plugins/providers       — list available AI providers
- *   PUT    /plugins/:id    — update existing plugin
- *   DELETE /plugins/:id    — delete existing plugin
- *   GET    /plugins/queue/status  — BullMQ build queue job counts (admin-only)
- *   GET    /plugins/queue/failed  — failed job details with error messages (admin-only)
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 

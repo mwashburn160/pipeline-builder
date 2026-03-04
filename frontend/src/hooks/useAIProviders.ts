@@ -1,25 +1,3 @@
-/**
- * @module hooks/useAIProviders
- * @description Shared hook for fetching, merging, and selecting AI providers.
- *
- * Both the pipeline AI builder and plugin AI builder need to:
- * 1. Fetch server-configured providers (env var keys)
- * 2. Fetch org-configured providers (saved API keys)
- * 3. Merge them with server taking priority
- * 4. Fill in any missing providers from the catalog (source: 'none')
- * 5. Manage provider/model selection state
- *
- * This hook encapsulates that logic so both components stay DRY.
- *
- * @example
- * ```tsx
- * const ai = useAIProviders(() => api.getAIProviders());
- *
- * if (ai.loading) return <LoadingSpinner />;
- * // ai.providers, ai.selectedProvider, ai.selectedModel, etc.
- * ```
- */
-
 import { useState, useEffect } from 'react';
 import {
   type AIProviderInfo,

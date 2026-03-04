@@ -13,9 +13,7 @@ jest.mock('@mwashburn160/api-core', () => ({
 
 import { SSEManager } from '../src/http/sse-connection-manager';
 
-// ---------------------------------------------------------------------------
 // Mock Response
-// ---------------------------------------------------------------------------
 function mockSseRes() {
   const res: any = {
     writtenData: [] as string[],
@@ -33,9 +31,7 @@ function mockSseRes() {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('SSEManager', () => {
   let manager: SSEManager;

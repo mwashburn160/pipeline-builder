@@ -1,8 +1,3 @@
-/**
- * @module routes/auth
- * @description Authentication routes for user registration, login, logout, and token refresh.
- */
-
 import { Router } from 'express';
 import { login, logout, register, refresh } from '../controllers';
 import { requireAuth, isValidRefreshToken } from '../middleware';

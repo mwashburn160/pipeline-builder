@@ -1,11 +1,3 @@
-/**
- * @module helpers/quota-helpers
- * @description Shared domain logic for quota operations.
- *
- * Centralises reset-date arithmetic, default responses, quota-type
- * validation, error helpers, and response building.
- */
-
 import { sendError, ErrorCode, DEFAULT_TIER, VALID_QUOTA_TYPES } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaTier } from '@mwashburn160/api-core';
 export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/api-core';
@@ -17,9 +9,7 @@ import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models
 /** Shared auth options — allow x-org-id header override for service-to-service calls. */
 export const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
-// ---------------------------------------------------------------------------
 // Date helpers
-// ---------------------------------------------------------------------------
 
 /** Calculate the next reset date based on days from now (midnight). */
 export function getNextResetDate(days: number): Date {
@@ -29,9 +19,7 @@ export function getNextResetDate(days: number): Date {
   return date;
 }
 
-// ---------------------------------------------------------------------------
 // Error helpers
-// ---------------------------------------------------------------------------
 
 /** Send a 404 "organization not found" response. */
 export function sendOrgNotFound(res: Response): void {
@@ -69,9 +57,7 @@ export function applyQuotaLimits(
   }
 }
 
-// ---------------------------------------------------------------------------
 // Quota status (per-type)
-// ---------------------------------------------------------------------------
 
 /** Per-quota-type status with usage and limit info. */
 export interface QuotaStatus {
@@ -97,9 +83,7 @@ export function computeQuotaStatus(
   return { limit, used, remaining, allowed, unlimited: limit === -1, resetAt: usage.resetAt };
 }
 
-// ---------------------------------------------------------------------------
 // Org quota response — unified shape used by all endpoints
-// ---------------------------------------------------------------------------
 
 /** Per-type summary (status minus the internal `allowed` flag). */
 export type QuotaSummary = Omit<QuotaStatus, 'allowed'>;

@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies
-// ---------------------------------------------------------------------------
 jest.mock('../src/config', () => ({
   config: {
     quota: {
@@ -42,9 +40,7 @@ import { authorizeOrg } from '../src/middleware/authorize-org';
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function createMockReqResNext(overrides: {
   user?: { organizationId?: string; role?: string };
@@ -59,9 +55,7 @@ function createMockReqResNext(overrides: {
   return { req, res, next };
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('authorizeOrg', () => {
   beforeEach(() => {

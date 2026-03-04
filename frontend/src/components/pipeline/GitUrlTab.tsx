@@ -1,13 +1,3 @@
-/**
- * @module components/pipeline/GitUrlTab
- * @description Git URL tab for the Create Pipeline modal.
- *
- * Accepts a repository URL, analyzes it via the backend (GitHub, GitLab,
- * Bitbucket, or self-hosted), and streams an AI-generated pipeline
- * configuration. Uses {@link useAIProviders} for provider/model selection
- * and {@link useImperativeHandle} to expose generated props to the parent modal.
- */
-
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { BuilderProps } from '@/types';

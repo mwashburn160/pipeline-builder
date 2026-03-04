@@ -1,17 +1,4 @@
 /**
- * CLI command option type definitions.
- *
- * Each interface maps to the parsed options object produced by
- * Commander for a specific CLI sub-command.
- *
- * Note: Unused interfaces (CommandContext, CommandResult, DeleteOptions,
- * SpinnerOptions, GlobalOptions, ProgressOptions, and duplicate OutputFormat/
- * TableColumn definitions) were removed during cleanup. Re-add as needed.
- *
- * @module types/command
- */
-
-/**
  * Parsed options for the `deploy` CLI command.
  */
 export interface DeployOptions {

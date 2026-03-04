@@ -1,8 +1,3 @@
-/**
- * @module core/pipeline-helpers
- * @description Provides utility functions for building CodeBuild steps, merging metadata, and constructing environment variables for pipeline plugins.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import type { Plugin } from '@mwashburn160/pipeline-data';
 import { Duration, SecretValue } from 'aws-cdk-lib';

@@ -1,12 +1,14 @@
 import { CloudFormationCustomResourceEvent } from 'aws-lambda';
 
-// Mock handler-constants BEFORE importing handler — these are module-level constants
+// Mock CoreConstants BEFORE importing handler — these are module-level constants
 // that freeze at import time, so process.env overrides in beforeEach have no effect.
-jest.mock('../src/handlers/handler-constants', () => ({
-  HANDLER_TIMEOUT_MS: 25000,
-  HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
-  HANDLER_MAX_RETRIES: 2,
-  HANDLER_RETRY_DELAY_MS: 1, // 1ms instead of 1000ms to keep tests fast
+jest.mock('../src/config/app-config', () => ({
+  CoreConstants: {
+    HANDLER_TIMEOUT_MS: 25000,
+    HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
+    HANDLER_MAX_RETRIES: 2,
+    HANDLER_RETRY_DELAY_MS: 1, // 1ms instead of 1000ms to keep tests fast
+  },
 }));
 
 // Mock axios before importing handler

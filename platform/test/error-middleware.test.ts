@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies
-// ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
@@ -20,9 +18,7 @@ import { notFoundHandler, errorHandler } from '../src/middleware/error';
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function mockReq(overrides: Partial<{ method: string; originalUrl: string }> = {}) {
   return {
     method: overrides.method || 'GET',
@@ -34,9 +30,7 @@ function mockRes() {
   return {} as any;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('error middleware', () => {
   beforeEach(() => jest.clearAllMocks());

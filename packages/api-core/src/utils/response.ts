@@ -1,8 +1,3 @@
-/**
- * @module utils/response
- * @description Standardized response utilities for API microservices.
- */
-
 import { Response } from 'express';
 import { createLogger } from './logger';
 import { QuotaInfo } from '../types/common';
@@ -256,9 +251,7 @@ export function extractDbError(error: unknown): Record<string, unknown> {
   return details;
 }
 
-// ---------------------------------------------------------------------------
 // Convenience helpers (shared across plugin, pipeline, quota services)
-// ---------------------------------------------------------------------------
 
 /** Extract a message string from an unknown catch value. */
 export function errorMessage(error: unknown): string {
@@ -283,9 +276,7 @@ export function sendInternalError(
   sendError(res, 500, message, ErrorCode.INTERNAL_ERROR, details);
 }
 
-// ---------------------------------------------------------------------------
 // Pagination
-// ---------------------------------------------------------------------------
 
 /** Common pagination + sorting parameters. */
 export interface PaginationParams {

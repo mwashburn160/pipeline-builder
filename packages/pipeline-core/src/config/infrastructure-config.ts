@@ -1,12 +1,7 @@
-/**
- * @module config/infrastructure-config
- * @description Loads Docker registry, plugin build, and AWS infrastructure configuration from environment variables.
- */
-
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import type { AWSConfig, PluginBuildConfig, RegistryConfig } from './config-types';
+import type { AWSConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
 import { getComputeType } from '../core/pipeline-helpers';
 
 /**
@@ -28,6 +23,14 @@ export function loadRegistryConfig(): RegistryConfig {
     user: process.env.IMAGE_REGISTRY_USER || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_USER is required in production'); })() : 'admin'),
     token: process.env.IMAGE_REGISTRY_TOKEN || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_TOKEN is required in production'); })() : 'password'),
     network: process.env.DOCKER_NETWORK || '',
+    insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
+  };
+}
+
+export function loadRedisConfig(): RedisConfig {
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
   };
 }
 

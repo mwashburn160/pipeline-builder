@@ -1,13 +1,3 @@
-/**
- * @module hooks/useFeatures
- * @description Unified feature management hook that merges service-level toggles
- * (billing, email, OAuth) with per-user feature flags into a single API.
- *
- * Replaces the separate `useConfig()` and `useFeatureFlag()` hooks.
- *
- * System org users have billing excluded (they manage billing for others, not themselves).
- */
-
 import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 import { useAuth } from './useAuth';
 import { isSystemOrg } from '@/types';

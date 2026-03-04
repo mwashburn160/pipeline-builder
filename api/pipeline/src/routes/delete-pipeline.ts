@@ -1,15 +1,3 @@
-/**
- * @module routes/delete-pipeline
- * @description Pipeline deletion.
- *
- * DELETE /pipelines/:id — delete a pipeline by its UUID
- *
- * Permissions:
- *   - System admins: can delete public and private pipelines
- *   - Org admins: can delete private pipelines only
- *   - Regular users: can delete private pipelines only
- */
-
 import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';

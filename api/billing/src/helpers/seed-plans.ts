@@ -1,9 +1,3 @@
-/**
- * @module helpers/seed-plans
- * @description Seed default billing plans on startup if none exist.
- * Plan definitions come from Config.get('billing').plans (environment-variable driven).
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { Config } from '@mwashburn160/pipeline-core';
 import { Plan } from '../models/plan';

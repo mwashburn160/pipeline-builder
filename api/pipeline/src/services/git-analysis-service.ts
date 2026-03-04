@@ -1,36 +1,12 @@
-/**
- * @module services/git-analysis-service
- * @description Generic Git repository URL parsing and multi-provider repo analysis.
- *
- * Parses Git URLs from any host (GitHub, GitLab, Bitbucket, self-hosted) and
- * fetches repository metadata via each provider's API. The analysis output
- * is used to build an enhanced AI prompt for pipeline generation.
- *
- * @example
- * ```typescript
- * import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from './git-analysis-service';
- *
- * const parsed = parseGitUrl('https://github.com/facebook/react');
- * // => { host: 'github.com', owner: 'facebook', repo: 'react', provider: 'github' }
- *
- * const analysis = await analyzeRepository(parsed);
- * const prompt = buildEnhancedPrompt(analysis);
- * ```
- */
-
 import { createLogger } from '@mwashburn160/api-core';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 
 const logger = createLogger('git-analysis');
 
-/** GitHub REST API base URL (configurable for GitHub Enterprise). */
-const GITHUB_API_BASE_URL = process.env.GITHUB_API_BASE_URL || 'https://api.github.com';
+const GITHUB_API_BASE_URL = CoreConstants.GITHUB_API_BASE_URL;
+const BITBUCKET_API_BASE_URL = CoreConstants.BITBUCKET_API_BASE_URL;
 
-/** Bitbucket REST API base URL (configurable for Bitbucket Server). */
-const BITBUCKET_API_BASE_URL = process.env.BITBUCKET_API_BASE_URL || 'https://api.bitbucket.org/2.0';
-
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /** Supported Git hosting providers. */
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'unknown';
@@ -79,9 +55,7 @@ export interface RepoAnalysis {
   frameworks: string[];
 }
 
-// ---------------------------------------------------------------------------
 // URL Parsing
-// ---------------------------------------------------------------------------
 
 /** Hostname-to-provider mapping. */
 const HOST_PROVIDER_MAP: Record<string, GitProvider> = {
@@ -176,9 +150,7 @@ export function parseGitUrl(url: string): ParsedGitUrl | null {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Project Type Inference
-// ---------------------------------------------------------------------------
 
 /** Map of filenames to project type indicators. */
 const PROJECT_TYPE_FILES: Record<string, string> = {
@@ -292,9 +264,7 @@ export function inferFrameworks(files: string[]): string[] {
   return frameworks;
 }
 
-// ---------------------------------------------------------------------------
 // Provider-Specific Analyzers
-// ---------------------------------------------------------------------------
 
 /**
  * Analyze a GitHub repository via the GitHub REST API.
@@ -491,9 +461,7 @@ function buildAnalysis(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Main Entry Point
-// ---------------------------------------------------------------------------
 
 /**
  * Analyze a repository by dispatching to the appropriate provider analyzer.
@@ -516,9 +484,7 @@ export async function analyzeRepository(parsed: ParsedGitUrl, token?: string): P
   return (analyzers[parsed.provider] ?? analyzers.unknown)(parsed, token);
 }
 
-// ---------------------------------------------------------------------------
 // Enhanced Prompt Builder
-// ---------------------------------------------------------------------------
 
 /**
  * Build an enhanced AI prompt from repository analysis results.

@@ -1,19 +1,10 @@
-/**
- * @module helpers/docker-build
- * @description Docker image build and push via buildx.
- *
- * Uses the host Docker daemon via socket mount. When a `DOCKER_NETWORK`
- * is configured, creates a temporary buildx builder with the
- * `docker-container` driver so the BuildKit daemon can resolve
- * container hostnames (e.g. a private registry on the compose network).
- */
-
 import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 
 import { createLogger, errorMessage, ValidationError } from '@mwashburn160/api-core';
+import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 
 const execFileAsync = promisify(execFile);
 
@@ -53,7 +44,7 @@ export interface BuildResult {
  *  the container AND the Docker host so buildkitd.toml bind mounts resolve. */
 export const BUILD_TEMP_ROOT = process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp');
 
-const BUILDER_NAME = process.env.DOCKER_BUILDER_NAME || 'plugin-builder';
+const BUILDER_NAME = CoreConstants.DOCKER_BUILDER_NAME;
 
 // Validation patterns for Docker build inputs
 const VALID_NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -143,7 +134,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
       network: registry.network || 'default',
     });
 
-    const buildTimeoutMs = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '300000', 10);
+    const buildTimeoutMs = CoreConstants.DOCKER_BUILD_TIMEOUT_MS;
     await execFileAsync('docker', args, { timeout: buildTimeoutMs });
 
     return { fullImage };
@@ -152,9 +143,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Internal helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Run a docker CLI command with the isolated --config dir.
@@ -169,9 +158,7 @@ function setupBuilder(
   registryAddr: string,
   network: string,
 ): void {
-  // BuildKit config: trust the (possibly self-signed) registry
-  // Set DOCKER_REGISTRY_INSECURE=false in production with proper TLS certificates
-  const insecure = process.env.DOCKER_REGISTRY_INSECURE !== 'false';
+  const insecure = Config.get('registry').insecure;
   const buildkitdConfig = path.join(contextDir, 'buildkitd.toml');
   fs.writeFileSync(buildkitdConfig, [
     `[registry."${registryAddr}"]`,

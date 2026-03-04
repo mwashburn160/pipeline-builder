@@ -1,8 +1,3 @@
-/**
- * @module core/pipeline-types
- * @description Defines core pipeline type definitions including trigger types, source types, and re-exports shared enums from api-core.
- */
-
 import type { CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
 
 // Re-export shared types from api-core for convenience

@@ -1,13 +1,3 @@
-/**
- * Create pipeline CLI command.
- *
- * Reads a pipeline properties JSON file, validates its contents,
- * and sends a creation request to the platform API.  Supports
- * dry-run mode, SSL override, and saves the resulting pipeline
- * details to a local output file.
- *
- * @module commands/create-pipeline
- */
 import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';

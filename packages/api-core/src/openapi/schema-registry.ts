@@ -1,13 +1,3 @@
-/**
- * @module openapi/schema-registry
- * @description Registers all Zod validation schemas with OpenAPI metadata.
- *
- * This module extends Zod with the .openapi() method and registers every
- * shared schema so they appear as named components in the OpenAPI spec.
- * Registrations are deferred — they execute lazily when the spec is first
- * generated, not at import time.
- */
-
 import { z } from 'zod';
 
 import { registry, addRegistration } from './registry';

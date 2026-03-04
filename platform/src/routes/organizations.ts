@@ -1,8 +1,3 @@
-/**
- * @module routes/organizations
- * @description System admin route for listing all organizations.
- */
-
 import { Router } from 'express';
 import { listAllOrganizations } from '../controllers';
 import { requireAuth, requireRole } from '../middleware';

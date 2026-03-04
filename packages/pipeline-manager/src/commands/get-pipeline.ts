@@ -1,12 +1,3 @@
-/**
- * Get pipeline CLI command.
- *
- * Retrieves detailed information about a specific pipeline by ID
- * from the platform API.  Supports multiple output formats (JSON,
- * YAML, table) and optional file export.
- *
- * @module commands/get-pipeline
- */
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';

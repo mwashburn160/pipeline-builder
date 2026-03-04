@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock external dependencies — must be set up before importing the service
-// ---------------------------------------------------------------------------
 const mockTransactionSet = jest.fn().mockReturnValue({ where: jest.fn() });
 const mockTransactionOnConflict = jest.fn().mockReturnValue({
   returning: jest.fn().mockResolvedValue([{ id: 'new-pipeline', isDefault: true }]),
@@ -64,13 +62,10 @@ jest.mock('drizzle-orm/pg-core', () => ({}));
 
 import { PipelineService } from '../src/services/pipeline-service';
 
-// Retrieve mock functions from the hoisted mock
-const { __mockFind: mockFind, __mockSetDefault: mockSetDefault } =
-  jest.requireMock('@mwashburn160/pipeline-core');
+// Ensure the hoisted mock is loaded
+jest.requireMock('@mwashburn160/pipeline-core');
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('PipelineService', () => {
   let service: PipelineService;
@@ -78,64 +73,6 @@ describe('PipelineService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new PipelineService();
-  });
-
-  describe('findByProject', () => {
-    it('should call find with project and isActive filter', async () => {
-      const expected = [{ id: '1', project: 'my-project' }];
-      mockFind.mockResolvedValueOnce(expected);
-
-      const result = await service.findByProject('my-project', 'org-1');
-
-      expect(mockFind).toHaveBeenCalledWith(
-        { project: 'my-project', isActive: true },
-        'org-1',
-      );
-      expect(result).toEqual(expected);
-    });
-
-    it('should return empty array when no pipelines found', async () => {
-      mockFind.mockResolvedValueOnce([]);
-
-      const result = await service.findByProject('nonexistent', 'org-1');
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getDefaultForProject', () => {
-    it('should return default active pipeline for project', async () => {
-      const pipeline = { id: '1', project: 'proj', organization: 'org', isDefault: true };
-      mockFind.mockResolvedValueOnce([pipeline]);
-
-      const result = await service.getDefaultForProject('proj', 'org', 'org-1');
-
-      expect(mockFind).toHaveBeenCalledWith(
-        { project: 'proj', organization: 'org', isDefault: true, isActive: true },
-        'org-1',
-      );
-      expect(result).toEqual(pipeline);
-    });
-
-    it('should return null when no default pipeline exists', async () => {
-      mockFind.mockResolvedValueOnce([]);
-
-      const result = await service.getDefaultForProject('proj', 'org', 'org-1');
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('setDefaultForProject', () => {
-    it('should call setDefault with project and organization fields', async () => {
-      const updated = { id: 'pipeline-1', isDefault: true };
-      mockSetDefault.mockResolvedValueOnce(updated);
-
-      const result = await service.setDefaultForProject('proj', 'org', 'pipeline-1', 'user-1');
-
-      expect(mockSetDefault).toHaveBeenCalledWith(
-        'proj', 'org', 'pipeline-1', 'user-1',
-      );
-      expect(result).toEqual(updated);
-    });
   });
 
   describe('createAsDefault', () => {

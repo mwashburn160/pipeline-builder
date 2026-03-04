@@ -1,8 +1,3 @@
-/**
- * @module http/sse-connection-manager
- * @description Server-Sent Events connection manager with client tracking, automatic cleanup, and memory leak protection.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { Response } from 'express';
 import { v7 as uuid } from 'uuid';

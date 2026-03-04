@@ -1,14 +1,4 @@
 /**
- * Pipeline type definitions.
- *
- * Describes the pipeline domain model, including the full entity
- * shape, creation/update request payloads, list query parameters,
- * and paginated response format.
- *
- * @module types/pipeline
- */
-
-/**
  * Arbitrary key-value pipeline configuration properties
  * passed through to the CDK builder.
  */

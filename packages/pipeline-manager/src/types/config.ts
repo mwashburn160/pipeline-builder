@@ -1,14 +1,4 @@
 /**
- * Configuration type definitions.
- *
- * Describes the structure of the CLI configuration that is
- * loaded from environment variables and/or a config file by
- * the config-loader utility.
- *
- * @module types/config
- */
-
-/**
  * Platform API connection settings.
  */
 export interface ApiConfig {

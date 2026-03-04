@@ -5,9 +5,7 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
@@ -68,16 +66,12 @@ jest.mock('../src/helpers/plugin-helpers', () => ({
   }),
 }));
 
-// ---------------------------------------------------------------------------
 // Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 import { sendBadRequest, requirePublicAccess, sendSuccess } from '@mwashburn160/api-core';
 import { createDeletePluginRoutes } from '../src/routes/delete-plugin';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const router = createDeletePluginRoutes();
 
@@ -121,9 +115,7 @@ const existingPlugin = {
   isDefault: false,
 };
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('DELETE /plugins/:id (delete)', () => {
   const handler = getHandler('delete', '/:id');

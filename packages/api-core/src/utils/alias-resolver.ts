@@ -1,12 +1,3 @@
-/**
- * @module utils/alias-resolver
- * @description Resolves email-like aliases to actual organization IDs.
- *
- * Configured via environment variables:
- * - SUPPORT_ALIASES: Comma-separated list of email aliases that resolve to the system org
- *   Example: "support@pipeline-builder,help@pipeline-builder"
- */
-
 import { SYSTEM_ORG_ID } from '../middleware/auth';
 
 /** Lazily-cached set of support aliases, parsed from SUPPORT_ALIASES on first access. */

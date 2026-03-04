@@ -1,8 +1,6 @@
 import { normalizePlugin, validateFilter, sendPluginNotFound, generateImageTag, createBuildJobData } from '../src/helpers/plugin-helpers';
 
-// ---------------------------------------------------------------------------
 // Mocks
-// ---------------------------------------------------------------------------
 jest.mock('uuid', () => ({
   v7: () => 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
 }));
@@ -25,6 +23,9 @@ jest.mock('@mwashburn160/api-core', () => ({
 }));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
+  CoreConstants: {
+    PLUGIN_IMAGE_PREFIX: 'p-',
+  },
   schema: {
     plugin: {
       id: 'id',
@@ -43,9 +44,7 @@ jest.mock('drizzle-orm', () => ({
   desc: jest.fn(),
 }));
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('plugin-helpers', () => {
   describe('normalizePlugin', () => {

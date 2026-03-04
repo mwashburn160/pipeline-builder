@@ -1,13 +1,3 @@
-/**
- * @module services/ai-generation-service
- * @description AI-powered pipeline configuration generation using Vercel AI SDK.
- *
- * Uses generateText() with Output.object() to produce structured BuilderProps
- * JSON from natural language descriptions. Also provides streamPipelineConfig()
- * for streaming partial results via streamText(). Supports multiple AI providers
- * via the shared ai-core provider registry.
- */
-
 import {
   getAvailableProviders,
   getProviderModels,
@@ -24,9 +14,7 @@ export { getAvailableProviders, getProviderModels };
 
 const logger = createLogger('ai-generation');
 
-// ---------------------------------------------------------------------------
 // Service-Specific Types
-// ---------------------------------------------------------------------------
 
 /** Summary of an available plugin, used as context for AI generation. */
 interface PluginSummary {
@@ -65,9 +53,7 @@ export interface GenerationResult {
   keywords?: string[];
 }
 
-// ---------------------------------------------------------------------------
 // Zod Schema — BuilderProps structure for structured AI output
-// ---------------------------------------------------------------------------
 
 const PluginOptionsSchema = z.object({
   name: z.string().describe('Plugin name (must match an available plugin)'),
@@ -141,9 +127,7 @@ const PipelineGenerationSchema = z.object({
   global: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Global metadata inherited by all steps'),
 });
 
-// ---------------------------------------------------------------------------
 // System Prompt
-// ---------------------------------------------------------------------------
 
 /**
  * Build the system prompt for AI pipeline generation.
@@ -184,9 +168,7 @@ ${pluginList}
 11. If the user's description is too vague, make reasonable assumptions and proceed.`;
 }
 
-// ---------------------------------------------------------------------------
 // Main Generation Function
-// ---------------------------------------------------------------------------
 
 /**
  * Generate a pipeline configuration from a natural language description.
@@ -241,9 +223,7 @@ export async function generatePipelineConfig(request: GenerationRequest): Promis
   };
 }
 
-// ---------------------------------------------------------------------------
 // Streaming Generation Function
-// ---------------------------------------------------------------------------
 
 /** Result of streaming AI pipeline generation. */
 export interface StreamingGenerationResult {

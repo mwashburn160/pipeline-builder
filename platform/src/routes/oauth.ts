@@ -1,14 +1,3 @@
-/**
- * @module routes/oauth
- * @description OAuth authentication routes.
- *
- * All routes are public (no JWT required).
- *
- *   GET  /auth/oauth/providers              — list enabled providers
- *   GET  /auth/oauth/:provider/url          — get authorization URL
- *   POST /auth/oauth/:provider/callback     — exchange code for JWT
- */
-
 import { Router } from 'express';
 import { getProviders, getAuthUrl, handleCallback } from '../controllers/oauth';
 

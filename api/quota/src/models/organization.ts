@@ -1,16 +1,9 @@
-/**
- * @module models/organization
- * @description Mongoose schema and model for organizations with quota tracking.
- */
-
 import type { QuotaTier } from '@mwashburn160/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config';
 import { getNextResetDate } from '../helpers/quota-helpers';
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export interface QuotaUsage {
   used: number;
@@ -40,9 +33,7 @@ export interface OrganizationDocument extends Document<string> {
   usage: QuotaUsageTracking;
 }
 
-// ---------------------------------------------------------------------------
 // Schema
-// ---------------------------------------------------------------------------
 
 const quotaUsageSchema = new Schema<QuotaUsage>(
   {
@@ -74,9 +65,7 @@ const organizationSchema = new Schema<OrganizationDocument>(
   { collection: 'organizations' },
 );
 
-// ---------------------------------------------------------------------------
 // Model (safe for re-registration in tests)
-// ---------------------------------------------------------------------------
 
 export const Organization =
   (mongoose.models.Organization as mongoose.Model<OrganizationDocument>) ||

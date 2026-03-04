@@ -1,11 +1,3 @@
-/**
- * @module helpers/marketplace-helpers
- * @description Helpers for AWS Marketplace SaaS integration.
- *
- * Handles SNS message signature verification, notification parsing,
- * and mapping between AWS Marketplace dimensions and internal plan tiers.
- */
-
 import crypto from 'crypto';
 import https from 'https';
 import { URL } from 'url';
@@ -14,9 +6,7 @@ import type { QuotaTier } from '@mwashburn160/api-core';
 
 const logger = createLogger('marketplace-helpers');
 
-// ---------------------------------------------------------------------------
 // SNS Message Types
-// ---------------------------------------------------------------------------
 
 /** SNS message envelope. */
 export interface SNSMessage {
@@ -47,9 +37,7 @@ export interface MarketplaceNotification {
   'isFree-trial'?: boolean;
 }
 
-// ---------------------------------------------------------------------------
 // SNS Signature Verification
-// ---------------------------------------------------------------------------
 
 /** Validate the signing certificate URL — must be HTTPS from amazonaws.com. */
 function isValidCertUrl(certUrl: string): boolean {
@@ -149,9 +137,7 @@ export async function confirmSNSSubscription(subscribeUrl: string): Promise<void
   });
 }
 
-// ---------------------------------------------------------------------------
 // Notification Mapping
-// ---------------------------------------------------------------------------
 
 /** Marketplace action → subscription status change lookup. */
 const ACTION_STATUS_MAP: Record<string, { status: 'active' | 'canceled' | 'incomplete'; cancelAtPeriodEnd: boolean }> = {

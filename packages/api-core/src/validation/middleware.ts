@@ -1,8 +1,3 @@
-/**
- * @module validation/middleware
- * @description Zod validation helpers for Express routes
- */
-
 import { Request } from 'express';
 import { ZodSchema, ZodError } from 'zod';
 

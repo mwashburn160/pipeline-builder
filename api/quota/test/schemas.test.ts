@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock dependencies required by schemas module
-// ---------------------------------------------------------------------------
 jest.mock('../src/config', () => ({
   config: {
     quota: {
@@ -24,9 +22,7 @@ jest.mock('@mwashburn160/api-core', () => ({
 
 import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../src/validation/schemas';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('UpdateQuotaSchema', () => {
   it('should accept valid name update', () => {

@@ -44,9 +44,7 @@ jest.mock('@mwashburn160/api-core', () => {
 // Import after mocks are set up
 import { CrudService, BaseEntity } from '../src/api/crud-service';
 
-// ============================================================================
 // Concrete test implementation
-// ============================================================================
 
 interface TestEntity extends BaseEntity {
   name: string;
@@ -98,9 +96,7 @@ class TestService extends CrudService<TestEntity, TestFilter, TestInsert, TestUp
   }
 }
 
-// ============================================================================
 // Tests
-// ============================================================================
 
 describe('CrudService', () => {
   let service: TestService;
@@ -110,9 +106,7 @@ describe('CrudService', () => {
     jest.clearAllMocks();
   });
 
-  // --------------------------------------------------------------------------
   // findById
-  // --------------------------------------------------------------------------
 
   describe('findById', () => {
     it('should return entity when found', async () => {
@@ -166,9 +160,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // find
-  // --------------------------------------------------------------------------
 
   describe('find', () => {
     it('should return matching entities', async () => {
@@ -218,9 +210,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // create
-  // --------------------------------------------------------------------------
 
   describe('create', () => {
     it('should create and return entity', async () => {
@@ -297,9 +287,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // update
-  // --------------------------------------------------------------------------
 
   describe('update', () => {
     it('should update and return entity', async () => {
@@ -341,9 +329,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // delete (soft delete)
-  // --------------------------------------------------------------------------
 
   describe('delete', () => {
     it('should soft-delete and return entity', async () => {
@@ -391,9 +377,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // setDefault
-  // --------------------------------------------------------------------------
 
   describe('setDefault', () => {
     it('should set default within a transaction', async () => {
@@ -456,9 +440,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // updateMany
-  // --------------------------------------------------------------------------
 
   describe('updateMany', () => {
     it('should update multiple entities', async () => {
@@ -498,9 +480,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // findPaginated
-  // --------------------------------------------------------------------------
 
   describe('findPaginated', () => {
     const entity: TestEntity = {
@@ -591,9 +571,7 @@ describe('CrudService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
   // count
-  // --------------------------------------------------------------------------
 
   describe('count', () => {
     it('should return count of matching entities', async () => {

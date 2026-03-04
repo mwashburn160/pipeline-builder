@@ -1,16 +1,3 @@
-/**
- * @module providers/stripe-provider
- * @description Stripe payment provider implementation.
- *
- * Stripe SaaS flow:
- * 1. We create a Stripe Customer for the organization
- * 2. We create a Subscription with the appropriate Price ID
- * 3. Stripe webhooks drive lifecycle changes (payment failures, cancellations)
- *
- * Key difference from AWS Marketplace: operations are pull-based (API calls
- * from our side), not push-based (SNS notifications).
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import Stripe from 'stripe';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';

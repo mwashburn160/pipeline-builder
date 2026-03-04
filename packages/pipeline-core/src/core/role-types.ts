@@ -1,9 +1,4 @@
 /**
- * @module core/role-types
- * @description Defines discriminated union types for IAM role configuration strategies used in CodePipeline constructs.
- */
-
-/**
  * Role configuration using an IAM role ARN
  *
  * Looks up an existing IAM role by its ARN via `Role.fromRoleArn`.

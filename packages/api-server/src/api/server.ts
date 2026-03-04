@@ -1,8 +1,3 @@
-/**
- * @module api/server
- * @description Express server lifecycle management with graceful shutdown, database health checks, and signal handling.
- */
-
 import { Server } from 'http';
 import { createLogger } from '@mwashburn160/api-core';
 import { Config, getConnection, closeConnection } from '@mwashburn160/pipeline-core';

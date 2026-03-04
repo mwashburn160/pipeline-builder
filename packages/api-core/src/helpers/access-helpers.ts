@@ -1,11 +1,3 @@
-/**
- * @module helpers/access-helpers
- * @description Access control helpers for route handlers.
- *
- * Provides reusable functions for applying access control to query filters
- * and checking resource-level permissions.
- */
-
 import type { Request, Response } from 'express';
 import { isSystemAdmin } from '../middleware/auth';
 import { ErrorCode } from '../types/error-codes';

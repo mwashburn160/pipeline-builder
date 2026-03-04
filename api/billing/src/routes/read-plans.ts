@@ -1,11 +1,3 @@
-/**
- * @module routes/read-plans
- * @description Plan listing routes (public, no auth required).
- *
- * GET /billing/plans              — List all active plans
- * GET /billing/plans/:planId      — Get a single plan by ID
- */
-
 import {
   sendSuccess,
   sendError,
@@ -30,9 +22,7 @@ const logger = createLogger('billing-plans');
 export function createReadPlanRoutes(): Router {
   const router: Router = Router();
 
-  // ---------------------------------------------------------------------------
   // GET /billing/plans — list all active plans
-  // ---------------------------------------------------------------------------
 
   router.get('/plans', async (_req: Request, res: Response) => {
     try {
@@ -58,9 +48,7 @@ export function createReadPlanRoutes(): Router {
     }
   });
 
-  // ---------------------------------------------------------------------------
   // GET /billing/plans/:planId — get a single plan
-  // ---------------------------------------------------------------------------
 
   router.get('/plans/:planId', async (req: Request, res: Response) => {
     const planId = getParam(req.params, 'planId');

@@ -1,12 +1,4 @@
-/**
- * Unit tests for the AI pipeline generation service.
- *
- * @module test/ai-generation-service
- */
-
-// ---------------------------------------------------------------------------
 // Mock external dependencies — must be set up before importing the service
-// ---------------------------------------------------------------------------
 
 const mockGenerateText = jest.fn();
 
@@ -108,9 +100,7 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
-// ---------------------------------------------------------------------------
 // Import AFTER mocks
-// ---------------------------------------------------------------------------
 
 import {
   getAvailableProviders,
@@ -119,9 +109,7 @@ import {
   type GenerationRequest,
 } from '../src/services/ai-generation-service';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('ai-generation-service', () => {
   const originalEnv = process.env;
@@ -135,9 +123,7 @@ describe('ai-generation-service', () => {
     process.env = originalEnv;
   });
 
-  // -------------------------------------------------------------------------
   // getProviderModels
-  // -------------------------------------------------------------------------
 
   describe('getProviderModels', () => {
     it('returns models for a valid provider', () => {
@@ -151,9 +137,7 @@ describe('ai-generation-service', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // getAvailableProviders
-  // -------------------------------------------------------------------------
 
   describe('getAvailableProviders', () => {
     it('returns providers with configured env vars', () => {
@@ -164,9 +148,7 @@ describe('ai-generation-service', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // generatePipelineConfig
-  // -------------------------------------------------------------------------
 
   describe('generatePipelineConfig', () => {
     const baseRequest: GenerationRequest = {

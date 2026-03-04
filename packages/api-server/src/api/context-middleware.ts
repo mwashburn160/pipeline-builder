@@ -1,11 +1,3 @@
-/**
- * @module api/context-middleware
- * @description Middleware that attaches request context to the request object.
- *
- * Automatically creates and attaches a RequestContext to every request,
- * eliminating the need to manually call createRequestContext in route handlers.
- */
-
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { createRequestContext, RequestContext } from './request-types';
 import type { SSEManager } from '../http/sse-connection-manager';

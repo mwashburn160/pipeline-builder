@@ -1,14 +1,3 @@
-/**
- * @module components/plugin/AIPluginBuilderTab
- * @description AI builder tab for the Create Plugin modal.
- *
- * Provides a natural language prompt input and provider/model selection
- * for generating plugin configurations (config + Dockerfile) via the AI SDK.
- * Uses {@link useAIProviders} for provider fetch/merge logic. After generation,
- * displays a preview and a deploy button that builds the Docker image and
- * saves the plugin to the database.
- */
-
 import { useState, useEffect } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, Rocket, CheckCircle, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';

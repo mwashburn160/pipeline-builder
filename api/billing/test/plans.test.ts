@@ -4,9 +4,7 @@
  * Uses mocks for Mongoose models and api-core utilities.
  */
 
-// ---------------------------------------------------------------------------
 // Mocks — must be defined before imports
-// ---------------------------------------------------------------------------
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 
@@ -42,9 +40,7 @@ import { createReadPlanRoutes } from '../src/routes/read-plans';
 
 const planRouter = createReadPlanRoutes();
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return { params: {}, query: {}, headers: {}, ...overrides };
@@ -66,9 +62,7 @@ function getHandler(method: string, path: string) {
   return layer.route.stack[0].handle;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('GET /plans', () => {
   const handler = getHandler('get', '/plans');

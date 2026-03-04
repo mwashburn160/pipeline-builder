@@ -1,12 +1,3 @@
-/**
- * Deploy pipeline CLI command.
- *
- * Fetches a pipeline by ID from the platform API, encodes its
- * properties, and invokes AWS CDK to synthesize or deploy the
- * corresponding CloudFormation stack.
- *
- * @module commands/deploy
- */
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';

@@ -1,9 +1,4 @@
 /**
- * @module types/error-codes
- * @description Standardized error codes for API responses.
- */
-
-/**
  * Standardized error codes used across all API microservices.
  * Use these codes in error responses for consistent client handling.
  */

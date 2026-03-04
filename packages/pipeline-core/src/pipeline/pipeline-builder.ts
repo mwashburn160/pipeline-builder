@@ -1,8 +1,3 @@
-/**
- * @module pipeline/pipeline-builder
- * @description Main CDK construct that orchestrates pipeline creation by composing sources, synth steps, stages, and CodeBuild defaults into an AWS CodePipeline.
- */
-
 import { createLogger } from '@mwashburn160/api-core';
 import { Tags } from 'aws-cdk-lib';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';

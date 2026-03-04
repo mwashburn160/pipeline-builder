@@ -1,12 +1,3 @@
-/**
- * @module routes/marketplace
- * @description AWS Marketplace SaaS integration routes.
- *
- * POST /billing/marketplace/resolve      — Registration redirect (exchange token)
- * POST /billing/marketplace/sns          — SNS notification webhook
- * GET  /billing/marketplace/entitlements — Check current entitlements
- */
-
 import {
   requireAuth,
   sendSuccess,
@@ -38,9 +29,7 @@ const logger = createLogger('billing-marketplace');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Return the active payment provider if it is an AWS Marketplace provider.
@@ -189,9 +178,7 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   });
 }
 
-// ---------------------------------------------------------------------------
 // Route factory
-// ---------------------------------------------------------------------------
 
 /**
  * Create the AWS Marketplace integration router.
@@ -205,9 +192,7 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
 export function createMarketplaceRoutes(): Router {
   const router: Router = Router();
 
-  // ---------------------------------------------------------------------------
   // POST /billing/marketplace/resolve — Registration redirect endpoint
-  // ---------------------------------------------------------------------------
 
   router.post(
     '/marketplace/resolve',
@@ -341,9 +326,7 @@ export function createMarketplaceRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // POST /billing/marketplace/sns — SNS notification webhook
-  // ---------------------------------------------------------------------------
 
   router.post(
     '/marketplace/sns',
@@ -410,9 +393,7 @@ export function createMarketplaceRoutes(): Router {
     },
   );
 
-  // ---------------------------------------------------------------------------
   // GET /billing/marketplace/entitlements — Check current entitlements
-  // ---------------------------------------------------------------------------
 
   router.get(
     '/marketplace/entitlements',

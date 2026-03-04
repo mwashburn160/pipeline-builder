@@ -1,11 +1,3 @@
-/**
- * @module routes/create-message
- * @description Message creation and reply routes (authenticated).
- *
- * POST /messages            -- Create a new message (announcement or conversation)
- * POST /messages/:id/reply  -- Reply to an existing thread
- */
-
 import {
   AccessModifier,
   sendError,

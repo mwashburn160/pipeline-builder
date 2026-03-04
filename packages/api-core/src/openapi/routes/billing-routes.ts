@@ -1,8 +1,3 @@
-/**
- * @module openapi/routes/billing-routes
- * @description OpenAPI route specs for the Billing service.
- */
-
 import { addRegistration, registry } from '../registry';
 
 const tags = ['Billing'];

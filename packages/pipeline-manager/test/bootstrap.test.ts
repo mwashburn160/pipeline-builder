@@ -4,9 +4,7 @@ import {
   buildBootstrapCommand,
 } from '../src/commands/bootstrap';
 
-// ---------------------------------------------------------------------------
 // Environment save / restore
-// ---------------------------------------------------------------------------
 const ENV_KEYS = [
   'AWS_ACCOUNT_ID',
   'CDK_DEFAULT_ACCOUNT',
@@ -31,9 +29,7 @@ afterEach(() => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // resolveAccount
-// ---------------------------------------------------------------------------
 describe('resolveAccount', () => {
   it('should return the option value when provided', () => {
     expect(resolveAccount('111111111111')).toBe('111111111111');
@@ -65,9 +61,7 @@ describe('resolveAccount', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // resolveRegion
-// ---------------------------------------------------------------------------
 describe('resolveRegion', () => {
   it('should return the option value when provided', () => {
     expect(resolveRegion('us-west-2')).toBe('us-west-2');
@@ -99,9 +93,7 @@ describe('resolveRegion', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // buildBootstrapCommand
-// ---------------------------------------------------------------------------
 describe('buildBootstrapCommand', () => {
   it('should build minimal command with account and region', () => {
     const cmd = buildBootstrapCommand({

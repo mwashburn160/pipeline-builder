@@ -1,8 +1,3 @@
-/**
- * @module services
- * @description Service clients for communicating with microservices.
- */
-
 export { ServiceError, BaseServiceClient } from './base-service';
 export type { ServiceRequestOptions } from './base-service';
 export { pluginService, PluginServiceError } from './plugin-service';

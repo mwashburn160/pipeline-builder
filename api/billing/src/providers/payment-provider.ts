@@ -1,12 +1,3 @@
-/**
- * @module providers/payment-provider
- * @description Abstract interface for payment providers.
- *
- * Implementations handle the actual payment processing (Stripe, etc.).
- * The billing service uses this interface so the provider can be swapped
- * without changing business logic.
- */
-
 import type { BillingInterval } from '../models/subscription';
 
 /** Result of creating an external subscription. */

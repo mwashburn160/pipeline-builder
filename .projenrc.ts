@@ -21,7 +21,7 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:      '1.35.0',
+  apiCore:      ws,
   pipelineData: ws,
   pipelineCore: ws,
   apiServer:    ws,
@@ -85,6 +85,13 @@ function dockerScripts(name: string) {
   };
 }
 
+// -- Shared ESLint overrides (applied to all packages) --
+const rules: Record<string, string> = {
+  '@stylistic/max-len': 'off',
+  'import/no-extraneous-dependencies': 'off',
+  '@typescript-eslint/member-ordering': 'off',
+};
+
 // -- Common service dependencies (shared by all FunctionProject API services) --
 const commonServiceDeps = [
   `@mwashburn160/api-core@${pkg.apiCore}`,
@@ -122,12 +129,7 @@ const apiCore = new PackageProject({
     `typescript@${typescriptVersion}`,
   ],
 });
-apiCore.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  'import/no-extraneous-dependencies': 'off',
-  '@typescript-eslint/no-shadow': 'off',
-  '@typescript-eslint/member-ordering': 'off',
-});
+apiCore.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 
 // -- Pipeline Data --
 const pipelineData = new PackageProject({
@@ -147,11 +149,7 @@ const pipelineData = new PackageProject({
     `typescript@${typescriptVersion}`,
   ],
 });
-pipelineData.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  'import/no-extraneous-dependencies': 'off',
-  '@typescript-eslint/member-ordering': 'off',
-});
+pipelineData.eslint?.addRules(rules);
 
 // -- Pipeline Core --
 const pipelineCore = new PackageProject({
@@ -175,11 +173,7 @@ const pipelineCore = new PackageProject({
     '@jest/globals@30.2.0',
   ],
 });
-pipelineCore.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  'import/no-extraneous-dependencies': 'off',
-  '@typescript-eslint/member-ordering': 'off',
-});
+pipelineCore.eslint?.addRules(rules);
 if (pipelineCore.jest) {
   pipelineCore.jest.config.maxWorkers = 1;
 }
@@ -212,12 +206,7 @@ const apiServer = new PackageProject({
     `typescript@${typescriptVersion}`,
   ],
 });
-apiServer.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  'import/no-extraneous-dependencies': 'off',
-  'import/no-unresolved': 'off',
-  '@typescript-eslint/member-ordering': 'off',
-});
+apiServer.eslint?.addRules({ ...rules, 'import/no-unresolved': 'off' });
 if (apiServer.jest) {
   apiServer.jest.config.maxWorkers = 1;
 }
@@ -243,10 +232,7 @@ const aiCore = new PackageProject({
     `typescript@${typescriptVersion}`,
   ],
 });
-aiCore.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  'import/no-extraneous-dependencies': 'off',
-});
+aiCore.eslint?.addRules(rules);
 
 // =============================================================================
 // Pipeline Manager CLI
@@ -277,10 +263,7 @@ const manager = new ManagerProject({
     'copyfiles@2.4.1',
   ],
 });
-manager.eslint?.addRules({
-  '@typescript-eslint/no-shadow': 'off',
-  'import/no-extraneous-dependencies': 'off',
-});
+manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
@@ -330,11 +313,7 @@ const platform = new FunctionProject({
   ],
 });
 platform.addScripts(dockerScripts('platform'));
-platform.eslint?.addRules({
-  '@stylistic/max-len': 'off',
-  '@typescript-eslint/member-ordering': 'off',
-  'import/no-extraneous-dependencies': 'off',
-});
+platform.eslint?.addRules(rules);
 
 // =============================================================================
 // Frontend
@@ -354,7 +333,6 @@ const frontend = new FrontEndProject({
     'react@19.2.4',
     'react-dom@19.2.4',
     'lucide-react@0.575.0',
-    'clsx@^2.1.1',
     'tailwindcss@4.2.1',
     'framer-motion@12.34.3',
   ],
@@ -382,7 +360,6 @@ const services: Array<{
   name: string;
   deps: string[];
   devDeps?: string[];
-  eslint?: Record<string, string>;
 }> = [
   {
     name: 'quota',
@@ -416,7 +393,6 @@ const services: Array<{
       '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
       '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/multer@2.0.0',
     ],
-    eslint: { '@stylistic/max-len': 'off' },
   },
   {
     name: 'pipeline',
@@ -447,10 +423,7 @@ for (const svc of services) {
     devDeps: [...commonServiceDevDeps, ...(svc.devDeps ?? [])],
   });
   project.addScripts(dockerScripts(svc.name));
-  project.eslint?.addRules({
-    'import/no-extraneous-dependencies': 'off',
-    ...svc.eslint,
-  });
+  project.eslint?.addRules(rules);
 }
 
 // =============================================================================

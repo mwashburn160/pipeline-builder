@@ -1,12 +1,3 @@
-/**
- * @module middleware/quota
- * @description Quota service utilities for organization quota management.
- * Provides helpers for checking and updating quotas via the quota microservice.
- *
- * Note: Route-level quota enforcement has been moved to the API microservices.
- * This module now provides utility functions for the organization controller.
- */
-
 import { createLogger, createSafeClient } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaCheckResult } from '@mwashburn160/api-core';
 import { config } from '../config';
@@ -27,9 +18,7 @@ export interface QuotaStatus {
   unlimited: boolean;
 }
 
-// =============================================================================
 // Quota Service Client
-// =============================================================================
 
 /** Create an HTTP client configured for the quota microservice. */
 function getQuotaClient() {
@@ -124,9 +113,7 @@ export async function getOrganizationQuotaStatus(
   }
 }
 
-// =============================================================================
 // Helpers
-// =============================================================================
 
 /**
  * Create a fail-open quota result (allows the request).

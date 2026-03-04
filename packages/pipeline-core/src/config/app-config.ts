@@ -1,8 +1,3 @@
-/**
- * @module config/app-config
- * @description Provides the centralized application configuration class and core constants used across the pipeline builder.
- */
-
 import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config';
 import type { AppConfig } from './config-types';
@@ -12,6 +7,7 @@ import {
 } from './database-config';
 import {
   loadRegistryConfig,
+  loadRedisConfig,
   loadPluginBuildConfig,
   loadAWSConfig,
 } from './infrastructure-config';
@@ -35,6 +31,8 @@ export class CoreConstants {
   // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling)
   static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '25000', 10); // 25s
   static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
+  static readonly HANDLER_MAX_RETRIES = parseInt(process.env.HANDLER_MAX_RETRIES || '2', 10);
+  static readonly HANDLER_RETRY_DELAY_MS = parseInt(process.env.HANDLER_RETRY_DELAY_MS || '1000', 10); // 1s
 
   // Docker build configuration
   static readonly DOCKER_BUILD_TIMEOUT_MS = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '300000', 10); // 5 min
@@ -53,9 +51,16 @@ export class CoreConstants {
   static readonly MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
   static readonly DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
   static readonly MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
-  static readonly MAX_PLUGIN_UPLOAD_BYTES = parseInt(process.env.MAX_PLUGIN_UPLOAD_BYTES || '104857600', 10); // 100 MB
+  static readonly PLUGIN_MAX_UPLOAD_MB = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '50', 10);
   static readonly PIPELINE_NAME_MAX_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100', 10);
   static readonly DEFAULT_PLUGIN_VERSION = process.env.DEFAULT_PLUGIN_VERSION || '1.0.0';
+
+  // SSE stream timeout for AI generation endpoints
+  static readonly SSE_STREAM_TIMEOUT_MS = parseInt(process.env.SSE_STREAM_TIMEOUT_MS || '300000', 10); // 5 min
+
+  // Git provider API base URLs (configurable for enterprise instances)
+  static readonly GITHUB_API_BASE_URL = process.env.GITHUB_API_BASE_URL || 'https://api.github.com';
+  static readonly BITBUCKET_API_BASE_URL = process.env.BITBUCKET_API_BASE_URL || 'https://api.bitbucket.org/2.0';
 
   // Secrets Manager path prefix for org-scoped secrets
   static readonly SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
@@ -112,6 +117,7 @@ export class Config {
       auth: loadAuthConfig(),
       database: loadDatabaseConfig(),
       registry: loadRegistryConfig(),
+      redis: loadRedisConfig(),
       pluginBuild: loadPluginBuildConfig(),
       aws: loadAWSConfig(),
       rateLimit: loadRateLimitConfig(),

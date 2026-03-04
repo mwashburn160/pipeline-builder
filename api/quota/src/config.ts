@@ -1,8 +1,3 @@
-/**
- * @module config
- * @description Typed application configuration from environment variables.
- */
-
 export interface QuotaDefaults {
   plugins: number;
   pipelines: number;

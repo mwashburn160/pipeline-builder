@@ -1,33 +1,9 @@
-/**
- * @module validation/ai-schemas
- * @description Zod schemas for AI generation request validation.
- *
- * Shared by both the pipeline and plugin AI generation routes to ensure
- * consistent request validation across services.
- *
- * @example
- * ```typescript
- * import { validateBody, AIGenerateBodySchema } from '@mwashburn160/api-core';
- *
- * router.post('/generate', async (req, res) => {
- *   const validation = validateBody(req, AIGenerateBodySchema);
- *   if (!validation.ok) {
- *     return sendBadRequest(res, validation.error);
- *   }
- *   const { prompt, provider, model, apiKey } = validation.value;
- *   // ...
- * });
- * ```
- */
-
 import { z } from 'zod';
 import { AccessModifierSchema } from './common-schemas';
 
 const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
 
-// ---------------------------------------------------------------------------
 // AI Generation Request
-// ---------------------------------------------------------------------------
 
 /**
  * Schema for AI generation request body.
@@ -53,9 +29,7 @@ export const AIGenerateBodySchema = z.object({
 /** Validated type for AI generation request body. */
 export type ValidatedAIGenerateBody = z.infer<typeof AIGenerateBodySchema>;
 
-// ---------------------------------------------------------------------------
 // Plugin Deploy-Generated Request
-// ---------------------------------------------------------------------------
 
 /**
  * Schema for POST /plugins/deploy-generated request body.
@@ -105,9 +79,7 @@ export const PluginDeployGeneratedSchema = z.object({
 /** Validated type for plugin deploy-generated request body. */
 export type ValidatedPluginDeployGenerated = z.infer<typeof PluginDeployGeneratedSchema>;
 
-// ---------------------------------------------------------------------------
 // AI Generate From URL Request
-// ---------------------------------------------------------------------------
 
 /**
  * Schema for POST /pipelines/generate/from-url/stream request body.

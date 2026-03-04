@@ -1,8 +1,3 @@
-/**
- * @module openapi/routes/message-routes
- * @description OpenAPI route specs for the Message service.
- */
-
 import { addRegistration, registry } from '../registry';
 
 const tags = ['Messages'];

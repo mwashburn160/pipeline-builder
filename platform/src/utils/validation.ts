@@ -1,8 +1,3 @@
-/**
- * @module utils/validation
- * @description Zod schemas for input validation on key API endpoints.
- */
-
 import { z } from 'zod';
 import { config } from '../config';
 
@@ -18,9 +13,7 @@ const passwordSchema = z.string().min(config.auth.passwordMinLength).max(128)
   .regex(/[a-z]/, 'Must contain at least one lowercase letter')
   .regex(/[0-9]/, 'Must contain at least one digit');
 
-// ============================================================================
 // Auth Schemas
-// ============================================================================
 
 /** Registration request body schema. */
 export const registerSchema = z.object({
@@ -41,9 +34,7 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
-// ============================================================================
 // OAuth Schemas
-// ============================================================================
 
 /** OAuth callback request body schema (authorization code + CSRF state). */
 export const oauthCallbackSchema = z.object({
@@ -51,9 +42,7 @@ export const oauthCallbackSchema = z.object({
   state: z.string().min(1, 'State parameter is required'),
 });
 
-// ============================================================================
 // User Schemas
-// ============================================================================
 
 /** User profile update schema (at least one field required). */
 export const updateProfileSchema = z.object({
@@ -69,9 +58,7 @@ export const changePasswordSchema = z.object({
   newPassword: passwordSchema,
 });
 
-// ============================================================================
 // Invitation Schemas
-// ============================================================================
 
 /** Invitation send request schema. */
 export const sendInvitationSchema = z.object({
@@ -81,9 +68,7 @@ export const sendInvitationSchema = z.object({
   allowedOAuthProviders: z.array(z.enum(['google'])).optional(),
 });
 
-// ============================================================================
 // Organization Schemas
-// ============================================================================
 
 /** Organization update schema (name and/or description). */
 export const updateOrganizationSchema = z.object({

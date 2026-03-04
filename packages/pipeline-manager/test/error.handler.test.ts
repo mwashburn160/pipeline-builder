@@ -1,8 +1,6 @@
 import { ValidationError, NetworkError } from '../src/utils/error-handler';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('ValidationError', () => {
   it('should create error with message', () => {

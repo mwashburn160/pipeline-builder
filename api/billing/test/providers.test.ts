@@ -49,9 +49,7 @@ import { AWSMarketplaceProvider } from '../src/providers/aws-marketplace-provide
 import { StripeProvider } from '../src/providers/stripe-provider';
 import { StubPaymentProvider } from '../src/providers/stub-provider';
 
-// ---------------------------------------------------------------------------
 // StubPaymentProvider
-// ---------------------------------------------------------------------------
 
 describe('StubPaymentProvider', () => {
   const provider = new StubPaymentProvider();
@@ -80,9 +78,7 @@ describe('StubPaymentProvider', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // AWSMarketplaceProvider
-// ---------------------------------------------------------------------------
 
 describe('AWSMarketplaceProvider', () => {
   const marketplaceConfig = {
@@ -190,9 +186,7 @@ describe('AWSMarketplaceProvider', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // StripeProvider
-// ---------------------------------------------------------------------------
 
 describe('StripeProvider', () => {
   const stripeConfig = {

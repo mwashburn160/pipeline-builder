@@ -3,9 +3,7 @@ import {
   sendEntityNotFound,
 } from '../src/helpers/crud-helpers';
 
-// ---------------------------------------------------------------------------
 // Mock Response
-// ---------------------------------------------------------------------------
 function mockRes() {
   const res: any = {
     statusCode: 0,
@@ -16,9 +14,7 @@ function mockRes() {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('normalizeArrayFields', () => {
   it('should convert non-array fields to empty arrays', () => {

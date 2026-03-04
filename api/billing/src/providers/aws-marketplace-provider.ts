@@ -1,17 +1,3 @@
-/**
- * @module providers/aws-marketplace-provider
- * @description AWS Marketplace SaaS payment provider implementation.
- *
- * AWS Marketplace SaaS flow:
- * 1. Customer subscribes on Marketplace → redirected to registration URL with token
- * 2. We call ResolveCustomer to exchange token for CustomerIdentifier + ProductCode
- * 3. We call GetEntitlements to verify tier entitlement
- * 4. SNS notifications drive subscription lifecycle changes (cancel, upgrade)
- *
- * Key difference from Stripe: cancel/update/reactivate are push-based (SNS),
- * not pull-based (API calls from our side).
- */
-
 import {
   MarketplaceEntitlementServiceClient,
   GetEntitlementsCommand,
@@ -57,9 +43,7 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     });
   }
 
-  // -----------------------------------------------------------------------
   // PaymentProvider interface methods
-  // -----------------------------------------------------------------------
 
   /**
    * Look up the AWS Marketplace CustomerIdentifier for an organization.
@@ -145,9 +129,7 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     logger.debug('AWS Marketplace: reactivateSubscription handled via SNS', { externalId });
   }
 
-  // -----------------------------------------------------------------------
   // AWS Marketplace-specific methods
-  // -----------------------------------------------------------------------
 
   /**
    * Exchange a marketplace registration token for customer identity.

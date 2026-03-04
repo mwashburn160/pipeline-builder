@@ -1,15 +1,11 @@
 import { sendMessageNotFound, sendThreadNotFound } from '../src/helpers/message-helpers';
 
-// ---------------------------------------------------------------------------
 // Mock api-core
-// ---------------------------------------------------------------------------
 jest.mock('@mwashburn160/api-core', () => ({
   sendEntityNotFound: jest.fn(),
 }));
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('message-helpers', () => {
   describe('sendMessageNotFound', () => {

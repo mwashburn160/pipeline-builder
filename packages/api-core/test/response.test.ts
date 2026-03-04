@@ -11,9 +11,7 @@ import {
   parsePaginationParams,
 } from '../src/utils/response';
 
-// ---------------------------------------------------------------------------
 // Mock Express Response
-// ---------------------------------------------------------------------------
 function mockRes() {
   const res: any = {
     statusCode: 0,
@@ -34,9 +32,7 @@ function mockRes() {
   return res;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('sendSuccess', () => {
   it('should send success response with data', () => {

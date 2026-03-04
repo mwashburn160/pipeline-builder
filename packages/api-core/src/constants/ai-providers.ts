@@ -1,28 +1,4 @@
-/**
- * @module constants/ai-providers
- * @description AI provider catalog — single source of truth for provider
- * metadata, model lists, and environment variable mappings.
- *
- * Both the pipeline and plugin AI generation services import from here
- * rather than maintaining their own duplicate catalogs.
- *
- * @example
- * ```typescript
- * import { AI_PROVIDER_CATALOG, getAIProviderModels, AI_PROVIDER_ENV_VARS } from '@mwashburn160/api-core';
- *
- * // Get models for a provider
- * const models = getAIProviderModels('anthropic');
- * // => [{ id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' }, ...]
- *
- * // Get the env var name for a provider
- * const envVar = AI_PROVIDER_ENV_VARS['anthropic'];
- * // => 'ANTHROPIC_API_KEY'
- * ```
- */
-
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /** Metadata for a single AI model. */
 export interface AIModelInfo {
@@ -42,9 +18,7 @@ export interface AIProviderInfo {
   models: AIModelInfo[];
 }
 
-// ---------------------------------------------------------------------------
 // Catalog
-// ---------------------------------------------------------------------------
 
 /**
  * Standard AI provider catalog — single source of truth for all supported
@@ -121,9 +95,7 @@ export const AI_PROVIDER_ENV_VARS: Record<string, string> = {
   'ollama': 'OLLAMA_BASE_URL',
 };
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Get the model list for a given provider ID.

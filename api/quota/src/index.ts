@@ -1,18 +1,3 @@
-/**
- * @module quota
- * @description Quota microservice.
- *
- * Routes mounted under /quotas:
- *
- *   GET    /quotas                    — own org quotas (from JWT)
- *   GET    /quotas/all                — all orgs with quotas (system admin)
- *   GET    /quotas/:orgId             — all quotas for a specific org
- *   GET    /quotas/:orgId/:quotaType  — single quota type status
- *   PUT    /quotas/:orgId             — update org name/slug/quotas (system admin)
- *   POST   /quotas/:orgId/reset       — reset usage (system admin)
- *   POST   /quotas/:orgId/increment   — increment usage (same-org or admin)
- */
-
 import { createHealthRouter } from '@mwashburn160/api-core';
 import { createApp, runServer } from '@mwashburn160/api-server';
 import mongoose from 'mongoose';

@@ -1,13 +1,4 @@
 /**
- * Error type definitions.
- *
- * Provides error codes, handler options, and structured detail
- * interfaces used by the CLI error handling pipeline.
- *
- * @module types/error
- */
-
-/**
  * Numeric exit-code constants mapped to error categories.
  * Used by {@link handleError} to set the process exit code.
  */

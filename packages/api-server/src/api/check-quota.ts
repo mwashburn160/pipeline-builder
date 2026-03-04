@@ -1,10 +1,3 @@
-/**
- * @module api/check-quota
- * @description Middleware that checks quota before allowing the request to proceed.
- *
- * Must be used after `requireAuth` and `requireOrgId`.
- */
-
 import { ErrorCode, createLogger, getIdentity, sendError } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaService, HttpRequest } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';

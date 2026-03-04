@@ -1,9 +1,3 @@
-/**
- * @module api/get-context
- * @description Safe accessor for request context that throws a clear error
- * if context middleware is not configured.
- */
-
 import type { Request } from 'express';
 import type { RequestContext } from './request-types';
 

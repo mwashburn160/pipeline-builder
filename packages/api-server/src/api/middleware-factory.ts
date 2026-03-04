@@ -1,11 +1,3 @@
-/**
- * @module api/middleware-factory
- * @description Factory functions for composing common middleware chains.
- *
- * Reduces boilerplate by providing pre-configured middleware combinations
- * for common route patterns (public, authenticated, protected with quota).
- */
-
 import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
 import { RequestHandler } from 'express';
 import { checkQuota } from './check-quota';

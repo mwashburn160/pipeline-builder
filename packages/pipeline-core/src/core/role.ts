@@ -1,13 +1,9 @@
-/**
- * @module core/role
- * @description Resolves IAM role configurations into CDK IRole instances for use in CodePipeline constructs.
- */
-
 import { Stack } from 'aws-cdk-lib';
 import { Effect, IRole, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { UniqueId } from './id-generator';
 import type { CodeBuildDefaultRoleOptions, RoleConfig } from './role-types';
+import { Config } from '../config/app-config';
 
 /**
  * Resolve a RoleConfig into a CDK IRole.
@@ -55,7 +51,7 @@ function createCodeBuildDefaultRole(
   });
 
   const stack = Stack.of(scope);
-  const logGroupPrefix = process.env.LOG_GROUP_NAME || '/pipeline-builder/logs';
+  const logGroupPrefix = Config.get('aws').logging.groupName;
   // Derive ARN pattern from the configured log group name (strip trailing segment for wildcard)
   const logGroupPattern = logGroupPrefix.replace(/\/[^/]*$/, '/*');
   role.addToPolicy(

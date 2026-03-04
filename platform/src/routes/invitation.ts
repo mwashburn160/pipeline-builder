@@ -1,9 +1,3 @@
-/**
- * @module routes/invitation
- * @description Organization invitation management routes.
- * Supports email-based and OAuth-based invitation flows.
- */
-
 import { Router } from 'express';
 import {
   sendInvitation,

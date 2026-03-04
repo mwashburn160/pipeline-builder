@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock external dependencies — must be set up before importing the service
-// ---------------------------------------------------------------------------
 const mockFind = jest.fn();
 const mockUpdate = jest.fn();
 const mockUpdateMany = jest.fn();
@@ -52,9 +50,7 @@ jest.mock('drizzle-orm/pg-core', () => ({}));
 
 import { MessageService } from '../src/services/message-service';
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('MessageService', () => {
   let service: MessageService;

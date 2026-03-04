@@ -1,11 +1,3 @@
-/**
- * @module types/quota-tiers
- * @description Canonical quota tier definitions.
- *
- * This is the single source of truth for tier names, labels, and default limits.
- * All services (quota, platform, frontend) should derive their tier data from here.
- */
-
 /** Available quota tier identifiers. */
 export type QuotaTier = 'developer' | 'pro' | 'unlimited';
 

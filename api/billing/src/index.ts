@@ -1,27 +1,3 @@
-/**
- * @module billing
- * @description Billing microservice.
- *
- * Routes mounted under /billing:
- *
- *   GET    /billing/plans                        — list all active plans (public)
- *   GET    /billing/plans/:planId                — get single plan details (public)
- *   GET    /billing/subscriptions                — get current org subscription
- *   POST   /billing/subscriptions                — create subscription (pick plan + interval)
- *   PUT    /billing/subscriptions/:id            — change plan or interval
- *   POST   /billing/subscriptions/:id/cancel     — cancel at period end
- *   POST   /billing/subscriptions/:id/reactivate — reactivate canceled subscription
- *   GET    /billing/admin/subscriptions          — list all subscriptions (admin)
- *   PUT    /billing/admin/subscriptions/:id      — admin override subscription
- *   GET    /billing/admin/events                 — list billing events (admin)
- *   POST   /billing/marketplace/resolve          — AWS Marketplace registration redirect
- *   POST   /billing/marketplace/sns              — AWS Marketplace SNS webhook
- *   GET    /billing/marketplace/entitlements      — check marketplace entitlements
- *   POST   /billing/stripe/webhook               — Stripe webhook events
- *
- * Set BILLING_ENABLED=false to run the service in disabled mode (health check only, 503 on all billing routes).
- */
-
 import { createHealthRouter, createLogger, sendError } from '@mwashburn160/api-core';
 import { createApp, runServer } from '@mwashburn160/api-server';
 import express from 'express';

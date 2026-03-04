@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------------------
 // Mock config and models before importing
-// ---------------------------------------------------------------------------
 jest.mock('../src/config', () => ({
   config: {
     auth: {
@@ -38,9 +36,7 @@ import {
   verifyRefreshToken,
 } from '../src/utils/token';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function mockUser(overrides: Partial<{
   _id: { toString(): string };
   username: string;
@@ -61,9 +57,7 @@ function mockUser(overrides: Partial<{
   } as any;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('token utilities', () => {
   describe('createAccessTokenPayload', () => {

@@ -1,13 +1,6 @@
-/**
- * @module models/subscription
- * @description Mongoose schema and model for organization subscriptions.
- */
-
 import mongoose, { Schema, Document } from 'mongoose';
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
 export type BillingInterval = 'monthly' | 'annual';
@@ -27,9 +20,7 @@ export interface SubscriptionDocument extends Document {
   updatedAt: Date;
 }
 
-// ---------------------------------------------------------------------------
 // Schema
-// ---------------------------------------------------------------------------
 
 const subscriptionSchema = new Schema<SubscriptionDocument>(
   {
@@ -70,9 +61,7 @@ subscriptionSchema.index(
   { sparse: true },
 );
 
-// ---------------------------------------------------------------------------
 // Model (safe for re-registration in tests)
-// ---------------------------------------------------------------------------
 
 export const Subscription =
   (mongoose.models.Subscription as mongoose.Model<SubscriptionDocument>) ||

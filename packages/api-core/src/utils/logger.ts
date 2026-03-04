@@ -1,8 +1,3 @@
-/**
- * @module utils/logger
- * @description Standardized Winston logger for all API microservices.
- */
-
 import winston from 'winston';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;

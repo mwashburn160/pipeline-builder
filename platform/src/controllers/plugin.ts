@@ -1,9 +1,3 @@
-/**
- * @module controllers/plugin
- * @description Plugin controller that proxies plugin CRUD and upload operations
- * to the plugin microservice via {@link pluginService}.
- */
-
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { getAuthContext } from '../helpers/controller-helper';
