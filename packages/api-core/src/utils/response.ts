@@ -4,8 +4,11 @@
  */
 
 import { Response } from 'express';
+import { createLogger } from '../logging/logger';
 import { QuotaInfo } from '../types/common';
 import { ErrorCode } from '../types/error-codes';
+
+const logger = createLogger('response');
 
 /**
  * Send a standardized success response.
@@ -27,6 +30,11 @@ export function sendSuccess<T>(
   data?: T,
   message?: string,
 ): void {
+  if (res.headersSent) {
+    logger.warn('Attempted to send success after headers already sent', { statusCode });
+    return;
+  }
+
   const response: {
     success: true;
     statusCode: number;
@@ -70,6 +78,11 @@ export function sendError(
   code?: ErrorCode | string,
   details?: unknown,
 ): void {
+  if (res.headersSent) {
+    logger.warn('Attempted to send error after headers already sent', { statusCode, message });
+    return;
+  }
+
   const response: {
     success: false;
     statusCode: number;
@@ -176,6 +189,11 @@ export function sendPaginated<T>(
     statusCode?: number;
   },
 ): void {
+  if (res.headersSent) {
+    logger.warn('Attempted to send paginated response after headers already sent');
+    return;
+  }
+
   const { limit, offset, total, message, statusCode = 200 } = options;
 
   const response: PaginatedResponse<T> = {
