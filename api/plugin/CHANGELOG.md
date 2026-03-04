@@ -1,3 +1,13 @@
+## 1.29.7 (2026-03-04)
+
+### 🩹 Fixes
+
+- created docker build temp folder ([e3eaaa30](https://github.com/mwashburn160/pipeline-builder/commit/e3eaaa30))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.29.6 (2026-03-04)
 
 ### 🩹 Fixes
