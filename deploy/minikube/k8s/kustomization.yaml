@@ -66,19 +66,19 @@ labels:
 images:
   # Application Services
   - name: ghcr.io/mwashburn160/platform
-    newTag: "1.26.5"
+    newTag: "1.30.5"
   - name: ghcr.io/mwashburn160/pipeline
-    newTag: "1.25.5"
+    newTag: "1.29.5"
   - name: ghcr.io/mwashburn160/plugin
-    newTag: "1.25.5"
+    newTag: "1.29.6"
   - name: ghcr.io/mwashburn160/message
-    newTag: "1.7.5"
+    newTag: "1.11.5"
   - name: ghcr.io/mwashburn160/quota
-    newTag: "1.24.5"
+    newTag: "1.28.5"
   - name: ghcr.io/mwashburn160/billing
-    newTag: "1.9.5"
+    newTag: "1.13.5"
   - name: ghcr.io/mwashburn160/frontend
-    newTag: "1.27.5"
+    newTag: "1.31.5"
   # Infrastructure
   - name: nginx
     newTag: "1.27"
