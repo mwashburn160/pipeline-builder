@@ -1,3 +1,13 @@
+## 1.32.0 (2026-03-04)
+
+### 🚀 Features
+
+- added help page ([6852166a](https://github.com/mwashburn160/pipeline-builder/commit/6852166a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.5 (2026-03-04)
 
 ### 🩹 Fixes
