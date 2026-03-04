@@ -687,6 +687,7 @@ services:
         condition: service_healthy
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
+      - '${DOCKER_BUILD_TEMP_ROOT}:${DOCKER_BUILD_TEMP_ROOT}'
     group_add:
       - ${DOCKER_GID:-999}
     environment:
@@ -698,6 +699,7 @@ services:
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}

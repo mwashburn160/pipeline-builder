@@ -19,7 +19,7 @@ import type { Job } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 
-import { buildAndPush } from '../helpers/docker-build';
+import { buildAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
 import type { RegistryInfo } from '../helpers/docker-build';
 
 const logger = createLogger('plugin-build-queue');
@@ -357,7 +357,7 @@ let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Remove temp directories older than TEMP_DIR_MAX_AGE_MS. */
 function cleanupStaleTempDirs(): void {
-  const tmpRoot = path.join(process.cwd(), 'tmp');
+  const tmpRoot = BUILD_TEMP_ROOT;
   if (!fs.existsSync(tmpRoot)) return;
 
   try {

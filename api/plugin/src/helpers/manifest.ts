@@ -11,6 +11,8 @@ import AdmZip from 'adm-zip';
 import { v7 as uuid } from 'uuid';
 import YAML from 'yaml';
 
+import { BUILD_TEMP_ROOT } from './docker-build';
+
 /** Parsed and validated result from a plugin ZIP. */
 export interface ParsedPlugin {
   manifest: PluginManifest;
@@ -49,7 +51,7 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
   }
 
   // --- Extract -------------------------------------------------------------
-  const extractDir = path.join(process.cwd(), 'tmp', uuid());
+  const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
   fs.mkdirSync(extractDir, { recursive: true });
   zip.extractAllTo(extractDir, true);
 
