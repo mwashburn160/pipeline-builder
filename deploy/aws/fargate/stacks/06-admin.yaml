@@ -22,7 +22,7 @@ Parameters:
     Default: registry:2
   PgadminImage:
     Type: String
-    Default: dpage/pgadmin4:8
+    Default: dpage/pgadmin4:9
   MongoExpressImage:
     Type: String
     Default: mongo-express:1.0
