@@ -51,8 +51,8 @@ ENV PATH="/opt/pyenv/shims:/opt/pyenv/bin:${PATH}"
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 17.0.13-tem && \
-    sdk install java 21.0.5-tem && \
+    sdk install java 17.0.18-tem && \
+    sdk install java 21.0.10-tem && \
     sdk install maven 3.9.9 && \
     sdk install gradle 8.12"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
@@ -88,8 +88,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV RBENV_ROOT=/opt/rbenv
 RUN git clone https://github.com/rbenv/rbenv.git ${RBENV_ROOT} \
     && git clone https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
-RUN ${RBENV_ROOT}/bin/rbenv install 3.2.6 && \
-    ${RBENV_ROOT}/bin/rbenv install 3.3.6
+RUN ${RBENV_ROOT}/bin/rbenv install 3.2.10 && \
+    ${RBENV_ROOT}/bin/rbenv install 3.3.10
 ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
 
 # ─── Rust via rustup (activated when LANGUAGE=rust) ───

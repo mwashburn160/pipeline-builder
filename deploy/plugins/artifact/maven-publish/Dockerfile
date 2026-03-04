@@ -23,9 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 17.0.13-tem && \
+    sdk install java 17.0.18-tem && \
     sdk install maven 3.9.9 && \
-    sdk default java 17.0.13-tem && \
+    sdk default java 17.0.18-tem && \
     sdk default maven 3.9.9"
 
 # Add SDKMAN candidates to PATH
