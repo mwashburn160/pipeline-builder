@@ -13,6 +13,7 @@ import {
   CreditCard,
   Settings,
   KeyRound,
+  HelpCircle,
   Mail,
   Sun,
   Moon,
@@ -86,6 +87,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
       { title: 'Settings', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
+      { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
     ],
   },
 ];
