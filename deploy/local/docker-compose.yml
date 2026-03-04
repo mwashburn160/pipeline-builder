@@ -674,7 +674,7 @@ services:
         reservations:
           cpus: '0.5'
           memory: 768M
-    image: 'ghcr.io/mwashburn160/plugin:1.29.5'
+    image: 'ghcr.io/mwashburn160/plugin:1.29.6'
     container_name: plugin
     depends_on:
       postgres:
