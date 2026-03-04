@@ -407,7 +407,7 @@ Used by the plugin service for building plugin Docker images.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_BUILD_TIMEOUT_MS` | `300000` | Docker build timeout in ms (300000 = 5 min) |
+| `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Docker build timeout in ms (900000 = 15 min) |
 | `DOCKER_BUILDER_NAME` | `plugin-builder` | Docker buildx builder name |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Plugin image tag prefix |
 
