@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
@@ -57,6 +58,7 @@ export default function PluginsPage() {
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [pagination, setPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
 
   const canViewPublic = isSysAdmin;
   const canUploadPublic = isSysAdmin;
@@ -82,18 +84,37 @@ export default function PluginsPage() {
       if (debouncedName.trim()) params.name = debouncedName.trim();
       if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
       if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
+      params.limit = String(pagination.limit);
+      params.offset = String(pagination.offset);
       const response = await api.listPlugins(params);
       setPlugins(response.data?.plugins || []);
+      const pg = response.data?.pagination;
+      if (pg) {
+        setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load plugins');
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, canViewPublic]);
+  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, canViewPublic, pagination.limit, pagination.offset]);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
+  }, [debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default]);
 
   useEffect(() => {
     if (isAuthenticated) fetchPlugins();
   }, [isAuthenticated, fetchPlugins]);
+
+  const handlePageChange = (offset: number) => {
+    setPagination(prev => ({ ...prev, offset }));
+  };
+
+  const handlePageSizeChange = (limit: number) => {
+    setPagination(prev => ({ ...prev, limit, offset: 0 }));
+  };
 
   const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
     if (['access', 'status', 'default', 'pluginType', 'computeType'].includes(key)) return value !== 'all';
@@ -293,7 +314,7 @@ export default function PluginsPage() {
         )}
 
         {!isLoading && hasActiveFilters && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {plugins.length} plugins</p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {pagination.total} plugins</p>
         )}
       </div>
 
@@ -305,19 +326,28 @@ export default function PluginsPage() {
           action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
         />
       ) : (
-        <DataTable
-          data={filteredPlugins}
-          columns={pluginColumns}
-          isLoading={isLoading}
-          emptyState={{
-            icon: Puzzle,
-            title: 'No plugins yet',
-            description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
-            action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
-          }}
-          getRowKey={(p) => p.id}
-          defaultSortColumn="name"
-        />
+        <>
+          <DataTable
+            data={filteredPlugins}
+            columns={pluginColumns}
+            isLoading={isLoading}
+            emptyState={{
+              icon: Puzzle,
+              title: 'No plugins yet',
+              description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
+              action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
+            }}
+            getRowKey={(p) => p.id}
+            defaultSortColumn="name"
+          />
+          {!isLoading && pagination.total > 0 && (
+            <Pagination
+              pagination={pagination}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+            />
+          )}
+        </>
       )}
 
       {showCreateModal && (

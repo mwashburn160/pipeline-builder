@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
@@ -57,6 +58,7 @@ export default function PipelinesPage() {
   const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Pipeline | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [pagination, setPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
 
   const canViewPublic = isSysAdmin;
   const canCreatePublic = isSysAdmin;
@@ -82,18 +84,37 @@ export default function PipelinesPage() {
       if (debouncedProject.trim()) params.project = debouncedProject.trim();
       if (debouncedOrganization.trim()) params.organization = debouncedOrganization.trim();
       if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
+      params.limit = String(pagination.limit);
+      params.offset = String(pagination.offset);
       const response = await api.listPipelines(params);
       setPipelines(response.data?.pipelines || []);
+      const pg = response.data?.pagination;
+      if (pg) {
+        setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load pipelines');
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default, canViewPublic]);
+  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default, canViewPublic, pagination.limit, pagination.offset]);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
+  }, [debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default]);
 
   useEffect(() => {
     if (isAuthenticated) fetchPipelines();
   }, [isAuthenticated, fetchPipelines]);
+
+  const handlePageChange = (offset: number) => {
+    setPagination(prev => ({ ...prev, offset }));
+  };
+
+  const handlePageSizeChange = (limit: number) => {
+    setPagination(prev => ({ ...prev, limit, offset: 0 }));
+  };
 
   const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
     if (['access', 'status', 'default'].includes(key)) return value !== 'all';
@@ -313,7 +334,7 @@ export default function PipelinesPage() {
         )}
 
         {!isLoading && hasActiveFilters && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPipelines.length} of {pipelines.length} pipelines</p>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPipelines.length} of {pagination.total} pipelines</p>
         )}
       </div>
 
@@ -325,19 +346,28 @@ export default function PipelinesPage() {
           action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
         />
       ) : (
-        <DataTable
-          data={filteredPipelines}
-          columns={pipelineColumns}
-          isLoading={isLoading}
-          emptyState={{
-            icon: GitBranch,
-            title: 'No pipelines yet',
-            description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
-            action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
-          }}
-          getRowKey={(p) => p.id}
-          defaultSortColumn="name"
-        />
+        <>
+          <DataTable
+            data={filteredPipelines}
+            columns={pipelineColumns}
+            isLoading={isLoading}
+            emptyState={{
+              icon: GitBranch,
+              title: 'No pipelines yet',
+              description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
+              action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
+            }}
+            getRowKey={(p) => p.id}
+            defaultSortColumn="name"
+          />
+          {!isLoading && pagination.total > 0 && (
+            <Pagination
+              pagination={pagination}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+            />
+          )}
+        </>
       )}
 
       <CreatePipelineModal
