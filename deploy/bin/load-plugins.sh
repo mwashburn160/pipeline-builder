@@ -112,7 +112,7 @@ maybe_rebuild_zip() {
     return 0
   fi
 
-  (cd "$plugin_path" && zip -q plugin.zip $zip_files)
+  (cd "$plugin_path" && zip -q plugin.zip $zip_files)  # word-split intentional: 1-2 known filenames
   echo "    $reason"
 }
 

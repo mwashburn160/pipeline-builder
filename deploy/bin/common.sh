@@ -8,6 +8,13 @@ SCRIPT_DIR="${SCRIPT_DIR:-$COMMON_DIR}"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 
+# ---- Colors (shared across all scripts) ----
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
 # ---------------------------------------------------------------------------
 # wait_for_health — poll $PLATFORM_BASE_URL/health until 200
 #   $1  max retries  (default 30)
@@ -62,7 +69,8 @@ login() {
   _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \
-    -d "$(printf '{"identifier":"%s","password":"%s"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")" 2>&1) || true
+    -d "$(jq -n --arg id "$PLATFORM_IDENTIFIER" --arg pw "$PLATFORM_PASSWORD" \
+      '{identifier: $id, password: $pw}')" 2>&1) || true
 
   JWT_TOKEN=$(printf '%s' "$_resp" | jq -r '.data.accessToken' 2>/dev/null) || true
 
@@ -90,6 +98,48 @@ require_auth() {
   echo "=== Authenticating ==="
   login
   echo ""
+}
+
+# ---------------------------------------------------------------------------
+# check_url — verify a URL is reachable (HTTP 200/301/302)
+#   $1 url  $2 label
+#   Uses/increments: PASSED, FAILED, ERRORS[], CHECK_TIMEOUT (default 15)
+# ---------------------------------------------------------------------------
+check_url() {
+  _curl_code=$(curl -fsSL -o /dev/null -w "%{http_code}" -L --head --max-time "${CHECK_TIMEOUT:-15}" "$1" 2>/dev/null) || _curl_code="000"
+  if [ "$_curl_code" = "200" ] || [ "$_curl_code" = "302" ] || [ "$_curl_code" = "301" ]; then
+    echo -e "    ${GREEN}OK${NC}  $2"
+    PASSED=$((PASSED + 1))
+  else
+    echo -e "    ${RED}FAIL${NC} HTTP $_curl_code — $2"
+    FAILED=$((FAILED + 1))
+    ERRORS+=("$2 (HTTP $_curl_code)")
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# check_docker_image — verify a Docker image exists
+#   $1 image  $2 label
+#   Uses/increments: PASSED, FAILED, ERRORS[], CHECK_TIMEOUT (default 15)
+# ---------------------------------------------------------------------------
+check_docker_image() {
+  if docker manifest inspect "$1" > /dev/null 2>&1; then
+    echo -e "    ${GREEN}OK${NC}  $2"
+    PASSED=$((PASSED + 1))
+    return
+  fi
+  # Fallback: Docker Hub Tags API (avoids unauthenticated pull rate limits)
+  _img_repo="${1%%:*}"
+  _img_tag="${1#*:}"
+  _api_result=$(curl -s --max-time "${CHECK_TIMEOUT:-15}" "https://hub.docker.com/v2/repositories/${_img_repo}/tags/${_img_tag}" 2>/dev/null)
+  if echo "$_api_result" | grep -q '"name"'; then
+    echo -e "    ${GREEN}OK${NC}  $2 (via hub API)"
+    PASSED=$((PASSED + 1))
+  else
+    echo -e "    ${RED}FAIL${NC} image not found — $2"
+    FAILED=$((FAILED + 1))
+    ERRORS+=("$2 (image not found)")
+  fi
 }
 
 # ---------------------------------------------------------------------------

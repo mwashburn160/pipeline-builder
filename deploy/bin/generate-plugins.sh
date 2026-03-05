@@ -20,55 +20,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSIONS_FILE="$DEPLOY_DIR/plugins/plugin-versions.yaml"
 MODE="${1:---verify}"
 CHECK_ONE="${2:-}"
-TIMEOUT=15
+CHECK_TIMEOUT=15
 PASSED=0
 FAILED=0
 SKIPPED=0
 ERRORS=()
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# ── Helpers ──
-
-check_url() {
-  local url="$1" label="$2"
-  local code
-  code=$(curl -fsSL -o /dev/null -w "%{http_code}" -L --head --max-time "$TIMEOUT" "$url" 2>/dev/null) || code="000"
-  if [ "$code" = "200" ] || [ "$code" = "302" ] || [ "$code" = "301" ]; then
-    echo -e "    ${GREEN}OK${NC}  $label"
-    PASSED=$((PASSED + 1))
-  else
-    echo -e "    ${RED}FAIL${NC} HTTP $code — $label"
-    FAILED=$((FAILED + 1))
-    ERRORS+=("$label (HTTP $code)")
-  fi
-}
-
-check_docker_image() {
-  local image="$1" label="$2"
-  if docker manifest inspect "$image" > /dev/null 2>&1; then
-    echo -e "    ${GREEN}OK${NC}  $label"
-    PASSED=$((PASSED + 1))
-    return
-  fi
-  # Fallback: Docker Hub Tags API (avoids unauthenticated pull rate limits)
-  local repo="${image%%:*}"
-  local tag="${image#*:}"
-  local api_result
-  api_result=$(curl -s --max-time "$TIMEOUT" "https://hub.docker.com/v2/repositories/${repo}/tags/${tag}" 2>/dev/null)
-  if echo "$api_result" | grep -q '"name"'; then
-    echo -e "    ${GREEN}OK${NC}  $label (via hub API)"
-    PASSED=$((PASSED + 1))
-  else
-    echo -e "    ${RED}FAIL${NC} image not found — $label"
-    FAILED=$((FAILED + 1))
-    ERRORS+=("$label (image not found)")
-  fi
-}
 
 # ── YAML parser (lightweight, no python dependency) ──
 # Reads plugin-versions.yaml and extracts tool entries.

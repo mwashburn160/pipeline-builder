@@ -192,7 +192,7 @@ describe('docker-build', () => {
           '-t', 'registry:5000/plugin:p-test-abc123',
           '/tmp/build-ctx',
         ],
-        { timeout: 300_000 },
+        { timeout: 900_000 },
       );
     });
 
