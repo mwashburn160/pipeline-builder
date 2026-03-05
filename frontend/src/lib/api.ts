@@ -684,7 +684,7 @@ class ApiClient {
 
   async listPlugins(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<{ plugins: Plugin[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/plugins${query}`);
+    return this.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins${query}`);
   }
 
   async getPluginById(id: string) {
@@ -778,7 +778,7 @@ class ApiClient {
 
   async listPipelines(params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<{ pipelines: Pipeline[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/pipelines${query}`);
+    return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${query}`);
   }
 
   async getPipelineById(id: string) {
