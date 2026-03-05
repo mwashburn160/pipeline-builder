@@ -1,3 +1,24 @@
+## 1.31.0 (2026-03-05)
+
+### 🚀 Features
+
+- code review cleanup ([ba1675b5](https://github.com/mwashburn160/pipeline-builder/commit/ba1675b5))
+
+### 🩹 Fixes
+
+- rebuild all plugin.zip files ([a9445ad3](https://github.com/mwashburn160/pipeline-builder/commit/a9445ad3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.37.0
+- Updated @mwashburn160/api-server to 1.35.0
+- Updated @mwashburn160/api-core to 1.36.0
+- Updated @mwashburn160/ai-core to 1.10.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.30.7 (2026-03-04)
 
 ### 🩹 Fixes

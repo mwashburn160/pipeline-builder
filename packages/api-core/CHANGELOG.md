@@ -1,3 +1,13 @@
+## 1.36.0 (2026-03-05)
+
+### 🚀 Features
+
+- code review cleanup ([ba1675b5](https://github.com/mwashburn160/pipeline-builder/commit/ba1675b5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.35.7 (2026-03-04)
 
 ### 🩹 Fixes
