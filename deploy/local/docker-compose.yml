@@ -2,31 +2,35 @@
 # Shared YAML Anchors
 # =============================================================================
 
-# -- Service defaults for API containers --
-x-api-defaults:
-  restart: always
-  networks: &api-networks
-    - backend-network
-  healthcheck: &api-healthcheck
-    test:
-      - CMD
-      - curl
-      - '-f'
-      - 'http://localhost:3000/health'
-    interval: 30s
-    timeout: 10s
-    retries: 5
-    start_period: 60s
-  deploy: &api-deploy
-    resources:
-      limits:
-        cpus: '0.75'
-        memory: 768M
-      reservations:
-        cpus: '0.4'
-        memory: 384M
+# -- Healthcheck for API containers --
+x-api-healthcheck: &api-healthcheck
+  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 60s
 
-# -- Env shared by ALL api services (platform, plugin, pipeline, quota) --
+# -- Deploy defaults for API containers --
+x-api-deploy: &api-deploy
+  resources:
+    limits:
+      cpus: '0.75'
+      memory: 768M
+    reservations:
+      cpus: '0.4'
+      memory: 384M
+
+# -- Deploy defaults for database containers --
+x-db-deploy: &db-deploy
+  resources:
+    limits:
+      cpus: '1.5'
+      memory: 1.5G
+    reservations:
+      cpus: '0.8'
+      memory: 768M
+
+# -- Env shared by ALL API services --
 x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -45,7 +49,7 @@ x-postgres-env: &postgres-env
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: ${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}
   REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
 
-# -- Env shared by Express server services (platform, plugin, pipeline) --
+# -- Env shared by Express server services --
 x-server-env: &server-env
   CORS_CREDENTIALS: ${CORS_CREDENTIALS:-true}
   CORS_ORIGIN: ${CORS_ORIGIN}
@@ -57,7 +61,7 @@ x-quota-client-env: &quota-client-env
   QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
   QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
 
-# -- Env for services that use AI generation (pipeline, plugin) --
+# -- Env for services that use AI generation --
 x-ai-env: &ai-env
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -75,10 +79,10 @@ services:
   nginx:
     image: 'nginx:1.27'
     container_name: nginx
+    restart: always
     ports:
       - '8080:8080'
       - '8443:8443'
-    restart: always
     environment:
       JWT_SECRET: ${JWT_SECRET}
     volumes:
@@ -128,18 +132,18 @@ services:
   mongodb:
     image: 'mongo:7.0'
     container_name: mongodb
-    command:
-      - mongod
-      - '--bind_ip_all'
-      - '--replSet'
-      - rs0
-      - '--keyFile'
-      - /etc/mongodb-keyfile
     restart: always
+    command: ['mongod', '--bind_ip_all', '--replSet', 'rs0', '--keyFile', '/etc/mongodb-keyfile']
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: platform
+    volumes:
+      - './data/db-data/mongodb/:/data/db/:rw'
+      - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
+      - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
+    networks:
+      - backend-network
     healthcheck:
       test: >
         bash -c 'mongosh --quiet --host localhost:27017 --username
@@ -154,55 +158,29 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    volumes:
-      - './data/db-data/mongodb/:/data/db/:rw'
-      - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
-      - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
-    networks:
-      - backend-network
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 1.5G
-        reservations:
-          cpus: '0.8'
-          memory: 768M
+    deploy: *db-deploy
 
   postgres:
     image: 'postgres:16'
     container_name: postgres
     restart: always
+    command: postgres -c listen_addresses=*
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    command: postgres -c listen_addresses=*
-    healthcheck:
-      test:
-        - CMD
-        - pg_isready
-        - '-U'
-        - ${POSTGRES_USER}
-        - '-d'
-        - ${POSTGRES_DB}
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql/data:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 1.5G
-        reservations:
-          cpus: '0.8'
-          memory: 768M
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy: *db-deploy
 
   redis:
     image: 'redis:7-alpine'
@@ -255,7 +233,6 @@ services:
           memory: 4G
 
   # One-time init container that pulls the default Ollama model.
-  # Runs once on first boot, then exits. Model is persisted in the ollama-data volume.
   ollama-pull:
     image: 'ollama/ollama:latest'
     container_name: ollama-pull
@@ -263,11 +240,254 @@ services:
     entrypoint: ['sh', '-c', 'ollama pull ${OLLAMA_DEFAULT_MODEL:-llama3}']
     environment:
       OLLAMA_HOST: ollama:11434
+    networks:
+      - backend-network
     depends_on:
       ollama:
         condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Application Services
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: 'ghcr.io/mwashburn160/frontend:1.33.7'
+    container_name: frontend
+    restart: always
+    environment:
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL}
+    networks:
+      - proxy-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  platform:
+    image: 'ghcr.io/mwashburn160/platform:1.31.7'
+    container_name: platform
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      # Billing
+      BILLING_ENABLED: ${BILLING_ENABLED:-true}
+      BILLING_SERVICE_HOST: ${BILLING_SERVICE_HOST:-billing}
+      BILLING_SERVICE_PORT: ${BILLING_SERVICE_PORT:-3000}
+      # JWT
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_SALT_ROUNDS: ${JWT_SALT_ROUNDS}
+      REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN}
+      # Platform
+      PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
+      TRUST_PROXY: ${TRUST_PROXY}
+      # MongoDB
+      MONGODB_URI: ${MONGODB_URI}
+      # Email
+      EMAIL_ENABLED: ${EMAIL_ENABLED}
+      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SES_REGION: ${SES_REGION:-us-east-1}
+      SES_ACCESS_KEY_ID: ${SES_ACCESS_KEY_ID}
+      SES_SECRET_ACCESS_KEY: ${SES_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Invitations
+      INVITATION_EXPIRATION_DAYS: ${INVITATION_EXPIRATION_DAYS}
+      INVITATION_MAX_PENDING_PER_ORG: ${INVITATION_MAX_PENDING_PER_ORG}
+      # OAuth
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET}
+      OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
+      # Service URLs
+      LIST_PLUGINS_URL: ${LIST_PLUGINS_URL:-https://localhost:8443}
+      GET_PLUGIN_URL: ${GET_PLUGIN_URL:-https://localhost:8443}
+      UPLOAD_PLUGIN_URL: ${UPLOAD_PLUGIN_URL:-https://localhost:8443}
+      LIST_PIPELINES_URL: ${LIST_PIPELINES_URL:-https://localhost:8443}
+      GET_PIPELINE_URL: ${GET_PIPELINE_URL:-https://localhost:8443}
+      CREATE_PIPELINE_URL: ${CREATE_PIPELINE_URL:-https://localhost:8443}
+      SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
+      # Loki
+      LOKI_URL: ${LOKI_URL:-http://loki:3100}
+      # Quotas
+      QUOTA_BYPASS_ORG_ID: ${QUOTA_BYPASS_ORG_ID:-system}
+      QUOTA_DEFAULT_WINDOW_MS: ${QUOTA_DEFAULT_WINDOW_MS:-60000}
+      QUOTA_CREATE_PLUGIN_LIMIT: ${QUOTA_CREATE_PLUGIN_LIMIT:-unlimited}
+      QUOTA_CREATE_PLUGIN_WINDOW_MS: ${QUOTA_CREATE_PLUGIN_WINDOW_MS:-60000}
+      QUOTA_GET_PLUGIN_LIMIT: ${QUOTA_GET_PLUGIN_LIMIT:-10}
+      QUOTA_GET_PLUGIN_WINDOW_MS: ${QUOTA_GET_PLUGIN_WINDOW_MS:-60000}
+      QUOTA_CREATE_PIPELINE_LIMIT: ${QUOTA_CREATE_PIPELINE_LIMIT:-unlimited}
+      QUOTA_CREATE_PIPELINE_WINDOW_MS: ${QUOTA_CREATE_PIPELINE_WINDOW_MS:-60000}
+      QUOTA_GET_PIPELINE_LIMIT: ${QUOTA_GET_PIPELINE_LIMIT:-10}
+      QUOTA_GET_PIPELINE_WINDOW_MS: ${QUOTA_GET_PIPELINE_WINDOW_MS:-60000}
     networks:
       - backend-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      plugin:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+      billing:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  plugin:
+    image: 'ghcr.io/mwashburn160/plugin:1.30.7'
+    container_name: plugin
+    restart: always
+    group_add:
+      - ${DOCKER_GID:-999}
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
+      SERVICE_NAME: plugin
+      IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
+      IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
+      IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
+      IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - '${DOCKER_BUILD_TEMP_ROOT}:${DOCKER_BUILD_TEMP_ROOT}'
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1536M
+        reservations:
+          cpus: '0.5'
+          memory: 768M
+
+  pipeline:
+    image: 'ghcr.io/mwashburn160/pipeline:1.30.7'
+    container_name: pipeline
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
+      SERVICE_NAME: pipeline
+      HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  message:
+    image: 'ghcr.io/mwashburn160/message:1.12.7'
+    container_name: message
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: message
+      SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  quota:
+    image: 'ghcr.io/mwashburn160/quota:1.29.7'
+    container_name: quota
+    restart: always
+    environment:
+      <<: *common-env
+      SERVICE_NAME: quota
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      PORT: ${PORT:-3000}
+      MONGODB_URI: ${MONGODB_URI}
+      LIMITER_MAX: ${LIMITER_MAX:-2000}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-2000}
+      QUOTA_DEFAULT_PLUGINS: ${QUOTA_DEFAULT_PLUGINS:-100}
+      QUOTA_DEFAULT_PIPELINES: ${QUOTA_DEFAULT_PIPELINES:-10}
+      QUOTA_DEFAULT_API_CALLS: ${QUOTA_DEFAULT_API_CALLS:--1}
+      QUOTA_RESET_DAYS: ${QUOTA_RESET_DAYS:-3}
+    networks:
+      - backend-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  billing:
+    image: 'ghcr.io/mwashburn160/billing:1.14.7'
+    container_name: billing
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env]
+      SERVICE_NAME: billing
+      BILLING_ENABLED: ${BILLING_ENABLED:-true}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      PORT: ${PORT:-3000}
+      MONGODB_URI: ${MONGODB_URI}
+      QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
+      QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      # Billing provider (stub | aws-marketplace)
+      BILLING_PROVIDER: ${BILLING_PROVIDER:-stub}
+      # AWS Marketplace (only when BILLING_PROVIDER=aws-marketplace)
+      AWS_MARKETPLACE_PRODUCT_CODE: ${AWS_MARKETPLACE_PRODUCT_CODE:-}
+      AWS_MARKETPLACE_REGION: ${AWS_MARKETPLACE_REGION:-us-east-1}
+      AWS_MARKETPLACE_SNS_TOPIC_ARN: ${AWS_MARKETPLACE_SNS_TOPIC_ARN:-}
+      AWS_MARKETPLACE_DIMENSION_MAP: ${AWS_MARKETPLACE_DIMENSION_MAP:-}
+    networks:
+      - backend-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      quota:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
 
   # ---------------------------------------------------------------------------
   # Admin UIs
@@ -278,9 +498,6 @@ services:
     restart: always
     ports:
       - '27081:8081'
-    depends_on:
-      mongodb:
-        condition: service_healthy
     environment:
       ME_CONFIG_MONGODB_URL: ${ME_CONFIG_MONGODB_URL}
       ME_CONFIG_SITE_BASEURL: ${ME_CONFIG_SITE_BASEURL}
@@ -291,6 +508,9 @@ services:
       ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD}
     networks:
       - backend-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/mongo-express/status"]
       interval: 30s
@@ -312,9 +532,6 @@ services:
     restart: always
     ports:
       - '5480:80'
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
@@ -322,6 +539,9 @@ services:
       - './data/pgadmin-data/:/var/lib/pgadmin/:rw'
     networks:
       - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/misc/ping"]
       interval: 30s
@@ -383,10 +603,10 @@ services:
       SINGLE_REGISTRY: ${JOXIT_SINGLE_REGISTRY}
       ENABLE_DELETE_IMAGES: ${JOXIT_ENABLE_DELETE_IMAGES}
       SHOW_CONTENT_DIGEST: ${JOXIT_SHOW_CONTENT_DIGEST}
-    depends_on:
-      - registry
     networks:
       - backend-network
+    depends_on:
+      - registry
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
@@ -409,9 +629,7 @@ services:
     image: 'prom/prometheus:v3.2.1'
     container_name: prometheus
     restart: always
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.retention.time=7d'
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']
     volumes:
       - './config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
       - './data/db-data/prometheus/:/prometheus:rw'
@@ -456,13 +674,7 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test:
-        - CMD
-        - wget
-        - '--quiet'
-        - '--tries=1'
-        - '--spider'
-        - 'http://localhost:3100/ready'
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -552,251 +764,6 @@ services:
           cpus: '0.1'
           memory: 128M
 
-  # ---------------------------------------------------------------------------
-  # Application Services
-  # ---------------------------------------------------------------------------
-  frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.33.7'
-    container_name: frontend
-    restart: always
-    networks:
-      - proxy-network
-    environment:
-      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL}
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - '-e'
-        - >-
-          require('http').get('http://localhost:3000/', (r) =>
-          process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () =>
-          process.exit(1))
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-
-  platform:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/platform:1.31.7'
-    container_name: platform
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      plugin:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      billing:
-        condition: service_healthy
-    environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
-      # Billing service
-      BILLING_ENABLED: ${BILLING_ENABLED:-true}
-      BILLING_SERVICE_HOST: ${BILLING_SERVICE_HOST:-billing}
-      BILLING_SERVICE_PORT: ${BILLING_SERVICE_PORT:-3000}
-      # JWT
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
-      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      JWT_SALT_ROUNDS: ${JWT_SALT_ROUNDS}
-      REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN}
-      # Platform
-      PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
-      TRUST_PROXY: ${TRUST_PROXY}
-      # MongoDB
-      MONGODB_URI: ${MONGODB_URI}
-      # Email
-      EMAIL_ENABLED: ${EMAIL_ENABLED}
-      EMAIL_FROM: ${EMAIL_FROM}
-      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME}
-      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_SECURE: ${SMTP_SECURE}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      SES_REGION: ${SES_REGION:-us-east-1}
-      SES_ACCESS_KEY_ID: ${SES_ACCESS_KEY_ID}
-      SES_SECRET_ACCESS_KEY: ${SES_SECRET_ACCESS_KEY}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      # Invitations
-      INVITATION_EXPIRATION_DAYS: ${INVITATION_EXPIRATION_DAYS}
-      INVITATION_MAX_PENDING_PER_ORG: ${INVITATION_MAX_PENDING_PER_ORG}
-      # OAuth
-      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID}
-      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET}
-      OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
-      # Service URLs
-      LIST_PLUGINS_URL: ${LIST_PLUGINS_URL:-https://localhost:8443}
-      GET_PLUGIN_URL: ${GET_PLUGIN_URL:-https://localhost:8443}
-      UPLOAD_PLUGIN_URL: ${UPLOAD_PLUGIN_URL:-https://localhost:8443}
-      LIST_PIPELINES_URL: ${LIST_PIPELINES_URL:-https://localhost:8443}
-      GET_PIPELINE_URL: ${GET_PIPELINE_URL:-https://localhost:8443}
-      CREATE_PIPELINE_URL: ${CREATE_PIPELINE_URL:-https://localhost:8443}
-      SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
-      # Loki (log aggregation)
-      LOKI_URL: ${LOKI_URL:-http://loki:3100}
-      # Quotas
-      QUOTA_BYPASS_ORG_ID: ${QUOTA_BYPASS_ORG_ID:-system}
-      QUOTA_DEFAULT_WINDOW_MS: ${QUOTA_DEFAULT_WINDOW_MS:-60000}
-      QUOTA_CREATE_PLUGIN_LIMIT: ${QUOTA_CREATE_PLUGIN_LIMIT:-unlimited}
-      QUOTA_CREATE_PLUGIN_WINDOW_MS: ${QUOTA_CREATE_PLUGIN_WINDOW_MS:-60000}
-      QUOTA_GET_PLUGIN_LIMIT: ${QUOTA_GET_PLUGIN_LIMIT:-10}
-      QUOTA_GET_PLUGIN_WINDOW_MS: ${QUOTA_GET_PLUGIN_WINDOW_MS:-60000}
-      QUOTA_CREATE_PIPELINE_LIMIT: ${QUOTA_CREATE_PIPELINE_LIMIT:-unlimited}
-      QUOTA_CREATE_PIPELINE_WINDOW_MS: ${QUOTA_CREATE_PIPELINE_WINDOW_MS:-60000}
-      QUOTA_GET_PIPELINE_LIMIT: ${QUOTA_GET_PIPELINE_LIMIT:-10}
-      QUOTA_GET_PIPELINE_WINDOW_MS: ${QUOTA_GET_PIPELINE_WINDOW_MS:-60000}
-
-  plugin:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1536M
-        reservations:
-          cpus: '0.5'
-          memory: 768M
-    image: 'ghcr.io/mwashburn160/plugin:1.30.7'
-    container_name: plugin
-    depends_on:
-      postgres:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
-    volumes:
-      - '/var/run/docker.sock:/var/run/docker.sock'
-      - '${DOCKER_BUILD_TEMP_ROOT}:${DOCKER_BUILD_TEMP_ROOT}'
-    group_add:
-      - ${DOCKER_GID:-999}
-    environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
-      SERVICE_NAME: plugin
-      # Docker registry
-      IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
-      IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
-      IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
-      IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
-      DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
-      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
-
-  pipeline:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/pipeline:1.30.7'
-    container_name: pipeline
-    depends_on:
-      postgres:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
-    environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
-      SERVICE_NAME: pipeline
-      HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
-
-  message:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/message:1.12.7'
-    container_name: message
-    depends_on:
-      postgres:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-    environment:
-      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
-      SERVICE_NAME: message
-      SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
-
-  quota:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/quota:1.29.7'
-    container_name: quota
-    depends_on:
-      mongodb:
-        condition: service_healthy
-    environment:
-      <<: *common-env
-      SERVICE_NAME: quota
-      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
-      PORT: ${PORT:-3000}
-      MONGODB_URI: ${MONGODB_URI}
-      LIMITER_MAX: ${LIMITER_MAX:-2000}
-      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-2000}
-      QUOTA_DEFAULT_PLUGINS: ${QUOTA_DEFAULT_PLUGINS:-100}
-      QUOTA_DEFAULT_PIPELINES: ${QUOTA_DEFAULT_PIPELINES:-10}
-      QUOTA_DEFAULT_API_CALLS: ${QUOTA_DEFAULT_API_CALLS:--1}
-      QUOTA_RESET_DAYS: ${QUOTA_RESET_DAYS:-3}
-
-  billing:
-    restart: always
-    networks: *api-networks
-    healthcheck: *api-healthcheck
-    deploy: *api-deploy
-    image: 'ghcr.io/mwashburn160/billing:1.14.7'
-    container_name: billing
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-    environment:
-      <<: [*common-env, *postgres-env]
-      SERVICE_NAME: billing
-      BILLING_ENABLED: ${BILLING_ENABLED:-true}
-      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
-      PORT: ${PORT:-3000}
-      MONGODB_URI: ${MONGODB_URI}
-      QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
-      QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
-      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
-      # Billing provider selection (stub | aws-marketplace)
-      BILLING_PROVIDER: ${BILLING_PROVIDER:-stub}
-      # AWS Marketplace config (only needed when BILLING_PROVIDER=aws-marketplace)
-      AWS_MARKETPLACE_PRODUCT_CODE: ${AWS_MARKETPLACE_PRODUCT_CODE:-}
-      AWS_MARKETPLACE_REGION: ${AWS_MARKETPLACE_REGION:-us-east-1}
-      AWS_MARKETPLACE_SNS_TOPIC_ARN: ${AWS_MARKETPLACE_SNS_TOPIC_ARN:-}
-      AWS_MARKETPLACE_DIMENSION_MAP: ${AWS_MARKETPLACE_DIMENSION_MAP:-}
-
 # =============================================================================
 # Networks
 # =============================================================================
@@ -806,4 +773,3 @@ networks:
   backend-network:
     name: backend-network
     driver: bridge
-
