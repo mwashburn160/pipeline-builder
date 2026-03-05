@@ -3,7 +3,12 @@
 # Uploads coverage reports to Code Climate for quality tracking and PR analysis
 # Auto-detects coverage file formats: lcov.info, coverage.xml, .coverage, jacoco.xml, coverage.out
 
+# ─── Tool versions (override with --build-arg) ───
+ARG CC_REPORTER_VERSION=0.11.1
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG CC_REPORTER_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,8 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Code Climate Test Reporter ───
-RUN curl -fsSL https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 \
-    -o /usr/local/bin/cc-test-reporter \
+# The codeclimate/test-reporter repo was transferred to qltysh-archive;
+# binaries are now bundled inside artifacts.tar.gz.
+RUN curl -fsSL https://github.com/qltysh-archive/test-reporter/releases/download/v${CC_REPORTER_VERSION}/artifacts.tar.gz \
+    | tar -xz --strip-components=2 -C /usr/local/bin artifacts/bin/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 \
+    && mv /usr/local/bin/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 /usr/local/bin/cc-test-reporter \
     && chmod +x /usr/local/bin/cc-test-reporter
 
 # ─── Runtime configuration defaults ───

@@ -359,3 +359,61 @@ env:
 | `installCommands` | Commands run during the install phase (dependency setup) |
 | `commands` | Commands run during the build phase (the actual work) |
 | `env` | Default environment variables (non-secret values only) |
+
+---
+
+## Version Management
+
+All tool versions are centralized in [`deploy/plugins/plugin-versions.yaml`](../../deploy/plugins/plugin-versions.yaml). This is the single source of truth for every tool version across all plugins.
+
+### Install Types (ranked by fragility, lowest to highest)
+
+| Type | Method | Example |
+|------|--------|---------|
+| `copy_from` | `COPY --from=image:tag` — no URLs, most resilient | hadolint, trivy, k6 |
+| `npm` / `pip` | Package manager install | snyk, codecov, checkov |
+| `curl_tar` | `curl \| tar` from GitHub release tarball | helm, checkmarx CLI |
+| `curl_bin` | `curl -o` single binary download | codacy, kubectl |
+| `curl_zip` | `curl` + `unzip` | rain, sonar-scanner |
+| `script` | Vendor install script (least resilient) | veracode |
+
+### Dockerfile Patterns
+
+**Multi-stage `COPY --from` (preferred)**:
+```dockerfile
+ARG TOOL_VERSION=1.0.0
+FROM vendor/tool:v${TOOL_VERSION} AS tool-src
+FROM ubuntu:24.04
+ARG TOOL_VERSION
+COPY --from=tool-src /usr/bin/tool /opt/tool/versions/tool-${TOOL_VERSION}
+RUN ln -sf /opt/tool/versions/tool-${TOOL_VERSION} /usr/local/bin/tool
+```
+
+Key rules:
+- `ARG` before `FROM` for image tag parameterization
+- Re-declare `ARG` after `FROM` for use in the build stage
+- Use `curl` (not `wget`) for downloads
+- Version ARG defaults must match `plugin-versions.yaml` defaults
+
+### Verification Scripts
+
+```bash
+# Verify all tool versions are downloadable/pullable
+./deploy/bin/generate-plugins.sh --verify
+
+# Check a single tool
+./deploy/bin/generate-plugins.sh --check-one trivy
+
+# Dump the parsed version matrix
+./deploy/bin/generate-plugins.sh --dump
+
+# Verify URLs directly from Dockerfiles
+./deploy/bin/verify-plugin-urls.sh
+```
+
+### Updating a Version
+
+1. Edit the version in `deploy/plugins/plugin-versions.yaml`
+2. Update the corresponding Dockerfile `ARG` default
+3. Run `./deploy/bin/generate-plugins.sh --check-one <tool>` to verify
+4. Re-zip the plugin: `cd deploy/plugins/<category>/<plugin> && rm plugin.zip && zip -r plugin.zip . -x '*.zip'`

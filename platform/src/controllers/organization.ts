@@ -16,6 +16,7 @@ import {
 import { Organization, User } from '../models';
 import type { QuotaTier } from '../models/organization';
 import { validateBody } from '../utils/auth-utils';
+import { parsePagination } from '../utils/pagination';
 import { updateOrganizationSchema, updateQuotasSchema } from '../validation/schemas';
 
 const logger = createLogger('OrganizationController');
@@ -64,9 +65,7 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       ];
     }
 
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const limitNum = Math.min(config.pagination.maxLimit, Math.max(1, parseInt(limit as string, 10) || config.pagination.defaultLimit));
-    const skip = (pageNum - 1) * limitNum;
+    const { page: pageNum, limit: limitNum, skip } = parsePagination(page, limit);
 
     const [organizations, total] = await Promise.all([
       Organization.find(filter)

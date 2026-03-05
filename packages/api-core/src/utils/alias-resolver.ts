@@ -51,11 +51,6 @@ export function resolveRecipientAlias(recipientOrgId: string): AliasResolution {
   };
 }
 
-/** Check if a given string is a configured support alias. */
-export function isSupportAlias(value: string): boolean {
-  return getSupportAliases().has(value.trim().toLowerCase());
-}
-
 /**
  * Reset the cached aliases (for testing purposes only).
  * @internal

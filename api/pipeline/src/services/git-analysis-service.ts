@@ -273,7 +273,7 @@ export function inferFrameworks(files: string[]): string[] {
  * @param token - Optional GitHub personal access token for private repos
  * @returns Repository analysis
  */
-export async function analyzeGitHubRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
+async function analyzeGitHubRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'pipeline-builder',
@@ -319,7 +319,7 @@ export async function analyzeGitHubRepo(parsed: ParsedGitUrl, token?: string): P
  * @param token - Optional GitLab personal access token for private repos
  * @returns Repository analysis
  */
-export async function analyzeGitLabRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
+async function analyzeGitLabRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
   const headers: Record<string, string> = {};
   if (token) headers['PRIVATE-TOKEN'] = token;
 
@@ -362,7 +362,7 @@ export async function analyzeGitLabRepo(parsed: ParsedGitUrl, token?: string): P
  * @param token - Optional Bitbucket app password for private repos
  * @returns Repository analysis
  */
-export async function analyzeBitbucketRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
+async function analyzeBitbucketRepo(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 

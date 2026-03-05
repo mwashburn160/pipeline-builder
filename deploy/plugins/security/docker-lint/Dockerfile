@@ -3,7 +3,24 @@
 # Combines Hadolint (Dockerfile linting) + Dockle (built image security audit)
 # Validates Dockerfile quality and CIS benchmark compliance
 
+# ─── Tool versions (override with --build-arg) ───
+ARG HADOLINT_VERSION=2.12.0
+ARG HADOLINT_PREV_VERSION=2.10.0
+ARG DOCKLE_VERSION=0.4.15
+ARG DOCKLE_PREV_VERSION=0.4.14
+
+FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-default
+FROM hadolint/hadolint:v${HADOLINT_PREV_VERSION} AS hadolint-prev
+FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-default
+FROM goodwithtech/dockle:v${DOCKLE_PREV_VERSION} AS dockle-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Re-declare ARGs after FROM so they're available in this stage
+ARG HADOLINT_VERSION
+ARG HADOLINT_PREV_VERSION
+ARG DOCKLE_VERSION
+ARG DOCKLE_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,38 +31,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── Hadolint — Dockerfile linter ───
+# ─── Hadolint — Dockerfile linter (copied from official image) ───
 RUN mkdir -p /opt/hadolint/versions
+COPY --from=hadolint-default /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_VERSION}
+COPY --from=hadolint-prev /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_PREV_VERSION}
+RUN ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
 
-RUN curl -fsSL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
-    -o /opt/hadolint/versions/hadolint-2.12.0 && chmod +x /opt/hadolint/versions/hadolint-2.12.0
-
-RUN curl -fsSL https://github.com/hadolint/hadolint/releases/download/v2.10.0/hadolint-Linux-x86_64 \
-    -o /opt/hadolint/versions/hadolint-2.10.0 && chmod +x /opt/hadolint/versions/hadolint-2.10.0
-
-# Default to latest installed version
-RUN ln -sf /opt/hadolint/versions/hadolint-2.12.0 /usr/local/bin/hadolint
-
-# ─── Dockle — Container image security linter (CIS benchmark) ───
+# ─── Dockle — Container image security linter (copied from official image) ───
 RUN mkdir -p /opt/dockle/versions
-
-RUN curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v0.4.14/dockle_0.4.14_Linux-64bit.tar.gz \
-    | tar -xz -C /opt/dockle/versions && mv /opt/dockle/versions/dockle /opt/dockle/versions/dockle-0.4.14
-
-RUN curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v0.4.15/dockle_0.4.15_Linux-64bit.tar.gz \
-    | tar -xz -C /opt/dockle/versions && mv /opt/dockle/versions/dockle /opt/dockle/versions/dockle-0.4.15
-
-# Default to latest installed version
-RUN ln -sf /opt/dockle/versions/dockle-0.4.15 /usr/local/bin/dockle
+COPY --from=dockle-default /usr/local/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_VERSION}
+COPY --from=dockle-prev /usr/local/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_PREV_VERSION}
+RUN ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
 
 # ─── Runtime configuration defaults ───
-ENV HADOLINT_VERSION=2.12.0
-ENV DOCKLE_VERSION=0.4.15
+ENV HADOLINT_VERSION=${HADOLINT_VERSION}
+ENV DOCKLE_VERSION=${DOCKLE_VERSION}
 ENV DOCKERFILE_PATH=Dockerfile
 ENV DOCKER_IMAGE=""
 ENV HADOLINT_FORMAT=json

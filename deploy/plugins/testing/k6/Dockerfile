@@ -3,7 +3,17 @@
 # Runs k6 load tests with configurable VUs, duration, and thresholds
 # Multi-version support
 
+# ─── Tool versions (override with --build-arg) ───
+ARG K6_VERSION=0.56.0
+ARG K6_PREV_VERSION=0.55.0
+
+FROM grafana/k6:${K6_VERSION} AS k6-default
+FROM grafana/k6:${K6_PREV_VERSION} AS k6-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG K6_VERSION
+ARG K6_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,25 +24,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── k6 — multi-version support ───
+# ─── k6 — multi-version support (copied from official images) ───
 RUN mkdir -p /opt/k6/versions
-
-RUN curl -fsSL https://github.com/grafana/k6/releases/download/v0.55.0/k6-v0.55.0-linux-amd64.tar.gz \
-    | tar -xz -C /opt/k6/versions && mv /opt/k6/versions/k6-v0.55.0-linux-amd64/k6 /opt/k6/versions/k6-0.55.0
-
-RUN curl -fsSL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz \
-    | tar -xz -C /opt/k6/versions && mv /opt/k6/versions/k6-v0.56.0-linux-amd64/k6 /opt/k6/versions/k6-0.56.0
-
-RUN ln -sf /opt/k6/versions/k6-0.56.0 /usr/local/bin/k6
+COPY --from=k6-default /usr/bin/k6 /opt/k6/versions/k6-${K6_VERSION}
+COPY --from=k6-prev /usr/bin/k6 /opt/k6/versions/k6-${K6_PREV_VERSION}
+RUN ln -sf /opt/k6/versions/k6-${K6_VERSION} /usr/local/bin/k6
 
 # ─── Runtime configuration defaults ───
-ENV K6_VERSION=0.56.0
+ENV K6_VERSION=${K6_VERSION}
 ENV K6_SCRIPT=""
 ENV K6_VUS=10
 ENV K6_DURATION=30s

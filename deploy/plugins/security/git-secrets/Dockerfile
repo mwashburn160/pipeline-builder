@@ -3,7 +3,20 @@
 # Combines Gitleaks + TruffleHog for comprehensive secret scanning
 # Detects API keys, passwords, tokens, and other sensitive data in code
 
+# ─── Tool versions (override with --build-arg) ───
+ARG GITLEAKS_VERSION=8.22.0
+ARG GITLEAKS_PREV_VERSION=8.21.2
+ARG TRUFFLEHOG_VERSION=3.84.1
+
+FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default
+FROM zricethezav/gitleaks:v${GITLEAKS_PREV_VERSION} AS gitleaks-prev
+FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG GITLEAKS_VERSION
+ARG GITLEAKS_PREV_VERSION
+ARG TRUFFLEHOG_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,32 +27,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── Gitleaks — secret detection ───
+# ─── Gitleaks — secret detection (copied from official image) ───
 RUN mkdir -p /opt/gitleaks/versions
+COPY --from=gitleaks-default /usr/bin/gitleaks /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION}
+COPY --from=gitleaks-prev /usr/bin/gitleaks /opt/gitleaks/versions/gitleaks-${GITLEAKS_PREV_VERSION}
+RUN ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /usr/local/bin/gitleaks
 
-RUN curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
-    | tar -xz -C /opt/gitleaks/versions && mv /opt/gitleaks/versions/gitleaks /opt/gitleaks/versions/gitleaks-8.21.2
-
-RUN curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.22.0/gitleaks_8.22.0_linux_x64.tar.gz \
-    | tar -xz -C /opt/gitleaks/versions && mv /opt/gitleaks/versions/gitleaks /opt/gitleaks/versions/gitleaks-8.22.0
-
-RUN ln -sf /opt/gitleaks/versions/gitleaks-8.22.0 /usr/local/bin/gitleaks
-
-# ─── TruffleHog — credential scanner ───
+# ─── TruffleHog — credential scanner (copied from official image) ───
 RUN mkdir -p /opt/trufflehog/versions
-
-RUN curl -fsSL https://github.com/trufflesecurity/trufflehog/releases/download/v3.84.1/trufflehog_3.84.1_linux_amd64.tar.gz \
-    | tar -xz -C /opt/trufflehog/versions && mv /opt/trufflehog/versions/trufflehog /opt/trufflehog/versions/trufflehog-3.84.1
-
-RUN ln -sf /opt/trufflehog/versions/trufflehog-3.84.1 /usr/local/bin/trufflehog
+COPY --from=trufflehog-src /usr/bin/trufflehog /opt/trufflehog/versions/trufflehog-${TRUFFLEHOG_VERSION}
+RUN ln -sf /opt/trufflehog/versions/trufflehog-${TRUFFLEHOG_VERSION} /usr/local/bin/trufflehog
 
 # ─── Runtime configuration defaults ───
-ENV GITLEAKS_VERSION=8.22.0
+ENV GITLEAKS_VERSION=${GITLEAKS_VERSION}
 ENV SCAN_MODE=directory
 ENV GITLEAKS_CONFIG=""
 ENV REPORT_FORMAT=json

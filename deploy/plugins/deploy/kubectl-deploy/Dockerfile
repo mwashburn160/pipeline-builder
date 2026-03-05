@@ -3,7 +3,12 @@
 # Deploys, deletes, or performs rollout restarts via kubectl
 # Supports EKS authentication via AWS CLI
 
+# ─── Tool versions (override with --build-arg) ───
+ARG KUBECTL_VERSION=1.31.4
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG KUBECTL_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -25,8 +30,8 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscli.zip
 
-# ─── kubectl v1.31.4 ───
-RUN curl -fsSL "https://dl.k8s.io/release/v1.31.4/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
+# ─── kubectl ───
+RUN curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
 # ─── Runtime configuration defaults ───

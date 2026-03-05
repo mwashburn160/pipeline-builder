@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     build-essential \
@@ -76,7 +75,6 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 # ─── C++ build tools (activated when LANGUAGE=cpp) ───
 # build-essential already installed above (gcc/g++/make)
-# Add cmake and clang for broader C++ project support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     clang \
@@ -99,23 +97,12 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --n
     && /opt/cargo/bin/rustup toolchain install 1.83.0
 ENV PATH="${CARGO_HOME}/bin:${PATH}"
 
-# ─── Snyk CLI via svm (Snyk Version Manager) ───
-ENV SVM_DIR=/opt/svm
-RUN mkdir -p ${SVM_DIR} \
-    && curl -fsSL https://static.snyk.io/cli/releases/svm/v3/svm-linux -o ${SVM_DIR}/svm \
-    && chmod +x ${SVM_DIR}/svm
-ENV PATH="${SVM_DIR}:${PATH}"
-
-# Pre-install common Snyk CLI versions so builds are fast
-RUN svm install 1.1291.0 && \
-    svm install 1.1293.0 && \
-    svm install latest && \
-    svm use latest
+# ─── Snyk CLI (installed via npm — Node.js already available) ───
+RUN npm install -g snyk
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — sensitive values (SNYK_TOKEN) must be
 # injected at runtime via CodeBuild environment variables or secrets manager
-ENV SNYK_VERSION=latest
 ENV SNYK_SEVERITY_THRESHOLD=high
 
 # Language selection (nodejs = default, set to python/java/go/dotnet/cpp/ruby/rust to switch)

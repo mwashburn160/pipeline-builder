@@ -7,6 +7,9 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$DEPLOY_DIR"
 
+# Set DOCKER_BUILD_TEMP_ROOT so docker-compose.yml references resolve
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/tmp}"
+
 echo "=== Stopping Docker Compose services ==="
 docker compose down "$@"
 

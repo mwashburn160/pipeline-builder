@@ -3,7 +3,17 @@
 # Static analysis for bash/sh/zsh scripts
 # Detects bugs, syntax issues, and portability problems
 
+# ─── Tool versions (override with --build-arg) ───
+ARG SHELLCHECK_VERSION=0.10.0
+ARG SHELLCHECK_PREV_VERSION=0.9.0
+
+FROM koalaman/shellcheck:v${SHELLCHECK_VERSION} AS shellcheck-default
+FROM koalaman/shellcheck:v${SHELLCHECK_PREV_VERSION} AS shellcheck-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG SHELLCHECK_VERSION
+ARG SHELLCHECK_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -16,22 +26,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     jq \
     ca-certificates \
-    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── ShellCheck — multi-version support ───
+# ─── ShellCheck — multi-version support (copied from official images) ───
 RUN mkdir -p /opt/shellcheck/versions
-
-RUN curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
-    | tar -xJ -C /opt/shellcheck/versions && mv /opt/shellcheck/versions/shellcheck-v0.10.0/shellcheck /opt/shellcheck/versions/shellcheck-0.10.0
-
-RUN curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.9.0/shellcheck-v0.9.0.linux.x86_64.tar.xz \
-    | tar -xJ -C /opt/shellcheck/versions && mv /opt/shellcheck/versions/shellcheck-v0.9.0/shellcheck /opt/shellcheck/versions/shellcheck-0.9.0
-
-RUN ln -sf /opt/shellcheck/versions/shellcheck-0.10.0 /usr/local/bin/shellcheck
+COPY --from=shellcheck-default /bin/shellcheck /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION}
+COPY --from=shellcheck-prev /bin/shellcheck /opt/shellcheck/versions/shellcheck-${SHELLCHECK_PREV_VERSION}
+RUN ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /usr/local/bin/shellcheck
 
 # ─── Runtime configuration defaults ───
-ENV SHELLCHECK_VERSION=0.10.0
+ENV SHELLCHECK_VERSION=${SHELLCHECK_VERSION}
 ENV SHELLCHECK_SEVERITY=warning
 ENV SHELLCHECK_FORMAT=json
 ENV SHELLCHECK_SHELL=bash

@@ -3,6 +3,13 @@
 # Multi-version support via tfenv
 # Runs terraform init, plan, and apply for infrastructure deployment
 
+# ─── Tool versions (override with --build-arg) ───
+ARG TFLINT_VERSION=0.54.0
+ARG TFSEC_VERSION=1.28.11
+
+FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
+FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
 
 # Avoid interactive prompts
@@ -14,7 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     gnupg \
@@ -36,13 +42,11 @@ RUN tfenv install 1.9.8 && \
     tfenv install 1.10.3 && \
     tfenv use 1.10.3
 
-# ─── TFLint for Terraform linting ───
-RUN curl -fsSL https://github.com/terraform-linters/tflint/releases/download/v0.54.0/tflint_linux_amd64.zip \
-    -o /tmp/tflint.zip && unzip -q /tmp/tflint.zip -d /usr/local/bin && rm /tmp/tflint.zip
+# ─── TFLint for Terraform linting (copied from official image) ───
+COPY --from=tflint-src /usr/local/bin/tflint /usr/local/bin/tflint
 
-# ─── tfsec for Terraform security scanning ───
-RUN curl -fsSL https://github.com/aquasecurity/tfsec/releases/download/v1.28.11/tfsec-linux-amd64 \
-    -o /usr/local/bin/tfsec && chmod +x /usr/local/bin/tfsec
+# ─── tfsec for Terraform security scanning (copied from official image) ───
+COPY --from=tfsec-src /usr/bin/tfsec /usr/local/bin/tfsec
 
 # ─── Runtime configuration defaults ───
 ENV TF_VERSION=1.10.3

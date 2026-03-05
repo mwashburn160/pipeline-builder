@@ -13,7 +13,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     PLUGIN_IMAGE_PREFIX: 'p-',
     DOCKER_BUILDER_NAME: 'plugin-builder',
-    DOCKER_BUILD_TIMEOUT_MS: 300000,
+    DOCKER_BUILD_TIMEOUT_MS: 900000,
   },
   Config: {
     get: (section: string) => {
