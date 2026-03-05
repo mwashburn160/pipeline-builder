@@ -73,7 +73,8 @@ prompt_credentials
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
   -k -s -o /dev/null -w "%{http_code}" \
   -H 'Content-Type: application/json' \
-  -d "$(printf '{"username":"admin","email":"%s","password":"%s","organizationName":"system"}' "$PLATFORM_IDENTIFIER" "$PLATFORM_PASSWORD")")
+  -d "$(jq -n --arg email "$PLATFORM_IDENTIFIER" --arg pw "$PLATFORM_PASSWORD" \
+    '{username: "admin", email: $email, password: $pw, organizationName: "system"}')")
 
 case "$(classify_status "$REG_STATUS")" in
   ok)   echo "  Admin user created." ;;

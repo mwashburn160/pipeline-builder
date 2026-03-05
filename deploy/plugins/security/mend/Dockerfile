@@ -8,7 +8,7 @@ FROM public.ecr.aws/docker/library/ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl wget jq ca-certificates \
+    git zip unzip curl jq ca-certificates \
     openjdk-17-jre-headless nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 

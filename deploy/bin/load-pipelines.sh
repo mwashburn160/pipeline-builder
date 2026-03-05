@@ -57,7 +57,9 @@ upload_pipeline() {
     return
   fi
 
-  BODY=$(jq ".accessModifier = \"public\"" "${pipeline_dir}/pipeline.json")
+  BODY=$(jq ".accessModifier = \"public\"" "${pipeline_dir}/pipeline.json") || {
+    echo "    FAIL (invalid JSON)"; FAILED=$((FAILED + 1)); return
+  }
   status=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
     -s -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \

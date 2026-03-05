@@ -12,7 +12,539 @@
 #   curl_zip    — curl + unzip (zip archives)
 #   npm         — npm install -g
 #   pip         — pip3 install
+#   apt         — apt-get install (from vendor repository)
+#   sdkman      — SDKMAN version manager
+#   nvm         — Node Version Manager
+#   pyenv       — Python version manager
+#   rbenv       — Ruby version manager
+#   goenv       — Go version manager
+#   rustup      — Rust toolchain installer
 #   script      — vendor install script (least resilient, use as last resort)
+#   none        — no versioned tools (curl/jq/wget only)
+
+# ═══════════════════════════════════════════════════════════════
+# AI PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+dockerfile_generator:
+  plugin: ai/dockerfile-generator
+  install_type: apt
+  note: "Node.js 20 via NodeSource + Ollama runtime. Model set via env var."
+  tools:
+    nodejs:
+      install_type: apt
+      versions: ["20"]
+      default: "20"
+    ollama_model:
+      install_type: script
+      versions: ["codellama:7b"]
+      default: "codellama:7b"
+
+dockerfile_multi_provider:
+  plugin: ai/dockerfile-multi-provider
+  install_type: none
+  note: "Runtime-only plugin. AI model set via CLAUDE_MODEL env var."
+
+# ═══════════════════════════════════════════════════════════════
+# ARTIFACT PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+acr_push:
+  plugin: artifact/acr-push
+  install_type: apt
+  note: "Docker CLI + Azure CLI from vendor apt repos."
+
+cargo_publish:
+  plugin: artifact/cargo-publish
+  install_type: rustup
+  versions: ["stable"]
+  default: "stable"
+
+docker_build:
+  plugin: artifact/docker-build
+  install_type: apt
+  note: "Docker CLI + Buildx from Docker apt repo. AWS CLI v2 via curl."
+
+gar_push:
+  plugin: artifact/gar-push
+  install_type: apt
+  note: "Docker CLI + Buildx from Docker apt repo. Google Cloud SDK from vendor repo."
+
+gem_publish:
+  plugin: artifact/gem-publish
+  install_type: apt
+  note: "Ruby + dev headers from apt."
+
+ghcr_push:
+  plugin: artifact/ghcr-push
+  install_type: apt
+  note: "Docker CLI + Buildx from Docker apt repo. GitHub CLI from vendor repo."
+
+jfrog_push:
+  plugin: artifact/jfrog-push
+  install_type: apt
+  note: "Docker CLI + Buildx from Docker apt repo. JFrog CLI v2 from vendor repo."
+
+maven_publish:
+  plugin: artifact/maven-publish
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["17.0.18-tem"]
+      default: "17.0.18-tem"
+    maven:
+      versions: ["3.9.9"]
+      default: "3.9.9"
+
+npm_publish:
+  plugin: artifact/npm-publish
+  install_type: apt
+  note: "Node.js 20 via NodeSource."
+  versions: ["20"]
+  default: "20"
+
+nuget_publish:
+  plugin: artifact/nuget-publish
+  install_type: script
+  note: "dotnet-install.sh for .NET SDK."
+  versions: ["8.0"]
+  default: "8.0"
+
+pypi_publish:
+  plugin: artifact/pypi-publish
+  install_type: pip
+  tools:
+    twine:
+      versions: ["6.1.0"]
+      default: "6.1.0"
+    build:
+      versions: ["1.2.2"]
+      default: "1.2.2"
+
+# ═══════════════════════════════════════════════════════════════
+# DEPLOY PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+azure_deploy:
+  plugin: deploy/azure-deploy
+  install_type: apt
+  note: "Azure CLI from vendor apt repo. kubectl via curl (latest stable)."
+
+kubectl:
+  plugin: deploy/kubectl-deploy
+  install_type: curl_bin
+  url_template: "https://dl.k8s.io/release/v{version}/bin/linux/amd64/kubectl"
+  note: "Also installs AWS CLI v2 via curl."
+  versions: ["1.31.4"]
+  default: "1.31.4"
+
+helm:
+  plugin: deploy/helm-deploy
+  install_type: curl_tar
+  url_template: "https://get.helm.sh/helm-v{version}-linux-amd64.tar.gz"
+  versions: ["3.16.4"]
+  default: "3.16.4"
+
+rain:
+  plugin: deploy/cloudformation
+  install_type: curl_zip
+  url_template: "https://github.com/aws-cloudformation/rain/releases/download/v{version}/rain-v{version}_linux-amd64.zip"
+  versions: ["1.18.0"]
+  default: "1.18.0"
+
+cfn_lint:
+  plugin: deploy/cloudformation
+  install_type: pip
+  package: cfn-lint
+  versions: ["1.31.1"]
+  default: "1.31.1"
+
+aws_cdk:
+  plugin: deploy/cdk-deploy
+  install_type: npm
+  package: "aws-cdk typescript ts-node"
+  tools:
+    aws_cdk:
+      versions: ["2.177.0"]
+      default: "2.177.0"
+    typescript:
+      versions: ["5.7.3"]
+      default: "5.7.3"
+    ts_node:
+      versions: ["10.9.2"]
+      default: "10.9.2"
+  note: "Also installs Docker CLI + AWS CLI v2."
+
+aws_cdk_multi_region:
+  plugin: deploy/cdk-deploy-multi-region
+  install_type: npm
+  package: "aws-cdk typescript ts-node"
+  tools:
+    aws_cdk:
+      versions: ["2.177.0"]
+      default: "2.177.0"
+    typescript:
+      versions: ["5.7.3"]
+      default: "5.7.3"
+    ts_node:
+      versions: ["10.9.2"]
+      default: "10.9.2"
+  note: "Also installs Docker CLI + AWS CLI v2 + GNU Parallel."
+
+fastlane:
+  plugin: deploy/fastlane
+  install_type: none
+  tools:
+    ruby:
+      install_type: rbenv
+      versions: ["3.3.10"]
+      default: "3.3.10"
+    android_cmdline_tools:
+      install_type: curl_zip
+      url_template: "https://dl.google.com/android/repository/commandlinetools-linux-{version}.zip"
+      versions: ["14742923_latest"]
+      default: "14742923_latest"
+  note: "Also installs Java 17 JRE, Bundler, Fastlane gem (unpinned)."
+
+flyway:
+  plugin: deploy/flyway
+  install_type: curl_tar
+  url_template: "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/{version}/flyway-commandline-{version}-linux-x64.tar.gz"
+  note: "Also installs Java 17 JRE."
+  versions: ["10.22.0"]
+  default: "10.22.0"
+
+gcloud_deploy:
+  plugin: deploy/gcloud-deploy
+  install_type: apt
+  tools:
+    terraform:
+      install_type: curl_zip
+      url_template: "https://releases.hashicorp.com/terraform/{version}/terraform_{version}_linux_amd64.zip"
+      versions: ["1.10.3"]
+      default: "1.10.3"
+  note: "Google Cloud SDK from vendor apt repo. kubectl via curl (latest stable)."
+
+liquibase:
+  plugin: deploy/liquibase
+  install_type: curl_tar
+  url_template: "https://github.com/liquibase/liquibase/releases/download/v{version}/liquibase-{version}.tar.gz"
+  versions: ["4.30.0"]
+  default: "4.30.0"
+
+tflint:
+  plugin: deploy/terraform
+  install_type: copy_from
+  image: ghcr.io/terraform-linters/tflint
+  tag_prefix: "v"
+  binary_path: /usr/local/bin/tflint
+  versions: ["0.54.0"]
+  default: "0.54.0"
+
+tfsec:
+  plugin: deploy/terraform
+  install_type: copy_from
+  image: aquasec/tfsec
+  tag_prefix: "v"
+  binary_path: /usr/bin/tfsec
+  versions: ["1.28.11"]
+  default: "1.28.11"
+
+# ═══════════════════════════════════════════════════════════════
+# INFRASTRUCTURE PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+cdk_synth:
+  plugin: infrastructure/cdk-synth
+  install_type: npm
+  package: "aws-cdk typescript ts-node"
+  tools:
+    aws_cdk:
+      versions: ["2.177.0"]
+      default: "2.177.0"
+    typescript:
+      versions: ["5.7.3"]
+      default: "5.7.3"
+    ts_node:
+      versions: ["10.9.2"]
+      default: "10.9.2"
+  note: "Also installs Docker CLI + AWS CLI v2."
+
+manual_approval:
+  plugin: infrastructure/manual-approval-custom
+  install_type: none
+  note: "AWS CLI v2 via curl. No other versioned tools."
+
+s3_cache:
+  plugin: infrastructure/s3-cache
+  install_type: none
+  note: "AWS CLI v2 via curl + zstd from apt. No other versioned tools."
+
+# ═══════════════════════════════════════════════════════════════
+# LANGUAGE PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+nodejs:
+  plugin: language/nodejs
+  install_type: nvm
+  nvm_version: "0.40.1"
+  versions: ["20", "22", "24"]
+  default: "24"
+
+python:
+  plugin: language/python
+  install_type: pyenv
+  versions: ["3.11", "3.12", "3.13"]
+  default: "3.12"
+
+java_temurin:
+  plugin: language/java
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["11.0.30-tem", "17.0.18-tem", "21.0.10-tem"]
+      default: "17.0.18-tem"
+    maven:
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      versions: ["8.12"]
+      default: "8.12"
+    kotlin:
+      versions: ["1.9.25", "2.1.0"]
+      default: "2.1.0"
+
+java_corretto:
+  plugin: language/java-corretto
+  install_type: apt
+  tools:
+    java:
+      versions: ["11", "17", "21"]
+      default: "17"
+    maven:
+      install_type: sdkman
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      install_type: sdkman
+      versions: ["8.12"]
+      default: "8.12"
+    kotlin:
+      install_type: sdkman
+      versions: ["1.9.25", "2.1.0"]
+      default: "2.1.0"
+
+java_ibm:
+  plugin: language/java-ibm
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["17.0.18-sem", "21.0.10-sem"]
+      default: "17.0.18-sem"
+    maven:
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      versions: ["8.12"]
+      default: "8.12"
+    kotlin:
+      versions: ["1.9.25", "2.1.0"]
+      default: "2.1.0"
+
+java_microsoft:
+  plugin: language/java-microsoft
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["17.0.18-ms", "21.0.10-ms"]
+      default: "17.0.18-ms"
+    maven:
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      versions: ["8.12"]
+      default: "8.12"
+    kotlin:
+      versions: ["1.9.25", "2.1.0"]
+      default: "2.1.0"
+
+java_oracle:
+  plugin: language/java-oracle
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["17.0.12-graal", "21.0.10-graal", "23.0.2-graal"]
+      default: "21.0.10-graal"
+    maven:
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      versions: ["8.12"]
+      default: "8.12"
+    kotlin:
+      versions: ["1.9.25", "2.1.0"]
+      default: "2.1.0"
+
+go:
+  plugin: language/go
+  install_type: goenv
+  versions: ["1.21.13", "1.22.10", "1.23.5"]
+  default: "1.22.10"
+
+rust:
+  plugin: language/rust
+  install_type: rustup
+  versions: ["stable", "1.83.0"]
+  default: "stable"
+  note: "Includes rustfmt and clippy components."
+
+ruby:
+  plugin: language/ruby
+  install_type: rbenv
+  versions: ["3.2.10", "3.3.10"]
+  default: "3.3.10"
+
+dotnet:
+  plugin: language/dotnet
+  install_type: script
+  note: "dotnet-install.sh for .NET SDK."
+  versions: ["6.0", "8.0", "9.0"]
+  default: "8.0"
+
+cpp:
+  plugin: language/cpp
+  install_type: apt
+  note: "cmake, clang, ninja-build, cppcheck, valgrind from apt. Conan + Meson from pip (unpinned)."
+
+# ═══════════════════════════════════════════════════════════════
+# MONITORING PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+sentry_cli:
+  plugin: monitoring/sentry-release
+  install_type: npm
+  package: "@sentry/cli"
+  versions: ["latest"]
+  default: "latest"
+
+datadog:
+  plugin: monitoring/datadog
+  install_type: none
+  note: "curl + jq only. API-driven, no versioned tools."
+
+newrelic:
+  plugin: monitoring/newrelic
+  install_type: none
+  note: "curl + jq only. API-driven, no versioned tools."
+
+# ═══════════════════════════════════════════════════════════════
+# NOTIFICATION PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+slack_notify:
+  plugin: notification/slack-notify
+  install_type: none
+  note: "curl + jq only. Webhook-driven."
+
+teams_notify:
+  plugin: notification/teams-notify
+  install_type: none
+  note: "curl + jq only. Webhook-driven."
+
+discord_notify:
+  plugin: notification/discord-notify
+  install_type: none
+  note: "curl + jq only. Webhook-driven."
+
+pagerduty_notify:
+  plugin: notification/pagerduty-notify
+  install_type: none
+  note: "curl + jq only. API-driven."
+
+opsgenie_notify:
+  plugin: notification/opsgenie-notify
+  install_type: none
+  note: "curl + jq only. API-driven."
+
+# ═══════════════════════════════════════════════════════════════
+# QUALITY PLUGINS
+# ═══════════════════════════════════════════════════════════════
+
+eslint:
+  plugin: quality/eslint
+  install_type: nvm
+  nvm_version: "0.40.1"
+  versions: ["20", "22"]
+  default: "20"
+
+prettier:
+  plugin: quality/prettier
+  install_type: nvm
+  nvm_version: "0.40.1"
+  versions: ["20"]
+  default: "20"
+
+coverage_report:
+  plugin: quality/coverage-report
+  install_type: npm
+  tools:
+    nyc:
+      versions: ["17.1.0"]
+      default: "17.1.0"
+    c8:
+      versions: ["10.1.3"]
+      default: "10.1.3"
+    python_coverage:
+      install_type: pip
+      versions: ["7.6.12"]
+      default: "7.6.12"
+  note: "Also installs Node.js 20 via NodeSource + Java 17 JRE."
+
+codacy:
+  plugin: quality/codacy
+  install_type: curl_bin
+  url_template: "https://github.com/codacy/codacy-coverage-reporter/releases/download/{version}/codacy-coverage-reporter-linux"
+  versions: ["14.1.2"]
+  default: "14.1.2"
+
+codeclimate:
+  plugin: quality/codeclimate
+  install_type: curl_tar
+  url_template: "https://github.com/qltysh-archive/test-reporter/releases/download/v{version}/artifacts.tar.gz"
+  note: "Repo transferred from codeclimate to qltysh-archive. Monitor for further moves."
+  versions: ["0.11.1"]
+  default: "0.11.1"
+
+codecov:
+  plugin: quality/codecov
+  install_type: npm
+  package: codecov
+  versions: ["latest"]
+  default: "latest"
+
+checkstyle:
+  plugin: quality/checkstyle
+  install_type: curl_bin
+  url_template: "https://github.com/checkstyle/checkstyle/releases/download/checkstyle-{version}/checkstyle-{version}-all.jar"
+  install_path: /opt/checkstyle/versions
+  versions: ["10.20.2", "10.21.1"]
+  default: "10.21.1"
+
+coveralls:
+  plugin: quality/coveralls
+  install_type: npm
+  package: coveralls
+  versions: ["3.1.1"]
+  default: "3.1.1"
+
+shellcheck:
+  plugin: quality/shellcheck
+  install_type: copy_from
+  image: koalaman/shellcheck
+  tag_prefix: "v"
+  binary_path: /bin/shellcheck
+  versions: ["0.9.0", "0.10.0"]
+  default: "0.10.0"
 
 # ═══════════════════════════════════════════════════════════════
 # SECURITY PLUGINS
@@ -89,130 +621,6 @@ checkmarx_cli:
   versions: ["2.3.46"]
   default: "2.3.46"
 
-tflint:
-  plugin: deploy/terraform
-  install_type: copy_from
-  image: ghcr.io/terraform-linters/tflint
-  tag_prefix: "v"
-  binary_path: /usr/local/bin/tflint
-  versions: ["0.54.0"]
-  default: "0.54.0"
-
-tfsec:
-  plugin: deploy/terraform
-  install_type: copy_from
-  image: aquasec/tfsec
-  tag_prefix: "v"
-  binary_path: /usr/bin/tfsec
-  versions: ["1.28.11"]
-  default: "1.28.11"
-
-shellcheck:
-  plugin: quality/shellcheck
-  install_type: copy_from
-  image: koalaman/shellcheck
-  tag_prefix: "v"
-  binary_path: /bin/shellcheck
-  versions: ["0.9.0", "0.10.0"]
-  default: "0.10.0"
-
-# ═══════════════════════════════════════════════════════════════
-# TESTING PLUGINS
-# ═══════════════════════════════════════════════════════════════
-
-k6:
-  plugin: testing/k6
-  install_type: copy_from
-  image: grafana/k6
-  tag_prefix: ""
-  binary_path: /usr/bin/k6
-  versions: ["0.55.0", "0.56.0"]
-  default: "0.56.0"
-
-newman:
-  plugin: testing/postman
-  install_type: npm
-  package: "newman newman-reporter-htmlextra"
-  versions: ["6.2.1"]
-  default: "6.2.1"
-
-# ═══════════════════════════════════════════════════════════════
-# QUALITY PLUGINS
-# ═══════════════════════════════════════════════════════════════
-
-codacy:
-  plugin: quality/codacy
-  install_type: curl_bin
-  url_template: "https://github.com/codacy/codacy-coverage-reporter/releases/download/{version}/codacy-coverage-reporter-linux"
-  versions: ["14.1.2"]
-  default: "14.1.2"
-
-codeclimate:
-  plugin: quality/codeclimate
-  install_type: curl_tar
-  url_template: "https://github.com/qltysh-archive/test-reporter/releases/download/v{version}/artifacts.tar.gz"
-  note: "Repo transferred from codeclimate to qltysh-archive. Monitor for further moves."
-  versions: ["0.11.1"]
-  default: "0.11.1"
-
-codecov:
-  plugin: quality/codecov
-  install_type: npm
-  package: codecov
-  versions: ["latest"]
-  default: "latest"
-
-checkstyle:
-  plugin: quality/checkstyle
-  install_type: curl_bin
-  url_template: "https://github.com/checkstyle/checkstyle/releases/download/checkstyle-{version}/checkstyle-{version}-all.jar"
-  install_path: /opt/checkstyle/versions
-  versions: ["10.20.2", "10.21.1"]
-  default: "10.21.1"
-
-coveralls:
-  plugin: quality/coveralls
-  install_type: npm
-  package: coveralls
-  versions: ["3.1.1"]
-  default: "3.1.1"
-
-# ═══════════════════════════════════════════════════════════════
-# DEPLOY PLUGINS
-# ═══════════════════════════════════════════════════════════════
-
-kubectl:
-  plugin: deploy/kubectl-deploy
-  install_type: curl_bin
-  url_template: "https://dl.k8s.io/release/v{version}/bin/linux/amd64/kubectl"
-  versions: ["1.31.4"]
-  default: "1.31.4"
-
-helm:
-  plugin: deploy/helm-deploy
-  install_type: curl_tar
-  url_template: "https://get.helm.sh/helm-v{version}-linux-amd64.tar.gz"
-  versions: ["3.16.4"]
-  default: "3.16.4"
-
-rain:
-  plugin: deploy/cloudformation
-  install_type: curl_zip
-  url_template: "https://github.com/aws-cloudformation/rain/releases/download/v{version}/rain-v{version}_linux-amd64.zip"
-  versions: ["1.18.0"]
-  default: "1.18.0"
-
-liquibase:
-  plugin: deploy/liquibase
-  install_type: curl_tar
-  url_template: "https://github.com/liquibase/liquibase/releases/download/v{version}/liquibase-{version}.tar.gz"
-  versions: ["4.30.0"]
-  default: "4.30.0"
-
-# ═══════════════════════════════════════════════════════════════
-# SECURITY (vendor-specific — install scripts, least resilient)
-# ═══════════════════════════════════════════════════════════════
-
 fortify_fcli:
   plugin: security/fortify
   install_type: curl_tar
@@ -247,17 +655,6 @@ owasp_zap:
   versions: ["2.16.0"]
   default: "2.16.0"
 
-# ═══════════════════════════════════════════════════════════════
-# NPM/PIP-INSTALLED TOOLS (stable package managers)
-# ═══════════════════════════════════════════════════════════════
-
-sentry_cli:
-  plugin: monitoring/sentry-release
-  install_type: npm
-  package: "@sentry/cli"
-  versions: ["latest"]
-  default: "latest"
-
 ggshield:
   plugin: security/gitguardian
   install_type: pip
@@ -286,16 +683,27 @@ license_checker:
   versions: ["25.0.1"]
   default: "25.0.1"
 
-aws_cdk:
-  plugin: deploy/cdk-deploy
-  install_type: npm
-  package: "aws-cdk typescript ts-node"
-  versions: ["2.177.0"]
-  default: "2.177.0"
+# ═══════════════════════════════════════════════════════════════
+# TESTING PLUGINS
+# ═══════════════════════════════════════════════════════════════
 
-cfn_lint:
-  plugin: deploy/cloudformation
-  install_type: pip
-  package: cfn-lint
-  versions: ["1.31.1"]
-  default: "1.31.1"
+k6:
+  plugin: testing/k6
+  install_type: copy_from
+  image: grafana/k6
+  tag_prefix: ""
+  binary_path: /usr/bin/k6
+  versions: ["0.55.0", "0.56.0"]
+  default: "0.56.0"
+
+newman:
+  plugin: testing/postman
+  install_type: npm
+  package: "newman newman-reporter-htmlextra"
+  versions: ["6.2.1"]
+  default: "6.2.1"
+
+health_check:
+  plugin: testing/health-check
+  install_type: none
+  note: "curl, wget, jq, netcat, dnsutils from apt. No versioned tools."

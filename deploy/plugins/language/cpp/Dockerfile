@@ -7,7 +7,7 @@ FROM public.ecr.aws/docker/library/ubuntu:24.04
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System dependencies for C++ builds
+# System dependencies for C++ builds + Python for Conan/Meson
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \
@@ -23,10 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     valgrind \
     cppcheck \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Conan package manager
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
+    python3 \
+    python3-pip \
     && pip3 install --break-system-packages conan meson \
     && rm -rf /var/lib/apt/lists/*
 
