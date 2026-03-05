@@ -2,7 +2,7 @@
  * Tests for the alias resolver utility.
  */
 
-import { resolveRecipientAlias, isSupportAlias, _resetAliasCache } from '../src/utils/alias-resolver';
+import { resolveRecipientAlias, _resetAliasCache } from '../src/utils/alias-resolver';
 
 jest.mock('../src/middleware/auth', () => ({
   SYSTEM_ORG_ID: 'system',
@@ -94,26 +94,3 @@ describe('resolveRecipientAlias', () => {
   });
 });
 
-describe('isSupportAlias', () => {
-  beforeEach(() => {
-    _resetAliasCache();
-    process.env.SUPPORT_ALIASES = 'support@pipeline-builder,help@pipeline-builder';
-  });
-
-  afterAll(() => {
-    _resetAliasCache();
-    delete process.env.SUPPORT_ALIASES;
-  });
-
-  it('returns true for a configured alias', () => {
-    expect(isSupportAlias('support@pipeline-builder')).toBe(true);
-  });
-
-  it('returns false for a non-alias', () => {
-    expect(isSupportAlias('other-org')).toBe(false);
-  });
-
-  it('is case-insensitive', () => {
-    expect(isSupportAlias('SUPPORT@PIPELINE-BUILDER')).toBe(true);
-  });
-});

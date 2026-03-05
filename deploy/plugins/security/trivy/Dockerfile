@@ -4,7 +4,17 @@
 # Set LANGUAGE to activate a different runtime: python, java, go, dotnet, cpp, ruby, rust
 # Set LANGUAGE_VERSION to select the specific version
 
+# ─── Tool versions (override with --build-arg) ───
+ARG TRIVY_VERSION=0.69.3
+ARG TRIVY_PREV_VERSION=0.26.0
+
+FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-default
+FROM aquasec/trivy:${TRIVY_PREV_VERSION} AS trivy-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG TRIVY_VERSION
+ARG TRIVY_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -15,7 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     build-essential \
@@ -98,22 +107,14 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --n
     && /opt/cargo/bin/rustup toolchain install 1.83.0
 ENV PATH="${CARGO_HOME}/bin:${PATH}"
 
-# ─── Trivy CLI — multi-version support ───
-# Pre-install common Trivy versions; selected at runtime via TRIVY_VERSION
+# ─── Trivy CLI — multi-version support (copied from official images) ───
 RUN mkdir -p /opt/trivy/versions
-
-# Install Trivy versions
-RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.58.2/trivy_0.58.2_Linux-64bit.tar.gz \
-    | tar -xz -C /opt/trivy/versions && mv /opt/trivy/versions/trivy /opt/trivy/versions/trivy-0.58.2
-RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.59.1/trivy_0.59.1_Linux-64bit.tar.gz \
-    | tar -xz -C /opt/trivy/versions && mv /opt/trivy/versions/trivy /opt/trivy/versions/trivy-0.59.1
-
-# Default to latest installed version
-RUN ln -sf /opt/trivy/versions/trivy-0.59.1 /usr/local/bin/trivy
+COPY --from=trivy-prev /usr/local/bin/trivy /opt/trivy/versions/trivy-${TRIVY_PREV_VERSION}
+COPY --from=trivy-default /usr/local/bin/trivy /opt/trivy/versions/trivy-${TRIVY_VERSION}
+RUN ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
 
 # ─── Runtime configuration defaults ───
-# Non-sensitive config only — no tokens or secrets in ENV/ARG
-ENV TRIVY_VERSION=0.59.1
+ENV TRIVY_VERSION=${TRIVY_VERSION}
 ENV TRIVY_SEVERITY=HIGH,CRITICAL
 ENV TRIVY_FORMAT=json
 

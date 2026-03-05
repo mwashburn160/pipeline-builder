@@ -6,6 +6,7 @@ import {
   PipelineServiceError,
   PipelineFilter,
 } from '../services';
+import { parsePagination } from '../utils/pagination';
 
 const logger = createLogger('PipelineController');
 
@@ -53,11 +54,10 @@ export async function listPipelines(req: Request, res: Response): Promise<void> 
     if (req.query.isDefault !== undefined) {
       filter.isDefault = req.query.isDefault === 'true';
     }
-    if (req.query.page) {
-      filter.page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
-    }
-    if (req.query.limit) {
-      filter.limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 20));
+    if (req.query.page || req.query.limit) {
+      const pg = parsePagination(req.query.page, req.query.limit);
+      filter.page = pg.page;
+      filter.limit = pg.limit;
     }
 
     logger.info('[LIST PIPELINES] Request received', {

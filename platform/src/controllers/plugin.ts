@@ -6,6 +6,7 @@ import {
   PluginServiceError,
   PluginFilter,
 } from '../services';
+import { parsePagination } from '../utils/pagination';
 
 const logger = createLogger('PluginController');
 
@@ -29,9 +30,10 @@ function buildFilter(query: Request['query'], options?: { includePagination?: bo
   if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
   if (query.isDefault !== undefined) filter.isDefault = query.isDefault === 'true';
 
-  if (options?.includePagination) {
-    if (query.page) filter.page = Math.max(1, parseInt(String(query.page), 10) || 1);
-    if (query.limit) filter.limit = Math.min(100, Math.max(1, parseInt(String(query.limit), 10) || 20));
+  if (options?.includePagination && (query.page || query.limit)) {
+    const pg = parsePagination(query.page, query.limit);
+    filter.page = pg.page;
+    filter.limit = pg.limit;
   }
 
   return filter;

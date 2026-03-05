@@ -3,7 +3,12 @@
 # Validates, deploys, and manages CloudFormation stacks
 # Includes cfn-lint for template validation
 
+# ─── Tool versions (override with --build-arg) ───
+ARG RAIN_VERSION=1.18.0
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG RAIN_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     python3 \
@@ -31,8 +35,8 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
 RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.31.1
 
 # ─── rain for CloudFormation deployment (modern CLI) ───
-RUN curl -fsSL https://github.com/aws-cloudformation/rain/releases/download/v1.18.0/rain-v1.18.0_linux-amd64.zip \
-    -o /tmp/rain.zip && unzip -q /tmp/rain.zip -d /tmp && mv /tmp/rain-v1.18.0_linux-amd64/rain /usr/local/bin/rain && rm -rf /tmp/rain*
+RUN curl -fsSL https://github.com/aws-cloudformation/rain/releases/download/v${RAIN_VERSION}/rain-v${RAIN_VERSION}_linux-amd64.zip \
+    -o /tmp/rain.zip && unzip -q /tmp/rain.zip -d /tmp && mv /tmp/rain-v${RAIN_VERSION}_linux-amd64/rain /usr/local/bin/rain && rm -rf /tmp/rain*
 
 # ─── Runtime configuration defaults ───
 ENV CFN_TEMPLATE=""

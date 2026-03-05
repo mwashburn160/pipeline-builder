@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
-import { SUPPORT_ALIASES } from '@/lib/support-aliases';
+const SUPPORT_ALIASES = [
+  { label: 'Support', value: 'support@pipeline-builder' },
+  { label: 'Help', value: 'help@pipeline-builder' },
+] as const;
 
 /** Props for the ComposeModal component. */
 interface ComposeModalProps {

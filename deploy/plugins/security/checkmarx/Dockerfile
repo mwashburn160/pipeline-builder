@@ -3,21 +3,30 @@
 # Supports Checkmarx One CLI and KICS for infrastructure-as-code
 # Requires CX_CLIENT_SECRET at runtime
 
+# ─── Tool versions (override with --build-arg) ───
+ARG CX_CLI_VERSION=2.3.46
+ARG KICS_VERSION=2.1.3
+
+FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG CX_CLI_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl wget jq ca-certificates \
+    git zip unzip curl jq ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Checkmarx One CLI ───
-RUN curl -fsSL https://github.com/Checkmarx/ast-cli/releases/download/2.4.3/ast-cli_linux_x64.tar.gz \
+RUN curl -fsSL https://github.com/Checkmarx/ast-cli/releases/download/${CX_CLI_VERSION}/ast-cli_linux_x64.tar.gz \
     | tar -xz -C /usr/local/bin
 
-# ─── KICS (IaC Scanner by Checkmarx) ───
-RUN curl -fsSL https://github.com/Checkmarx/kics/releases/download/v2.1.3/kics_2.1.3_linux_x64.tar.gz \
-    | tar -xz -C /usr/local/bin
+# ─── KICS (IaC Scanner by Checkmarx — copied from official image) ───
+COPY --from=kics-src /app/bin/kics /usr/local/bin/kics
+COPY --from=kics-src /app/bin/assets /opt/kics/assets
+ENV KICS_QUERIES_PATH=/opt/kics/assets/queries
 
 # Non-sensitive config only
 ENV CX_BASE_URI=https://ast.checkmarx.net

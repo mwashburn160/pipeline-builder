@@ -14,11 +14,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     jq \
     ca-certificates \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── Codecov Uploader ───
-RUN curl -fsSL https://uploader.codecov.io/latest/linux/codecov -o /usr/local/bin/codecov \
-    && chmod +x /usr/local/bin/codecov
+# ─── Node.js (required by Codecov CLI) ───
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Codecov CLI (installed via npm — more stable than binary URL) ───
+RUN npm install -g codecov
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — CODECOV_TOKEN must be injected at runtime

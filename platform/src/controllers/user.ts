@@ -6,6 +6,7 @@ import { config } from '../config';
 import { requireAuthUserId, requireAdminContext } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
 import { validateBody, issueTokens } from '../utils/auth-utils';
+import { parsePagination } from '../utils/pagination';
 import { updateProfileSchema, changePasswordSchema } from '../validation/schemas';
 
 const logger = createLogger('UserController');
@@ -290,9 +291,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
       ];
     }
 
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const limitNum = Math.min(config.pagination.maxLimit, Math.max(1, parseInt(limit as string, 10) || config.pagination.defaultLimit));
-    const skip = (pageNum - 1) * limitNum;
+    const { page: pageNum, limit: limitNum, skip } = parsePagination(page, limit);
 
     const [users, total] = await Promise.all([
       User.find(filter)

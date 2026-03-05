@@ -3,7 +3,12 @@
 # Uploads coverage reports to Codacy for quality tracking and PR analysis
 # Auto-detects coverage file formats: lcov.info, coverage.xml, .coverage, jacoco.xml, coverage.out
 
+# ─── Tool versions (override with --build-arg) ───
+ARG CODACY_VERSION=14.1.2
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG CODACY_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Codacy Coverage Reporter ───
-RUN curl -fsSL https://github.com/codacy/codacy-coverage-reporter/releases/download/16.3.0/codacy-coverage-reporter-linux \
+RUN curl -fsSL https://github.com/codacy/codacy-coverage-reporter/releases/download/${CODACY_VERSION}/codacy-coverage-reporter-linux \
     -o /usr/local/bin/codacy-coverage-reporter \
     && chmod +x /usr/local/bin/codacy-coverage-reporter
 

@@ -3,7 +3,14 @@
 # Installs, upgrades, uninstalls, or templates Helm charts
 # Includes kubectl and AWS CLI for EKS authentication
 
+# ─── Tool versions (override with --build-arg) ───
+ARG KUBECTL_VERSION=1.31.4
+ARG HELM_VERSION=3.16.4
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG KUBECTL_VERSION
+ARG HELM_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -25,12 +32,12 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscli.zip
 
-# ─── kubectl v1.31.4 ───
-RUN curl -fsSL "https://dl.k8s.io/release/v1.31.4/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
+# ─── kubectl ───
+RUN curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
-# ─── Helm v3.16.4 ───
-RUN curl -fsSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz -o /tmp/helm.tar.gz \
+# ─── Helm ───
+RUN curl -fsSL https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz -o /tmp/helm.tar.gz \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && chmod +x /usr/local/bin/helm \
