@@ -1,3 +1,13 @@
+## 1.34.4 (2026-03-05)
+
+### 🩹 Fixes
+
+- upgraded api-server=1.35.3 ([f77a0cfe](https://github.com/mwashburn160/pipeline-builder/commit/f77a0cfe))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.3 (2026-03-05)
 
 ### 🩹 Fixes
