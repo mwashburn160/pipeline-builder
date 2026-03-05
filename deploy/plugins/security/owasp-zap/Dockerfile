@@ -3,7 +3,12 @@
 # Runs ZAP scans against a target URL to find runtime vulnerabilities
 # Supports baseline, full, and API scan modes
 
+# ─── Tool versions (override with --build-arg) ───
+ARG ZAP_VERSION=2.16.0
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+ARG ZAP_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     python3 \
@@ -23,18 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xmlstarlet \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── OWASP ZAP — multi-version support ───
-RUN mkdir -p /opt/zap/versions
-
-# Install ZAP versions
-RUN curl -fsSL https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz \
-    | tar -xz -C /opt/zap/versions && mv /opt/zap/versions/ZAP_2.15.0 /opt/zap/versions/zap-2.15.0
-
-RUN curl -fsSL https://github.com/zaproxy/zaproxy/releases/download/v2.16.0/ZAP_2.16.0_Linux.tar.gz \
-    | tar -xz -C /opt/zap/versions && mv /opt/zap/versions/ZAP_2.16.0 /opt/zap/versions/zap-2.16.0
-
-# Default to latest installed version
-RUN ln -sf /opt/zap/versions/zap-2.16.0 /opt/zap/current
+# ─── OWASP ZAP ───
+RUN mkdir -p /opt/zap/versions \
+    && curl -fsSL https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz \
+    | tar -xz -C /opt/zap/versions \
+    && mv /opt/zap/versions/ZAP_${ZAP_VERSION} /opt/zap/versions/zap-${ZAP_VERSION} \
+    && ln -sf /opt/zap/versions/zap-${ZAP_VERSION} /opt/zap/current
 ENV PATH="/opt/zap/current:${PATH}"
 
 # Install ZAP Python API client

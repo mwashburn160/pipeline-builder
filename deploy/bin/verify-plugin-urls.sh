@@ -69,21 +69,28 @@ verify_dockerfile() {
   echo -e "${BLUE}==>${NC} $rel_path"
 
   # Check curl/wget download URLs (skip apt repos and install scripts like pyenv.run, rustup, sdkman)
-  grep -E 'curl.*https://github\.com|curl.*https://[a-z]+\.(amazonaws|helm|k8s)' "$dockerfile" 2>/dev/null \
-    | grep -oP 'https://[^ "\\]+' \
-    | while read -r url; do
-        check_url "$url" "$rel_path"
-      done
+  # Only checks hardcoded URLs — URLs with ${VAR} or $(cmd) are skipped (use generate-plugins.sh for those)
+  local urls
+  urls=$(grep -E 'curl.*https://github\.com|curl.*https://[a-z]+\.(amazonaws|helm|k8s)' "$dockerfile" 2>/dev/null \
+    | sed -E 's/.*(https:\/\/[^ "\\]+).*/\1/' || true)
+  while IFS= read -r url; do
+    [ -z "$url" ] && continue
+    # Skip URLs with unresolved variables, shell substitutions, or malformed captures
+    echo "$url" | grep -qE '\$\{|\$\(|\)' && continue
+    check_url "$url" "$rel_path"
+  done <<< "$urls"
 
   # Check COPY --from Docker image references
-  grep -oP 'COPY\s+--from=(\S+)' "$dockerfile" 2>/dev/null \
-    | sed 's/COPY --from=//' \
-    | while read -r image; do
-        # Skip named build stages (no / in the name)
-        if echo "$image" | grep -q '/'; then
-          check_docker_image "$image" "$rel_path"
-        fi
-      done
+  local images
+  images=$(grep -E 'COPY[[:space:]]+--from=' "$dockerfile" 2>/dev/null \
+    | sed -E 's/.*COPY[[:space:]]+--from=([^ ]+).*/\1/' || true)
+  while IFS= read -r image; do
+    [ -z "$image" ] && continue
+    # Skip named build stages (no / in the name)
+    if echo "$image" | grep -q '/'; then
+      check_docker_image "$image" "$rel_path"
+    fi
+  done <<< "$images"
 }
 
 # ── Main ──
