@@ -1,3 +1,13 @@
+## 1.33.8 (2026-03-05)
+
+### 🩹 Fixes
+
+- added pagination ([955a9a5c](https://github.com/mwashburn160/pipeline-builder/commit/955a9a5c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.33.7 (2026-03-04)
 
 ### 🩹 Fixes
