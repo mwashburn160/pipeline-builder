@@ -1,3 +1,18 @@
+## 1.36.0 (2026-03-06)
+
+### 🚀 Features
+
+- added plugins ([f1f0563a](https://github.com/mwashburn160/pipeline-builder/commit/f1f0563a))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.38.0
+- Updated @mwashburn160/api-core to 1.37.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.35.5 (2026-03-05)
 
 ### 🩹 Fixes
