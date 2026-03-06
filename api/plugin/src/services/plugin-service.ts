@@ -131,7 +131,6 @@ export class PluginService extends CrudService<
       return upserted as unknown as Plugin;
     });
   }
-
 }
 
 export const pluginService = new PluginService();

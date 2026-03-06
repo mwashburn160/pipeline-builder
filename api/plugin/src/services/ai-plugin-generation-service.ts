@@ -65,6 +65,13 @@ const PluginGenerationSchema = z.object({
   dockerfile: z.string().describe('Complete Dockerfile content for the plugin build environment'),
 });
 
+/** Resolve an AI model from provider/model/apiKey. */
+function resolveRequestModel(request: PluginGenerationRequest) {
+  return request.apiKey
+    ? createModelWithKey(request.provider, request.model, request.apiKey)
+    : resolveModel(request.provider, request.model);
+}
+
 // System Prompt
 
 /**
@@ -151,9 +158,7 @@ For a "Python test plugin":
  * @throws Error if the AI provider is not configured, model is invalid, or AI produces no output
  */
 export async function generatePluginConfig(request: PluginGenerationRequest): Promise<PluginGenerationResult> {
-  const model = request.apiKey
-    ? createModelWithKey(request.provider, request.model, request.apiKey)
-    : resolveModel(request.provider, request.model);
+  const model = resolveRequestModel(request);
   const systemPrompt = buildSystemPrompt();
 
   logger.info('Generating plugin config via AI', {
@@ -216,9 +221,7 @@ export interface StreamingPluginGenerationResult {
  * @throws Error if the AI provider is not configured or model is invalid
  */
 export function streamPluginConfig(request: PluginGenerationRequest): StreamingPluginGenerationResult {
-  const model = request.apiKey
-    ? createModelWithKey(request.provider, request.model, request.apiKey)
-    : resolveModel(request.provider, request.model);
+  const model = resolveRequestModel(request);
   const systemPrompt = buildSystemPrompt();
 
   logger.info('Streaming plugin config via AI', {

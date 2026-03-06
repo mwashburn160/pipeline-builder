@@ -121,6 +121,3 @@ export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Reco
     }
   }
 }
-
-// Re-export for consumers that imported from here previously
-export { ValidationError } from '@mwashburn160/api-core';

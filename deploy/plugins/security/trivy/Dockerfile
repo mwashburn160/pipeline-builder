@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxmlsec1-dev \
     libffi-dev \
     liblzma-dev \
+    libyaml-dev \
     software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 

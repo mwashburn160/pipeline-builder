@@ -22,11 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Code Climate Test Reporter ───
-# The codeclimate/test-reporter repo was transferred to qltysh-archive;
-# binaries are now bundled inside artifacts.tar.gz.
-RUN curl -fsSL https://github.com/qltysh-archive/test-reporter/releases/download/v${CC_REPORTER_VERSION}/artifacts.tar.gz \
-    | tar -xz --strip-components=2 -C /usr/local/bin artifacts/bin/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 \
-    && mv /usr/local/bin/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 /usr/local/bin/cc-test-reporter \
+RUN curl -fsSL https://codeclimate.com/downloads/test-reporter/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 \
+    -o /usr/local/bin/cc-test-reporter \
     && chmod +x /usr/local/bin/cc-test-reporter
 
 # ─── Runtime configuration defaults ───

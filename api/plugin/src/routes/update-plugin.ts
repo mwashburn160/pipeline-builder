@@ -61,8 +61,6 @@ export function createUpdatePluginRoutes(): Router {
       }),
       // Access modifier requires special handling (admin-only public)
       ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
-      updatedAt: new Date(),
-      updatedBy: userId || 'system',
     };
 
     const updated = await pluginService.update(

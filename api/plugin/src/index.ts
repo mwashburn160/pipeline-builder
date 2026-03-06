@@ -3,6 +3,7 @@ import { createApp, runServer, createQuotaService, createProtectedRoute, createA
 
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
+import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin';
 import { createGeneratePluginRoutes } from './routes/generate-plugin';
 import { createQueueStatusRoutes } from './routes/queue-status';
 import { createReadPluginRoutes } from './routes/read-plugins';
@@ -25,7 +26,10 @@ app.use('/plugins', createUploadPluginRoutes(quotaService));
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
 
 // -- AI generation routes (MUST be before read routes to avoid /:id catching "providers"/"generate")
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes(quotaService));
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes());
+
+// -- Deploy AI-generated plugin — manages its own admin + quota middleware
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/plugins', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));

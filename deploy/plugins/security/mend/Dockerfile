@@ -9,11 +9,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates \
-    openjdk-17-jre-headless nodejs npm \
+    openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── Mend CLI ───
-RUN npm install -g @mend-io/cli
+# ─── Mend CLI (direct binary download) ───
+RUN curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend \
+    && chmod +x /usr/local/bin/mend
 
 # Non-sensitive config only
 ENV MEND_URL=https://saas.mend.io

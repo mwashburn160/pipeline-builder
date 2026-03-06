@@ -7,6 +7,8 @@
 ARG KUBECTL_VERSION=1.31.4
 ARG HELM_VERSION=3.16.4
 
+FROM alpine/helm:${HELM_VERSION} AS helm-src
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
 
 ARG KUBECTL_VERSION
@@ -36,12 +38,8 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
 RUN curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
-# ─── Helm ───
-RUN curl -fsSL https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz -o /tmp/helm.tar.gz \
-    && tar -xzf /tmp/helm.tar.gz -C /tmp \
-    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
-    && chmod +x /usr/local/bin/helm \
-    && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+# ─── Helm (copied from official image) ───
+COPY --from=helm-src /usr/bin/helm /usr/local/bin/helm
 
 # ─── Runtime configuration defaults ───
 ENV HELM_RELEASE=""
