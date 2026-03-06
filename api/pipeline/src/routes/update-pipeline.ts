@@ -1,10 +1,6 @@
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PipelineUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import {
-  normalizePipeline,
-  sendPipelineNotFound,
-} from '../helpers/pipeline-helpers';
 import { pipelineService } from '../services/pipeline-service';
 
 /**
@@ -33,7 +29,7 @@ export function createUpdatePipelineRoutes(): Router {
 
     const existing = await pipelineService.findById(id, orgId);
 
-    if (!existing) return sendPipelineNotFound(res);
+    if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
     // Only system admins can edit non-private pipelines
     if (!requirePublicAccess(req, res, existing)) return;
@@ -61,11 +57,11 @@ export function createUpdatePipelineRoutes(): Router {
       userId || 'system',
     );
 
-    if (!updated) return sendPipelineNotFound(res);
+    if (!updated) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Updated pipeline', { id: updated.id, name: updated.pipelineName });
 
-    return sendSuccess(res, 200, { pipeline: normalizePipeline(updated) });
+    return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']) });
   }));
 
   return router;

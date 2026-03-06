@@ -26,15 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 
-# Pre-install Oracle GraalVM versions + build tools + Kotlin
+# Pre-install current + previous Oracle GraalVM versions + build tools + Kotlin
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install java 17.0.12-graal && \
     sdk install java 21.0.10-graal && \
-    sdk install java 23.0.2-graal && \
     sdk install maven 3.9.9 && \
     sdk install gradle 8.12 && \
     sdk install kotlin 2.1.0 && \
-    sdk install kotlin 1.9.25 && \
     sdk default java 21.0.10-graal && \
     sdk default kotlin 2.1.0"
 

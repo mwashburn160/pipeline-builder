@@ -14,24 +14,11 @@ const NAMESPACE = {
 } as const;
 type Namespace = (typeof NAMESPACE)[keyof typeof NAMESPACE];
 
-/**
- * Key configuration per namespace.
- * Each entry defines which metadata keys are boolean vs passthrough.
- */
 interface NamespaceKeyConfig {
   booleanKeys: readonly string[];
   passthroughKeys: readonly string[];
 }
 
-/**
- * Metadata-settable keys per namespace.
- *
- * Metadata is spread last in createCodeBuildStep and Builder, so any key
- * listed here will override the corresponding programmatic default when set.
- *
- * Every CDK prop for each construct is represented here — metadata has
- * full override authority.
- */
 const NAMESPACE_KEY_MAP: Record<Namespace, NamespaceKeyConfig> = {
   [NAMESPACE.SHELL_STEP]: {
     booleanKeys: [],
@@ -58,16 +45,13 @@ function getCustomKey(prefix: string, key: string): string {
 }
 
 function isTrue(value: unknown): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    return value.toLowerCase() === 'true';
-  }
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.toLowerCase() === 'true';
   return false;
 }
 
-function buildConfigFromMetadata(
+/** Extract CDK construct config from metadata for a given namespace. */
+export function buildConfigFromMetadata(
   metadata: MetaDataType,
   namespace: string,
 ): Record<string, unknown> {
@@ -78,55 +62,46 @@ function buildConfigFromMetadata(
 
   for (const key of booleanKeys) {
     const raw = metadata[getCustomKey(namespace, key)];
-    if (raw !== undefined) {
-      result[key] = isTrue(raw);
-    }
+    if (raw !== undefined) result[key] = isTrue(raw);
   }
 
   for (const key of passthroughKeys) {
     const raw = metadata[getCustomKey(namespace, key)];
-    if (raw !== undefined) {
-      result[key] = raw;
-    }
+    if (raw !== undefined) result[key] = raw;
   }
 
   return result;
 }
 
+/** Extract CodePipeline config from metadata. */
+export function metadataForCodePipeline(metadata: MetaDataType): Partial<CodePipelineProps> {
+  return buildConfigFromMetadata(metadata, NAMESPACE.CODE_PIPELINE) as Partial<CodePipelineProps>;
+}
+
+/** Extract CodeBuildStep config from metadata. */
+export function metadataForCodeBuildStep(metadata: MetaDataType): Partial<CodeBuildStepProps> {
+  return buildConfigFromMetadata(metadata, NAMESPACE.CODE_BUILD_STEP) as Partial<CodeBuildStepProps>;
+}
+
+/** Extract ShellStep config from metadata. */
+export function metadataForShellStep(metadata: MetaDataType): Partial<ShellStepProps> {
+  return buildConfigFromMetadata(metadata, NAMESPACE.SHELL_STEP) as Partial<ShellStepProps>;
+}
+
+/** Extract BuildEnvironment config from metadata. */
+export function metadataForBuildEnvironment(metadata: MetaDataType): Partial<BuildEnvironment> {
+  return buildConfigFromMetadata(metadata, NAMESPACE.BUILD_ENVIRONMENT) as Partial<BuildEnvironment>;
+}
+
+
 /**
- * Fluent API for extracting CDK construct configuration from metadata.
- *
- * @example
- * ```typescript
- * const config = MetadataBuilder.from(metadata).forCodePipeline();
- * // { selfMutation: true }
- * ```
+ * @deprecated Use the standalone metadataForXxx() functions instead.
  */
 export class MetadataBuilder {
   constructor(private readonly metadata: MetaDataType) {}
-
-  /** Builds configuration for CodePipeline construct */
-  forCodePipeline(): Partial<CodePipelineProps> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_PIPELINE) as Partial<CodePipelineProps>;
-  }
-
-  /** Builds configuration for CodeBuildStep construct */
-  forCodeBuildStep(): Partial<CodeBuildStepProps> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.CODE_BUILD_STEP) as Partial<CodeBuildStepProps>;
-  }
-
-  /** Builds configuration for ShellStep construct */
-  forShellStep(): Partial<ShellStepProps> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.SHELL_STEP) as Partial<ShellStepProps>;
-  }
-
-  /** Builds configuration for BuildEnvironment (used in CodeBuildStep) */
-  forBuildEnvironment(): Partial<BuildEnvironment> {
-    return buildConfigFromMetadata(this.metadata, NAMESPACE.BUILD_ENVIRONMENT) as Partial<BuildEnvironment>;
-  }
-
-  /** Static factory method to create a builder from metadata */
-  static from(metadata: MetaDataType): MetadataBuilder {
-    return new MetadataBuilder(metadata);
-  }
+  forCodePipeline(): Partial<CodePipelineProps> { return metadataForCodePipeline(this.metadata); }
+  forCodeBuildStep(): Partial<CodeBuildStepProps> { return metadataForCodeBuildStep(this.metadata); }
+  forShellStep(): Partial<ShellStepProps> { return metadataForShellStep(this.metadata); }
+  forBuildEnvironment(): Partial<BuildEnvironment> { return metadataForBuildEnvironment(this.metadata); }
+  static from(metadata: MetaDataType): MetadataBuilder { return new MetadataBuilder(metadata); }
 }

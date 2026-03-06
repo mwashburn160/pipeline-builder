@@ -1,0 +1,59 @@
+name: helm-push
+description: Helm chart packaging and push plugin for deploying charts to OCI registries, ChartMuseum, or S3 using AWS CDK CodeBuildStep
+keywords:
+  - helm
+  - chart
+  - oci
+  - registry
+  - push
+  - kubernetes
+  - package
+  - ci
+  - pipeline
+  - artifact
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: helm-output
+dockerfile: Dockerfile
+installCommands:
+  - helm version
+  - aws --version
+commands:
+  - mkdir -p helm-output
+  - |
+    if [ -z "${HELM_REGISTRY}" ]; then
+      echo "ERROR: HELM_REGISTRY must be set (e.g., oci://123456789.dkr.ecr.us-east-1.amazonaws.com)"
+      exit 1
+    fi
+    VERSION_ARG=""
+    if [ -n "${CHART_VERSION}" ]; then
+      VERSION_ARG="--version ${CHART_VERSION}"
+    fi
+    echo "Packaging Helm chart from ${HELM_CHART_PATH}..."
+    helm package "${HELM_CHART_PATH}" ${VERSION_ARG} -d helm-output/
+    CHART_FILE=$(ls helm-output/*.tgz | head -1)
+    echo "Packaged: ${CHART_FILE}"
+    case "${HELM_REGISTRY_TYPE}" in
+      oci)
+        echo "Pushing to OCI registry: ${HELM_REGISTRY}"
+        helm push "${CHART_FILE}" "${HELM_REGISTRY}"
+        ;;
+      chartmuseum)
+        echo "Pushing to ChartMuseum: ${HELM_REGISTRY}"
+        helm cm-push "${CHART_FILE}" "${HELM_REGISTRY}"
+        ;;
+      *)
+        echo "ERROR: Unknown HELM_REGISTRY_TYPE '${HELM_REGISTRY_TYPE}'. Supported: oci, chartmuseum"
+        exit 1
+        ;;
+    esac
+  - "echo \"Helm push complete. Package saved in helm-output/\""
+env:
+  HELM_CHART_PATH: "."
+  HELM_REGISTRY: ""
+  HELM_REGISTRY_TYPE: oci
+  CHART_VERSION: ""

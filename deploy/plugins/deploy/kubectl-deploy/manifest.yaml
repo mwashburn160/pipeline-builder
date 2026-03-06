@@ -7,6 +7,8 @@ keywords:
   - k8s
   - eks
   - rollout
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

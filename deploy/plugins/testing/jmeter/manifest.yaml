@@ -1,0 +1,49 @@
+name: jmeter
+description: Apache JMeter load and performance testing plugin for running JMX test plans with configurable thread groups and reporting using AWS CDK CodeBuildStep
+keywords:
+  - jmeter
+  - load-testing
+  - performance
+  - stress-test
+  - java
+  - api
+  - benchmark
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 60
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: jmeter-reports
+dockerfile: Dockerfile
+installCommands:
+  - java --version
+  - jmeter --version 2>&1 | head -5
+commands:
+  - mkdir -p jmeter-reports
+  - |
+    if [ -z "${JMETER_TEST_PLAN}" ]; then
+      JMETER_TEST_PLAN=$(find . -name "*.jmx" 2>/dev/null | head -1)
+    fi
+    if [ -z "${JMETER_TEST_PLAN}" ]; then
+      echo "ERROR: No JMX test plan found. Set JMETER_TEST_PLAN=path/to/test.jmx"
+      exit 1
+    fi
+    echo "Running JMeter: ${JMETER_TEST_PLAN}"
+    echo "Threads: ${JMETER_THREADS}, Ramp-up: ${JMETER_RAMP_UP}s, Duration: ${JMETER_DURATION}s"
+    jmeter -n \
+      -t "${JMETER_TEST_PLAN}" \
+      -Jthreads=${JMETER_THREADS} \
+      -Jrampup=${JMETER_RAMP_UP} \
+      -Jduration=${JMETER_DURATION} \
+      -l jmeter-reports/results.jtl \
+      -j jmeter-reports/jmeter.log \
+      -e -o jmeter-reports/html-report || true
+  - "echo \"JMeter load test complete. Reports available in jmeter-reports/\""
+env:
+  JMETER_TEST_PLAN: ""
+  JMETER_THREADS: "10"
+  JMETER_RAMP_UP: "10"
+  JMETER_DURATION: "60"

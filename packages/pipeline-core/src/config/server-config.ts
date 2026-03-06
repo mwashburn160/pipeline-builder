@@ -134,22 +134,16 @@ export function validateAuthConfig(config: AuthConfig): void {
   const warnings: string[] = [];
 
   // Check for insecure secrets
-  const insecureSecrets = [
-    'secret',
-    'password',
-    'changeme',
-    'default',
-    '123456',
-    'admin',
-  ];
+  const isInsecure = (secret: string) => {
+    const lower = secret.toLowerCase();
+    return ['secret', 'password', 'changeme', 'default', '123456', 'admin']
+      .some(s => lower === s || (secret.length < 64 && lower.includes(s)));
+  };
 
-  const jwtSecretLower = config.jwt.secret.toLowerCase();
-  if (insecureSecrets.some(s => jwtSecretLower === s || (config.jwt.secret.length < 64 && jwtSecretLower.includes(s)))) {
+  if (isInsecure(config.jwt.secret)) {
     errors.push('JWT secret appears to be insecure or default value');
   }
-
-  const refreshSecretLower = config.refreshToken.secret.toLowerCase();
-  if (insecureSecrets.some(s => refreshSecretLower === s || (config.refreshToken.secret.length < 64 && refreshSecretLower.includes(s)))) {
+  if (isInsecure(config.refreshToken.secret)) {
     errors.push('Refresh token secret appears to be insecure or default value');
   }
 

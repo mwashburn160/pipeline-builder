@@ -10,7 +10,7 @@ import type { StageOptions, SynthOptions } from './step-types';
 import { Config } from '../config/app-config';
 import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
-import { MetadataBuilder } from '../core/metadata-builder';
+import { metadataForCodePipeline } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
 import { createCodeBuildStep } from '../core/pipeline-helpers';
@@ -157,7 +157,7 @@ export class PipelineBuilder extends Construct {
       ...(role && { role }),
       pipelineName: this.config.pipelineName,
       synth,
-      ...MetadataBuilder.from(this.config.metadata.merged).forCodePipeline(),
+      ...metadataForCodePipeline(this.config.metadata.merged),
     });
 
     // Add stages as waves via StageBuilder

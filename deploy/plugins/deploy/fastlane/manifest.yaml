@@ -1,5 +1,5 @@
 name: fastlane
-description: Fastlane mobile build and distribution plugin for Android builds and lane execution with Ruby 3.3, Android SDK, and Bundler support via AWS CDK CodeBuildStep
+description: Fastlane mobile build and distribution plugin for Android builds and lane execution with Ruby 4.0, Android SDK, and Bundler support via AWS CDK CodeBuildStep
 keywords:
   - fastlane
   - mobile
@@ -8,6 +8,8 @@ keywords:
   - deploy
   - build
   - ruby
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

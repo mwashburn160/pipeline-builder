@@ -1,0 +1,46 @@
+name: php
+description: PHP plugin for building and testing PHP applications using Composer with AWS CDK CodeBuildStep
+keywords:
+  - php
+  - composer
+  - laravel
+  - symfony
+  - phpunit
+  - build
+  - test
+  - ci
+  - pipeline
+  - language
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # PHP version selection
+  - |
+    update-alternatives --set php /usr/bin/php${PHP_VERSION}
+  - php --version
+  - composer --version
+  # Install dependencies
+  - |
+    if [ -f composer.json ]; then
+      composer install ${COMPOSER_FLAGS}
+    fi
+commands:
+  - |
+    if composer run-script --list 2>/dev/null | grep -q "build"; then
+      composer run-script build
+    fi
+  - |
+    if [ -f vendor/bin/phpunit ]; then
+      vendor/bin/phpunit
+    elif composer run-script --list 2>/dev/null | grep -q "test"; then
+      composer run-script test
+    fi
+env:
+  PHP_VERSION: "8.4"
+  COMPOSER_FLAGS: "--no-interaction --prefer-dist"

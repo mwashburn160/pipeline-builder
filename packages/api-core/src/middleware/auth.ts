@@ -29,6 +29,21 @@ export interface RequireAuthOptions {
   allowOrgHeaderOverride?: boolean;
 }
 
+/** Extract and verify a Bearer token, returning the decoded payload or null. */
+function verifyBearerToken(authHeader: string | undefined): JwtPayload | null {
+  if (!authHeader) return null;
+
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
+
+  try {
+    const decoded = jwt.verify(parts[1], getJwtSecret()) as JwtPayload;
+    return decoded.type === 'access' ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 /** JWT auth middleware. Use directly or call with options: requireAuth({ allowOrgHeaderOverride: true }) */
 export function requireAuth(
   req: Request,
@@ -70,10 +85,8 @@ function _requireAuth(
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid authorization format. Use: Bearer <token>', ErrorCode.TOKEN_INVALID);
   }
 
-  const token = parts[1];
-
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    const decoded = jwt.verify(parts[1], getJwtSecret()) as JwtPayload;
 
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
@@ -92,11 +105,6 @@ function _requireAuth(
       if (headerOrgName) req.user.organizationName = headerOrgName;
     }
 
-    logger.debug('Token verified successfully', {
-      userId: decoded.sub,
-      orgId: req.user.organizationId,
-    });
-
     next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
@@ -106,10 +114,6 @@ function _requireAuth(
     if (error instanceof jwt.JsonWebTokenError) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid token', ErrorCode.TOKEN_INVALID);
     }
-
-    logger.error('Token verification failed', {
-      error: error instanceof Error ? error.message : String(error),
-    });
 
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);
   }
@@ -121,31 +125,10 @@ export function optionalAuth(
   _res: Response,
   next: NextFunction,
 ): void {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return next();
+  const decoded = verifyBearerToken(req.headers.authorization);
+  if (decoded) {
+    req.user = decoded;
   }
-
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return next();
-  }
-
-  const token = parts[1];
-
-  try {
-    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
-
-    if (decoded.type === 'access') {
-      req.user = decoded;
-    }
-  } catch (error) {
-    logger.debug('Optional auth token verification failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-
   next();
 }
 

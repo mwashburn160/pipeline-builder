@@ -8,6 +8,7 @@ flowchart TB
     Lang --> JVM[JVM]
     Lang --> Scripting[Scripting]
     Lang --> Systems[Systems]
+    Lang --> Other[Other]
 
     JVM --> java[java\nTemurin]
     JVM --> corretto[java-corretto\nAWS]
@@ -23,6 +24,10 @@ flowchart TB
     Systems --> rust
     Systems --> dotnet
     Systems --> cpp
+
+    Other --> php
+    Other --> scala
+    Other --> swift
 ```
 
 | Plugin | Description | Compute | Secrets | Key Env Vars |
@@ -39,6 +44,9 @@ flowchart TB
 | rust | Rust with Cargo, Clippy, rustfmt | MEDIUM | None | `RUST_VERSION` |
 | ruby | Ruby with rspec/rake/minitest auto-detect | MEDIUM | None | `RUBY_VERSION`, `TEST_FRAMEWORK` |
 | cpp | C/C++ with cmake/meson/make auto-detect | MEDIUM | None | `BUILD_SYSTEM`, `BUILD_TYPE`, `COMPILER` |
+| php | PHP with Composer, Laravel/Symfony support | MEDIUM | None | `PHP_VERSION`, `PACKAGE_MANAGER`, `TEST_FRAMEWORK` |
+| scala | Scala with sbt build tool | MEDIUM | None | `SCALA_VERSION`, `SBT_VERSION`, `BUILD_TOOL` |
+| swift | Swift with Swift Package Manager | MEDIUM | None | `SWIFT_VERSION`, `BUILD_TYPE` |
 
 ## Version Managers
 
@@ -54,3 +62,6 @@ Each language plugin uses a dedicated version manager to install and switch betw
 | Rust | rustup | Official Rust toolchain installer and manager |
 | Ruby | rbenv | Ruby version management with ruby-build plugin |
 | C/C++ | System packages | Installed via apt/yum; version selected by `COMPILER` env var |
+| PHP | System packages | Installed via apt with ondrej/php PPA |
+| Scala | SDKMAN | Manages sbt and Scala versions |
+| Swift | swiftenv | Swift version management |

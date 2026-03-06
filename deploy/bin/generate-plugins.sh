@@ -34,6 +34,7 @@ verify_versions() {
   local current_tool=""
   local install_type="" image="" tag_prefix="" url_template="" url="" package=""
   local in_versions=false
+  local in_nested_tools=false
   local versions=()
 
   while IFS= read -r line; do
@@ -41,7 +42,7 @@ verify_versions() {
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [[ "$line" =~ ^[[:space:]]*$ ]] && continue
 
-    # Top-level key (tool name)
+    # Top-level key (tool name) — no leading whitespace
     if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*): ]]; then
       # Process previous tool
       if [ -n "$current_tool" ] && [ ${#versions[@]} -gt 0 ]; then
@@ -51,15 +52,36 @@ verify_versions() {
       install_type="" image="" tag_prefix="" url_template="" url="" package=""
       versions=()
       in_versions=false
+      in_nested_tools=false
       continue
     fi
 
-    # Nested keys
+    # Detect nested tools: block — skip everything inside it
+    if [[ "$line" =~ ^[[:space:]]+tools:[[:space:]]*$ ]]; then
+      in_nested_tools=true
+      in_versions=false
+      continue
+    fi
+
+    # Inside nested tools block: only exit when we hit a non-deeply-indented key
+    # Nested tool content is indented 4+ spaces; top-level tool properties use 2 spaces
+    if $in_nested_tools; then
+      # A 2-space indented key means we're back to top-level tool properties
+      if [[ "$line" =~ ^[[:space:]]{2}[a-zA-Z] ]] && ! [[ "$line" =~ ^[[:space:]]{4} ]]; then
+        in_nested_tools=false
+      else
+        continue
+      fi
+    fi
+
+    # Nested keys (top-level tool properties, 2-space indent)
     if [[ "$line" =~ ^[[:space:]]+install_type:[[:space:]]*(.+) ]]; then
       install_type="${BASH_REMATCH[1]}"
       in_versions=false
     elif [[ "$line" =~ ^[[:space:]]+image:[[:space:]]*(.+) ]]; then
       image="${BASH_REMATCH[1]}"
+      image="${image%\"}"
+      image="${image#\"}"
       in_versions=false
     elif [[ "$line" =~ ^[[:space:]]+tag_prefix:[[:space:]]*\"(.*)\" ]]; then
       tag_prefix="${BASH_REMATCH[1]}"
@@ -130,18 +152,25 @@ verify_tool() {
       if [ -n "$url" ]; then
         check_url "$url" "$tool (install script)"
       else
-        echo -e "    ${YELLOW}SKIP${NC} no URL to verify"
-        SKIPPED=$((SKIPPED + 1))
+        log_skip "no URL to verify"
       fi
+      ;;
+    docker_multistage)
+      for v in "${versions[@]}"; do
+        local full_image="${image//\{version\}/$v}"
+        check_docker_image "$full_image" "$tool $v"
+      done
       ;;
     npm|pip)
       # Package managers handle their own resolution
       echo -e "    ${GREEN}OK${NC}  $package (via $install_type)"
       PASSED=$((PASSED + 1))
       ;;
+    none)
+      log_skip "install_type=none (versions managed by nested tools)"
+      ;;
     *)
-      echo -e "    ${YELLOW}SKIP${NC} unknown install_type: $install_type"
-      SKIPPED=$((SKIPPED + 1))
+      log_skip "unknown install_type: $install_type"
       ;;
   esac
 }
@@ -161,18 +190,8 @@ echo ""
 case "$MODE" in
   --verify|"")
     verify_versions
-    echo ""
-    echo "======================================="
-    echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC}, ${YELLOW}${SKIPPED} skipped${NC}"
-    if [ ${#ERRORS[@]} -gt 0 ]; then
-      echo ""
-      echo -e "${RED}Broken versions:${NC}"
-      for err in "${ERRORS[@]}"; do
-        echo "  - $err"
-      done
-      exit 1
-    fi
-    echo -e "\n${GREEN}All versions verified!${NC}"
+    print_results
+    print_errors_and_exit "All versions verified!"
     ;;
   --check-one)
     CHECK_ONE="$2"

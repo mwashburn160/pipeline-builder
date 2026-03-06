@@ -10,6 +10,8 @@ keywords:
   - infrastructure
   - iac
   - global
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

@@ -10,8 +10,11 @@ flowchart LR
     Code --> Container[Container Scan]
     Code --> DAST[DAST]
 
+    Code --> IaC[IaC Scanning]
+
     SAST --> snyk & sonarcloud & trivy
     SAST --> veracode & checkmarx & fortify
+    SAST --> semgrep
 
     Secrets --> git-secrets & gitguardian
 
@@ -20,14 +23,17 @@ flowchart LR
 
     Container --> docker-lint
     Container --> trivy2[trivy]
+    Container --> grype
+
+    IaC --> tfsec
 
     DAST --> owasp-zap
 
-    snyk & sonarcloud & trivy & veracode & checkmarx & fortify --> Reports([Security Reports])
+    snyk & sonarcloud & trivy & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
     git-secrets & gitguardian --> Reports
     dependency-check & mend & prisma-cloud & license-checker --> Reports
-    docker-lint & trivy2 --> Reports
-    owasp-zap --> Reports
+    docker-lint & trivy2 & grype --> Reports
+    owasp-zap & tfsec --> Reports
 ```
 
 ## Open Source
@@ -39,6 +45,8 @@ flowchart LR
 | trivy | SAST/SCA/IaC | MEDIUM | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT`, `LANGUAGE` |
 | owasp-zap | DAST | MEDIUM | None | `ZAP_VERSION`, `ZAP_SCAN_TYPE`, `ZAP_TARGET_URL` |
 | dependency-check | SCA | MEDIUM | `NVD_API_KEY` (optional) | `DC_VERSION`, `DC_FAIL_ON_CVSS`, `DC_FORMAT` |
+| semgrep | SAST | MEDIUM | `SEMGREP_APP_TOKEN` (optional) | `SEMGREP_RULES`, `SEMGREP_SEVERITY`, `SEMGREP_FORMAT` |
+| grype | SCA/Container | MEDIUM | None | `GRYPE_SEVERITY`, `GRYPE_FORMAT`, `GRYPE_SCAN_TARGET` |
 
 ## Enterprise (Vendor)
 
@@ -63,6 +71,12 @@ flowchart LR
 |--------|---------|---------|--------------|
 | docker-lint | SMALL | None | `HADOLINT_VERSION`, `DOCKLE_VERSION`, `DOCKER_IMAGE` |
 | license-checker | SMALL | None | `LICENSE_DENY`, `LICENSE_ALLOW` |
+
+## IaC Scanning
+
+| Plugin | Compute | Secrets | Key Env Vars |
+|--------|---------|---------|--------------|
+| tfsec | SMALL | None | `TFSEC_FORMAT`, `TFSEC_SEVERITY`, `TFSEC_WORKING_DIR` |
 
 ---
 

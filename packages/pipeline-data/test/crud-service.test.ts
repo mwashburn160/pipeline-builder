@@ -31,12 +31,6 @@ jest.mock('@mwashburn160/api-core', () => {
     constructor(message: string) { super(message); this.name = 'NotFoundError'; }
   }
   return {
-    createLogger: () => ({
-      info: jest.fn(),
-      error: jest.fn(),
-      warn: jest.fn(),
-      debug: jest.fn(),
-    }),
     NotFoundError,
   };
 });

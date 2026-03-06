@@ -6,6 +6,10 @@ keywords:
   - cloud
   - deploy
   - infrastructure
+  - aks
+  - webapp
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

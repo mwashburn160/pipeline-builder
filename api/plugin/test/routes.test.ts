@@ -19,14 +19,6 @@ jest.mock('../src/services/plugin-service', () => ({
   },
 }));
 
-jest.mock('../src/helpers/plugin-helpers', () => ({
-  validateFilter: jest.fn(() => ({ ok: true, value: {} })),
-  normalizePlugin: jest.fn((p: any) => p),
-  sendPluginNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
-  }),
-}));
-
 jest.mock('@mwashburn160/api-core', () => {
   const mockIsSystemAdmin = jest.fn((_req?: any) => false);
   return {
@@ -49,6 +41,9 @@ jest.mock('@mwashburn160/api-core', () => {
     sendInternalError: jest.fn((res: any, msg: string) => {
       res.status(500).json({ success: false, statusCode: 500, message: msg });
     }),
+    sendEntityNotFound: jest.fn((res: any, entity: string) => {
+      res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+    }),
     parsePaginationParams: jest.fn(() => ({
       limit: 25,
       offset: 0,
@@ -62,6 +57,9 @@ jest.mock('@mwashburn160/api-core', () => {
       return filter;
     }),
     incrementQuota: jest.fn(),
+    validateQuery: jest.fn(() => ({ ok: true, value: {} })),
+    PluginFilterSchema: {},
+    normalizeArrayFields: jest.fn((p: any) => p),
   };
 });
 
@@ -106,8 +104,7 @@ jest.mock('drizzle-orm', () => ({
 jest.mock('drizzle-orm/column', () => ({}));
 jest.mock('drizzle-orm/pg-core', () => ({}));
 
-import { isSystemAdmin, sendBadRequest, incrementQuota } from '@mwashburn160/api-core';
-import { validateFilter } from '../src/helpers/plugin-helpers';
+import { isSystemAdmin, sendBadRequest, incrementQuota, validateQuery } from '@mwashburn160/api-core';
 import { createReadPluginRoutes } from '../src/routes/read-plugins';
 
 // Helpers
@@ -222,7 +219,7 @@ describe('GET /plugins (list)', () => {
   });
 
   it('returns 400 on invalid filter', async () => {
-    (validateFilter as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Invalid filter' });
+    (validateQuery as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Invalid filter' });
 
     const req = mockReq();
     const res = mockRes();

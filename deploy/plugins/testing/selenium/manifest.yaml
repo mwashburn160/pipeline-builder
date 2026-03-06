@@ -1,0 +1,51 @@
+name: selenium
+description: Selenium WebDriver testing plugin for cross-browser automated UI testing with Chrome and Firefox support using AWS CDK CodeBuildStep
+keywords:
+  - selenium
+  - webdriver
+  - testing
+  - browser
+  - chrome
+  - firefox
+  - e2e
+  - automation
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: selenium-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
+  - node --version
+  - google-chrome --version || true
+  # Install project dependencies
+  - |
+    if [ -f package.json ]; then
+      if [ -f package-lock.json ]; then npm ci; else npm install; fi
+    fi
+    if [ -f requirements.txt ]; then
+      pip3 install --break-system-packages -r requirements.txt
+    fi
+commands:
+  - mkdir -p selenium-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    echo "Running Selenium tests (browser: ${SELENIUM_BROWSER})..."
+    export DISPLAY=:99
+    Xvfb :99 -screen 0 1920x1080x24 &
+    sleep 1
+    ${SELENIUM_TEST_CMD} 2>&1 | tee selenium-reports/selenium-output.txt || true
+    kill %1 2>/dev/null || true
+  - "echo \"Selenium tests complete. Reports available in selenium-reports/\""
+env:
+  NODE_VERSION: "24"
+  SELENIUM_BROWSER: chrome
+  SELENIUM_TEST_CMD: "npm test"

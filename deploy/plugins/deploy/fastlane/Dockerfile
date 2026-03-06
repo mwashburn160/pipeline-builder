@@ -27,12 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── Ruby 3.3 via rbenv ───
+# ─── Ruby 4.0 via rbenv ───
 ENV RBENV_ROOT=/opt/rbenv
 RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} \
     && git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build \
-    && ${RBENV_ROOT}/bin/rbenv install 3.3.10 \
-    && ${RBENV_ROOT}/bin/rbenv global 3.3.10
+    && ${RBENV_ROOT}/bin/rbenv install 4.0.1 \
+    && ${RBENV_ROOT}/bin/rbenv global 4.0.1
 ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
 
 # ─── Bundler and Fastlane ───

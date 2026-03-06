@@ -1,0 +1,48 @@
+name: semgrep
+description: Semgrep open-source SAST plugin for fast, lightweight static analysis across 30+ languages with custom rule support using AWS CDK CodeBuildStep
+keywords:
+  - semgrep
+  - sast
+  - security
+  - static-analysis
+  - code-scan
+  - open-source
+  - multi-language
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets:
+  - name: SEMGREP_APP_TOKEN
+    required: false
+    description: "Semgrep App token for CI integration and findings dashboard"
+primaryOutputDirectory: semgrep-reports
+dockerfile: Dockerfile
+installCommands:
+  - semgrep --version
+  - |
+    if [ -n "${SEMGREP_APP_TOKEN}" ]; then
+      echo "Semgrep App token configured — results will sync to dashboard"
+    fi
+commands:
+  - mkdir -p semgrep-reports
+  - |
+    echo "Running Semgrep with rules: ${SEMGREP_RULES}"
+    semgrep scan \
+      --config ${SEMGREP_RULES} \
+      --severity ${SEMGREP_SEVERITY} \
+      --json --output semgrep-reports/semgrep-results.json \
+      . || true
+    # Also produce human-readable output
+    semgrep scan \
+      --config ${SEMGREP_RULES} \
+      --severity ${SEMGREP_SEVERITY} \
+      . 2>&1 | tee semgrep-reports/semgrep-summary.txt || true
+  - "echo \"Semgrep scan complete. Reports available in semgrep-reports/\""
+env:
+  SEMGREP_RULES: auto
+  SEMGREP_SEVERITY: "ERROR,WARNING"
+  SEMGREP_APP_TOKEN: ""

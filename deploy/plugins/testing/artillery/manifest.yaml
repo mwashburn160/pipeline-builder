@@ -1,0 +1,52 @@
+name: artillery
+description: Artillery load testing plugin for running HTTP and WebSocket performance tests with configurable scenarios and reporting using AWS CDK CodeBuildStep
+keywords:
+  - artillery
+  - load-testing
+  - performance
+  - http
+  - websocket
+  - api
+  - benchmark
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 60
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: artillery-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
+  - artillery version
+commands:
+  - mkdir -p artillery-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    if [ -z "${ARTILLERY_CONFIG}" ]; then
+      ARTILLERY_CONFIG=$(find . -name "artillery*.yml" -o -name "artillery*.yaml" -o -name "load-test*.yml" 2>/dev/null | head -1)
+    fi
+    if [ -z "${ARTILLERY_CONFIG}" ]; then
+      echo "ERROR: No Artillery config found. Set ARTILLERY_CONFIG=path/to/config.yml"
+      exit 1
+    fi
+    TARGET_ARG=""
+    if [ -n "${ARTILLERY_TARGET}" ]; then
+      TARGET_ARG="--target ${ARTILLERY_TARGET}"
+    fi
+    echo "Running Artillery: ${ARTILLERY_CONFIG}"
+    artillery run "${ARTILLERY_CONFIG}" \
+      ${TARGET_ARG} \
+      --output artillery-reports/artillery-results.json \
+      2>&1 | tee artillery-reports/artillery-output.txt || true
+    artillery report artillery-reports/artillery-results.json \
+      --output artillery-reports/artillery-report.html 2>/dev/null || true
+  - "echo \"Artillery load test complete. Reports available in artillery-reports/\""
+env:
+  NODE_VERSION: "24"
+  ARTILLERY_CONFIG: ""
+  ARTILLERY_TARGET: ""

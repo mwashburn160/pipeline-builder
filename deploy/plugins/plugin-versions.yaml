@@ -197,8 +197,8 @@ fastlane:
   tools:
     ruby:
       install_type: rbenv
-      versions: ["3.3.10"]
-      default: "3.3.10"
+      versions: ["4.0.1"]
+      default: "4.0.1"
     android_cmdline_tools:
       install_type: curl_zip
       url_template: "https://dl.google.com/android/repository/commandlinetools-linux-{version}.zip"
@@ -288,22 +288,22 @@ nodejs:
   plugin: language/nodejs
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["20", "22", "24"]
+  versions: ["22", "24"]
   default: "24"
 
 python:
   plugin: language/python
   install_type: pyenv
-  versions: ["3.11", "3.12", "3.13"]
-  default: "3.12"
+  versions: ["3.13", "3.14"]
+  default: "3.14"
 
 java_temurin:
   plugin: language/java
   install_type: sdkman
   tools:
     java:
-      versions: ["11.0.30-tem", "17.0.18-tem", "21.0.10-tem"]
-      default: "17.0.18-tem"
+      versions: ["17.0.18-tem", "21.0.10-tem"]
+      default: "21.0.10-tem"
     maven:
       versions: ["3.9.9"]
       default: "3.9.9"
@@ -311,7 +311,7 @@ java_temurin:
       versions: ["8.12"]
       default: "8.12"
     kotlin:
-      versions: ["1.9.25", "2.1.0"]
+      versions: ["2.1.0"]
       default: "2.1.0"
 
 java_corretto:
@@ -319,8 +319,8 @@ java_corretto:
   install_type: apt
   tools:
     java:
-      versions: ["11", "17", "21"]
-      default: "17"
+      versions: ["17", "21"]
+      default: "21"
     maven:
       install_type: sdkman
       versions: ["3.9.9"]
@@ -331,7 +331,7 @@ java_corretto:
       default: "8.12"
     kotlin:
       install_type: sdkman
-      versions: ["1.9.25", "2.1.0"]
+      versions: ["2.1.0"]
       default: "2.1.0"
 
 java_ibm:
@@ -340,7 +340,7 @@ java_ibm:
   tools:
     java:
       versions: ["17.0.18-sem", "21.0.10-sem"]
-      default: "17.0.18-sem"
+      default: "21.0.10-sem"
     maven:
       versions: ["3.9.9"]
       default: "3.9.9"
@@ -348,7 +348,7 @@ java_ibm:
       versions: ["8.12"]
       default: "8.12"
     kotlin:
-      versions: ["1.9.25", "2.1.0"]
+      versions: ["2.1.0"]
       default: "2.1.0"
 
 java_microsoft:
@@ -357,7 +357,7 @@ java_microsoft:
   tools:
     java:
       versions: ["17.0.18-ms", "21.0.10-ms"]
-      default: "17.0.18-ms"
+      default: "21.0.10-ms"
     maven:
       versions: ["3.9.9"]
       default: "3.9.9"
@@ -365,7 +365,7 @@ java_microsoft:
       versions: ["8.12"]
       default: "8.12"
     kotlin:
-      versions: ["1.9.25", "2.1.0"]
+      versions: ["2.1.0"]
       default: "2.1.0"
 
 java_oracle:
@@ -373,7 +373,7 @@ java_oracle:
   install_type: sdkman
   tools:
     java:
-      versions: ["17.0.12-graal", "21.0.10-graal", "23.0.2-graal"]
+      versions: ["17.0.12-graal", "21.0.10-graal"]
       default: "21.0.10-graal"
     maven:
       versions: ["3.9.9"]
@@ -382,34 +382,34 @@ java_oracle:
       versions: ["8.12"]
       default: "8.12"
     kotlin:
-      versions: ["1.9.25", "2.1.0"]
+      versions: ["2.1.0"]
       default: "2.1.0"
 
 go:
   plugin: language/go
   install_type: goenv
-  versions: ["1.21.13", "1.22.10", "1.23.5"]
-  default: "1.22.10"
+  versions: ["1.23.12", "1.24.13"]
+  default: "1.24.13"
 
 rust:
   plugin: language/rust
   install_type: rustup
-  versions: ["stable", "1.83.0"]
+  versions: ["stable", "1.84.0"]
   default: "stable"
   note: "Includes rustfmt and clippy components."
 
 ruby:
   plugin: language/ruby
   install_type: rbenv
-  versions: ["3.2.10", "3.3.10"]
-  default: "3.3.10"
+  versions: ["3.4.8", "4.0.1"]
+  default: "4.0.1"
 
 dotnet:
   plugin: language/dotnet
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["6.0", "8.0", "9.0"]
-  default: "8.0"
+  versions: ["8.0", "9.0"]
+  default: "9.0"
 
 cpp:
   plugin: language/cpp
@@ -474,15 +474,15 @@ eslint:
   plugin: quality/eslint
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["20", "22"]
-  default: "20"
+  versions: ["22", "24"]
+  default: "24"
 
 prettier:
   plugin: quality/prettier
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["20"]
-  default: "20"
+  versions: ["22", "24"]
+  default: "24"
 
 coverage_report:
   plugin: quality/coverage-report
@@ -592,7 +592,7 @@ trivy:
   image: aquasec/trivy
   tag_prefix: ""
   binary_path: /usr/local/bin/trivy
-  versions: ["0.26.0", "0.69.3"]
+  versions: ["0.68.2", "0.69.3"]
   default: "0.69.3"
 
 snyk:
@@ -636,17 +636,17 @@ veracode_cli:
 
 sonar_scanner:
   plugin: security/sonarcloud
-  install_type: curl_zip
-  url_template: "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-{version}-linux-x64.zip"
-  versions: ["6.1.0.4477", "6.2.1.4610"]
-  default: "6.2.1.4610"
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  versions: ["11.5", "12.0"]
+  default: "12.0"
 
 dependency_check:
   plugin: security/dependency-check
   install_type: curl_zip
-  url_template: "https://github.com/jeremylong/DependencyCheck/releases/download/v{version}/dependency-check-{version}-release.zip"
-  versions: ["11.1.1", "12.0.0"]
-  default: "12.0.0"
+  url_template: "https://github.com/dependency-check/DependencyCheck/releases/download/v{version}/dependency-check-{version}-release.zip"
+  versions: ["11.1.1", "12.2.0"]
+  default: "12.2.0"
 
 owasp_zap:
   plugin: security/owasp-zap

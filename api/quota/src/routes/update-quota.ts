@@ -13,10 +13,7 @@ import {
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
 import { Router, Request, Response, RequestHandler } from 'express';
-import {
-  AUTH_OPTS,
-  sendOrgNotFound,
-} from '../helpers/quota-helpers';
+import { AUTH_OPTS } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService, OrgNotFoundError } from '../services/quota-service';
 import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
@@ -41,7 +38,7 @@ router.put(
       const result = await quotaService.update(targetOrgId, body);
       return sendSuccess(res, 200, { quota: result }, 'Updated successfully');
     } catch (error) {
-      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
+      if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota update failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to update quota', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }
@@ -69,7 +66,7 @@ router.post(
         quotaType ? `${quotaType} usage reset successfully` : 'All quota usage reset successfully',
       );
     } catch (error) {
-      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
+      if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota reset failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to reset quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }
@@ -112,7 +109,7 @@ router.post(
 
       return sendSuccess(res, 200, { quota: result.quota }, 'Usage incremented successfully');
     } catch (error) {
-      if (error instanceof OrgNotFoundError) return sendOrgNotFound(res);
+      if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota increment failed', { error: errorMessage(error), targetOrgId });
       return sendError(res, 500, 'Failed to increment quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
     }

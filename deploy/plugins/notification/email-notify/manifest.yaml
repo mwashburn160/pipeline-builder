@@ -1,0 +1,80 @@
+name: email-notify
+description: Email notification plugin for sending pipeline status alerts via AWS SES or SMTP with configurable templates and recipients using AWS CDK CodeBuildStep
+keywords:
+  - email
+  - ses
+  - smtp
+  - notification
+  - alert
+  - aws
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: SMTP_PASSWORD
+    required: false
+    description: "SMTP password (not needed for SES with IAM roles)"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - aws --version
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${EMAIL_TO}" ]; then
+      echo "ERROR: EMAIL_TO must be set"
+      exit 1
+    fi
+    SUBJECT="${EMAIL_SUBJECT}"
+    if [ -n "${PIPELINE_NAME}" ]; then
+      SUBJECT="${PIPELINE_NAME} — ${PIPELINE_STATUS:-unknown}"
+    fi
+    BODY="Pipeline: ${PIPELINE_NAME:-N/A}\nStatus: ${PIPELINE_STATUS:-N/A}\nTimestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    case "${EMAIL_PROVIDER}" in
+      ses)
+        echo "Sending email via AWS SES..."
+        aws ses send-email \
+          --region ${AWS_REGION} \
+          --from "${EMAIL_FROM}" \
+          --destination "ToAddresses=[${EMAIL_TO}]" \
+          --message "Subject={Data=\"${SUBJECT}\"},Body={Text={Data=\"${BODY}\"}}" \
+          > notify-output/ses-response.json || true
+        ;;
+      smtp)
+        echo "Sending email via SMTP..."
+        python3 -c "
+import smtplib, os
+from email.mime.text import MIMEText
+msg = MIMEText('${BODY}'.replace('\\\\n', '\\n'))
+msg['Subject'] = '${SUBJECT}'
+msg['From'] = '${EMAIL_FROM}'
+msg['To'] = '${EMAIL_TO}'
+server = smtplib.SMTP(os.environ.get('SMTP_HOST', 'localhost'), int(os.environ.get('SMTP_PORT', '587')))
+server.starttls()
+pwd = os.environ.get('SMTP_PASSWORD', '')
+if pwd: server.login('${EMAIL_FROM}', pwd)
+server.send_message(msg)
+server.quit()
+print('Email sent successfully')
+" || true
+        ;;
+      *)
+        echo "ERROR: Unknown EMAIL_PROVIDER '${EMAIL_PROVIDER}'. Supported: ses, smtp"
+        exit 1
+        ;;
+    esac
+  - "echo \"Email notification complete.\""
+env:
+  EMAIL_PROVIDER: ses
+  EMAIL_TO: ""
+  EMAIL_FROM: ""
+  EMAIL_SUBJECT: "Pipeline Notification"
+  PIPELINE_NAME: ""
+  PIPELINE_STATUS: ""
+  AWS_REGION: us-east-1
+  SMTP_HOST: ""
+  SMTP_PORT: "587"

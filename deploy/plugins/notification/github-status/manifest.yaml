@@ -1,0 +1,62 @@
+name: github-status
+description: GitHub commit status and check run plugin for posting build results back to pull requests and commits using AWS CDK CodeBuildStep
+keywords:
+  - github
+  - status
+  - check
+  - pr
+  - commit
+  - notification
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 5
+failureBehavior: warn
+secrets:
+  - name: GITHUB_TOKEN
+    required: true
+    description: "GitHub personal access token or app token"
+primaryOutputDirectory: notify-output
+dockerfile: Dockerfile
+installCommands:
+  - gh --version
+  - curl --version | head -1
+commands:
+  - mkdir -p notify-output
+  - |
+    if [ -z "${GITHUB_OWNER}" ] || [ -z "${GITHUB_REPO}" ] || [ -z "${GITHUB_SHA}" ]; then
+      echo "ERROR: GITHUB_OWNER, GITHUB_REPO, and GITHUB_SHA must be set"
+      exit 1
+    fi
+    DESC="${STATUS_DESCRIPTION:-Build ${STATUS_STATE}}"
+    PAYLOAD=$(jq -n \
+      --arg state "${STATUS_STATE}" \
+      --arg target_url "${STATUS_TARGET_URL}" \
+      --arg description "${DESC}" \
+      --arg context "${STATUS_CONTEXT}" \
+      '{state: $state, target_url: $target_url, description: $description, context: $context}')
+    echo "Posting commit status (${STATUS_STATE}) to ${GITHUB_OWNER}/${GITHUB_REPO}@${GITHUB_SHA:0:7}..."
+    echo "${PAYLOAD}" | jq '.' | tee notify-output/status-payload.json
+    HTTP_STATUS=$(curl -s -o notify-output/status-response.json -w "%{http_code}" \
+      -X POST \
+      -H "Authorization: token ${GITHUB_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      -d "${PAYLOAD}" \
+      "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/statuses/${GITHUB_SHA}")
+    if [ "${HTTP_STATUS}" = "201" ]; then
+      echo "Commit status posted successfully"
+    else
+      echo "WARNING: GitHub API returned HTTP ${HTTP_STATUS}"
+      cat notify-output/status-response.json
+    fi
+  - "echo \"GitHub status complete.\""
+env:
+  GITHUB_OWNER: ""
+  GITHUB_REPO: ""
+  GITHUB_SHA: ""
+  STATUS_STATE: success
+  STATUS_CONTEXT: pipeline
+  STATUS_DESCRIPTION: ""
+  STATUS_TARGET_URL: ""

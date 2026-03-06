@@ -1,0 +1,41 @@
+name: markdownlint
+description: Markdownlint documentation quality plugin for checking Markdown files against configurable style rules using AWS CDK CodeBuildStep
+keywords:
+  - markdownlint
+  - markdown
+  - documentation
+  - docs
+  - lint
+  - code-quality
+  - style
+  - ci
+  - pipeline
+  - quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - markdownlint-cli2 --help | head -1
+commands:
+  - mkdir -p lint-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    CONFIG_ARG=""
+    if [ -n "${MARKDOWNLINT_CONFIG}" ] && [ -f "${MARKDOWNLINT_CONFIG}" ]; then
+      CONFIG_ARG="--config ${MARKDOWNLINT_CONFIG}"
+    fi
+    echo "Running markdownlint on ${MARKDOWNLINT_GLOB}..."
+    markdownlint-cli2 ${CONFIG_ARG} "${MARKDOWNLINT_GLOB}" \
+      2>&1 | tee lint-reports/markdownlint-results.txt || true
+  - "echo \"Markdownlint complete. Report available in lint-reports/\""
+env:
+  NODE_VERSION: "24"
+  MARKDOWNLINT_GLOB: "**/*.md"
+  MARKDOWNLINT_CONFIG: ""

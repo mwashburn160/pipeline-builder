@@ -30,6 +30,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg, code });
   }),
+  sendEntityNotFound: jest.fn((res: any, entity: string) => {
+    res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+  }),
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({
@@ -60,11 +63,6 @@ jest.mock('../src/services/plugin-service', () => ({
   },
 }));
 
-jest.mock('../src/helpers/plugin-helpers', () => ({
-  sendPluginNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
-  }),
-}));
 
 // Imports (after mocks)
 

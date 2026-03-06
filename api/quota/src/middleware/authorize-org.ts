@@ -1,6 +1,5 @@
 import { isSystemAdmin, sendError, ErrorCode, getParam, createLogger } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
-import { sendMissingOrgId } from '../helpers/quota-helpers';
 
 const logger = createLogger('authorize-org');
 
@@ -37,7 +36,7 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
 
     const requestingOrgId = req.user.organizationId;
     if (!requestingOrgId) {
-      return sendMissingOrgId(res);
+      return sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.MISSING_REQUIRED_FIELD);
     }
 
     const targetOrgId = getParam(req.params, 'orgId');

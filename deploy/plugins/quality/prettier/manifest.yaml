@@ -8,6 +8,8 @@ keywords:
   - typescript
   - css
   - html
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -53,5 +55,5 @@ commands:
     fi
   - "echo \"Prettier check complete. Report available in format-reports/\""
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PRETTIER_GLOB: "."

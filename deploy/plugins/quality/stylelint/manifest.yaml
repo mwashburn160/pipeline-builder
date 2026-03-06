@@ -1,0 +1,55 @@
+name: stylelint
+description: Stylelint CSS and SCSS linting plugin for enforcing consistent style conventions across stylesheets using AWS CDK CodeBuildStep
+keywords:
+  - stylelint
+  - css
+  - scss
+  - sass
+  - less
+  - lint
+  - code-quality
+  - style
+  - ci
+  - pipeline
+  - quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+  # Install project dependencies
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    fi
+    # Ensure Stylelint is available
+    npx stylelint --version 2>/dev/null || npm install -g stylelint stylelint-config-standard
+commands:
+  - mkdir -p lint-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    echo "Running Stylelint on ${STYLELINT_GLOB}..."
+    npx stylelint "${STYLELINT_GLOB}" \
+      --formatter ${STYLELINT_FORMAT} \
+      --output-file lint-reports/stylelint-results.json \
+      || true
+    npx stylelint "${STYLELINT_GLOB}" || true
+  - "echo \"Stylelint complete. Report available in lint-reports/\""
+env:
+  NODE_VERSION: "24"
+  STYLELINT_GLOB: "**/*.{css,scss,sass,less}"
+  STYLELINT_FORMAT: json

@@ -1,13 +1,16 @@
 name: cdk-synth
-description: Synthesizes AWS CDK applications into CloudFormation templates using
-  CodeBuildStep with Docker
+description: AWS CDK synthesis plugin for compiling CDK applications into CloudFormation templates with Docker-enabled self-mutation and parallel asset publishing using AWS CDK CodeBuildStep
 keywords:
-- aws
-- cdk
-- synth
-- cloudformation
-- typescript
-- codebuild
+  - cdk
+  - cdk-synth
+  - aws
+  - cloudformation
+  - infrastructure-as-code
+  - typescript
+  - codebuild
+  - ci
+  - pipeline
+  - self-mutation
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

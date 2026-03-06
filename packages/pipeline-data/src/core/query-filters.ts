@@ -1,4 +1,4 @@
-import { AccessModifier, ValidationError } from '@mwashburn160/api-core';
+import { AccessModifier } from '@mwashburn160/api-core';
 
 /**
  * Base filter interface containing common filter properties shared across all entity types.
@@ -164,78 +164,6 @@ export interface MessageFilter extends CommonFilter {
    * Filter by priority level
    */
   readonly priority?: 'normal' | 'high' | 'urgent';
-}
-
-/**
- * Validates common filter properties
- * @throws Error if validation fails
- */
-export function validateCommonFilter(filter: CommonFilter): void {
-  const errors: string[] = [];
-
-  // Validate limit - accept both number and string
-  if (filter.limit !== undefined) {
-    const limit = typeof filter.limit === 'string'
-      ? parseInt(filter.limit, 10)
-      : filter.limit;
-
-    if (isNaN(limit) || !Number.isInteger(limit) || limit < 1 || limit > 1000) {
-      errors.push('limit must be an integer between 1 and 1000');
-    }
-  }
-
-  // Validate offset - accept both number and string
-  if (filter.offset !== undefined) {
-    const offset = typeof filter.offset === 'string'
-      ? parseInt(filter.offset, 10)
-      : filter.offset;
-
-    if (isNaN(offset) || !Number.isInteger(offset) || offset < 0) {
-      errors.push('offset must be a non-negative integer');
-    }
-  }
-
-  // Validate sort format
-  if (filter.sort !== undefined) {
-    const sortPattern = /^[a-zA-Z_][a-zA-Z0-9_]*:(asc|desc)$/;
-    if (!sortPattern.test(filter.sort)) {
-      errors.push('sort must be in format "field:asc" or "field:desc"');
-    }
-  }
-
-  if (errors.length > 0) {
-    throw new ValidationError(`Filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
-  }
-}
-
-/**
- * Validates plugin filter properties
- * @throws Error if validation fails
- */
-export function validatePluginFilter(filter: PluginFilter): void {
-  validateCommonFilter(filter);
-
-  const errors: string[] = [];
-
-  // Validate version format (semantic versioning)
-  if (filter.version !== undefined) {
-    const versionPattern = /^(\^|~)?(\d+)\.(\d+)\.(\d+)(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
-    if (!versionPattern.test(filter.version)) {
-      errors.push(`Invalid version format: "${filter.version}". Expected semantic versioning (e.g., "1.0.0", "^2.1.0")`);
-    }
-  }
-
-  if (errors.length > 0) {
-    throw new ValidationError(`Plugin filter validation failed:\n${errors.map(e => `  - ${e}`).join('\n')}`);
-  }
-}
-
-/**
- * Validates pipeline filter properties
- * @throws Error if validation fails
- */
-export function validatePipelineFilter(filter: PipelineFilter): void {
-  validateCommonFilter(filter);
 }
 
 /**

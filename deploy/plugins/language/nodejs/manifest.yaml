@@ -7,6 +7,8 @@ keywords:
   - npm
   - yarn
   - pnpm
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -66,5 +68,5 @@ commands:
       pnpm) pnpm build && pnpm test ;;
     esac
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PACKAGE_MANAGER: auto

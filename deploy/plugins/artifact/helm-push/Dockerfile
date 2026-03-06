@@ -1,0 +1,43 @@
+# Helm Push Plugin — Package and Push Helm Charts
+# Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+# Supports OCI registries, ChartMuseum, and S3
+
+FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    zip \
+    unzip \
+    curl \
+    jq \
+    ca-certificates \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Helm 3 ───
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# ─── AWS CLI v2 (for ECR OCI registry support) ───
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip \
+    && unzip -q /tmp/awscli.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscli.zip
+
+# ─── Helm push plugin for ChartMuseum ───
+RUN helm plugin install https://github.com/chartmuseum/helm-push 2>/dev/null || true
+
+# ─── Runtime configuration defaults ───
+ENV HELM_CHART_PATH=.
+ENV HELM_REGISTRY=""
+ENV HELM_REGISTRY_TYPE=oci
+ENV CHART_VERSION=""
+
+# Working directory for pipeline source
+WORKDIR /app
+
+# Default entrypoint — overridden by CodeBuildStep commands
+CMD ["bash"]

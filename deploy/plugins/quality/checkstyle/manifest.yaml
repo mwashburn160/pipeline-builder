@@ -8,6 +8,8 @@ keywords:
   - google
   - sun
   - code-quality
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -57,4 +59,4 @@ commands:
 env:
   CHECKSTYLE_VERSION: "10.21.1"
   CHECKSTYLE_CONFIG: google
-  JAVA_VERSION: 17.0.13-tem
+  JAVA_VERSION: 21.0.10-tem

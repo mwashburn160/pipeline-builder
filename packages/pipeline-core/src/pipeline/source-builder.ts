@@ -8,10 +8,6 @@ import { UniqueId } from '../core/id-generator';
 import { unwrapSecret } from '../core/pipeline-helpers';
 import { TriggerType } from '../core/pipeline-types';
 
-function isAutoTrigger(trigger: TriggerType): boolean {
-  return trigger === TriggerType.AUTO;
-}
-
 /**
  * Creates the appropriate CodePipelineSource based on the pipeline configuration.
  *
@@ -59,7 +55,7 @@ export class SourceBuilder {
     );
 
     return CodePipelineSource.s3(bucket, options.objectKey, {
-      trigger: isAutoTrigger(options.trigger) ? S3Trigger.POLL : S3Trigger.NONE,
+      trigger: options.trigger === TriggerType.AUTO ? S3Trigger.POLL : S3Trigger.NONE,
     });
   }
 
@@ -74,7 +70,7 @@ export class SourceBuilder {
       : undefined;
 
     return CodePipelineSource.gitHub(options.repo, options.branch, {
-      trigger: isAutoTrigger(options.trigger) ? GitHubTrigger.POLL : GitHubTrigger.NONE,
+      trigger: options.trigger === TriggerType.AUTO ? GitHubTrigger.POLL : GitHubTrigger.NONE,
       authentication,
     });
   }
@@ -87,7 +83,7 @@ export class SourceBuilder {
 
     return CodePipelineSource.connection(options.repo, options.branch, {
       connectionArn: unwrapSecret(options.connectionArn),
-      triggerOnPush: isAutoTrigger(options.trigger),
+      triggerOnPush: options.trigger === TriggerType.AUTO,
       codeBuildCloneOutput: options.codeBuildCloneOutput,
     });
   }

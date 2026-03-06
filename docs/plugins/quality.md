@@ -8,7 +8,7 @@ flowchart LR
     Code --> Cov[Coverage]
     Cov --> Report[Coverage Reporting]
 
-    LintFmt --> eslint & prettier & checkstyle & shellcheck
+    LintFmt --> eslint & prettier & checkstyle & shellcheck & golangci-lint & markdownlint & stylelint
     Report --> codecov & coveralls & codacy & codeclimate & coverage-report
 ```
 
@@ -20,6 +20,9 @@ flowchart LR
 | prettier | JS/TS/CSS/HTML | SMALL | None | `NODE_VERSION`, `PRETTIER_GLOB` |
 | checkstyle | Java | SMALL | None | `CHECKSTYLE_VERSION`, `CHECKSTYLE_CONFIG`, `JAVA_VERSION` |
 | shellcheck | Bash/sh/zsh | SMALL | None | `SHELLCHECK_VERSION`, `SHELLCHECK_SEVERITY`, `SHELLCHECK_FORMAT` |
+| golangci-lint | Go | MEDIUM | None | `GOLANGCI_LINT_VERSION`, `GOLANGCI_LINT_CONFIG` |
+| markdownlint | Markdown | SMALL | None | `MARKDOWNLINT_CONFIG`, `MARKDOWNLINT_GLOB` |
+| stylelint | CSS/SCSS/Less | SMALL | None | `STYLELINT_CONFIG`, `STYLELINT_GLOB` |
 
 ## Coverage Reporting
 

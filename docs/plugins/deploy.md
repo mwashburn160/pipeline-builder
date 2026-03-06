@@ -10,10 +10,15 @@ flowchart TB
     Deploy --> DB[Database Migration]
     Deploy --> Mobile[Mobile]
 
-    Cloud --> terraform & cloudformation & gcloud-deploy & azure-deploy
+    Deploy --> Serverless[Serverless]
+    Deploy --> AWS[AWS Services]
+
+    Cloud --> terraform & cloudformation & gcloud-deploy & azure-deploy & pulumi
     K8s --> kubectl-deploy & helm-deploy
     DB --> flyway & liquibase
     Mobile --> fastlane
+    Serverless --> serverless-framework & lambda-deploy
+    AWS --> ecs-deploy
 ```
 
 ## Cloud Providers
@@ -24,6 +29,7 @@ flowchart TB
 | cloudformation | AWS | SMALL | AWS: IAM role | `CFN_TEMPLATE`, `CFN_STACK_NAME`, `CFN_ACTION`, `CFN_PARAMETERS`, `CFN_REGION` |
 | gcloud-deploy | GCP | MEDIUM | `GOOGLE_APPLICATION_CREDENTIALS` | `GCP_PROJECT`, `GCP_REGION`, `DEPLOY_TYPE` |
 | azure-deploy | Azure | MEDIUM | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | `AZURE_SUBSCRIPTION`, `AZURE_RESOURCE_GROUP`, `DEPLOY_TYPE` |
+| pulumi | Pulumi | MEDIUM | `PULUMI_ACCESS_TOKEN` | `PULUMI_STACK`, `PULUMI_ACTION`, `PULUMI_WORKING_DIR` |
 
 ## Kubernetes
 
@@ -44,6 +50,19 @@ flowchart TB
 | Plugin | Platform | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
 | fastlane | iOS/Android | LARGE | `APPLE_ID`, `APP_STORE_CONNECT_API_KEY` or `MATCH_PASSWORD` | `FASTLANE_LANE`, `PLATFORM` |
+
+## Serverless
+
+| Plugin | Platform | Compute | Secrets | Key Env Vars |
+|--------|----------|---------|---------|--------------|
+| lambda-deploy | AWS Lambda | SMALL | None (AWS IAM) | `FUNCTION_NAME`, `DEPLOY_TYPE`, `LAMBDA_ALIAS`, `S3_BUCKET` |
+| serverless-framework | AWS/Azure/GCP | MEDIUM | None | `SLS_STAGE`, `SLS_REGION`, `SLS_CONFIG` |
+
+## AWS Services
+
+| Plugin | Service | Compute | Secrets | Key Env Vars |
+|--------|---------|---------|---------|--------------|
+| ecs-deploy | Amazon ECS | SMALL | None (AWS IAM) | `ECS_CLUSTER`, `ECS_SERVICE`, `TASK_DEFINITION`, `DEPLOY_STRATEGY` |
 
 ## Deploy Types
 

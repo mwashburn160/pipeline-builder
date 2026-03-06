@@ -6,6 +6,8 @@ keywords:
   - deploy
   - apm
   - observability
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -10,12 +10,12 @@ import {
   MessageReplySchema,
   createLogger,
   resolveRecipientAlias,
+  sendEntityNotFound,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { schema } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
-import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
 
 type MessageInsert = typeof schema.message.$inferInsert;
@@ -122,7 +122,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // Find the root message
     const rootMessage = await messageService.findById(id, orgId);
     if (!rootMessage) {
-      return sendMessageNotFound(res);
+      return sendEntityNotFound(res, 'Message');
     }
 
     // Validate the user can reply (must be sender org, recipient org, or system org)

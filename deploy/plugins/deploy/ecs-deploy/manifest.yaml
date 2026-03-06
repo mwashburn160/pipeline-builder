@@ -1,0 +1,73 @@
+name: ecs-deploy
+description: Amazon ECS service deployment plugin for updating task definitions and services with rolling deployment strategies using AWS CDK CodeBuildStep
+keywords:
+  - ecs
+  - aws
+  - container
+  - deploy
+  - fargate
+  - task-definition
+  - service
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: ecs-output
+dockerfile: Dockerfile
+installCommands:
+  - aws --version
+commands:
+  - mkdir -p ecs-output
+  - |
+    if [ -z "${ECS_CLUSTER}" ] || [ -z "${ECS_SERVICE}" ]; then
+      echo "ERROR: ECS_CLUSTER and ECS_SERVICE must be set"
+      exit 1
+    fi
+    # Get current task definition
+    echo "Fetching current task definition for ${ECS_SERVICE}..."
+    TASK_DEF_ARN=$(aws ecs describe-services \
+      --cluster ${ECS_CLUSTER} \
+      --services ${ECS_SERVICE} \
+      --query 'services[0].taskDefinition' --output text)
+    echo "Current task definition: ${TASK_DEF_ARN}"
+    aws ecs describe-task-definition --task-definition ${TASK_DEF_ARN} \
+      > ecs-output/current-task-def.json
+    if [ -n "${IMAGE_URI}" ]; then
+      # Update container image in task definition
+      FAMILY="${ECS_TASK_FAMILY:-$(echo ${TASK_DEF_ARN} | awk -F/ '{print $2}' | awk -F: '{print $1}')}"
+      echo "Registering new task definition for ${FAMILY} with image ${IMAGE_URI}..."
+      NEW_TASK_DEF=$(aws ecs describe-task-definition --task-definition ${TASK_DEF_ARN} \
+        | jq --arg img "${IMAGE_URI}" \
+        '.taskDefinition | .containerDefinitions[0].image = $img | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+      NEW_TASK_DEF_ARN=$(echo "${NEW_TASK_DEF}" | aws ecs register-task-definition \
+        --cli-input-json file:///dev/stdin \
+        --query 'taskDefinition.taskDefinitionArn' --output text)
+      echo "New task definition: ${NEW_TASK_DEF_ARN}"
+      echo "${NEW_TASK_DEF_ARN}" > ecs-output/new-task-def-arn.txt
+      # Update service
+      echo "Updating service ${ECS_SERVICE}..."
+      aws ecs update-service \
+        --cluster ${ECS_CLUSTER} \
+        --service ${ECS_SERVICE} \
+        --task-definition ${NEW_TASK_DEF_ARN} \
+        > ecs-output/update-service.json
+    fi
+  - |
+    if [ "${ECS_WAIT}" = "true" ]; then
+      echo "Waiting for service ${ECS_SERVICE} to stabilize..."
+      aws ecs wait services-stable \
+        --cluster ${ECS_CLUSTER} \
+        --services ${ECS_SERVICE}
+      echo "Service is stable"
+    fi
+  - "echo \"ECS deploy complete. Output available in ecs-output/\""
+env:
+  ECS_CLUSTER: ""
+  ECS_SERVICE: ""
+  IMAGE_URI: ""
+  ECS_TASK_FAMILY: ""
+  ECS_WAIT: "true"

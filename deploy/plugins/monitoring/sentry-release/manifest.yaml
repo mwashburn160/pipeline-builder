@@ -6,6 +6,8 @@ keywords:
   - error-tracking
   - sourcemaps
   - monitoring
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

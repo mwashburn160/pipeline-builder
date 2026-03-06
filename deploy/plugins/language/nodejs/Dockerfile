@@ -24,9 +24,8 @@ ENV NVM_DIR=/opt/nvm
 RUN mkdir -p ${NVM_DIR} \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 
-# Pre-install common Node.js versions
+# Pre-install current + previous LTS Node.js versions
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 20 && \
     nvm install 22 && \
     nvm install 24 && \
     nvm alias default 24"

@@ -1,0 +1,62 @@
+name: cypress
+description: Cypress end-to-end testing plugin for running browser-based UI tests with video recording and screenshot capture using AWS CDK CodeBuildStep
+keywords:
+  - cypress
+  - e2e
+  - testing
+  - browser
+  - frontend
+  - ui
+  - javascript
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: cypress-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
+  - node --version
+  # Install project dependencies
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    fi
+  - npx cypress verify
+commands:
+  - mkdir -p cypress-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    SPEC_ARG=""
+    if [ -n "${CYPRESS_SPEC}" ]; then
+      SPEC_ARG="--spec ${CYPRESS_SPEC}"
+    fi
+    echo "Running Cypress E2E tests (browser: ${CYPRESS_BROWSER})..."
+    npx cypress run \
+      --browser ${CYPRESS_BROWSER} \
+      ${SPEC_ARG} \
+      --reporter json \
+      --reporter-options "output=cypress-reports/cypress-results.json" \
+      2>&1 | tee cypress-reports/cypress-output.txt || true
+    # Copy videos and screenshots
+    cp -r cypress/videos cypress-reports/ 2>/dev/null || true
+    cp -r cypress/screenshots cypress-reports/ 2>/dev/null || true
+  - "echo \"Cypress tests complete. Reports available in cypress-reports/\""
+env:
+  NODE_VERSION: "24"
+  CYPRESS_BROWSER: electron
+  CYPRESS_SPEC: ""
+  CYPRESS_RECORD_KEY: ""

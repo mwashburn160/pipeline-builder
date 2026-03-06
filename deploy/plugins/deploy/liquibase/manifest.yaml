@@ -7,6 +7,8 @@ keywords:
   - changelog
   - schema
   - deploy
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

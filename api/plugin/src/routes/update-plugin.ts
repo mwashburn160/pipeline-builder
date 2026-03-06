@@ -1,10 +1,6 @@
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, normalizeArrayFields, sendEntityNotFound } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import {
-  normalizePlugin,
-  sendPluginNotFound,
-} from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 
 /**
@@ -33,7 +29,7 @@ export function createUpdatePluginRoutes(): Router {
 
     const existing = await pluginService.findById(id, orgId);
 
-    if (!existing) return sendPluginNotFound(res);
+    if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // Only system admins can edit non-private plugins
     if (!requirePublicAccess(req, res, existing)) return;
@@ -70,11 +66,11 @@ export function createUpdatePluginRoutes(): Router {
       userId || 'system',
     );
 
-    if (!updated) return sendPluginNotFound(res);
+    if (!updated) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 
-    return sendSuccess(res, 200, { plugin: normalizePlugin(updated) });
+    return sendSuccess(res, 200, { plugin: normalizeArrayFields(updated, ['keywords', 'installCommands', 'commands']) });
   }));
 
   return router;

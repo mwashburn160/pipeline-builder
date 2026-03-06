@@ -1,0 +1,62 @@
+name: playwright
+description: Playwright end-to-end testing plugin for cross-browser UI testing with Chromium, Firefox, and WebKit support using AWS CDK CodeBuildStep
+keywords:
+  - playwright
+  - e2e
+  - testing
+  - browser
+  - chromium
+  - firefox
+  - webkit
+  - microsoft
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: LARGE
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: playwright-reports
+dockerfile: Dockerfile
+installCommands:
+  # Node.js version selection
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
+  - node --version
+  # Install project dependencies
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    fi
+  - npx playwright install --with-deps
+commands:
+  - mkdir -p playwright-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    PROJECT_ARG=""
+    if [ -n "${PLAYWRIGHT_PROJECT}" ]; then
+      PROJECT_ARG="--project=${PLAYWRIGHT_PROJECT}"
+    fi
+    echo "Running Playwright tests (workers: ${PLAYWRIGHT_WORKERS})..."
+    npx playwright test \
+      --reporter=${PLAYWRIGHT_REPORTER} \
+      --workers=${PLAYWRIGHT_WORKERS} \
+      ${PROJECT_ARG} \
+      2>&1 | tee playwright-reports/playwright-output.txt || true
+    # Copy report artifacts
+    cp -r playwright-report/* playwright-reports/ 2>/dev/null || true
+    cp -r test-results/* playwright-reports/ 2>/dev/null || true
+  - "echo \"Playwright tests complete. Reports available in playwright-reports/\""
+env:
+  NODE_VERSION: "24"
+  PLAYWRIGHT_PROJECT: ""
+  PLAYWRIGHT_WORKERS: auto
+  PLAYWRIGHT_REPORTER: html

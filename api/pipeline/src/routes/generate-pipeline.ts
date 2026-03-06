@@ -22,6 +22,51 @@ const logger = createLogger('generate-pipeline');
 
 const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
 
+/** Set SSE response headers and flush. */
+function initSSEStream(req: import('express').Request, res: import('express').Response): { aborted: () => boolean } {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setTimeout(SSE_STREAM_TIMEOUT_MS);
+  res.flushHeaders();
+  let _aborted = false;
+  req.on('close', () => { _aborted = true; });
+  return { aborted: () => _aborted };
+}
+
+/** Stream partial objects from an AI generation result. */
+async function streamPartials(
+  stream: AsyncIterable<unknown>,
+  res: import('express').Response,
+  aborted: () => boolean,
+  requestId: string,
+): Promise<void> {
+  for await (const partialObject of stream) {
+    if (aborted()) break;
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
+    } catch (serializeError) {
+      logger.warn('Failed to serialize partial object', { requestId, error: errorMessage(serializeError) });
+    }
+  }
+}
+
+/** Handle AI generation errors, sending appropriate response or SSE event. */
+function handleAIError(res: import('express').Response, message: string, fallbackMessage: string): void {
+  if (!res.headersSent) {
+    if (message.includes('not configured') || message.includes('API key')) {
+      return sendInternalError(res, 'AI generation is not configured for the requested provider');
+    }
+    if (message.includes('not available for provider')) {
+      return sendBadRequest(res, message);
+    }
+    return sendInternalError(res, fallbackMessage, { details: message });
+  }
+  res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+  res.end();
+}
+
 const { pluginHost, pluginPort } = Config.get('server').services;
 const pluginClient = createSafeClient({
   host: pluginHost,
@@ -130,21 +175,8 @@ export function createGeneratePipelineRoutes(): Router {
         });
       } catch (error) {
         const message = errorMessage(error);
-        logger.error('AI pipeline generation failed', {
-          requestId: ctx.requestId,
-          error: message,
-        });
-
-        if (message.includes('not configured') || message.includes('API key')) {
-          return sendInternalError(res, 'AI generation is not configured for the requested provider');
-        }
-        if (message.includes('not available for provider')) {
-          return sendBadRequest(res, message);
-        }
-
-        return sendInternalError(res, 'Failed to generate pipeline configuration', {
-          details: message,
-        });
+        logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
+        handleAIError(res, message, 'Failed to generate pipeline configuration');
       }
     }),
   );
@@ -176,17 +208,7 @@ export function createGeneratePipelineRoutes(): Router {
 
         const plugins = await getAvailablePlugins(orgId);
 
-        // Set SSE headers
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.setTimeout(SSE_STREAM_TIMEOUT_MS);
-        res.flushHeaders();
-
-        // Track client disconnect
-        let aborted = false;
-        req.on('close', () => { aborted = true; });
+        const sse = initSSEStream(req, res);
 
         const result = streamPipelineConfig({
           prompt: prompt.trim(),
@@ -197,17 +219,9 @@ export function createGeneratePipelineRoutes(): Router {
           ...(apiKey ? { apiKey } : {}),
         });
 
-        // Stream partial objects
-        for await (const partialObject of result.partialOutputStream) {
-          if (aborted) break;
-          try {
-            res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
-          } catch (serializeError) {
-            logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
-          }
-        }
+        await streamPartials(result.partialOutputStream, res, sse.aborted, ctx.requestId);
 
-        if (!aborted) {
+        if (!sse.aborted()) {
           // Get final validated output
           const finalOutput = await result.output;
           if (finalOutput) {
@@ -223,24 +237,8 @@ export function createGeneratePipelineRoutes(): Router {
         res.end();
       } catch (error) {
         const message = errorMessage(error);
-        logger.error('AI pipeline streaming generation failed', {
-          requestId: ctx.requestId,
-          error: message,
-        });
-
-        if (!res.headersSent) {
-          if (message.includes('not configured') || message.includes('API key')) {
-            return sendInternalError(res, 'AI generation is not configured for the requested provider');
-          }
-          if (message.includes('not available for provider')) {
-            return sendBadRequest(res, message);
-          }
-          return sendInternalError(res, 'Failed to stream pipeline configuration');
-        }
-
-        // Headers already sent — send error as SSE event
-        res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
-        res.end();
+        logger.error('AI pipeline streaming generation failed', { requestId: ctx.requestId, error: message });
+        handleAIError(res, message, 'Failed to stream pipeline configuration');
       }
     }),
   );
@@ -284,16 +282,7 @@ export function createGeneratePipelineRoutes(): Router {
           gitProvider: parsed.provider,
         });
 
-        // Set SSE headers
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.setTimeout(SSE_STREAM_TIMEOUT_MS);
-        res.flushHeaders();
-
-        let aborted = false;
-        req.on('close', () => { aborted = true; });
+        const sse = initSSEStream(req, res);
 
         // Phase 1: Analyze repository
         res.write(`data: ${JSON.stringify({ type: 'analyzing' })}\n\n`);
@@ -309,7 +298,7 @@ export function createGeneratePipelineRoutes(): Router {
           return;
         }
 
-        if (aborted) { res.end(); return; }
+        if (sse.aborted()) { res.end(); return; }
 
         res.write(`data: ${JSON.stringify({
           type: 'analyzed',
@@ -341,16 +330,9 @@ export function createGeneratePipelineRoutes(): Router {
           ...(apiKey ? { apiKey } : {}),
         });
 
-        for await (const partialObject of result.partialOutputStream) {
-          if (aborted) break;
-          try {
-            res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
-          } catch (serializeError) {
-            logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
-          }
-        }
+        await streamPartials(result.partialOutputStream, res, sse.aborted, ctx.requestId);
 
-        if (!aborted) {
+        if (!sse.aborted()) {
           const finalOutput = await result.output;
           if (finalOutput) {
             const { description, keywords, ...props } = finalOutput;
@@ -360,7 +342,7 @@ export function createGeneratePipelineRoutes(): Router {
             })}\n\n`);
 
             // Phase 3: Auto-create missing plugins
-            if (!aborted) {
+            if (!sse.aborted()) {
               await autoCreateMissingPlugins(res, props, orgId, {
                 provider,
                 model,
@@ -376,23 +358,8 @@ export function createGeneratePipelineRoutes(): Router {
         res.end();
       } catch (error) {
         const message = errorMessage(error);
-        logger.error('AI pipeline generation from URL failed', {
-          requestId: ctx.requestId,
-          error: message,
-        });
-
-        if (!res.headersSent) {
-          if (message.includes('not configured') || message.includes('API key')) {
-            return sendInternalError(res, 'AI generation is not configured for the requested provider');
-          }
-          if (message.includes('not available for provider')) {
-            return sendBadRequest(res, message);
-          }
-          return sendInternalError(res, 'Failed to generate pipeline from URL');
-        }
-
-        res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
-        res.end();
+        logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
+        handleAIError(res, message, 'Failed to generate pipeline from URL');
       }
     }),
   );

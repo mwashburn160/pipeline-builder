@@ -17,13 +17,14 @@ SPECIFIC_PLUGIN="${1:-}"
 CHECK_TIMEOUT=15
 PASSED=0
 FAILED=0
+SKIPPED=0
 ERRORS=()
 
 verify_dockerfile() {
   local dockerfile="$1"
   local rel_path="${dockerfile#"$PLUGINS_DIR"/}"
 
-  echo -e "${BLUE}==>${NC} $rel_path"
+  log_info "$rel_path"
 
   # Check curl/wget download URLs (skip apt repos and install scripts like pyenv.run, rustup, sdkman)
   # Only checks hardcoded URLs — URLs with ${VAR} or $(cmd) are skipped (use generate-plugins.sh for those)
@@ -74,17 +75,5 @@ else
   done
 fi
 
-echo ""
-echo "========================"
-echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC}"
-
-if [ ${#ERRORS[@]} -gt 0 ]; then
-  echo ""
-  echo -e "${RED}Broken URLs/images:${NC}"
-  for err in "${ERRORS[@]}"; do
-    echo "  - $err"
-  done
-  exit 1
-fi
-
-echo -e "\n${GREEN}All URLs verified!${NC}"
+print_results
+print_errors_and_exit "All URLs verified!"

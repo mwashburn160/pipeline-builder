@@ -6,6 +6,9 @@ keywords:
   - build
   - performance
   - infrastructure
+  - zstd
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

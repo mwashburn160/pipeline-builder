@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **73 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **97 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 ---
 
@@ -8,15 +8,15 @@ Pipeline Builder ships with **73 plugins** across **10 categories**, covering th
 
 | Category | Plugins | Description | Doc |
 |----------|---------|-------------|-----|
-| Language | 12 | Build, test, and compile across major languages | [language.md](language.md) |
-| Security | 14 | SAST, DAST, SCA, secret detection, container scanning, license compliance | [security.md](security.md) |
-| Quality | 9 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
-| Monitoring | 3 | APM, observability, release tracking (Datadog, New Relic, Sentry) | [monitoring.md](monitoring.md) |
-| Artifact & Registry | 11 | Package publishing and container image push | [artifact.md](artifact.md) |
-| Deploy | 9 | Cloud provisioning, K8s, database migration, mobile builds | [deploy.md](deploy.md) |
+| Language | 15 | Build, test, and compile across major languages | [language.md](language.md) |
+| Security | 17 | SAST, DAST, SCA, secret detection, container scanning, IaC scanning, license compliance | [security.md](security.md) |
+| Quality | 12 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
+| Monitoring | 5 | APM, observability, release tracking, deployment annotations | [monitoring.md](monitoring.md) |
+| Artifact & Registry | 13 | Package publishing and container image push | [artifact.md](artifact.md) |
+| Deploy | 13 | Cloud provisioning, K8s, serverless, database migration, mobile builds | [deploy.md](deploy.md) |
 | Infrastructure | 5 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
-| Testing | 3 | API contract, load/performance, and smoke testing | [testing.md](testing.md) |
-| Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, etc.) | [notification.md](notification.md) |
+| Testing | 8 | API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
+| Notification | 7 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub, etc.) | [notification.md](notification.md) |
 | AI | 2 | AI-powered Dockerfile generation (local + cloud) | [ai.md](ai.md) |
 
 ---
@@ -49,6 +49,9 @@ flowchart LR
         prettier
         checkstyle
         shellcheck
+        golangci-lint
+        markdownlint
+        stylelint
     end
 
     subgraph "Build / Compile"
@@ -61,6 +64,9 @@ flowchart LR
         rust
         ruby
         cpp
+        php
+        scala
+        swift
     end
 
     subgraph "Coverage Reporting"
@@ -83,6 +89,8 @@ flowchart LR
         prisma-cloud
         mend
         gitguardian_sast[gitguardian]
+        semgrep
+        grype
     end
 
     subgraph "DAST"
@@ -101,19 +109,22 @@ flowchart LR
         gitguardian_sec[gitguardian]
     end
 
-    subgraph "Container / License"
+    subgraph "Container / License / IaC"
         direction TB
         docker-lint
         license-checker
+        tfsec
     end
 
     subgraph "Artifact & Registry"
         direction TB
         docker-build
+        ecr-push
         ghcr-push
         gar-push
         acr-push
         jfrog-push
+        helm-push
         npm-publish
         pypi-publish
         maven-publish
@@ -132,16 +143,25 @@ flowchart LR
         helm-deploy
         cdk-deploy
         cdk-deploy-multi-region
+        ecs-deploy
+        lambda-deploy
+        pulumi
+        serverless-framework
         flyway
         liquibase
         fastlane
     end
 
-    subgraph "Integration & Smoke"
+    subgraph "Integration & Smoke & E2E"
         direction TB
         postman
         k6
         health-check
+        artillery
+        jmeter
+        cypress
+        playwright
+        selenium
     end
 
     subgraph "Monitoring"
@@ -149,6 +169,8 @@ flowchart LR
         datadog
         newrelic
         sentry-release
+        grafana-annotation
+        prometheus-pushgateway
     end
 
     subgraph "Notifications"
@@ -158,6 +180,8 @@ flowchart LR
         pagerduty-notify
         opsgenie-notify
         discord-notify
+        email-notify
+        github-status
     end
 ```
 
@@ -189,6 +213,7 @@ The following table lists every plugin that requires external tokens or credenti
 | mend | security | `MEND_API_KEY`, `MEND_ORG_TOKEN` | [mend.io](https://www.mend.io) |
 | gitguardian | security | `GITGUARDIAN_API_KEY` | [gitguardian.com](https://www.gitguardian.com) |
 | fortify | security | `FOD_CLIENT_ID`, `FOD_CLIENT_SECRET` or `FORTIFY_SSC_TOKEN` | [microfocus.com](https://www.microfocus.com) |
+| semgrep | security | `SEMGREP_APP_TOKEN` (optional) | [semgrep.dev](https://semgrep.dev) |
 | codecov | quality | `CODECOV_TOKEN` | [codecov.io](https://codecov.io) |
 | coveralls | quality | `COVERALLS_REPO_TOKEN` | [coveralls.io](https://coveralls.io) |
 | codacy | quality | `CODACY_PROJECT_TOKEN` | [codacy.com](https://www.codacy.com) |
@@ -196,6 +221,7 @@ The following table lists every plugin that requires external tokens or credenti
 | datadog | monitoring | `DD_API_KEY` | [datadoghq.com](https://www.datadoghq.com) |
 | newrelic | monitoring | `NEW_RELIC_API_KEY` | [newrelic.com](https://newrelic.com) |
 | sentry-release | monitoring | `SENTRY_AUTH_TOKEN` | [sentry.io](https://sentry.io) |
+| grafana-annotation | monitoring | `GRAFANA_API_KEY` | [grafana.com](https://grafana.com) |
 | docker-build | artifact | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | - |
 | ghcr-push | artifact | `GITHUB_TOKEN` | [github.com](https://github.com) |
 | gar-push | artifact | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
@@ -207,6 +233,7 @@ The following table lists every plugin that requires external tokens or credenti
 | nuget-publish | artifact | `NUGET_API_KEY` | [nuget.org](https://www.nuget.org) |
 | cargo-publish | artifact | `CARGO_REGISTRY_TOKEN` | [crates.io](https://crates.io) |
 | gem-publish | artifact | `GEM_HOST_API_KEY` | [rubygems.org](https://rubygems.org) |
+| pulumi | deploy | `PULUMI_ACCESS_TOKEN` | [pulumi.com](https://www.pulumi.com) |
 | gcloud-deploy | deploy | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
 | azure-deploy | deploy | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | [azure.microsoft.com](https://azure.microsoft.com) |
 | kubectl-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
@@ -219,6 +246,8 @@ The following table lists every plugin that requires external tokens or credenti
 | pagerduty-notify | notification | `PAGERDUTY_ROUTING_KEY` | [pagerduty.com](https://www.pagerduty.com) |
 | opsgenie-notify | notification | `OPSGENIE_API_KEY` | [opsgenie.com](https://www.atlassian.com/software/opsgenie) |
 | discord-notify | notification | `DISCORD_WEBHOOK_URL` | [discord.com](https://discord.com) |
+| email-notify | notification | `SMTP_PASSWORD` (optional) | - |
+| github-status | notification | `GITHUB_TOKEN` | [github.com](https://github.com) |
 | dockerfile-multi-provider | ai | `AI_API_KEY` (varies by provider) | - |
 
 ---

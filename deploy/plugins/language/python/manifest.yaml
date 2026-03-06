@@ -6,6 +6,11 @@ keywords:
   - poetry
   - pipenv
   - pytest
+  - build
+  - test
+  - ci
+  - pipeline
+  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -74,5 +79,5 @@ commands:
         ;;
     esac
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.14"
   PACKAGE_MANAGER: auto

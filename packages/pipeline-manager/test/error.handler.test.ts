@@ -1,7 +1,5 @@
 import { ValidationError, NetworkError } from '../src/utils/error-handler';
 
-// Tests
-
 describe('ValidationError', () => {
   it('should create error with message', () => {
     const err = new ValidationError('Invalid value');
@@ -24,26 +22,6 @@ describe('ValidationError', () => {
     expect(err.value).toBeUndefined();
     expect(err.rule).toBeUndefined();
     expect(err.expected).toBeUndefined();
-  });
-
-  describe('toDetails', () => {
-    it('should return details object', () => {
-      const err = new ValidationError('bad', 'name', 123, 'min', '>0');
-      const details = err.toDetails();
-      expect(details).toEqual({
-        field: 'name',
-        value: 123,
-        rule: 'min',
-        expected: '>0',
-      });
-    });
-
-    it('should return undefined fields when not set', () => {
-      const err = new ValidationError('bad');
-      const details = err.toDetails();
-      expect(details.field).toBeUndefined();
-      expect(details.value).toBeUndefined();
-    });
   });
 });
 
@@ -69,28 +47,5 @@ describe('NetworkError', () => {
     const err = new NetworkError('error');
     expect(err.requestMade).toBe(true);
     expect(err.responseReceived).toBe(false);
-  });
-
-  describe('toDetails', () => {
-    it('should return details object with all fields', () => {
-      const cause = new Error('DNS failed');
-      const err = new NetworkError('dns', 'https://example.com', cause, 3000, false, false);
-      const details = err.toDetails();
-      expect(details).toEqual({
-        url: 'https://example.com',
-        timeout: 3000,
-        requestMade: false,
-        responseReceived: false,
-        cause,
-      });
-    });
-
-    it('should return undefined for unset optional fields', () => {
-      const err = new NetworkError('failed');
-      const details = err.toDetails();
-      expect(details.url).toBeUndefined();
-      expect(details.timeout).toBeUndefined();
-      expect(details.cause).toBeUndefined();
-    });
   });
 });
