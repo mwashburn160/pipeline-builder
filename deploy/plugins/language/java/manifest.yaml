@@ -9,6 +9,8 @@ keywords:
   - junit
   - spring
   - ktor
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -56,6 +58,6 @@ commands:
       gradle) gradle clean build ;;
     esac
 env:
-  JAVA_VERSION: 17.0.13-tem
+  JAVA_VERSION: 21.0.10-tem
   KOTLIN_VERSION: 2.1.0
   BUILD_TOOL: auto

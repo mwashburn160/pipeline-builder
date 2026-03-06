@@ -61,7 +61,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SONAR_SCANNER_VERSION` | `6.2.1.4610` | Sonar Scanner Version |
+| `SONAR_SCANNER_VERSION` | `12.0` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | _none_ | Sonar Organization |
 | `SONAR_PROJECT_KEY` | _none_ | Sonar Project Key |
 | `LANGUAGE` | `nodejs` | Target language for scanning |
@@ -80,7 +80,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "sonarcloud",
   "plugin": "sonarcloud",
   "env": {
-    "SONAR_SCANNER_VERSION": "6.2.1.4610",
+    "SONAR_SCANNER_VERSION": "12.0",
     "SONAR_ORGANIZATION": "<your-sonar_organization>",
     "SONAR_PROJECT_KEY": "<your-sonar_project_key>",
     "LANGUAGE": "nodejs",

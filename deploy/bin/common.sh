@@ -8,12 +8,56 @@ SCRIPT_DIR="${SCRIPT_DIR:-$COMMON_DIR}"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 
-# ---- Colors (shared across all scripts) ----
+# ---- Colors ----
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+# ---- Logging helpers ----
+# Callers must initialize: PASSED=0 FAILED=0 SKIPPED=0 ERRORS=()
+
+log_pass() { echo -e "  ${GREEN}PASS${NC} $1"; PASSED=$((PASSED + 1)); }
+log_fail() { echo -e "  ${RED}FAIL${NC} $1"; FAILED=$((FAILED + 1)); ERRORS+=("$2: $1"); }
+log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
+log_info() { echo -e "${BLUE}==>${NC} $1"; }
+
+# ---------------------------------------------------------------------------
+# get_manifest_field — extract a top-level field from a manifest.yaml
+#   $1 field name   $2 manifest file path
+#   Echoes the value (trimmed), empty string if not found
+# ---------------------------------------------------------------------------
+get_manifest_field() {
+  grep "^${1}:" "$2" 2>/dev/null | head -1 | sed "s/^${1}: *//"
+}
+
+# ---------------------------------------------------------------------------
+# print_results — display test/verify results summary
+#   Uses: PASSED, FAILED, SKIPPED
+# ---------------------------------------------------------------------------
+print_results() {
+  echo ""
+  echo "========================"
+  echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC}, ${YELLOW}${SKIPPED} skipped${NC}"
+}
+
+# ---------------------------------------------------------------------------
+# print_errors_and_exit — print error list and exit 1 if any, else print success
+#   $1 success message (e.g. "All tests passed!")
+#   Uses: ERRORS[]
+# ---------------------------------------------------------------------------
+print_errors_and_exit() {
+  if [ ${#ERRORS[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${RED}Failures:${NC}"
+    for err in "${ERRORS[@]}"; do
+      echo "  - $err"
+    done
+    exit 1
+  fi
+  echo -e "\n${GREEN}${1}${NC}"
+}
 
 # ---------------------------------------------------------------------------
 # wait_for_health — poll $PLATFORM_BASE_URL/health until 200

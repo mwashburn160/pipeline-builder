@@ -861,6 +861,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockSendInternalError).toHaveBeenCalledWith(
       res,
       'Failed to generate pipeline from URL',
+      { details: 'Unexpected internal error' },
     );
   });
 

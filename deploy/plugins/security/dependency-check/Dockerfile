@@ -4,7 +4,7 @@
 # Supports Java, .NET, Node.js, Python, Ruby, Go, and more
 
 # ─── Tool versions (override with --build-arg) ───
-ARG DC_DEFAULT_VERSION=12.0.0
+ARG DC_DEFAULT_VERSION=12.2.0
 ARG DC_PREV_VERSION=11.1.1
 
 FROM owasp/dependency-check:${DC_DEFAULT_VERSION} AS dc-default
@@ -33,14 +33,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     python3 \
     python3-pip \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Go (for go.mod dependency resolution) ───
 ENV GOENV_ROOT=/opt/goenv
 RUN git clone https://github.com/go-nv/goenv.git ${GOENV_ROOT}
-RUN ${GOENV_ROOT}/bin/goenv install 1.22.10 && ${GOENV_ROOT}/bin/goenv global 1.22.10
+RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && ${GOENV_ROOT}/bin/goenv global 1.24.13
 ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
 
 # ─── .NET SDK (for NuGet dependency resolution) ───

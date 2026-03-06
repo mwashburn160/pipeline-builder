@@ -31,9 +31,6 @@ jest.mock('@mwashburn160/api-core', () => ({
 import {
   getNextResetDate,
   computeQuotaStatus,
-  sendOrgNotFound,
-  sendInvalidQuotaType,
-  sendMissingOrgId,
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
@@ -145,30 +142,6 @@ describe('quota-helpers', () => {
 
       expect(status.remaining).toBe(0);
       expect(status.allowed).toBe(false);
-    });
-  });
-
-  describe('error helpers', () => {
-    const { sendError } = jest.requireMock('@mwashburn160/api-core');
-    const res = {} as any;
-
-    beforeEach(() => {
-      sendError.mockClear();
-    });
-
-    it('sendOrgNotFound should send 404', () => {
-      sendOrgNotFound(res);
-      expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringContaining('not found'), 'ORG_NOT_FOUND');
-    });
-
-    it('sendInvalidQuotaType should send 400', () => {
-      sendInvalidQuotaType(res);
-      expect(sendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('Invalid quota type'), 'VALIDATION_ERROR');
-    });
-
-    it('sendMissingOrgId should send 400', () => {
-      sendMissingOrgId(res);
-      expect(sendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('Organization ID'), 'MISSING_REQUIRED_FIELD');
     });
   });
 

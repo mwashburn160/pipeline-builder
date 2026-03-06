@@ -35,15 +35,6 @@ jest.mock('../src/services/message-service', () => ({
   },
 }));
 
-jest.mock('../src/helpers/message-helpers', () => ({
-  sendMessageNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Message not found.' });
-  }),
-  sendThreadNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Thread not found.' });
-  }),
-}));
-
 jest.mock('@mwashburn160/api-core', () => ({
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -88,6 +79,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   MessageFilterSchema: {},
   validateQuery: jest.fn(() => ({ ok: true, value: {} })),
   incrementQuota: jest.fn(),
+  sendEntityNotFound: jest.fn((res: any, entity: string) => {
+    res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+  }),
   resolveRecipientAlias: jest.fn((recipientOrgId: string) => {
     const aliases = new Set(['support@pipeline-builder', 'help@pipeline-builder']);
     const normalized = recipientOrgId.trim().toLowerCase();
@@ -129,8 +123,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-import { sendBadRequest, sendError, isSystemAdmin } from '@mwashburn160/api-core';
-import { sendMessageNotFound, sendThreadNotFound } from '../src/helpers/message-helpers';
+import { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } from '@mwashburn160/api-core';
 import { createCreateMessageRoutes } from '../src/routes/create-message';
 import { createDeleteMessageRoutes } from '../src/routes/delete-message';
 import { createReadMessageRoutes } from '../src/routes/read-messages';
@@ -351,7 +344,7 @@ describe('GET /messages/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendMessageNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
   });
 
   it('returns 400 when ID param is missing', async () => {
@@ -406,7 +399,7 @@ describe('GET /messages/:id/thread', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendThreadNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Thread');
   });
 
   it('returns 400 when ID param is missing', async () => {
@@ -666,7 +659,7 @@ describe('POST /messages/:id/reply', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendMessageNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
   });
 
   it('returns 403 when user is not a participant', async () => {
@@ -741,7 +734,7 @@ describe('PUT /messages/:id/read', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendMessageNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
   });
 
   it('returns 400 when ID param is missing', async () => {
@@ -883,7 +876,7 @@ describe('DELETE /messages/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendMessageNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
   });
 
   it('returns 404 when delete returns null (admin)', async () => {
@@ -894,7 +887,7 @@ describe('DELETE /messages/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendMessageNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
   });
 
   it('returns 400 when ID param is missing', async () => {

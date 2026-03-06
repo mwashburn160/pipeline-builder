@@ -1,0 +1,60 @@
+name: serverless-framework
+description: Serverless Framework deployment plugin for deploying serverless applications to AWS, Azure, or GCP with stage and region configuration using AWS CDK CodeBuildStep
+keywords:
+  - serverless
+  - framework
+  - aws
+  - lambda
+  - api-gateway
+  - deploy
+  - faas
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: serverless-output
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
+  - serverless --version
+  - aws --version
+  # Install project dependencies
+  - |
+    cd ${SLS_SERVICE_PATH}
+    if [ -f package.json ]; then
+      if [ -f package-lock.json ]; then npm ci; else npm install; fi
+    fi
+    if [ -f requirements.txt ]; then
+      pip3 install --break-system-packages -r requirements.txt
+    fi
+commands:
+  - mkdir -p serverless-output
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    cd ${SLS_SERVICE_PATH}
+    REGION_ARG=""
+    if [ -n "${SLS_REGION}" ]; then
+      REGION_ARG="--region ${SLS_REGION}"
+    fi
+    echo "Deploying with Serverless Framework (stage: ${SLS_STAGE})..."
+    serverless deploy \
+      --stage ${SLS_STAGE} \
+      ${REGION_ARG} \
+      --verbose \
+      2>&1 | tee ${OLDPWD}/serverless-output/deploy.txt
+    serverless info \
+      --stage ${SLS_STAGE} \
+      ${REGION_ARG} \
+      > ${OLDPWD}/serverless-output/info.txt 2>&1 || true
+  - "echo \"Serverless deploy complete. Output available in serverless-output/\""
+env:
+  NODE_VERSION: "24"
+  SLS_STAGE: dev
+  SLS_REGION: ""
+  SLS_SERVICE_PATH: "."

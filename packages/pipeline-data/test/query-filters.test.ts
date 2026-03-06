@@ -1,63 +1,36 @@
-import {
-  validateCommonFilter,
-  validatePluginFilter,
-  validatePipelineFilter,
-} from '../src/core/query-filters';
+import { validateMessageFilter } from '../src/core/query-filters';
 
-// Validation
-describe('validateCommonFilter', () => {
+describe('validateMessageFilter', () => {
   it('should pass for valid filter', () => {
-    expect(() => validateCommonFilter({ limit: 10, offset: 0, sort: 'name:asc' })).not.toThrow();
+    const result = validateMessageFilter({ messageType: 'announcement', priority: 'high' });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
   it('should pass for empty filter', () => {
-    expect(() => validateCommonFilter({})).not.toThrow();
+    const result = validateMessageFilter({});
+    expect(result.valid).toBe(true);
   });
 
-  it('should reject limit < 1', () => {
-    expect(() => validateCommonFilter({ limit: 0 })).toThrow('limit must be an integer between 1 and 1000');
+  it('should reject invalid messageType', () => {
+    const result = validateMessageFilter({ messageType: 'invalid' as any });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('Invalid messageType');
   });
 
-  it('should reject limit > 1000', () => {
-    expect(() => validateCommonFilter({ limit: 1001 })).toThrow('limit must be an integer between 1 and 1000');
+  it('should reject invalid priority', () => {
+    const result = validateMessageFilter({ priority: 'critical' as any });
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('Invalid priority');
   });
 
-  it('should reject negative offset', () => {
-    expect(() => validateCommonFilter({ offset: -1 })).toThrow('offset must be a non-negative integer');
+  it('should accept null threadId for root messages', () => {
+    const result = validateMessageFilter({ threadId: null });
+    expect(result.valid).toBe(true);
   });
 
-  it('should reject invalid sort format', () => {
-    expect(() => validateCommonFilter({ sort: 'invalid' })).toThrow('sort must be in format');
-  });
-
-  it('should accept valid sort format', () => {
-    expect(() => validateCommonFilter({ sort: 'createdAt:desc' })).not.toThrow();
-    expect(() => validateCommonFilter({ sort: 'name:asc' })).not.toThrow();
-  });
-
-  it('should accept string limit (coerced)', () => {
-    expect(() => validateCommonFilter({ limit: '10' as any })).not.toThrow();
-  });
-});
-
-describe('validatePluginFilter', () => {
-  it('should validate common and plugin-specific fields', () => {
-    expect(() => validatePluginFilter({ name: 'test', version: '1.0.0' })).not.toThrow();
-  });
-
-  it('should reject invalid version format', () => {
-    expect(() => validatePluginFilter({ version: 'not-semver' })).toThrow('Invalid version format');
-  });
-
-  it('should accept semantic versions with prefix', () => {
-    expect(() => validatePluginFilter({ version: '^2.0.0' })).not.toThrow();
-    expect(() => validatePluginFilter({ version: '~1.2.3' })).not.toThrow();
-  });
-});
-
-describe('validatePipelineFilter', () => {
-  it('should validate common filter properties', () => {
-    expect(() => validatePipelineFilter({ limit: 10 })).not.toThrow();
-    expect(() => validatePipelineFilter({ limit: 0 })).toThrow();
+  it('should accept string threadId', () => {
+    const result = validateMessageFilter({ threadId: 'some-uuid' });
+    expect(result.valid).toBe(true);
   });
 });

@@ -6,6 +6,9 @@ keywords:
   - python
   - package
   - twine
+  - ci
+  - pipeline
+  - artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

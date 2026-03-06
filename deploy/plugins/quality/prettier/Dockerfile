@@ -23,12 +23,13 @@ ENV NVM_DIR=/opt/nvm
 RUN mkdir -p ${NVM_DIR} \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 20 && \
-    nvm alias default 20"
-ENV PATH="${NVM_DIR}/versions/node/v20/bin:${PATH}"
+    nvm install 22 && \
+    nvm install 24 && \
+    nvm alias default 24"
+ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # Default Node.js version
-ENV NODE_VERSION=20
+ENV NODE_VERSION=24
 
 # Prettier glob pattern to check
 ENV PRETTIER_GLOB="."

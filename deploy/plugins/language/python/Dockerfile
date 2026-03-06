@@ -33,17 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYENV_ROOT=/opt/pyenv
 RUN curl -fsSL https://pyenv.run | bash
 
-# Pre-install common Python versions so builds are fast
-RUN /opt/pyenv/bin/pyenv install 3.11 && \
-    /opt/pyenv/bin/pyenv install 3.12 && \
-    /opt/pyenv/bin/pyenv install 3.13 && \
-    /opt/pyenv/bin/pyenv global 3.12
+# Pre-install current + previous Python versions
+RUN /opt/pyenv/bin/pyenv install 3.13 && \
+    /opt/pyenv/bin/pyenv install 3.14 && \
+    /opt/pyenv/bin/pyenv global 3.14
 
 # Add pyenv to PATH
 ENV PATH="/opt/pyenv/shims:/opt/pyenv/bin:${PATH}"
 
 # Default Python version (overridden by PYTHON_VERSION env var at runtime)
-ENV PYTHON_VERSION=3.12
+ENV PYTHON_VERSION=3.14
 
 # Package manager selection (auto = detect from project files)
 ENV PACKAGE_MANAGER=auto

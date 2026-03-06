@@ -127,12 +127,12 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }>(path, { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) {
-        logger.warn('Quota service unavailable, allowing request (fail-open)', { orgId, quotaType });
+        logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable, allowing request', { orgId, quotaType });
         return createFailOpenResult();
       }
 
       if (response.statusCode !== 200 || !response.body.success || !response.body.data?.status) {
-        logger.warn('Quota check failed, allowing request (fail-open)', {
+        logger.warn('QUOTA_FAIL_OPEN: Quota check returned non-ok, allowing request', {
           orgId, quotaType, statusCode: response.statusCode, message: response.body.message,
         });
         return createFailOpenResult();

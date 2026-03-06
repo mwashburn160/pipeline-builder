@@ -12,6 +12,8 @@ keywords:
   - quarkus
   - micronaut
   - ktor
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

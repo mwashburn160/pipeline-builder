@@ -4,11 +4,11 @@ import {
   ErrorCode,
   getParam,
   createLogger,
+  sendEntityNotFound,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
 
 const logger = createLogger('update-message');
@@ -34,7 +34,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     const message = await messageService.markAsRead(id, orgId, userId);
     if (!message) {
-      return sendMessageNotFound(res);
+      return sendEntityNotFound(res, 'Message');
     }
 
     ctx.log('COMPLETED', 'Message marked as read', { id });

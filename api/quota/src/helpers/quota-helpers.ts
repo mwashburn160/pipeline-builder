@@ -1,8 +1,7 @@
-import { sendError, ErrorCode, DEFAULT_TIER, VALID_QUOTA_TYPES } from '@mwashburn160/api-core';
+import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaTier } from '@mwashburn160/api-core';
 export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/api-core';
 export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits, VALID_QUOTA_TYPES, isValidQuotaType } from '@mwashburn160/api-core';
-import { Response } from 'express';
 import { config } from '../config';
 import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models/organization';
 
@@ -17,31 +16,6 @@ export function getNextResetDate(days: number): Date {
   date.setDate(date.getDate() + days);
   date.setHours(0, 0, 0, 0);
   return date;
-}
-
-// Error helpers
-
-/** Send a 404 "organization not found" response. */
-export function sendOrgNotFound(res: Response): void {
-  sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
-}
-
-/** Send a 400 "invalid quota type" response. */
-export function sendInvalidQuotaType(res: Response): void {
-  sendError(
-    res, 400,
-    `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
-    ErrorCode.VALIDATION_ERROR,
-  );
-}
-
-/** Send a 400 "missing org ID" response. */
-export function sendMissingOrgId(res: Response): void {
-  sendError(
-    res, 400,
-    'Organization ID is required. Please provide x-org-id header.',
-    ErrorCode.MISSING_REQUIRED_FIELD,
-  );
 }
 
 /**

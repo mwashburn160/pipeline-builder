@@ -35,36 +35,6 @@ export interface ErrorHandlerOptions {
 }
 
 /**
- * Structured details attached to a {@link ValidationError}.
- */
-export interface ValidationErrorDetails {
-  /** Name of the field that failed validation. */
-  field?: string;
-  /** The invalid value that was provided. */
-  value?: unknown;
-  /** Validation rule that was violated (e.g., `required`, `min`). */
-  rule?: string;
-  /** Human-readable description of the expected value. */
-  expected?: string;
-}
-
-/**
- * Structured details attached to network/connection errors.
- */
-export interface NetworkErrorDetails {
-  /** The URL that was being requested. */
-  url?: string;
-  /** Request timeout in milliseconds, if configured. */
-  timeout?: number;
-  /** Whether the HTTP request was actually sent. */
-  requestMade: boolean;
-  /** Whether any HTTP response was received (even an error status). */
-  responseReceived: boolean;
-  /** The underlying error that caused the network failure. */
-  cause?: Error;
-}
-
-/**
  * Configuration for automatic request retry with exponential backoff.
  */
 export interface RetryOptions {

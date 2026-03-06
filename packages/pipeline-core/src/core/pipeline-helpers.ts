@@ -4,7 +4,7 @@ import { Duration, SecretValue } from 'aws-cdk-lib';
 import { BuildEnvironmentVariableType, ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { ArtifactKey } from './artifact-manager';
-import { MetadataBuilder } from './metadata-builder';
+import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
 import { CoreConstants } from '../config/app-config';
@@ -175,7 +175,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     });
   }
 
-  const metadataBuilder = MetadataBuilder.from(merged);
+  const mergedMeta = merged;
 
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
@@ -204,7 +204,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     return new ShellStep(id, {
       ...programmatic,
       env,
-      ...metadataBuilder.forShellStep(),
+      ...metadataForShellStep(mergedMeta),
     });
   }
 
@@ -229,9 +229,9 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
       },
-      ...metadataBuilder.forBuildEnvironment(),
+      ...metadataForBuildEnvironment(mergedMeta),
     },
-    ...metadataBuilder.forCodeBuildStep(),
+    ...metadataForCodeBuildStep(mergedMeta),
   });
 
   // Register with artifact manager if primaryOutputDirectory is set

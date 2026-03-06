@@ -1,0 +1,90 @@
+name: lambda-deploy
+description: AWS Lambda function deployment plugin for updating code, publishing versions, and managing aliases with zip or container image packaging using AWS CDK CodeBuildStep
+keywords:
+  - lambda
+  - aws
+  - serverless
+  - function
+  - deploy
+  - zip
+  - container
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lambda-output
+dockerfile: Dockerfile
+installCommands:
+  - aws --version
+  - zip --version | head -1
+commands:
+  - mkdir -p lambda-output
+  - |
+    if [ -z "${LAMBDA_FUNCTION}" ]; then
+      echo "ERROR: LAMBDA_FUNCTION must be set"
+      exit 1
+    fi
+    case "${LAMBDA_PACKAGE_TYPE}" in
+      zip)
+        echo "Packaging Lambda function from ${LAMBDA_SOURCE_DIR}..."
+        cd ${LAMBDA_SOURCE_DIR}
+        zip -r ${OLDPWD}/lambda-output/function.zip . -x '*.git*' 'node_modules/.cache/*'
+        cd ${OLDPWD}
+        echo "Updating Lambda function code..."
+        aws lambda update-function-code \
+          --function-name ${LAMBDA_FUNCTION} \
+          --zip-file fileb://lambda-output/function.zip \
+          > lambda-output/update-result.json
+        ;;
+      image)
+        if [ -z "${LAMBDA_IMAGE_URI}" ]; then
+          echo "ERROR: LAMBDA_IMAGE_URI must be set for image package type"
+          exit 1
+        fi
+        echo "Updating Lambda function with image: ${LAMBDA_IMAGE_URI}..."
+        aws lambda update-function-code \
+          --function-name ${LAMBDA_FUNCTION} \
+          --image-uri ${LAMBDA_IMAGE_URI} \
+          > lambda-output/update-result.json
+        ;;
+      *)
+        echo "ERROR: Unknown LAMBDA_PACKAGE_TYPE '${LAMBDA_PACKAGE_TYPE}'. Supported: zip, image"
+        exit 1
+        ;;
+    esac
+    # Wait for update to complete
+    aws lambda wait function-updated --function-name ${LAMBDA_FUNCTION}
+    echo "Function code updated successfully"
+  - |
+    if [ "${LAMBDA_PUBLISH}" = "true" ]; then
+      echo "Publishing new version..."
+      VERSION=$(aws lambda publish-version \
+        --function-name ${LAMBDA_FUNCTION} \
+        --query 'Version' --output text)
+      echo "Published version: ${VERSION}"
+      echo "${VERSION}" > lambda-output/version.txt
+      if [ -n "${LAMBDA_ALIAS}" ]; then
+        echo "Updating alias ${LAMBDA_ALIAS} to version ${VERSION}..."
+        aws lambda update-alias \
+          --function-name ${LAMBDA_FUNCTION} \
+          --name ${LAMBDA_ALIAS} \
+          --function-version ${VERSION} 2>/dev/null \
+          || aws lambda create-alias \
+          --function-name ${LAMBDA_FUNCTION} \
+          --name ${LAMBDA_ALIAS} \
+          --function-version ${VERSION}
+      fi
+    fi
+  - "echo \"Lambda deploy complete. Output available in lambda-output/\""
+env:
+  LAMBDA_FUNCTION: ""
+  LAMBDA_PACKAGE_TYPE: zip
+  LAMBDA_SOURCE_DIR: "."
+  LAMBDA_IMAGE_URI: ""
+  LAMBDA_HANDLER: ""
+  LAMBDA_ALIAS: ""
+  LAMBDA_PUBLISH: "false"

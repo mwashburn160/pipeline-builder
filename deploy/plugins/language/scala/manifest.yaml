@@ -1,0 +1,40 @@
+name: scala
+description: Scala plugin for building and testing Scala applications using sbt with AWS CDK CodeBuildStep
+keywords:
+  - scala
+  - sbt
+  - jvm
+  - java
+  - akka
+  - play
+  - build
+  - test
+  - ci
+  - pipeline
+  - language
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: '**/*'
+dockerfile: Dockerfile
+installCommands:
+  # Java version selection
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh
+    sdk use java ${JAVA_VERSION}
+  - java --version
+  - sbt --version
+  # Resolve dependencies
+  - |
+    if [ -f build.sbt ]; then
+      sbt update
+    fi
+commands:
+  - sbt compile
+  - sbt test
+env:
+  JAVA_VERSION: "21.0.10-tem"
+  SBT_VERSION: "1.10.7"

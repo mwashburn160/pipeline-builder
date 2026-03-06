@@ -7,9 +7,10 @@ flowchart LR
     Build[Build Artifact] --> ContainerImg{Container Image?}
     ContainerImg -->|Yes| DockerBuild[docker-build]
     ContainerImg -->|No| PkgPublish[Package Publish]
+    ContainerImg -->|Helm| HelmPkg[helm-push]
 
     DockerBuild --> Registry{Registry}
-    Registry --> ECR[ECR / DockerHub]
+    Registry --> ecr-push
     Registry --> ghcr-push
     Registry --> gar-push
     Registry --> acr-push
@@ -33,6 +34,7 @@ flowchart LR
 
 | Plugin | Registry | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
+| ecr-push | Amazon ECR | MEDIUM | None (AWS IAM) | `ECR_REPOSITORY`, `IMAGE_TAG`, `AWS_REGION` |
 | ghcr-push | GitHub | MEDIUM | `GITHUB_TOKEN` | `GITHUB_OWNER`, `IMAGE_NAME`, `IMAGE_TAG` |
 | gar-push | Google | MEDIUM | `GOOGLE_APPLICATION_CREDENTIALS` | `GAR_LOCATION`, `GAR_PROJECT`, `GAR_REPOSITORY` |
 | acr-push | Azure | MEDIUM | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | `ACR_REGISTRY`, `IMAGE_NAME` |
@@ -48,3 +50,9 @@ flowchart LR
 | nuget-publish | NuGet Gallery | SMALL | `NUGET_API_KEY` | `NUGET_SOURCE` |
 | cargo-publish | crates.io | SMALL | `CARGO_REGISTRY_TOKEN` | `CARGO_DRY_RUN` |
 | gem-publish | RubyGems | SMALL | `GEM_HOST_API_KEY` | `GEM_DRY_RUN` |
+
+## Helm Charts
+
+| Plugin | Registry | Compute | Secrets | Key Env Vars |
+|--------|----------|---------|---------|--------------|
+| helm-push | OCI / ChartMuseum / S3 | SMALL | None | `HELM_REGISTRY`, `HELM_CHART_PATH`, `HELM_REPO_URL` |

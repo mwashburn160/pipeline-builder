@@ -1,7 +1,6 @@
-import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { sendPipelineNotFound } from '../helpers/pipeline-helpers';
 import { pipelineService } from '../services/pipeline-service';
 
 /**
@@ -22,7 +21,7 @@ export function createDeletePipelineRoutes(): Router {
 
     const existing = await pipelineService.findById(id, orgId);
 
-    if (!existing) return sendPipelineNotFound(res);
+    if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
     // Only system admins can delete non-private (public) pipelines
     if (!requirePublicAccess(req, res, existing)) return;

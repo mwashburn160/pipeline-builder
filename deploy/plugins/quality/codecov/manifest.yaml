@@ -5,6 +5,10 @@ keywords:
   - coverage
   - reporting
   - pr-comments
+  - badge
+  - ci
+  - pipeline
+  - quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

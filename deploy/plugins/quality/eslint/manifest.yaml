@@ -7,6 +7,8 @@ keywords:
   - typescript
   - code-quality
   - style
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -50,6 +52,6 @@ commands:
     npx eslint . ${WARN_ARG} || true
   - "echo \"ESLint complete. Report available in lint-reports/\""
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   ESLINT_FORMAT: json
   ESLINT_MAX_WARNINGS: "-1"

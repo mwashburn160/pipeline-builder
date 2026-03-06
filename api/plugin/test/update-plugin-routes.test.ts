@@ -54,6 +54,10 @@ jest.mock('@mwashburn160/api-core', () => ({
     return { ok: true, value: req.body };
   }),
   PluginUpdateSchema: {},
+  normalizeArrayFields: jest.fn((p: any) => p),
+  sendEntityNotFound: jest.fn((res: any, entity: string) => {
+    res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+  }),
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({
@@ -92,12 +96,6 @@ jest.mock('../src/services/plugin-service', () => ({
   },
 }));
 
-jest.mock('../src/helpers/plugin-helpers', () => ({
-  normalizePlugin: jest.fn((p: any) => p),
-  sendPluginNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Plugin not found.' });
-  }),
-}));
 
 // Imports (after mocks)
 

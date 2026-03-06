@@ -1,7 +1,6 @@
-import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess } from '@mwashburn160/api-core';
+import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { sendPluginNotFound } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 
 /**
@@ -22,7 +21,7 @@ export function createDeletePluginRoutes(): Router {
 
     const existing = await pluginService.findById(id, orgId);
 
-    if (!existing) return sendPluginNotFound(res);
+    if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // Only system admins can delete non-private (public) plugins
     if (!requirePublicAccess(req, res, existing)) return;

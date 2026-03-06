@@ -17,15 +17,32 @@ const logger = createLogger('generate-plugin');
 
 const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
 
+/** Set SSE response headers and flush. */
+function initSSEStream(req: import('express').Request, res: import('express').Response): { aborted: () => boolean } {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setTimeout(SSE_STREAM_TIMEOUT_MS);
+  res.flushHeaders();
+  let _aborted = false;
+  req.on('close', () => { _aborted = true; });
+  return { aborted: () => _aborted };
+}
+
 /** Classify AI generation errors and send the appropriate HTTP response. */
-function sendAIError(res: import('express').Response, message: string, fallbackMessage: string) {
-  if (message.includes('not configured') || message.includes('API key')) {
-    return sendInternalError(res, 'AI generation is not configured for the requested provider');
+function handleAIError(res: import('express').Response, message: string, fallbackMessage: string) {
+  if (!res.headersSent) {
+    if (message.includes('not configured') || message.includes('API key')) {
+      return sendInternalError(res, 'AI generation is not configured for the requested provider');
+    }
+    if (message.includes('not available for provider')) {
+      return sendBadRequest(res, message);
+    }
+    return sendInternalError(res, fallbackMessage, { details: message });
   }
-  if (message.includes('not available for provider')) {
-    return sendBadRequest(res, message);
-  }
-  return sendInternalError(res, fallbackMessage, { details: message });
+  res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+  res.end();
 }
 
 /**
@@ -74,7 +91,7 @@ export function createGeneratePluginRoutes(): Router {
     } catch (error) {
       const message = errorMessage(error);
       logger.error('AI plugin generation failed', { requestId: ctx.requestId, error: message });
-      return sendAIError(res, message, 'Failed to generate plugin configuration');
+      return handleAIError(res, message, 'Failed to generate plugin configuration');
     }
   }));
 
@@ -93,17 +110,7 @@ export function createGeneratePluginRoutes(): Router {
         model,
       });
 
-      // Set SSE headers
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.setTimeout(SSE_STREAM_TIMEOUT_MS);
-      res.flushHeaders();
-
-      // Track client disconnect
-      let aborted = false;
-      req.on('close', () => { aborted = true; });
+      const sse = initSSEStream(req, res);
 
       const result = streamPluginConfig({
         prompt: prompt.trim(),
@@ -113,9 +120,8 @@ export function createGeneratePluginRoutes(): Router {
         ...(apiKey ? { apiKey } : {}),
       });
 
-      // Stream partial objects
       for await (const partialObject of result.partialOutputStream) {
-        if (aborted) break;
+        if (sse.aborted()) break;
         try {
           res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
         } catch (serializeError) {
@@ -123,7 +129,7 @@ export function createGeneratePluginRoutes(): Router {
         }
       }
 
-      if (!aborted) {
+      if (!sse.aborted()) {
         // Get final validated output
         const finalOutput = await result.output;
         if (finalOutput) {
@@ -148,14 +154,7 @@ export function createGeneratePluginRoutes(): Router {
     } catch (error) {
       const message = errorMessage(error);
       logger.error('AI plugin streaming generation failed', { requestId: ctx.requestId, error: message });
-
-      if (!res.headersSent) {
-        return sendAIError(res, message, 'Failed to stream plugin configuration');
-      }
-
-      // Headers already sent — send error as SSE event
-      res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
-      res.end();
+      handleAIError(res, message, 'Failed to stream plugin configuration');
     }
   }));
 

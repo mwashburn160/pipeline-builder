@@ -1,0 +1,59 @@
+name: ecr-push
+description: Push container images to Amazon ECR with AWS CLI authentication and Docker Buildx support using AWS CDK CodeBuildStep
+keywords:
+  - ecr
+  - aws
+  - container
+  - registry
+  - push
+  - docker
+  - image
+  - ci
+  - pipeline
+  - artifact
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: registry-output
+dockerfile: Dockerfile
+installCommands:
+  - docker --version
+  - docker buildx version
+  - aws --version
+  # Authenticate with ECR
+  - |
+    echo "Logging into Amazon ECR..."
+    aws ecr get-login-password --region ${AWS_REGION} \
+      | docker login --username AWS --password-stdin \
+      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+commands:
+  - mkdir -p registry-output
+  - |
+    if [ -z "${ECR_REPOSITORY}" ]; then
+      echo "ERROR: ECR_REPOSITORY must be set"
+      exit 1
+    fi
+    FULL_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+    echo "Building image: ${FULL_IMAGE}"
+    docker build \
+      -f "${DOCKERFILE_PATH}" \
+      -t "${FULL_IMAGE}" \
+      "${DOCKER_CONTEXT}"
+    docker inspect "${FULL_IMAGE}" > registry-output/image-metadata.json
+    echo "${FULL_IMAGE}" > registry-output/image-name.txt
+  - |
+    FULL_IMAGE=$(cat registry-output/image-name.txt)
+    echo "Pushing image: ${FULL_IMAGE}"
+    docker push "${FULL_IMAGE}"
+    echo "Image pushed successfully: ${FULL_IMAGE}"
+  - "echo \"ECR push complete.\""
+env:
+  ECR_REPOSITORY: ""
+  IMAGE_TAG: latest
+  DOCKERFILE_PATH: Dockerfile
+  DOCKER_CONTEXT: "."
+  AWS_REGION: "${AWS_REGION}"
+  AWS_ACCOUNT_ID: "${AWS_ACCOUNT_ID}"

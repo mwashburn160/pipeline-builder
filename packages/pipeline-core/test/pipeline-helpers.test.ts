@@ -37,13 +37,9 @@ jest.mock('aws-cdk-lib/aws-ec2', () => ({
 }));
 jest.mock('constructs', () => ({ Construct: jest.fn() }));
 jest.mock('../src/core/metadata-builder', () => ({
-  MetadataBuilder: {
-    from: jest.fn(() => ({
-      forCodeBuildStep: jest.fn(() => ({})),
-      forShellStep: jest.fn(() => ({})),
-      forBuildEnvironment: jest.fn(() => ({})),
-    })),
-  },
+  metadataForCodeBuildStep: jest.fn(() => ({})),
+  metadataForShellStep: jest.fn(() => ({})),
+  metadataForBuildEnvironment: jest.fn(() => ({})),
 }));
 jest.mock('../src/core/network', () => ({
   resolveNetwork: jest.fn(() => ({})),

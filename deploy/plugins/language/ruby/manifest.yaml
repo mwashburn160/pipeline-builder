@@ -6,6 +6,11 @@ keywords:
   - rake
   - rspec
   - minitest
+  - build
+  - test
+  - ci
+  - pipeline
+  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -36,4 +41,4 @@ commands:
       echo "No test framework detected. Skipping tests."
     fi
 env:
-  RUBY_VERSION: "3.3.6"
+  RUBY_VERSION: "4.0.1"

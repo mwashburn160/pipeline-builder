@@ -1,10 +1,8 @@
-import { createLogger, NotFoundError } from '@mwashburn160/api-core';
+import { NotFoundError } from '@mwashburn160/api-core';
 import { SQL, eq, and, asc, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { db } from '../database/postgres-connection';
-
-const logger = createLogger('CrudService');
 
 /**
  * Base interface for entities with common fields
@@ -52,6 +50,9 @@ export interface PaginatedResult<T> {
  * This is safe because: access control filters by orgId, schema validation is at the DB level,
  * and each subclass is tested for type correctness.
  *
+ * Errors are not caught here — they propagate to the route-level error handler (`withRoute`)
+ * which provides consistent logging with request context.
+ *
  * @example
  * ```typescript
  * class PipelineService extends CrudService<Pipeline, PipelineFilter, PipelineInsert, PipelineUpdate> {
@@ -94,17 +95,12 @@ export abstract class CrudService<
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
   async find(filter: Partial<TFilter>, orgId?: string): Promise<TEntity[]> {
-    try {
-      const conditions = this.buildConditions(filter, orgId);
+    const conditions = this.buildConditions(filter, orgId);
 
-      return await db
-        .select()
-        .from(this.schema)
-        .where(and(...conditions)) as unknown as TEntity[];
-    } catch (error) {
-      logger.error('Find operation failed', { filter, orgId, error });
-      throw error;
-    }
+    return await db
+      .select()
+      .from(this.schema)
+      .where(and(...conditions)) as unknown as TEntity[];
   }
 
   /**
@@ -119,48 +115,43 @@ export abstract class CrudService<
     orgId?: string,
     options: QueryOptions = {},
   ): Promise<PaginatedResult<TEntity>> {
-    try {
-      const { limit: rawLimit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
-      const limit = Math.min(Math.max(1, rawLimit), 1000);
+    const { limit: rawLimit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
+    const limit = Math.min(Math.max(1, rawLimit), 1000);
 
-      const conditions = this.buildConditions(filter, orgId);
+    const conditions = this.buildConditions(filter, orgId);
 
-      // Get total count
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(this.schema)
-        .where(and(...conditions)) as unknown as [{ count: number }];
+    // Get total count
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(this.schema)
+      .where(and(...conditions)) as unknown as [{ count: number }];
 
-      const total = countResult?.count || 0;
+    const total = countResult?.count || 0;
 
-      // Build query with sorting
-      let query = db
-        .select()
-        .from(this.schema)
-        .where(and(...conditions));
+    // Build query with sorting
+    let query = db
+      .select()
+      .from(this.schema)
+      .where(and(...conditions));
 
-      if (sortBy) {
-        const sortColumn = this.getSortColumn(sortBy);
-        if (sortColumn) {
-          query = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)) as any;
-        }
+    if (sortBy) {
+      const sortColumn = this.getSortColumn(sortBy);
+      if (sortColumn) {
+        query = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)) as any;
       }
-
-      const results = await query
-        .limit(limit)
-        .offset(offset) as unknown as TEntity[];
-
-      return {
-        data: results,
-        total,
-        limit,
-        offset,
-        hasMore: offset + results.length < total,
-      };
-    } catch (error) {
-      logger.error('FindPaginated operation failed', { filter, orgId, options, error });
-      throw error;
     }
+
+    const results = await query
+      .limit(limit)
+      .offset(offset) as unknown as TEntity[];
+
+    return {
+      data: results,
+      total,
+      limit,
+      offset,
+      hasMore: offset + results.length < total,
+    };
   }
 
   /**
@@ -170,19 +161,14 @@ export abstract class CrudService<
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
   async count(filter: Partial<TFilter>, orgId?: string): Promise<number> {
-    try {
-      const conditions = this.buildConditions(filter, orgId);
+    const conditions = this.buildConditions(filter, orgId);
 
-      const [result] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(this.schema)
-        .where(and(...conditions)) as unknown as [{ count: number }];
+    const [result] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(this.schema)
+      .where(and(...conditions)) as unknown as [{ count: number }];
 
-      return result?.count || 0;
-    } catch (error) {
-      logger.error('Count operation failed', { filter, orgId, error });
-      throw error;
-    }
+    return result?.count || 0;
   }
 
   /**
@@ -192,20 +178,15 @@ export abstract class CrudService<
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
   async findById(id: string, orgId?: string): Promise<TEntity | null> {
-    try {
-      const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
 
-      const results = await db
-        .select()
-        .from(this.schema)
-        .where(and(...conditions))
-        .limit(1) as unknown as TEntity[];
+    const results = await db
+      .select()
+      .from(this.schema)
+      .where(and(...conditions))
+      .limit(1) as unknown as TEntity[];
 
-      return results[0] || null;
-    } catch (error) {
-      logger.error('FindById operation failed', { id, orgId, error });
-      throw error;
-    }
+    return results[0] || null;
   }
 
   // Mutation operations
@@ -214,29 +195,24 @@ export abstract class CrudService<
    * Create a new entity
    */
   async create(data: TInsert, userId: string): Promise<TEntity> {
-    try {
-      const [created] = await db
-        .insert(this.schema)
-        .values({
+    const [created] = await db
+      .insert(this.schema)
+      .values({
+        ...data,
+        createdBy: userId || 'system',
+        updatedBy: userId || 'system',
+      } as any)
+      .onConflictDoUpdate({
+        target: this.conflictTarget as any,
+        set: {
           ...data,
-          createdBy: userId || 'system',
+          updatedAt: new Date(),
           updatedBy: userId || 'system',
-        } as any)
-        .onConflictDoUpdate({
-          target: this.conflictTarget as any,
-          set: {
-            ...data,
-            updatedAt: new Date(),
-            updatedBy: userId || 'system',
-          } as any,
-        })
-        .returning() as unknown as TEntity[];
+        } as any,
+      })
+      .returning() as unknown as TEntity[];
 
-      return created;
-    } catch (error) {
-      logger.error('Create operation failed', { data, userId, error });
-      throw error;
-    }
+    return created;
   }
 
   /**
@@ -248,50 +224,40 @@ export abstract class CrudService<
     orgId: string,
     userId: string,
   ): Promise<TEntity | null> {
-    try {
-      const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
 
-      const [updated] = await db
-        .update(this.schema)
-        .set({
-          ...data,
-          updatedAt: new Date(),
-          updatedBy: userId || 'system',
-        } as any)
-        .where(and(...conditions))
-        .returning() as unknown as TEntity[];
+    const [updated] = await db
+      .update(this.schema)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+        updatedBy: userId || 'system',
+      } as any)
+      .where(and(...conditions))
+      .returning() as unknown as TEntity[];
 
-      return updated || null;
-    } catch (error) {
-      logger.error('Update operation failed', { id, data, orgId, userId, error });
-      throw error;
-    }
+    return updated || null;
   }
 
   /**
    * Delete an entity (soft delete by setting isActive = false)
    */
   async delete(id: string, orgId: string, userId: string): Promise<TEntity | null> {
-    try {
-      const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
 
-      const [deleted] = await db
-        .update(this.schema)
-        .set({
-          isActive: false,
-          updatedAt: new Date(),
-          updatedBy: userId || 'system',
-          deletedAt: new Date(),
-          deletedBy: userId || 'system',
-        } as any)
-        .where(and(...conditions))
-        .returning() as unknown as TEntity[];
+    const [deleted] = await db
+      .update(this.schema)
+      .set({
+        isActive: false,
+        updatedAt: new Date(),
+        updatedBy: userId || 'system',
+        deletedAt: new Date(),
+        deletedBy: userId || 'system',
+      } as any)
+      .where(and(...conditions))
+      .returning() as unknown as TEntity[];
 
-      return deleted || null;
-    } catch (error) {
-      logger.error('Delete operation failed', { id, orgId, userId, error });
-      throw error;
-    }
+    return deleted || null;
   }
 
   /**
@@ -305,65 +271,60 @@ export abstract class CrudService<
     id: string,
     userId: string,
   ): Promise<TEntity> {
-    try {
-      return await db.transaction(async (tx) => {
-        const orgColumn = this.getOrgColumn();
-        const projectColumn = this.getProjectColumn();
+    return db.transaction(async (tx) => {
+      const orgColumn = this.getOrgColumn();
+      const projectColumn = this.getProjectColumn();
 
-        // Build scoping conditions for clearing defaults
-        const scopeConditions = [
-          eq(orgColumn, org),
-          eq((this.schema as any).isDefault, true),
-        ];
-        if (projectColumn) {
-          scopeConditions.push(eq(projectColumn, project));
-        }
+      // Build scoping conditions for clearing defaults
+      const scopeConditions = [
+        eq(orgColumn, org),
+        eq((this.schema as any).isDefault, true),
+      ];
+      if (projectColumn) {
+        scopeConditions.push(eq(projectColumn, project));
+      }
 
-        // Lock existing defaults with FOR UPDATE to prevent concurrent setDefault races
-        await tx.execute(
-          sql`SELECT id FROM ${this.schema}
-              WHERE ${orgColumn} = ${org}
-                AND ${(this.schema as any).isDefault} = true
-              ${projectColumn ? sql`AND ${projectColumn} = ${project}` : sql``}
-              FOR UPDATE`,
-        );
+      // Lock existing defaults with FOR UPDATE to prevent concurrent setDefault races
+      await tx.execute(
+        sql`SELECT id FROM ${this.schema}
+            WHERE ${orgColumn} = ${org}
+              AND ${(this.schema as any).isDefault} = true
+            ${projectColumn ? sql`AND ${projectColumn} = ${project}` : sql``}
+            FOR UPDATE`,
+      );
 
-        // Mark all entities in scope as non-default
-        await tx
-          .update(this.schema)
-          .set({
-            isDefault: false,
-            updatedAt: new Date(),
-            updatedBy: userId || 'system',
-          } as any)
-          .where(and(...scopeConditions));
+      // Mark all entities in scope as non-default
+      await tx
+        .update(this.schema)
+        .set({
+          isDefault: false,
+          updatedAt: new Date(),
+          updatedBy: userId || 'system',
+        } as any)
+        .where(and(...scopeConditions));
 
-        // Set the specified entity as default
-        const [updated] = await tx
-          .update(this.schema)
-          .set({
-            isDefault: true,
-            updatedAt: new Date(),
-            updatedBy: userId || 'system',
-          } as any)
-          .where(
-            and(
-              eq((this.schema as any).id, id),
-              eq(orgColumn, org),
-            ),
-          )
-          .returning() as unknown as TEntity[];
+      // Set the specified entity as default
+      const [updated] = await tx
+        .update(this.schema)
+        .set({
+          isDefault: true,
+          updatedAt: new Date(),
+          updatedBy: userId || 'system',
+        } as any)
+        .where(
+          and(
+            eq((this.schema as any).id, id),
+            eq(orgColumn, org),
+          ),
+        )
+        .returning() as unknown as TEntity[];
 
-        if (!updated) {
-          throw new NotFoundError(`Entity with id ${id} not found`);
-        }
+      if (!updated) {
+        throw new NotFoundError(`Entity with id ${id} not found`);
+      }
 
-        return updated;
-      });
-    } catch (error) {
-      logger.error('SetDefault operation failed', { project, org, id, userId, error });
-      throw error;
-    }
+      return updated;
+    });
   }
 
   /**
@@ -375,21 +336,16 @@ export abstract class CrudService<
     orgId: string,
     userId: string,
   ): Promise<TEntity[]> {
-    try {
-      const conditions = this.buildConditions(filter, orgId);
+    const conditions = this.buildConditions(filter, orgId);
 
-      return await db
-        .update(this.schema)
-        .set({
-          ...data,
-          updatedAt: new Date(),
-          updatedBy: userId || 'system',
-        } as any)
-        .where(and(...conditions))
-        .returning() as unknown as TEntity[];
-    } catch (error) {
-      logger.error('UpdateMany operation failed', { filter, data, orgId, userId, error });
-      throw error;
-    }
+    return await db
+      .update(this.schema)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+        updatedBy: userId || 'system',
+      } as any)
+      .where(and(...conditions))
+      .returning() as unknown as TEntity[];
   }
 }

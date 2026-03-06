@@ -7,6 +7,8 @@ keywords:
   - sca
   - sast
   - iac
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -30,23 +32,23 @@ installCommands:
   - |
     case "${LANGUAGE}" in
       python)
-        echo "Activating Python ${LANGUAGE_VERSION:-3.12}..."
-        pyenv install -s ${LANGUAGE_VERSION:-3.12} && pyenv global ${LANGUAGE_VERSION:-3.12}
+        echo "Activating Python ${LANGUAGE_VERSION:-3.14}..."
+        pyenv install -s ${LANGUAGE_VERSION:-3.14} && pyenv global ${LANGUAGE_VERSION:-3.14}
         python -m pip install --upgrade pip setuptools wheel
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
         if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
         ;;
       java)
-        echo "Activating Java ${LANGUAGE_VERSION:-17.0.13-tem}..."
+        echo "Activating Java ${LANGUAGE_VERSION:-21.0.10-tem}..."
         source ${SDKMAN_DIR}/bin/sdkman-init.sh
-        sdk use java ${LANGUAGE_VERSION:-17.0.13-tem}
+        sdk use java ${LANGUAGE_VERSION:-21.0.10-tem}
         if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
         if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
         ;;
       go)
-        echo "Activating Go ${LANGUAGE_VERSION:-1.22.10}..."
-        goenv install -s ${LANGUAGE_VERSION:-1.22.10} && goenv global ${LANGUAGE_VERSION:-1.22.10}
+        echo "Activating Go ${LANGUAGE_VERSION:-1.24.13}..."
+        goenv install -s ${LANGUAGE_VERSION:-1.24.13} && goenv global ${LANGUAGE_VERSION:-1.24.13}
         if [ -f go.mod ]; then go mod download; fi
         ;;
       dotnet)
@@ -66,8 +68,8 @@ installCommands:
         if [ -f conanfile.txt ] || [ -f conanfile.py ]; then pip install conan && conan install .; fi
         ;;
       ruby)
-        echo "Activating Ruby ${LANGUAGE_VERSION:-3.3.6}..."
-        rbenv install -s ${LANGUAGE_VERSION:-3.3.6} && rbenv global ${LANGUAGE_VERSION:-3.3.6}
+        echo "Activating Ruby ${LANGUAGE_VERSION:-4.0.1}..."
+        rbenv install -s ${LANGUAGE_VERSION:-4.0.1} && rbenv global ${LANGUAGE_VERSION:-4.0.1}
         gem install bundler
         if [ -f Gemfile.lock ]; then bundle install; fi
         ;;

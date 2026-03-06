@@ -6,6 +6,7 @@ keywords:
   - manual
   - pipeline
   - infrastructure
+  - ci
 version: 1.0.0
 pluginType: ManualApprovalStep
 computeType: SMALL

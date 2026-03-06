@@ -7,12 +7,12 @@ import {
   validateQuery,
   MessageFilterSchema,
   incrementQuota,
+  sendEntityNotFound,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import type { MessageFilter } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
-import { sendMessageNotFound, sendThreadNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
 
 /**
@@ -110,7 +110,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
 
     const message = await messageService.findById(id, orgId);
     if (!message) {
-      return sendMessageNotFound(res);
+      return sendEntityNotFound(res, 'Message');
     }
 
     incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
@@ -129,7 +129,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     // Get the root message first
     const rootMessage = await messageService.findById(id, orgId);
     if (!rootMessage) {
-      return sendThreadNotFound(res);
+      return sendEntityNotFound(res, 'Thread');
     }
 
     // Get all replies in the thread

@@ -63,6 +63,10 @@ jest.mock('@mwashburn160/api-core', () => ({
     return { ok: true, value: req.body };
   }),
   PipelineUpdateSchema: {},
+  normalizeArrayFields: jest.fn((p: any) => p),
+  sendEntityNotFound: jest.fn((res: any, entity: string) => {
+    res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+  }),
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({
@@ -89,15 +93,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   AccessModifier: {},
 }));
 
-jest.mock('../src/helpers/pipeline-helpers', () => ({
-  normalizePipeline: jest.fn((p: any) => p),
-  sendPipelineNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.' });
-  }),
-}));
-
-import { sendBadRequest, validateBody, requirePublicAccess } from '@mwashburn160/api-core';
-import { sendPipelineNotFound } from '../src/helpers/pipeline-helpers';
+import { sendBadRequest, validateBody, requirePublicAccess, sendEntityNotFound } from '@mwashburn160/api-core';
 import { createUpdatePipelineRoutes } from '../src/routes/update-pipeline';
 
 // Helpers
@@ -224,7 +220,7 @@ describe('PUT /pipelines/:id (update)', () => {
     await handler(req, res);
 
     expect(mockFindById).toHaveBeenCalledWith('pipeline-uuid-1', 'org-1');
-    expect(sendPipelineNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Pipeline');
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
@@ -237,7 +233,7 @@ describe('PUT /pipelines/:id (update)', () => {
     await handler(req, res);
 
     expect(mockUpdate).toHaveBeenCalled();
-    expect(sendPipelineNotFound).toHaveBeenCalledWith(res);
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Pipeline');
     expect(res.status).toHaveBeenCalledWith(404);
   });
 

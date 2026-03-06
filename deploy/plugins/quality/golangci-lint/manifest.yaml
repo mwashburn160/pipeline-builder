@@ -1,0 +1,42 @@
+name: golangci-lint
+description: golangci-lint Go code quality plugin for running multiple Go linters in parallel with configurable rules using AWS CDK CodeBuildStep
+keywords:
+  - golangci-lint
+  - go
+  - golang
+  - lint
+  - code-quality
+  - static-analysis
+  - vet
+  - ci
+  - pipeline
+  - quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  - golangci-lint --version
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - mkdir -p lint-reports
+  - |
+    echo "Running golangci-lint..."
+    golangci-lint run \
+      --timeout ${GOLANGCI_LINT_TIMEOUT} \
+      --out-format ${GOLANGCI_LINT_FORMAT} \
+      > lint-reports/golangci-lint-results.json 2>/dev/null || true
+    golangci-lint run \
+      --timeout ${GOLANGCI_LINT_TIMEOUT} \
+      2>&1 | tee lint-reports/golangci-lint-summary.txt || true
+  - "echo \"golangci-lint complete. Reports available in lint-reports/\""
+env:
+  GO_VERSION: "1.24.13"
+  GOLANGCI_LINT_TIMEOUT: 5m
+  GOLANGCI_LINT_FORMAT: json

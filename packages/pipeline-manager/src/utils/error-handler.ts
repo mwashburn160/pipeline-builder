@@ -4,8 +4,6 @@ import {
   ERROR_CODES,
   ErrorCode,
   ErrorHandlerOptions,
-  ValidationErrorDetails,
-  NetworkErrorDetails,
   AxiosErrorLike,
 } from '../types';
 
@@ -84,7 +82,7 @@ export function handleError(
         console.error('');
         console.error(red('Context:'));
         Object.entries(context).forEach(([key, value]) => {
-          console.error(`  ${cyan(key)}:`, dim(sanitizeContextValue(value)));
+          console.error(`  ${cyan(key)}:`, dim(sanitizeValue(value)));
         });
       }
 
@@ -139,14 +137,6 @@ export class ValidationError extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 
-  toDetails(): ValidationErrorDetails {
-    return {
-      field: this.field,
-      value: this.value,
-      rule: this.rule,
-      expected: this.expected,
-    };
-  }
 }
 
 /**
@@ -166,15 +156,6 @@ export class NetworkError extends Error {
     Error.captureStackTrace(this, this.constructor);
   }
 
-  toDetails(): NetworkErrorDetails {
-    return {
-      url: this.url,
-      timeout: this.timeout,
-      requestMade: this.requestMade,
-      responseReceived: this.responseReceived,
-      cause: this.cause,
-    };
-  }
 }
 
 // --- Private helpers ---
@@ -251,34 +232,22 @@ function sanitizeUrl(url: string): string {
   }
 }
 
-function sanitizeContextValue(value: unknown): string {
+function sanitizeValue(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (typeof value === 'string') {
     if (value.length > 20 && /^[A-Za-z0-9+/=_-]+$/.test(value)) {
       return `${value.substring(0, 8)}...[REDACTED]`;
     }
-    return value;
+    return value.length > 100 ? value.substring(0, 97) + '...' : value;
   }
   if (typeof value === 'object') return sanitizeErrorData(value);
-  return JSON.stringify(value);
+  const str = String(value);
+  return str.length > 100 ? str.substring(0, 97) + '...' : str;
 }
-
-const MAX_STACK_FRAMES = 10;
 
 function sanitizeStackTrace(stack: string): string {
-  return stack
-    .split('\n')
-    .slice(0, MAX_STACK_FRAMES)
-    .map(line => line.replace(/\/.*?\//g, '.../'))
-    .join('\n');
-}
-
-function sanitizeValue(value: unknown): string {
-  if (value === null) return 'null';
-  if (value === undefined) return 'undefined';
-  const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
-  return str.length > 100 ? str.substring(0, 97) + '...' : str;
+  return stack.split('\n').slice(0, 10).map(line => line.replace(/\/.*?\//g, '.../')).join('\n');
 }
 
 function isAxiosError(err: unknown): err is AxiosErrorLike {

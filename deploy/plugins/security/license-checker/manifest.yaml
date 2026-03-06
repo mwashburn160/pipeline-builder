@@ -9,6 +9,8 @@ keywords:
   - gpl
   - mit
   - apache
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

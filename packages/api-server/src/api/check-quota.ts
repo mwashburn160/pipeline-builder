@@ -57,7 +57,7 @@ export function checkQuota(
       next();
     } catch (error) {
       // Fail open — allow the request if quota service is unavailable
-      logger.warn('Quota check failed, allowing request (fail-open)', {
+      logger.warn('QUOTA_FAIL_OPEN: Quota check exception, allowing request', {
         orgId,
         quotaType,
         error: error instanceof Error ? error.message : String(error),

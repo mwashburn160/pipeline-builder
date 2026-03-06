@@ -9,6 +9,8 @@ keywords:
   - security
   - cis-benchmark
   - container
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

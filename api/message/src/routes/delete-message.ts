@@ -6,11 +6,11 @@ import {
   isSystemAdmin,
   getParam,
   createLogger,
+  sendEntityNotFound,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { sendMessageNotFound } from '../helpers/message-helpers';
 import { messageService } from '../services/message-service';
 
 const logger = createLogger('delete-message');
@@ -36,7 +36,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
       // Non-admins can only self-delete root messages with no replies
       const message = await messageService.findById(id, orgId);
       if (!message) {
-        return sendMessageNotFound(res);
+        return sendEntityNotFound(res, 'Message');
       }
       if (message.createdBy !== userId) {
         return sendError(res, 403, 'Only admins or the message sender can delete messages', ErrorCode.INSUFFICIENT_PERMISSIONS);
@@ -50,7 +50,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
 
     const deleted = await messageService.delete(id, orgId, userId);
     if (!deleted) {
-      return sendMessageNotFound(res);
+      return sendEntityNotFound(res, 'Message');
     }
 
     // Cascade soft-delete to all replies if this is a root message

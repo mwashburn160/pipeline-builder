@@ -4,6 +4,7 @@ import {
   sendSuccess,
   sendError,
   ErrorCode,
+  VALID_QUOTA_TYPES,
   createLogger,
   getParam,
   errorMessage,
@@ -13,8 +14,6 @@ import { Router, Request, Response, RequestHandler } from 'express';
 import {
   AUTH_OPTS,
   isValidQuotaType,
-  sendMissingOrgId,
-  sendInvalidQuotaType,
 } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService } from '../services/quota-service';
@@ -29,7 +28,7 @@ router.get(
   requireAuth(AUTH_OPTS) as RequestHandler,
   async (req: Request, res: Response) => {
     const orgId = req.user?.organizationId;
-    if (!orgId) return sendMissingOrgId(res);
+    if (!orgId) return sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.MISSING_REQUIRED_FIELD);
 
     try {
       const quota = await quotaService.findByOrgId(orgId);
@@ -95,7 +94,7 @@ router.get(
     const targetOrgId = getParam(req.params, 'orgId')!;
     const quotaType = getParam(req.params, 'quotaType');
 
-    if (!quotaType || !isValidQuotaType(quotaType)) return sendInvalidQuotaType(res);
+    if (!quotaType || !isValidQuotaType(quotaType)) return sendError(res, 400, `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`, ErrorCode.VALIDATION_ERROR);
 
     try {
       const status = await quotaService.getQuotaStatus(targetOrgId, quotaType as QuotaType);

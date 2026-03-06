@@ -19,14 +19,6 @@ jest.mock('../src/services/pipeline-service', () => ({
   },
 }));
 
-jest.mock('../src/helpers/pipeline-helpers', () => ({
-  validateFilter: jest.fn(() => ({ ok: true, value: {} })),
-  normalizePipeline: jest.fn((p: any) => p),
-  sendPipelineNotFound: jest.fn((res: any) => {
-    res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.' });
-  }),
-}));
-
 jest.mock('@mwashburn160/api-core', () => {
   const mockIsSystemAdmin = jest.fn((_req?: any) => false);
   return {
@@ -37,6 +29,12 @@ jest.mock('@mwashburn160/api-core', () => {
     },
     isSystemAdmin: mockIsSystemAdmin,
     errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+    validateQuery: jest.fn(() => ({ ok: true, value: {} })),
+    PipelineFilterSchema: {},
+    normalizeArrayFields: jest.fn((p: any) => p),
+    sendEntityNotFound: jest.fn((res: any, entity: string) => {
+      res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
+    }),
     sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
       const response: any = { success: true, statusCode };
       if (data !== undefined) response.data = data;
@@ -99,8 +97,7 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-import { isSystemAdmin, sendBadRequest, incrementQuota } from '@mwashburn160/api-core';
-import { validateFilter } from '../src/helpers/pipeline-helpers';
+import { isSystemAdmin, sendBadRequest, incrementQuota, validateQuery } from '@mwashburn160/api-core';
 import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
 
 // Helpers
@@ -215,7 +212,7 @@ describe('GET /pipelines (list)', () => {
   });
 
   it('returns 400 on invalid filter', async () => {
-    (validateFilter as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Bad filter' });
+    (validateQuery as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Bad filter' });
 
     const req = mockReq();
     const res = mockRes();

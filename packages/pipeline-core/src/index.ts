@@ -9,7 +9,13 @@ export * from './core/role-types';
 export * from './core/security-group-types';
 export * from './core/id-generator';
 export { replaceNonAlphanumeric, extractMetadataEnv } from './core/pipeline-helpers';
-export { MetadataBuilder } from './core/metadata-builder';
+export {
+  buildConfigFromMetadata,
+  metadataForCodePipeline,
+  metadataForCodeBuildStep,
+  metadataForShellStep,
+  metadataForBuildEnvironment,
+} from './core/metadata-builder';
 export * from './core/artifact-manager';
 
 // Re-export from api-core (only items consumed by external packages)
@@ -32,8 +38,6 @@ export {
   buildPluginConditions,
   buildPipelineConditions,
   buildMessageConditions,
-  validatePluginFilter,
-  validatePipelineFilter,
   validateMessageFilter,
 
   // Query filter types

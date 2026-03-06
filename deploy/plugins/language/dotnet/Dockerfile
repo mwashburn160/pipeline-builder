@@ -20,10 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install .NET SDK versions
+# Install current + previous .NET SDK versions
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 6.0 --install-dir /opt/dotnet \
     && /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet \
     && /tmp/dotnet-install.sh --channel 9.0 --install-dir /opt/dotnet \
     && rm /tmp/dotnet-install.sh

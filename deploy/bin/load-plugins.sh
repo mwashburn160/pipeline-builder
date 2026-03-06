@@ -55,13 +55,9 @@ done
 
 # ---- Helper functions ----
 
-get_plugin_type() {
-  grep "^pluginType:" "$1" 2>/dev/null | head -1 | sed 's/pluginType: *//'
-}
-
 is_eligible_plugin() {
   [ -f "$1/manifest.yaml" ] || return 1
-  _pt=$(get_plugin_type "$1/manifest.yaml")
+  _pt=$(get_manifest_field pluginType "$1/manifest.yaml")
   [ "$_pt" = "ManualApprovalStep" ] || [ -f "$1/Dockerfile" ]
 }
 
@@ -69,7 +65,7 @@ validate_manifest() {
   manifest="$1"
   plugin_name="$(basename "$2")"
   errors=""
-  _pt=$(get_plugin_type "$manifest")
+  _pt=$(get_manifest_field pluginType "$manifest")
 
   for field in name description version pluginType computeType; do
     grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}  Missing: ${field}\n"
@@ -81,7 +77,7 @@ validate_manifest() {
     done
   fi
 
-  _mn=$(grep "^name:" "$manifest" 2>/dev/null | head -1 | sed 's/name: *//')
+  _mn=$(get_manifest_field name "$manifest")
   [ "$_mn" = "$plugin_name" ] || errors="${errors}  Name mismatch: manifest='${_mn}' dir='${plugin_name}'\n"
 
   [ "$_pt" = "CodeBuildStep" ] || [ "$_pt" = "ManualApprovalStep" ] || \

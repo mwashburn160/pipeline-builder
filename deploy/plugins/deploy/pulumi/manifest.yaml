@@ -1,0 +1,84 @@
+name: pulumi
+description: Pulumi infrastructure-as-code deployment plugin supporting TypeScript, Python, Go, and YAML with preview, up, and destroy actions using AWS CDK CodeBuildStep
+keywords:
+  - pulumi
+  - infrastructure
+  - iac
+  - deploy
+  - aws
+  - typescript
+  - python
+  - go
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 45
+failureBehavior: fail
+secrets:
+  - name: PULUMI_ACCESS_TOKEN
+    required: true
+    description: "Pulumi access token for state management"
+primaryOutputDirectory: pulumi-output
+dockerfile: Dockerfile
+installCommands:
+  - pulumi version
+  - aws --version
+  # Runtime activation based on PULUMI_RUNTIME
+  - |
+    case "${PULUMI_RUNTIME}" in
+      nodejs)
+        source ${NVM_DIR}/nvm.sh && nvm use 24
+        cd ${PULUMI_WORK_DIR} && npm ci
+        ;;
+      python)
+        cd ${PULUMI_WORK_DIR}
+        if [ -f requirements.txt ]; then pip3 install --break-system-packages -r requirements.txt; fi
+        if [ -f Pipfile ]; then pip3 install --break-system-packages pipenv && pipenv install; fi
+        ;;
+      go)
+        cd ${PULUMI_WORK_DIR} && go mod download
+        ;;
+      yaml)
+        echo "YAML runtime — no dependencies to install"
+        ;;
+      *)
+        echo "ERROR: Unknown PULUMI_RUNTIME '${PULUMI_RUNTIME}'. Supported: nodejs, python, go, yaml"
+        exit 1
+        ;;
+    esac
+commands:
+  - mkdir -p pulumi-output
+  - |
+    cd ${PULUMI_WORK_DIR}
+    pulumi login
+    if [ -n "${PULUMI_STACK}" ]; then
+      pulumi stack select ${PULUMI_STACK}
+    fi
+    case "${PULUMI_ACTION}" in
+      preview)
+        echo "Running Pulumi preview..."
+        pulumi preview --json > ${OLDPWD}/pulumi-output/preview.json 2>&1 || true
+        pulumi preview 2>&1 | tee ${OLDPWD}/pulumi-output/preview.txt
+        ;;
+      up)
+        echo "Running Pulumi up..."
+        pulumi up --yes --json > ${OLDPWD}/pulumi-output/up.json 2>&1 || true
+        pulumi up --yes 2>&1 | tee ${OLDPWD}/pulumi-output/up.txt
+        ;;
+      destroy)
+        echo "Running Pulumi destroy..."
+        pulumi destroy --yes 2>&1 | tee ${OLDPWD}/pulumi-output/destroy.txt
+        ;;
+      *)
+        echo "ERROR: Unknown PULUMI_ACTION '${PULUMI_ACTION}'. Supported: preview, up, destroy"
+        exit 1
+        ;;
+    esac
+  - "echo \"Pulumi ${PULUMI_ACTION} complete. Output available in pulumi-output/\""
+env:
+  PULUMI_ACTION: preview
+  PULUMI_STACK: ""
+  PULUMI_RUNTIME: nodejs
+  PULUMI_WORK_DIR: "."

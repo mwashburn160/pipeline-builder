@@ -5,6 +5,12 @@ keywords:
   - csharp
   - fsharp
   - nuget
+  - .net
+  - build
+  - test
+  - ci
+  - pipeline
+  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -26,4 +32,4 @@ commands:
   - dotnet build --no-restore --configuration Release
   - dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
 env:
-  DOTNET_VERSION: "8.0"
+  DOTNET_VERSION: "9.0"

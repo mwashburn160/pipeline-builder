@@ -10,6 +10,8 @@ keywords:
   - maven
   - gradle
   - ktor
+  - ci
+  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
