@@ -89,7 +89,7 @@ jest.mock('@mwashburn160/api-server', () => ({}));
 
 // Import after mocks
 
-import type { PluginBuildJobData } from '../src/queue/plugin-build-queue';
+import type { PluginBuildJobData } from '../src/helpers/plugin-helpers';
 
 // Helpers
 
