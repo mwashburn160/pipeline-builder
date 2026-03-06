@@ -10,7 +10,7 @@ import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Request, Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
-import type { RegistryInfo } from './docker-build';
+import type { BuildRequest } from './docker-build';
 
 // Record normalization
 
@@ -53,15 +53,6 @@ export function generateImageTag(name: string): string {
 
 // Build job types & factory
 
-/** Build request data stored in the BullMQ job. */
-export interface BuildRequestData {
-  contextDir: string;
-  dockerfile: string;
-  imageTag: string;
-  registry: RegistryInfo;
-  buildArgs?: Record<string, string>;
-}
-
 /** Plugin record data stored in the BullMQ job for DB insertion. */
 export interface PluginRecordData {
   orgId: string;
@@ -91,7 +82,7 @@ export interface PluginBuildJobData {
   orgId: string;
   userId: string;
   authToken: string;
-  buildRequest: BuildRequestData;
+  buildRequest: BuildRequest;
   pluginRecord: PluginRecordData;
 }
 
@@ -101,7 +92,7 @@ export interface CreateBuildJobParams {
   orgId: string;
   userId: string;
   authToken: string;
-  buildRequest: BuildRequestData;
+  buildRequest: BuildRequest;
   pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'imageTag' | 'accessModifier'>;
 }
 

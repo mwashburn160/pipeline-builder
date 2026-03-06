@@ -43,8 +43,8 @@ RUN ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/ha
 
 # ─── Dockle — Container image security linter (copied from official image) ───
 RUN mkdir -p /opt/dockle/versions
-COPY --from=dockle-default /usr/local/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_VERSION}
-COPY --from=dockle-prev /usr/local/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_PREV_VERSION}
+COPY --from=dockle-default /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_VERSION}
+COPY --from=dockle-prev /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_PREV_VERSION}
 RUN ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
 
 # ─── Runtime configuration defaults ───

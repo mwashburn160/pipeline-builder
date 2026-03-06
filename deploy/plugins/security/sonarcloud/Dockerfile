@@ -4,7 +4,18 @@
 # Set LANGUAGE to activate a different runtime: python, java, go, dotnet, cpp, ruby, rust
 # Set LANGUAGE_VERSION to select the specific version
 
+# ─── Tool versions (override with --build-arg) ───
+ARG SONAR_DEFAULT_VERSION=6.2.1.4610
+ARG SONAR_PREV_VERSION=6.1.0.4477
+
+FROM sonarsource/sonar-scanner-cli:${SONAR_DEFAULT_VERSION} AS scanner-default
+FROM sonarsource/sonar-scanner-cli:${SONAR_PREV_VERSION} AS scanner-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Re-declare ARGs after FROM so they're available in this stage
+ARG SONAR_DEFAULT_VERSION
+ARG SONAR_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -30,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxmlsec1-dev \
     libffi-dev \
     liblzma-dev \
+    libyaml-dev \
     software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
@@ -99,27 +111,18 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --n
     && /opt/cargo/bin/rustup toolchain install 1.83.0
 ENV PATH="${CARGO_HOME}/bin:${PATH}"
 
-# ─── SonarScanner CLI — multi-version support ───
+# ─── SonarScanner CLI (copied from official images) ───
 RUN mkdir -p /opt/sonar-scanner/versions
-
-# Pre-install common sonar-scanner versions
-RUN curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.2.1.4610-linux-x64.zip \
-    -o /tmp/sonar-scanner-6.2.1.zip \
-    && unzip -q /tmp/sonar-scanner-6.2.1.zip -d /opt/sonar-scanner/versions \
-    && rm /tmp/sonar-scanner-6.2.1.zip
-
-RUN curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.1.0.4477-linux-x64.zip \
-    -o /tmp/sonar-scanner-6.1.0.zip \
-    && unzip -q /tmp/sonar-scanner-6.1.0.zip -d /opt/sonar-scanner/versions \
-    && rm /tmp/sonar-scanner-6.1.0.zip
+COPY --from=scanner-default /opt/sonar-scanner /opt/sonar-scanner/versions/scanner-${SONAR_DEFAULT_VERSION}
+COPY --from=scanner-prev /opt/sonar-scanner /opt/sonar-scanner/versions/scanner-${SONAR_PREV_VERSION}
 
 # Default to latest installed version
-RUN ln -sf /opt/sonar-scanner/versions/sonar-scanner-6.2.1.4610-linux-x64/bin/sonar-scanner /usr/local/bin/sonar-scanner
+RUN ln -sf /opt/sonar-scanner/versions/scanner-${SONAR_DEFAULT_VERSION}/bin/sonar-scanner /usr/local/bin/sonar-scanner
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — SONAR_TOKEN must be injected at runtime
 # via CodeBuild environment variables or secrets manager
-ENV SONAR_SCANNER_VERSION=6.2.1.4610
+ENV SONAR_SCANNER_VERSION=${SONAR_DEFAULT_VERSION}
 ENV SONAR_ORGANIZATION=""
 ENV SONAR_PROJECT_KEY=""
 

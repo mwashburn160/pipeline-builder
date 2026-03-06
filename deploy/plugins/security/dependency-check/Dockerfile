@@ -3,7 +3,18 @@
 # Scans project dependencies for known CVEs via NVD database
 # Supports Java, .NET, Node.js, Python, Ruby, Go, and more
 
+# ─── Tool versions (override with --build-arg) ───
+ARG DC_DEFAULT_VERSION=12.0.0
+ARG DC_PREV_VERSION=11.1.1
+
+FROM owasp/dependency-check:${DC_DEFAULT_VERSION} AS dc-default
+FROM owasp/dependency-check:${DC_PREV_VERSION} AS dc-prev
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Re-declare ARGs after FROM so they're available in this stage
+ARG DC_DEFAULT_VERSION
+ARG DC_PREV_VERSION
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -41,27 +52,18 @@ ENV DOTNET_ROOT=/opt/dotnet
 ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
-# ─── OWASP Dependency-Check CLI — multi-version support ───
+# ─── OWASP Dependency-Check CLI (copied from official images) ───
 RUN mkdir -p /opt/dependency-check/versions
-
-# Install Dependency-Check versions
-RUN curl -fsSL https://github.com/jeremylong/DependencyCheck/releases/download/v11.1.1/dependency-check-11.1.1-release.zip \
-    -o /tmp/dc-11.1.1.zip \
-    && unzip -q /tmp/dc-11.1.1.zip -d /opt/dependency-check/versions/dc-11.1.1 \
-    && rm /tmp/dc-11.1.1.zip
-
-RUN curl -fsSL https://github.com/jeremylong/DependencyCheck/releases/download/v12.0.0/dependency-check-12.0.0-release.zip \
-    -o /tmp/dc-12.0.0.zip \
-    && unzip -q /tmp/dc-12.0.0.zip -d /opt/dependency-check/versions/dc-12.0.0 \
-    && rm /tmp/dc-12.0.0.zip
+COPY --from=dc-default /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_DEFAULT_VERSION}
+COPY --from=dc-prev /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_PREV_VERSION}
 
 # Default to latest installed version
-RUN ln -sf /opt/dependency-check/versions/dc-12.0.0/dependency-check /opt/dependency-check/current
+RUN ln -sf /opt/dependency-check/versions/dc-${DC_DEFAULT_VERSION} /opt/dependency-check/current
 ENV PATH="/opt/dependency-check/current/bin:${PATH}"
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — NVD API key injected at runtime via CodeBuild secrets
-ENV DC_VERSION=12.0.0
+ENV DC_VERSION=${DC_DEFAULT_VERSION}
 ENV DC_FAIL_ON_CVSS=7
 ENV DC_FORMAT=JSON
 ENV DC_SUPPRESSION_FILE=""

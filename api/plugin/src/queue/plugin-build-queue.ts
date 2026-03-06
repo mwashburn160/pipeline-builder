@@ -19,9 +19,6 @@ const logger = createLogger('plugin-build-queue');
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 const FAILED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS;
 
-// Re-export for consumers that imported from here previously
-export type { PluginBuildJobData } from '../helpers/plugin-helpers';
-
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;

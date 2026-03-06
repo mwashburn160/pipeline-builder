@@ -6,8 +6,11 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG ZAP_VERSION=2.16.0
 
+FROM ghcr.io/zaproxy/zaproxy:${ZAP_VERSION} AS zap-src
+
 FROM public.ecr.aws/docker/library/ubuntu:24.04
 
+# Re-declare ARGs after FROM so they're available in this stage
 ARG ZAP_VERSION
 
 # Avoid interactive prompts
@@ -27,12 +30,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xmlstarlet \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── OWASP ZAP ───
-RUN mkdir -p /opt/zap/versions \
-    && curl -fsSL https://github.com/zaproxy/zaproxy/releases/download/v${ZAP_VERSION}/ZAP_${ZAP_VERSION}_Linux.tar.gz \
-    | tar -xz -C /opt/zap/versions \
-    && mv /opt/zap/versions/ZAP_${ZAP_VERSION} /opt/zap/versions/zap-${ZAP_VERSION} \
-    && ln -sf /opt/zap/versions/zap-${ZAP_VERSION} /opt/zap/current
+# ─── OWASP ZAP (copied from official image) ───
+RUN mkdir -p /opt/zap/versions
+COPY --from=zap-src /zap/ /opt/zap/versions/zap-${ZAP_VERSION}/
+RUN ln -sf /opt/zap/versions/zap-${ZAP_VERSION} /opt/zap/current
 ENV PATH="/opt/zap/current:${PATH}"
 
 # Install ZAP Python API client
@@ -40,7 +41,7 @@ RUN pip3 install --no-cache-dir --break-system-packages python-owasp-zap-v2.4==0
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — no tokens or secrets in ENV/ARG
-ENV ZAP_VERSION=2.16.0
+ENV ZAP_VERSION=${ZAP_VERSION}
 ENV ZAP_SCAN_TYPE=baseline
 ENV ZAP_TARGET_URL=""
 ENV ZAP_RULES_CONFIG=""

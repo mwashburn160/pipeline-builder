@@ -26,7 +26,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # ─── Newman (Postman CLI runner) + reporters ───
 RUN npm install -g newman@6.2.1 \
     newman-reporter-htmlextra@1.23.1 \
-    newman-reporter-junitfull@2.0.1
+    newman-reporter-junitfull@1.1.1
 
 # ─── Runtime configuration defaults ───
 ENV COLLECTION_FILE=""

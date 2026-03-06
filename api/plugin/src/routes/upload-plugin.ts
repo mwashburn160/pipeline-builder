@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, isSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, requireSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
 import { requireAuth, checkQuota, requireOrgId, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-server';
 import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
@@ -53,12 +53,7 @@ export function createUploadPluginRoutes(
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     // Admin check BEFORE quota — non-admins should be rejected without consuming quota
-    ((req: Request, res: Response, next: () => void) => {
-      if (!isSystemAdmin(req)) {
-        return sendError(res, 403, 'Only administrators can upload plugins', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-      next();
-    }) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
@@ -136,19 +131,13 @@ export function createUploadPluginRoutes(
           imageTag: plugin.imageTag,
         });
 
-        // Clean up the uploaded zip (extract dir is cleaned up by the worker)
-        if (zipPath && fs.existsSync(zipPath)) {
-          try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
-          zipPath = undefined;
-        }
-
         return sendSuccess(res, 202, {
           requestId: ctx.requestId,
           pluginName: m.name,
           imageTag: plugin.imageTag,
         }, 'Plugin build queued');
       } finally {
-        // Clean up zip if not already removed (error path)
+        // Clean up uploaded zip (extract dir is cleaned up by the worker)
         if (zipPath && fs.existsSync(zipPath)) {
           try { fs.unlinkSync(zipPath); } catch (err) { logger.debug('Temp zip cleanup failed', { path: zipPath, error: String(err) }); }
         }
