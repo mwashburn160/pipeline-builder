@@ -1,3 +1,13 @@
+## 1.37.0 (2026-03-06)
+
+### 🚀 Features
+
+- added plugins ([f1f0563a](https://github.com/mwashburn160/pipeline-builder/commit/f1f0563a))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.5 (2026-03-05)
 
 ### 🩹 Fixes
