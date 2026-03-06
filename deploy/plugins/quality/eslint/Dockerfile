@@ -25,7 +25,9 @@ RUN mkdir -p ${NVM_DIR} \
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
     nvm install 22 && \
     nvm install 24 && \
-    nvm alias default 24"
+    nvm alias default 24" \
+    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v24') ${NVM_DIR}/versions/node/v24 \
+    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v22') ${NVM_DIR}/versions/node/v22
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # Default Node.js version
