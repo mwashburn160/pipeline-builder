@@ -72,7 +72,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.37.1",
+      "version": "1.37.2",
       "type": "runtime"
     },
     {
@@ -82,7 +82,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "workspace:*",
+      "version": "1.38.2",
       "type": "runtime"
     },
     {
