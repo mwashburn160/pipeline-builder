@@ -1,3 +1,14 @@
+## 1.31.6 (2026-03-06)
+
+### 🩹 Fixes
+
+- updated imports ([b6748e0a](https://github.com/mwashburn160/pipeline-builder/commit/b6748e0a))
+- plugin cleanup ([2856f546](https://github.com/mwashburn160/pipeline-builder/commit/2856f546))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.5 (2026-03-05)
 
 ### 🩹 Fixes
