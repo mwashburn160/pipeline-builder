@@ -33,9 +33,9 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install sbt 1.9.9"
 ENV PATH="${SDKMAN_DIR}/candidates/sbt/current/bin:${PATH}"
 
-# ─── Scala via Coursier ───
-RUN curl -fL https://github.com/coursier/coursier/releases/latest/download/cs-x86_64-pc-linux.gz \
-    | gzip -d > /usr/local/bin/cs && chmod +x /usr/local/bin/cs \
+# ─── Scala via Coursier (JAR launcher — arch-independent) ───
+RUN curl -fL "https://github.com/coursier/coursier/releases/latest/download/coursier" \
+    -o /usr/local/bin/cs && chmod +x /usr/local/bin/cs \
     && /usr/local/bin/cs setup --yes --install-dir /usr/local/bin
 
 # Default versions

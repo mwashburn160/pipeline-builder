@@ -28,21 +28,21 @@ commands:
     fi
     TIMESTAMP=$(date +%s)
     SERVICE="${SERVICE_NAME:-unknown}"
-    # Build Prometheus text format metrics
-    METRICS="# HELP pipeline_deploy_timestamp Unix timestamp of the last deployment
-# TYPE pipeline_deploy_timestamp gauge
-pipeline_deploy_timestamp{service=\"${SERVICE}\",environment=\"${ENVIRONMENT}\"} ${TIMESTAMP}
-# HELP pipeline_build_status Build status (1=success, 0=failure)
-# TYPE pipeline_build_status gauge
-pipeline_build_status{service=\"${SERVICE}\",environment=\"${ENVIRONMENT}\"} ${BUILD_STATUS}
-# HELP pipeline_deploy_total Total number of deployments
-# TYPE pipeline_deploy_total counter
-pipeline_deploy_total{service=\"${SERVICE}\",environment=\"${ENVIRONMENT}\"} 1
-"
-    echo "${METRICS}" | tee metrics-output/metrics.txt
+    cat > metrics-output/metrics.txt <<METRICS_EOF
+    # HELP pipeline_deploy_timestamp Unix timestamp of the last deployment
+    # TYPE pipeline_deploy_timestamp gauge
+    pipeline_deploy_timestamp{service="${SERVICE}",environment="${ENVIRONMENT}"} ${TIMESTAMP}
+    # HELP pipeline_build_status Build status (1=success, 0=failure)
+    # TYPE pipeline_build_status gauge
+    pipeline_build_status{service="${SERVICE}",environment="${ENVIRONMENT}"} ${BUILD_STATUS}
+    # HELP pipeline_deploy_total Total number of deployments
+    # TYPE pipeline_deploy_total counter
+    pipeline_deploy_total{service="${SERVICE}",environment="${ENVIRONMENT}"} 1
+    METRICS_EOF
+    cat metrics-output/metrics.txt
     echo "Pushing metrics to ${PUSHGATEWAY_URL}..."
-    HTTP_STATUS=$(echo "${METRICS}" | curl -s -o metrics-output/push-response.txt -w "%{http_code}" \
-      --data-binary @- \
+    HTTP_STATUS=$(curl -s -o metrics-output/push-response.txt -w "%{http_code}" \
+      --data-binary @metrics-output/metrics.txt \
       "${PUSHGATEWAY_URL}/metrics/job/${JOB_NAME}/instance/${SERVICE}")
     if [ "${HTTP_STATUS}" = "200" ] || [ "${HTTP_STATUS}" = "202" ]; then
       echo "Metrics pushed successfully"
