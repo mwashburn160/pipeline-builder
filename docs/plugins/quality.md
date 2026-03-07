@@ -9,7 +9,7 @@ flowchart LR
     Cov --> Report[Coverage Reporting]
 
     LintFmt --> eslint & prettier & checkstyle & shellcheck & golangci-lint & markdownlint & stylelint
-    Report --> codecov & coveralls & codacy & codeclimate & coverage-report
+    Report --> codecov & coveralls & codacy & coverage-report
 ```
 
 ## Lint & Format
@@ -31,5 +31,4 @@ flowchart LR
 | codecov | SMALL | `CODECOV_TOKEN` | `CODECOV_FLAGS`, `CODECOV_FILE` |
 | coveralls | SMALL | `COVERALLS_REPO_TOKEN` | `COVERALLS_SERVICE_NAME` |
 | codacy | SMALL | `CODACY_PROJECT_TOKEN` | `CODACY_LANGUAGE` |
-| codeclimate | SMALL | `CC_TEST_REPORTER_ID` | `CC_COVERAGE_FILE` |
 | coverage-report | SMALL | None | `COVERAGE_THRESHOLD`, `COVERAGE_FORMAT` |
