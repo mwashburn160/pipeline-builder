@@ -141,6 +141,9 @@ export function startWorker(
         imageTag: pluginRecord.imageTag,
       });
 
+      // Touch the build context directory to prevent cleanup during long queue waits
+      try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
+
       try {
         // 1. Build and push Docker image (skipped for ManualApprovalStep — no Docker image needed)
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
@@ -229,8 +232,8 @@ export function startWorker(
 
 // Periodic temp directory cleanup
 
-/** Maximum age (ms) for orphaned temp directories before cleanup (1 hour). */
-const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '3600000', 10);
+/** Maximum age (ms) for orphaned temp directories before cleanup (4 hours). */
+const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '14400000', 10);
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
