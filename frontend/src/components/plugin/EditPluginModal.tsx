@@ -53,7 +53,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
       try {
         const response = await api.getPluginById(plugin.id);
         if (!cancelled) {
-          const fetched = response.plugin;
+          const fetched = response.data?.plugin;
           if (fetched) {
             setFullPlugin(fetched);
             setName(fetched.name);

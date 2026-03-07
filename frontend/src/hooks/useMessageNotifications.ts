@@ -59,7 +59,7 @@ export function useMessageNotifications(orgId: string | null) {
   useEffect(() => {
     if (!orgId) return;
 
-    const token = api.getRawAccessToken();
+    const token = api.getAccessToken();
     if (!token) return;
 
     const url = `/api/messages/notifications?token=${encodeURIComponent(token)}`;

@@ -53,7 +53,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
       try {
         const response = await api.getPipelineById(pipeline.id);
         if (!cancelled) {
-          const fetched = response.pipeline;
+          const fetched = response.data?.pipeline;
           if (fetched) {
             setFullPipeline(fetched);
             setIsActive(fetched.isActive);
