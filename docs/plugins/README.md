@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **97 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **96 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 ---
 
@@ -10,7 +10,7 @@ Pipeline Builder ships with **97 plugins** across **10 categories**, covering th
 |----------|---------|-------------|-----|
 | Language | 15 | Build, test, and compile across major languages | [language.md](language.md) |
 | Security | 17 | SAST, DAST, SCA, secret detection, container scanning, IaC scanning, license compliance | [security.md](security.md) |
-| Quality | 12 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
+| Quality | 11 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
 | Monitoring | 5 | APM, observability, release tracking, deployment annotations | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 13 | Package publishing and container image push | [artifact.md](artifact.md) |
 | Deploy | 13 | Cloud provisioning, K8s, serverless, database migration, mobile builds | [deploy.md](deploy.md) |
@@ -74,7 +74,6 @@ flowchart LR
         codecov
         coveralls
         codacy
-        codeclimate
         coverage-report
     end
 
@@ -217,7 +216,6 @@ The following table lists every plugin that requires external tokens or credenti
 | codecov | quality | `CODECOV_TOKEN` | [codecov.io](https://codecov.io) |
 | coveralls | quality | `COVERALLS_REPO_TOKEN` | [coveralls.io](https://coveralls.io) |
 | codacy | quality | `CODACY_PROJECT_TOKEN` | [codacy.com](https://www.codacy.com) |
-| codeclimate | quality | `CC_TEST_REPORTER_ID` | [codeclimate.com](https://codeclimate.com) |
 | datadog | monitoring | `DD_API_KEY` | [datadoghq.com](https://www.datadoghq.com) |
 | newrelic | monitoring | `NEW_RELIC_API_KEY` | [newrelic.com](https://newrelic.com) |
 | sentry-release | monitoring | `SENTRY_AUTH_TOKEN` | [sentry.io](https://sentry.io) |
