@@ -22,7 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Code Climate Test Reporter ───
-RUN curl -fsSL https://codeclimate.com/downloads/test-reporter/test-reporter-${CC_REPORTER_VERSION}-linux-amd64 \
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then CC_ARCH="linux-arm64"; else CC_ARCH="linux-amd64"; fi && \
+    curl -fsSL "https://codeclimate.com/downloads/test-reporter/test-reporter-latest-${CC_ARCH}" \
     -o /usr/local/bin/cc-test-reporter \
     && chmod +x /usr/local/bin/cc-test-reporter
 
