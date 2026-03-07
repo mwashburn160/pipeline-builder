@@ -22,11 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Code Climate Test Reporter ───
+# Downloaded from GitHub (codeclimate.com/downloads is defunct)
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then CC_ARCH="linux-arm64"; else CC_ARCH="linux-amd64"; fi && \
-    curl -fsSL "https://codeclimate.com/downloads/test-reporter/test-reporter-latest-${CC_ARCH}" \
-    -o /usr/local/bin/cc-test-reporter \
-    && chmod +x /usr/local/bin/cc-test-reporter
+    curl -fsSL "https://github.com/qltysh-archive/test-reporter/releases/download/v${CC_REPORTER_VERSION}/artifacts.tar.gz" \
+    | tar xz --strip-components=2 -C /usr/local/bin \
+    "artifacts/bin/test-reporter-${CC_REPORTER_VERSION}-${CC_ARCH}" && \
+    mv /usr/local/bin/test-reporter-${CC_REPORTER_VERSION}-${CC_ARCH} /usr/local/bin/cc-test-reporter && \
+    chmod +x /usr/local/bin/cc-test-reporter
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — CC_TEST_REPORTER_ID must be injected at runtime

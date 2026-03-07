@@ -658,11 +658,11 @@ codacy:
 
 codeclimate:
   plugin: quality/codeclimate
-  install_type: curl_bin
-  url_template: "https://codeclimate.com/downloads/test-reporter/test-reporter-latest-{arch}"
-  note: "Uses latest binary. Arch-aware: linux-amd64 or linux-arm64."
-  versions: ["latest"]
-  default: "latest"
+  install_type: curl_tar
+  url_template: "https://github.com/qltysh-archive/test-reporter/releases/download/v{version}/artifacts.tar.gz"
+  note: "Repo moved from codeclimate to qltysh-archive. Arch-aware binary extracted from tarball."
+  versions: ["0.11.1"]
+  default: "0.11.1"
 
 codecov:
   plugin: quality/codecov
