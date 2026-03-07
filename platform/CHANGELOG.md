@@ -1,3 +1,17 @@
+## 1.33.6 (2026-03-07)
+
+### 🩹 Fixes
+
+- inconsistent return types ([b52a1a1b](https://github.com/mwashburn160/pipeline-builder/commit/b52a1a1b))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.37.6
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.33.5 (2026-03-06)
 
 ### 🩹 Fixes
