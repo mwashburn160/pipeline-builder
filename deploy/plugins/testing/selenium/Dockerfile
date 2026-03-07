@@ -38,7 +38,7 @@ ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Chrome/Chromium ───
 RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
     > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     google-chrome-stable \
@@ -46,12 +46,14 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor
 
 # ─── ChromeDriver ───
 RUN CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+') \
-    && curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip" \
-    -o /tmp/chromedriver.zip 2>/dev/null \
+    && (curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0/linux64/chromedriver-linux64.zip" \
+        -o /tmp/chromedriver.zip \
     || curl -fsSL "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$(echo ${CHROME_VERSION} | cut -d. -f1).0.0.0/linux64/chromedriver-linux64.zip" \
-    -o /tmp/chromedriver.zip 2>/dev/null || true \
-    && unzip -q /tmp/chromedriver.zip -d /tmp/ 2>/dev/null || true \
-    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ 2>/dev/null || true \
+        -o /tmp/chromedriver.zip \
+    || (echo "ERROR: Failed to download ChromeDriver for Chrome ${CHROME_VERSION}" && exit 1)) \
+    && unzip -q /tmp/chromedriver.zip -d /tmp/ \
+    && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ \
+    && chmod +x /usr/local/bin/chromedriver \
     && rm -rf /tmp/chromedriver*
 
 # ─── Selenium for Python ───

@@ -22,13 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # ─── AWS CLI v2 (for ECR OCI registry support) ───
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip \
+RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscli.zip
 
 # ─── Helm push plugin for ChartMuseum ───
-RUN helm plugin install https://github.com/chartmuseum/helm-push 2>/dev/null || true
+RUN helm plugin install https://github.com/chartmuseum/helm-push || \
+    (echo "WARNING: Failed to install helm-push plugin for ChartMuseum support" && exit 0)
 
 # ─── Runtime configuration defaults ───
 ENV HELM_CHART_PATH=.

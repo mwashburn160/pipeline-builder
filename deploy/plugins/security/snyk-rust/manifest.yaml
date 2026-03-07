@@ -1,0 +1,39 @@
+name: snyk-rust
+description: Snyk security scanning for Rust projects using AWS CDK with CodeBuildStep
+keywords:
+  - snyk
+  - security
+  - vulnerability
+  - sca
+  - sast
+  - dependency-scan
+  - rust
+  - cargo
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk authentication token"
+primaryOutputDirectory: snyk-reports
+dockerfile: Dockerfile
+installCommands:
+  - snyk --version
+  - |
+    rustup default ${RUST_VERSION}
+    rustc --version
+    if [ -f Cargo.toml ]; then cargo fetch; fi
+commands:
+  - mkdir -p snyk-reports
+  - snyk auth ${SNYK_TOKEN}
+  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
+  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
+env:
+  SNYK_SEVERITY_THRESHOLD: high
+  RUST_VERSION: stable

@@ -28,11 +28,11 @@ RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dea
     && rm -rf /var/lib/apt/lists/*
 
 # ─── kubectl ───
-RUN curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
     -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
 
 # ─── Terraform ───
-RUN curl -fsSL https://releases.hashicorp.com/terraform/1.10.3/terraform_1.10.3_linux_amd64.zip \
+RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://releases.hashicorp.com/terraform/1.10.3/terraform_1.10.3_linux_${ARCH}.zip" \
     -o /tmp/terraform.zip && unzip -q /tmp/terraform.zip -d /usr/local/bin && rm /tmp/terraform.zip
 
 # ─── Runtime configuration defaults ───

@@ -99,9 +99,9 @@ maven_publish:
 npm_publish:
   plugin: artifact/npm-publish
   install_type: apt
-  note: "Node.js 20 via NodeSource."
-  versions: ["20"]
-  default: "20"
+  note: "Node.js 22 via NodeSource."
+  versions: ["22"]
+  default: "22"
 
 nuget_publish:
   plugin: artifact/nuget-publish
@@ -294,7 +294,7 @@ tflint:
   versions: ["0.54.0"]
   default: "0.54.0"
 
-tfsec:
+tfsec_terraform:
   plugin: deploy/terraform
   install_type: copy_from
   image: aquasec/tfsec
@@ -302,6 +302,7 @@ tfsec:
   binary_path: /usr/bin/tfsec
   versions: ["1.28.11"]
   default: "1.28.11"
+  note: "tfsec bundled in terraform plugin. Standalone tfsec is under security/tfsec."
 
 # ═══════════════════════════════════════════════════════════════
 # INFRASTRUCTURE PLUGINS
@@ -735,6 +736,81 @@ trivy:
   binary_path: /usr/local/bin/trivy
   versions: ["0.68.2", "0.69.3"]
   default: "0.69.3"
+  note: "Node.js + C++ + IaC scanning. For other languages use trivy-python, trivy-java, trivy-go, trivy-dotnet, trivy-ruby, trivy-rust."
+
+trivy_python:
+  plugin: security/trivy-python
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    python:
+      install_type: pyenv
+      versions: ["3.13", "3.14"]
+      default: "3.14"
+  note: "Trivy + Python via pyenv."
+
+trivy_java:
+  plugin: security/trivy-java
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    java:
+      install_type: sdkman
+      versions: ["17.0.18-tem", "21.0.10-tem"]
+      default: "21.0.10-tem"
+    maven:
+      install_type: sdkman
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      install_type: sdkman
+      versions: ["8.12"]
+      default: "8.12"
+  note: "Trivy + Java/Kotlin via SDKMAN."
+
+trivy_go:
+  plugin: security/trivy-go
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    go:
+      install_type: goenv
+      versions: ["1.23.12", "1.24.13"]
+      default: "1.24.13"
+  note: "Trivy + Go via goenv."
+
+trivy_dotnet:
+  plugin: security/trivy-dotnet
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    dotnet:
+      install_type: script
+      versions: ["8.0", "9.0"]
+      default: "9.0"
+  note: "Trivy + .NET SDK."
+
+trivy_ruby:
+  plugin: security/trivy-ruby
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    ruby:
+      install_type: rbenv
+      versions: ["3.4.8", "4.0.1"]
+      default: "4.0.1"
+  note: "Trivy + Ruby via rbenv."
+
+trivy_rust:
+  plugin: security/trivy-rust
+  install_type: copy_from
+  image: aquasec/trivy
+  tools:
+    rust:
+      install_type: rustup
+      versions: ["stable", "1.84.0"]
+      default: "stable"
+  note: "Trivy + Rust via rustup."
 
 snyk:
   plugin: security/snyk
@@ -742,6 +818,81 @@ snyk:
   package: snyk
   versions: ["latest"]
   default: "latest"
+  note: "Node.js + C++ scanning. For other languages use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, snyk-rust."
+
+snyk_python:
+  plugin: security/snyk-python
+  install_type: npm
+  package: snyk
+  tools:
+    python:
+      install_type: pyenv
+      versions: ["3.13", "3.14"]
+      default: "3.14"
+  note: "Snyk + Python via pyenv."
+
+snyk_java:
+  plugin: security/snyk-java
+  install_type: npm
+  package: snyk
+  tools:
+    java:
+      install_type: sdkman
+      versions: ["17.0.18-tem", "21.0.10-tem"]
+      default: "21.0.10-tem"
+    maven:
+      install_type: sdkman
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      install_type: sdkman
+      versions: ["8.12"]
+      default: "8.12"
+  note: "Snyk + Java/Kotlin via SDKMAN."
+
+snyk_go:
+  plugin: security/snyk-go
+  install_type: npm
+  package: snyk
+  tools:
+    go:
+      install_type: goenv
+      versions: ["1.23.12", "1.24.13"]
+      default: "1.24.13"
+  note: "Snyk + Go via goenv."
+
+snyk_dotnet:
+  plugin: security/snyk-dotnet
+  install_type: npm
+  package: snyk
+  tools:
+    dotnet:
+      install_type: script
+      versions: ["8.0", "9.0"]
+      default: "9.0"
+  note: "Snyk + .NET SDK."
+
+snyk_ruby:
+  plugin: security/snyk-ruby
+  install_type: npm
+  package: snyk
+  tools:
+    ruby:
+      install_type: rbenv
+      versions: ["3.4.8", "4.0.1"]
+      default: "4.0.1"
+  note: "Snyk + Ruby via rbenv."
+
+snyk_rust:
+  plugin: security/snyk-rust
+  install_type: npm
+  package: snyk
+  tools:
+    rust:
+      install_type: rustup
+      versions: ["stable", "1.84.0"]
+      default: "stable"
+  note: "Snyk + Rust via rustup."
 
 kics:
   plugin: security/checkmarx
@@ -781,6 +932,81 @@ sonar_scanner:
   image: "sonarsource/sonar-scanner-cli:{version}"
   versions: ["11.5", "12.0"]
   default: "12.0"
+  note: "Node.js + C++ scanning. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, sonarcloud-rust."
+
+sonarcloud_python:
+  plugin: security/sonarcloud-python
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    python:
+      install_type: pyenv
+      versions: ["3.13", "3.14"]
+      default: "3.14"
+  note: "SonarCloud + Python via pyenv."
+
+sonarcloud_java:
+  plugin: security/sonarcloud-java
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    java:
+      install_type: sdkman
+      versions: ["17.0.18-tem", "21.0.10-tem"]
+      default: "21.0.10-tem"
+    maven:
+      install_type: sdkman
+      versions: ["3.9.9"]
+      default: "3.9.9"
+    gradle:
+      install_type: sdkman
+      versions: ["8.12"]
+      default: "8.12"
+  note: "SonarCloud + Java/Kotlin via SDKMAN."
+
+sonarcloud_go:
+  plugin: security/sonarcloud-go
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    go:
+      install_type: goenv
+      versions: ["1.23.12", "1.24.13"]
+      default: "1.24.13"
+  note: "SonarCloud + Go via goenv."
+
+sonarcloud_dotnet:
+  plugin: security/sonarcloud-dotnet
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    dotnet:
+      install_type: script
+      versions: ["8.0", "9.0"]
+      default: "9.0"
+  note: "SonarCloud + .NET SDK."
+
+sonarcloud_ruby:
+  plugin: security/sonarcloud-ruby
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    ruby:
+      install_type: rbenv
+      versions: ["3.4.8", "4.0.1"]
+      default: "4.0.1"
+  note: "SonarCloud + Ruby via rbenv."
+
+sonarcloud_rust:
+  plugin: security/sonarcloud-rust
+  install_type: docker_multistage
+  image: "sonarsource/sonar-scanner-cli:{version}"
+  tools:
+    rust:
+      install_type: rustup
+      versions: ["stable", "1.84.0"]
+      default: "stable"
+  note: "SonarCloud + Rust via rustup."
 
 dependency_check:
   plugin: security/dependency-check

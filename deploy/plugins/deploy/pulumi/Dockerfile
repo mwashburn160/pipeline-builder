@@ -42,7 +42,7 @@ RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
 ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
 
 # ─── AWS CLI v2 ───
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip \
+RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscli.zip
