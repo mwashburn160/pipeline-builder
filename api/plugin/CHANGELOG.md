@@ -1,3 +1,13 @@
+## 1.32.6 (2026-03-07)
+
+### 🩹 Fixes
+
+- added ms time to queue ([34eb1ffc](https://github.com/mwashburn160/pipeline-builder/commit/34eb1ffc))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.32.5 (2026-03-06)
 
 ### 🩹 Fixes
