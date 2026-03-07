@@ -110,6 +110,16 @@ nuget_publish:
   versions: ["8.0"]
   default: "8.0"
 
+ecr_push:
+  plugin: artifact/ecr-push
+  install_type: apt
+  note: "Docker CLI + Buildx from Docker apt repo. AWS CLI v2 via curl."
+
+helm_push:
+  plugin: artifact/helm-push
+  install_type: script
+  note: "Helm 3 via vendor script. Helm Push plugin from GitHub."
+
 pypi_publish:
   plugin: artifact/pypi-publish
   install_type: pip
@@ -124,6 +134,49 @@ pypi_publish:
 # ═══════════════════════════════════════════════════════════════
 # DEPLOY PLUGINS
 # ═══════════════════════════════════════════════════════════════
+
+ecs_deploy:
+  plugin: deploy/ecs-deploy
+  install_type: none
+  note: "AWS CLI v2 via curl. No other versioned tools."
+
+lambda_deploy:
+  plugin: deploy/lambda-deploy
+  install_type: none
+  note: "AWS CLI v2 via curl. No other versioned tools."
+
+pulumi:
+  plugin: deploy/pulumi
+  install_type: script
+  tools:
+    nodejs:
+      install_type: nvm
+      nvm_version: "0.40.1"
+      versions: ["22", "24"]
+      default: "24"
+    go:
+      install_type: goenv
+      versions: ["1.24.13"]
+      default: "1.24.13"
+    pulumi_cli:
+      install_type: script
+      url: "https://get.pulumi.com"
+  note: "Also installs AWS CLI v2 via curl."
+
+serverless_framework:
+  plugin: deploy/serverless-framework
+  install_type: nvm
+  nvm_version: "0.40.1"
+  tools:
+    nodejs:
+      versions: ["22", "24"]
+      default: "24"
+    serverless:
+      install_type: npm
+      package: serverless
+      versions: ["latest"]
+      default: "latest"
+  note: "Also installs AWS CLI v2 via curl."
 
 azure_deploy:
   plugin: deploy/azure-deploy
@@ -270,6 +323,11 @@ cdk_synth:
       default: "10.9.2"
   note: "Also installs Docker CLI + AWS CLI v2."
 
+manual_approval_builtin:
+  plugin: infrastructure/manual-approval
+  install_type: none
+  note: "ManualApprovalStep plugin — no Dockerfile needed."
+
 manual_approval:
   plugin: infrastructure/manual-approval-custom
   install_type: none
@@ -411,6 +469,43 @@ dotnet:
   versions: ["8.0", "9.0"]
   default: "9.0"
 
+scala:
+  plugin: language/scala
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["17.0.18-tem", "21.0.10-tem"]
+      default: "21.0.10-tem"
+    sbt:
+      versions: ["1.9.9", "1.10.7"]
+      default: "1.10.7"
+    coursier:
+      install_type: curl_bin
+      url_template: "https://github.com/coursier/coursier/releases/latest/download/coursier"
+      versions: ["latest"]
+      default: "latest"
+  note: "Coursier JAR launcher (arch-independent)."
+
+swift:
+  plugin: language/swift
+  install_type: curl_tar
+  url_template: "https://download.swift.org/swift-{version}-release/ubuntu2404/swift-{version}-RELEASE/swift-{version}-RELEASE-ubuntu24.04.tar.gz"
+  versions: ["5.10.1", "6.1"]
+  default: "6.1"
+
+php:
+  plugin: language/php
+  install_type: apt
+  tools:
+    php:
+      versions: ["8.3", "8.4"]
+      default: "8.4"
+    composer:
+      install_type: script
+      url: "https://getcomposer.org/installer"
+      versions: ["latest"]
+      default: "latest"
+
 cpp:
   plugin: language/cpp
   install_type: apt
@@ -437,6 +532,16 @@ newrelic:
   install_type: none
   note: "curl + jq only. API-driven, no versioned tools."
 
+grafana_annotation:
+  plugin: monitoring/grafana-annotation
+  install_type: none
+  note: "curl + jq only. API-driven, no versioned tools."
+
+prometheus_pushgateway:
+  plugin: monitoring/prometheus-pushgateway
+  install_type: none
+  note: "curl only. Pushes Prometheus text format metrics via HTTP."
+
 # ═══════════════════════════════════════════════════════════════
 # NOTIFICATION PLUGINS
 # ═══════════════════════════════════════════════════════════════
@@ -456,6 +561,16 @@ discord_notify:
   install_type: none
   note: "curl + jq only. Webhook-driven."
 
+email_notify:
+  plugin: notification/email-notify
+  install_type: none
+  note: "AWS CLI v2 via curl for SES. curl + jq only."
+
+github_status:
+  plugin: notification/github-status
+  install_type: none
+  note: "curl + jq only. GitHub API-driven."
+
 pagerduty_notify:
   plugin: notification/pagerduty-notify
   install_type: none
@@ -469,6 +584,40 @@ opsgenie_notify:
 # ═══════════════════════════════════════════════════════════════
 # QUALITY PLUGINS
 # ═══════════════════════════════════════════════════════════════
+
+golangci_lint:
+  plugin: quality/golangci-lint
+  install_type: goenv
+  tools:
+    go:
+      versions: ["1.23.12", "1.24.13"]
+      default: "1.24.13"
+    golangci_lint:
+      install_type: script
+      url: "https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh"
+      versions: ["latest"]
+      default: "latest"
+
+markdownlint:
+  plugin: quality/markdownlint
+  install_type: nvm
+  nvm_version: "0.40.1"
+  tools:
+    nodejs:
+      versions: ["22", "24"]
+      default: "24"
+    markdownlint_cli2:
+      install_type: npm
+      package: markdownlint-cli2
+      versions: ["latest"]
+      default: "latest"
+
+stylelint:
+  plugin: quality/stylelint
+  install_type: nvm
+  nvm_version: "0.40.1"
+  versions: ["22", "24"]
+  default: "24"
 
 eslint:
   plugin: quality/eslint
@@ -509,11 +658,11 @@ codacy:
 
 codeclimate:
   plugin: quality/codeclimate
-  install_type: curl_tar
-  url_template: "https://github.com/qltysh-archive/test-reporter/releases/download/v{version}/artifacts.tar.gz"
-  note: "Repo transferred from codeclimate to qltysh-archive. Monitor for further moves."
-  versions: ["0.11.1"]
-  default: "0.11.1"
+  install_type: curl_bin
+  url_template: "https://codeclimate.com/downloads/test-reporter/test-reporter-latest-{arch}"
+  note: "Uses latest binary. Arch-aware: linux-amd64 or linux-arm64."
+  versions: ["latest"]
+  default: "latest"
 
 codecov:
   plugin: quality/codecov
@@ -655,6 +804,39 @@ owasp_zap:
   versions: ["2.16.0"]
   default: "2.16.0"
 
+grype:
+  plugin: security/grype
+  install_type: copy_from
+  tools:
+    grype:
+      image: anchore/grype
+      tag_prefix: ""
+      binary_path: /grype
+      versions: ["latest"]
+      default: "latest"
+    syft:
+      image: anchore/syft
+      tag_prefix: ""
+      binary_path: /syft
+      versions: ["latest"]
+      default: "latest"
+
+semgrep:
+  plugin: security/semgrep
+  install_type: pip
+  package: semgrep
+  versions: ["latest"]
+  default: "latest"
+
+tfsec:
+  plugin: security/tfsec
+  install_type: copy_from
+  image: aquasec/tfsec
+  tag_prefix: ""
+  binary_path: /usr/bin/tfsec
+  versions: ["latest"]
+  default: "latest"
+
 ggshield:
   plugin: security/gitguardian
   install_type: pip
@@ -702,6 +884,71 @@ newman:
   package: "newman newman-reporter-htmlextra"
   versions: ["6.2.1"]
   default: "6.2.1"
+
+artillery:
+  plugin: testing/artillery
+  install_type: nvm
+  nvm_version: "0.40.1"
+  tools:
+    nodejs:
+      versions: ["22", "24"]
+      default: "24"
+    artillery:
+      install_type: npm
+      package: artillery
+      versions: ["latest"]
+      default: "latest"
+
+cypress:
+  plugin: testing/cypress
+  install_type: nvm
+  nvm_version: "0.40.1"
+  versions: ["22", "24"]
+  default: "24"
+  note: "Cypress browser deps from apt. Cypress itself installed per-project."
+
+jmeter:
+  plugin: testing/jmeter
+  install_type: sdkman
+  tools:
+    java:
+      versions: ["21.0.10-tem"]
+      default: "21.0.10-tem"
+    jmeter:
+      install_type: curl_tar
+      url_template: "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-{version}.tgz"
+      versions: ["5.6.3"]
+      default: "5.6.3"
+
+playwright:
+  plugin: testing/playwright
+  install_type: nvm
+  nvm_version: "0.40.1"
+  tools:
+    nodejs:
+      versions: ["22", "24"]
+      default: "24"
+    playwright:
+      install_type: npm
+      package: playwright
+      versions: ["latest"]
+      default: "latest"
+  note: "Installs Chromium, Firefox, WebKit via npx playwright install."
+
+selenium:
+  plugin: testing/selenium
+  install_type: nvm
+  nvm_version: "0.40.1"
+  tools:
+    nodejs:
+      versions: ["22", "24"]
+      default: "24"
+    selenium:
+      install_type: pip
+      package: "selenium webdriver-manager"
+      versions: ["latest"]
+      default: "latest"
+  note: "Chrome + ChromeDriver from vendor repos. Python Selenium bindings."
 
 health_check:
   plugin: testing/health-check
