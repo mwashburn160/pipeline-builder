@@ -151,8 +151,8 @@ export default function TokensPage() {
   const [genError, setGenError] = useState<string | null>(null);
 
   const syncTokens = useCallback(() => {
-    setAccessToken(api.getRawAccessToken());
-    setRefreshToken(api.getRawRefreshToken());
+    setAccessToken(api.getAccessToken());
+    setRefreshToken(api.getRefreshToken());
   }, []);
 
   useEffect(() => {

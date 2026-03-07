@@ -1,8 +1,17 @@
-import { AuthTokens, ApiResponse, PaginatedResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
 const API_URL = typeof window !== 'undefined' ? '' : (process.env.PLATFORM_BASE_URL || 'https://localhost:8443');
+
+/** Build a query string from optional params, filtering out undefined/empty values. */
+function buildQuery(params?: Record<string, unknown>): string {
+  if (!params) return '';
+  const entries = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => [k, String(v)]);
+  return entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+}
 
 export function base64UrlDecode(str: string): string {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -194,6 +203,10 @@ class ApiClient {
     return this.accessToken;
   }
 
+  getRefreshToken() {
+    return this.refreshToken;
+  }
+
   /**
    * Check if user is authenticated
    */
@@ -201,12 +214,29 @@ class ApiClient {
     return !!this.accessToken;
   }
 
+  /** If response contains tokens, store them. */
+  private applyTokens(response: ApiResponse<{ accessToken: string; refreshToken: string }>): void {
+    const tokens = response.data;
+    if (response.success && tokens?.accessToken && tokens?.refreshToken) {
+      this.setTokens(tokens);
+    }
+  }
+
+  /** Build auth + org headers for the current session. */
+  private authHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+    if (this.organizationId) headers['x-org-id'] = this.organizationId;
+    return headers;
+  }
+
   /**
    * Make an API request
    */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    _retryCount = 0,
   ): Promise<T> {
     // Proactively refresh token before it expires (skip for auth endpoints)
     if (!endpoint.includes('/auth/')) {
@@ -217,20 +247,13 @@ class ApiClient {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...this.authHeaders(),
       ...(options.headers as Record<string, string>),
     };
 
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    if (this.organizationId) {
-      headers['x-org-id'] = this.organizationId;
-    }
-
     // Apply default timeout unless caller already provided an AbortSignal
     const controller = options.signal ? undefined : new AbortController();
-    const timeoutId = controller ? setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS) : undefined;
+    const timeoutId = controller ? setTimeout(() => controller.abort(`Request timeout after ${API_REQUEST_TIMEOUT_MS}ms`), API_REQUEST_TIMEOUT_MS) : undefined;
 
     const response = await fetch(url, {
       ...options,
@@ -280,6 +303,12 @@ class ApiClient {
         }
         return retryData;
       }
+    }
+
+    // Retry on 503 (server overloaded / request timeout) — up to 2 retries with backoff
+    if (statusCode === 503 && _retryCount < 2 && !options.method?.match(/POST|PUT|DELETE/i)) {
+      await new Promise(r => setTimeout(r, 1000 * (_retryCount + 1)));
+      return this.request<T>(endpoint, options, _retryCount + 1);
     }
 
     // Check statusCode from response body
@@ -381,17 +410,7 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ identifier: email, password }),
     });
-    
-    // Extract tokens from data wrapper (standardized format)
-    const tokens = response.data;
-    
-    if (response.success && tokens?.accessToken && tokens?.refreshToken) {
-      this.setTokens({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      });
-    }
-    
+    this.applyTokens(response);
     return response;
   }
 
@@ -444,31 +463,10 @@ class ApiClient {
       '/api/user/generate-token',
       { method: 'POST' },
     );
-
-    const tokens = response.data;
-    if (response.success && tokens?.accessToken && tokens?.refreshToken) {
-      this.setTokens({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-      });
-    }
-
+    this.applyTokens(response);
     return response;
   }
 
-  /**
-   * Get the current raw access token string
-   */
-  getRawAccessToken(): string | null {
-    return this.accessToken;
-  }
-
-  /**
-   * Get the current raw refresh token string
-   */
-  getRawRefreshToken(): string | null {
-    return this.refreshToken;
-  }
 
   // ============================================
   // Organization endpoints
@@ -546,12 +544,7 @@ class ApiClient {
   // ============================================
 
   async listUsers(params?: { organizationId?: string; role?: string; search?: string; page?: number; limit?: number }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<{ users: User[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/users${query}`);
+    return this.request<ApiResponse<{ users: User[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/users${buildQuery(params)}`);
   }
 
   async getUserById(id: string) {
@@ -664,18 +657,12 @@ class ApiClient {
 
   /** List all subscriptions (admin only). */
   async listSubscriptions(params?: { status?: string; limit?: number; offset?: number }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<{ subscriptions: Subscription[]; total: number }>>(`/api/billing/admin/subscriptions${query}`);
+    return this.request<ApiResponse<{ subscriptions: Subscription[]; total: number }>>(`/api/billing/admin/subscriptions${buildQuery(params)}`);
   }
 
   /** List billing events (admin only). */
   async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${query}`);
+    return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
   }
 
   // ============================================
@@ -683,17 +670,15 @@ class ApiClient {
   // ============================================
 
   async listPlugins(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins${query}`);
+    return this.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins${buildQuery(params)}`);
   }
 
   async getPluginById(id: string) {
-    return this.request<ApiResponse & { plugin?: Plugin }>(`/api/plugin/${id}`);
+    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`);
   }
 
   async searchPlugins(params: Record<string, string>) {
-    const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/find${query}`);
+    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/find${buildQuery(params)}`);
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
@@ -701,19 +686,9 @@ class ApiClient {
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
 
-    const headers: Record<string, string> = {};
-
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    if (this.organizationId) {
-      headers['x-org-id'] = this.organizationId;
-    }
-
     const response = await fetch(`${API_URL}/api/plugin/upload`, {
       method: 'POST',
-      headers,
+      headers: this.authHeaders(),
       body: formData,
       signal: options?.signal,
     });
@@ -777,17 +752,15 @@ class ApiClient {
   // ============================================
 
   async listPipelines(params?: Record<string, string>) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${query}`);
+    return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`);
   }
 
   async getPipelineById(id: string) {
-    return this.request<ApiResponse & { pipeline?: Pipeline }>(`/api/pipeline/${id}`);
+    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);
   }
 
   async searchPipelines(params: Record<string, string>) {
-    const query = '?' + new URLSearchParams(params).toString();
-    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/find${query}`);
+    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/find${buildQuery(params)}`);
   }
 
   async createPipeline(data: CreatePipelineData) {
@@ -839,15 +812,9 @@ class ApiClient {
   ): AsyncGenerator<StreamEvent> {
     await this.ensureFreshToken();
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
-    if (this.organizationId) headers['x-org-id'] = this.organizationId;
-
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify(body),
       credentials: 'same-origin',
     });
@@ -1011,10 +978,7 @@ class ApiClient {
   // ============================================
 
   async getLogs(params?: { service?: string; level?: string; search?: string; start?: string; end?: string; limit?: number; direction?: string }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<LogQueryResult>>(`/api/logs${query}`);
+    return this.request<ApiResponse<LogQueryResult>>(`/api/logs${buildQuery(params)}`);
   }
 
   async getLogServices() {
@@ -1031,10 +995,7 @@ class ApiClient {
 
   /** List inbox messages (root messages only), optionally filtered by type */
   async getMessages(params?: { messageType?: MessageType; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
-    const query = params ? '?' + new URLSearchParams(
-      Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    return this.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${query}`);
+    return this.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${buildQuery(params)}`);
   }
 
   /** List announcements only */
