@@ -1,0 +1,40 @@
+name: snyk-python
+description: Snyk security scanning for Python projects using AWS CDK with CodeBuildStep
+keywords:
+  - snyk
+  - security
+  - vulnerability
+  - sca
+  - sast
+  - dependency-scan
+  - python
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk authentication token"
+primaryOutputDirectory: snyk-reports
+dockerfile: Dockerfile
+installCommands:
+  - snyk --version
+  - |
+    pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
+    python -m pip install --upgrade pip setuptools wheel
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
+    if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
+commands:
+  - mkdir -p snyk-reports
+  - snyk auth ${SNYK_TOKEN}
+  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
+  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
+env:
+  SNYK_SEVERITY_THRESHOLD: high
+  PYTHON_VERSION: "3.14"

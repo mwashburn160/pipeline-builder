@@ -1,0 +1,38 @@
+name: snyk-ruby
+description: Snyk security scanning for Ruby projects using AWS CDK with CodeBuildStep
+keywords:
+  - snyk
+  - security
+  - vulnerability
+  - sca
+  - sast
+  - dependency-scan
+  - ruby
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk authentication token"
+primaryOutputDirectory: snyk-reports
+dockerfile: Dockerfile
+installCommands:
+  - snyk --version
+  - |
+    rbenv install -s ${RUBY_VERSION} && rbenv global ${RUBY_VERSION}
+    gem install bundler
+    if [ -f Gemfile.lock ]; then bundle install; fi
+commands:
+  - mkdir -p snyk-reports
+  - snyk auth ${SNYK_TOKEN}
+  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
+  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
+env:
+  SNYK_SEVERITY_THRESHOLD: high
+  RUBY_VERSION: "4.0.1"

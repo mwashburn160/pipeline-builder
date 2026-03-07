@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── AWS CLI ───
-RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip \
+RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscli.zip
@@ -35,8 +35,8 @@ RUN curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/
 RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.31.1
 
 # ─── rain for CloudFormation deployment (modern CLI) ───
-RUN curl -fsSL https://github.com/aws-cloudformation/rain/releases/download/v${RAIN_VERSION}/rain-v${RAIN_VERSION}_linux-amd64.zip \
-    -o /tmp/rain.zip && unzip -q /tmp/rain.zip -d /tmp && mv /tmp/rain-v${RAIN_VERSION}_linux-amd64/rain /usr/local/bin/rain && rm -rf /tmp/rain*
+RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://github.com/aws-cloudformation/rain/releases/download/v${RAIN_VERSION}/rain-v${RAIN_VERSION}_linux-${ARCH}.zip" \
+    -o /tmp/rain.zip && unzip -q /tmp/rain.zip -d /tmp && mv /tmp/rain-v${RAIN_VERSION}_linux-${ARCH}/rain /usr/local/bin/rain && rm -rf /tmp/rain*
 
 # ─── Runtime configuration defaults ───
 ENV CFN_TEMPLATE=""

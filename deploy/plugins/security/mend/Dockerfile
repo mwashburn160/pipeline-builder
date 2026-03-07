@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Mend CLI (direct binary download) ───
-RUN curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend \
+RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://downloads.mend.io/cli/linux_${ARCH}/mend" -o /usr/local/bin/mend \
     && chmod +x /usr/local/bin/mend
 
 # Non-sensitive config only

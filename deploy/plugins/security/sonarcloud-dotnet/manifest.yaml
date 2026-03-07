@@ -1,0 +1,51 @@
+name: sonarcloud-dotnet
+description: SonarCloud code quality and security analysis for .NET projects using AWS CDK with CodeBuildStep
+keywords:
+  - sonarcloud
+  - sonar
+  - security
+  - code-quality
+  - sast
+  - dotnet
+  - csharp
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: SONAR_TOKEN
+    required: true
+    description: "SonarCloud authentication token"
+primaryOutputDirectory: .scannerwork
+dockerfile: Dockerfile
+installCommands:
+  - |
+    SCANNER_DIR=$(find /opt/sonar-scanner/versions -maxdepth 1 -name "scanner-${SONAR_SCANNER_VERSION}*" -type d | head -1)
+    if [ -n "${SCANNER_DIR}" ]; then
+      ln -sf ${SCANNER_DIR}/bin/sonar-scanner /usr/local/bin/sonar-scanner
+    else
+      echo "SonarScanner ${SONAR_SCANNER_VERSION} not pre-installed."
+      exit 1
+    fi
+  - sonar-scanner --version
+  - dotnet --version
+  - |
+    if ls *.sln *.csproj 1>/dev/null 2>&1; then dotnet restore; fi
+commands:
+  - |
+    sonar-scanner \
+      -Dsonar.host.url=https://sonarcloud.io \
+      -Dsonar.token=${SONAR_TOKEN} \
+      -Dsonar.organization=${SONAR_ORGANIZATION} \
+      -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+      -Dsonar.sources=. \
+      -Dsonar.sourceEncoding=UTF-8
+  - "echo \"SonarCloud analysis complete.\""
+env:
+  SONAR_SCANNER_VERSION: "12.0"
+  SONAR_ORGANIZATION: ""
+  SONAR_PROJECT_KEY: ""
+  DOTNET_VERSION: "9.0"

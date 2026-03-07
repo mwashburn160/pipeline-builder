@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **96 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **115 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 ---
 
@@ -9,12 +9,12 @@ Pipeline Builder ships with **96 plugins** across **10 categories**, covering th
 | Category | Plugins | Description | Doc |
 |----------|---------|-------------|-----|
 | Language | 15 | Build, test, and compile across major languages | [language.md](language.md) |
-| Security | 17 | SAST, DAST, SCA, secret detection, container scanning, IaC scanning, license compliance | [security.md](security.md) |
+| Security | 35 | SAST, DAST, SCA, secret detection, container scanning, IaC scanning, license compliance | [security.md](security.md) |
 | Quality | 11 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
 | Monitoring | 5 | APM, observability, release tracking, deployment annotations | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 13 | Package publishing and container image push | [artifact.md](artifact.md) |
-| Deploy | 13 | Cloud provisioning, K8s, serverless, database migration, mobile builds | [deploy.md](deploy.md) |
-| Infrastructure | 5 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
+| Deploy | 15 | Cloud provisioning, K8s, serverless, database migration, mobile builds | [deploy.md](deploy.md) |
+| Infrastructure | 4 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
 | Testing | 8 | API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
 | Notification | 7 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub, etc.) | [notification.md](notification.md) |
 | AI | 2 | AI-powered Dockerfile generation (local + cloud) | [ai.md](ai.md) |

@@ -22,7 +22,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ollama (tar.zst — only format available since v0.17+)
-RUN curl -fsSL -L https://ollama.com/download/ollama-linux-amd64.tar.zst | tar --zstd -x -C /usr
+RUN ARCH=$(dpkg --print-architecture) && curl -fsSL -L "https://ollama.com/download/ollama-linux-${ARCH}.tar.zst" | tar --zstd -x -C /usr
 
 # Runtime configuration defaults
 # OLLAMA_MODEL: Which model to use for generation (must be pulled at runtime)

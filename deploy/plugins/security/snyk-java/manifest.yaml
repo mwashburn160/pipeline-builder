@@ -1,0 +1,42 @@
+name: snyk-java
+description: Snyk security scanning for Java/Kotlin projects using AWS CDK with CodeBuildStep
+keywords:
+  - snyk
+  - security
+  - vulnerability
+  - sca
+  - sast
+  - dependency-scan
+  - java
+  - kotlin
+  - maven
+  - gradle
+  - ci
+  - pipeline
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: SNYK_TOKEN
+    required: true
+    description: "Snyk authentication token"
+primaryOutputDirectory: snyk-reports
+dockerfile: Dockerfile
+installCommands:
+  - snyk --version
+  - |
+    source ${SDKMAN_DIR}/bin/sdkman-init.sh
+    sdk use java ${JAVA_VERSION}
+    if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
+    if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
+commands:
+  - mkdir -p snyk-reports
+  - snyk auth ${SNYK_TOKEN}
+  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
+  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
+env:
+  SNYK_SEVERITY_THRESHOLD: high
+  JAVA_VERSION: 21.0.10-tem

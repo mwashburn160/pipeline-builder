@@ -1,0 +1,36 @@
+name: trivy-python
+description: Trivy security scanning for Python projects using AWS CDK with CodeBuildStep
+keywords: [trivy, security, vulnerability, sca, python, ci, pipeline]
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: trivy-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
+      ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
+    else
+      curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+        | tar -xz -C /tmp && mv /tmp/trivy /usr/local/bin/trivy
+    fi
+  - trivy --version
+  - |
+    pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
+    python -m pip install --upgrade pip setuptools wheel
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
+    if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
+commands:
+  - mkdir -p trivy-reports
+  - trivy fs --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .
+  - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json . || true
+  - "echo \"Trivy scan complete. Reports available in trivy-reports/\""
+env:
+  TRIVY_VERSION: "0.69.3"
+  TRIVY_SEVERITY: HIGH,CRITICAL
+  TRIVY_FORMAT: json
+  PYTHON_VERSION: "3.14"

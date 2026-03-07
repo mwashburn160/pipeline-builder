@@ -1,5 +1,5 @@
 name: sonarcloud
-description: SonarCloud code quality and security analysis plugin for continuous inspection using AWS CDK with CodeBuildStep
+description: SonarCloud code quality and security analysis for Node.js and C++ projects using AWS CDK with CodeBuildStep. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, or sonarcloud-rust.
 keywords:
   - sonarcloud
   - sonar
@@ -7,12 +7,14 @@ keywords:
   - code-quality
   - sast
   - static-analysis
+  - nodejs
+  - cpp
   - ci
   - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
-computeType: MEDIUM
-timeout: 30
+computeType: SMALL
+timeout: 15
 failureBehavior: fail
 secrets:
   - name: SONAR_TOKEN
@@ -21,77 +23,22 @@ secrets:
 primaryOutputDirectory: .scannerwork
 dockerfile: Dockerfile
 installCommands:
-  # SonarScanner CLI version selection
   - |
     SCANNER_DIR=$(find /opt/sonar-scanner/versions -maxdepth 1 -name "scanner-${SONAR_SCANNER_VERSION}*" -type d | head -1)
     if [ -n "${SCANNER_DIR}" ]; then
       ln -sf ${SCANNER_DIR}/bin/sonar-scanner /usr/local/bin/sonar-scanner
     else
       echo "SonarScanner ${SONAR_SCANNER_VERSION} not pre-installed."
-      echo "Pre-installed versions:"
       ls /opt/sonar-scanner/versions/ 2>/dev/null || echo "  (none)"
-      echo "Please use a pre-installed version (11.5 or 12.0)."
       exit 1
     fi
   - sonar-scanner --version
-  # Language runtime activation based on LANGUAGE key
   - |
-    case "${LANGUAGE}" in
-      python)
-        echo "Activating Python ${LANGUAGE_VERSION:-3.14}..."
-        pyenv install -s ${LANGUAGE_VERSION:-3.14} && pyenv global ${LANGUAGE_VERSION:-3.14}
-        python -m pip install --upgrade pip setuptools wheel
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
-        if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
-        ;;
-      java)
-        echo "Activating Java ${LANGUAGE_VERSION:-21.0.10-tem}..."
-        source ${SDKMAN_DIR}/bin/sdkman-init.sh
-        sdk use java ${LANGUAGE_VERSION:-21.0.10-tem}
-        if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
-        if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
-        ;;
-      go)
-        echo "Activating Go ${LANGUAGE_VERSION:-1.24.13}..."
-        goenv install -s ${LANGUAGE_VERSION:-1.24.13} && goenv global ${LANGUAGE_VERSION:-1.24.13}
-        if [ -f go.mod ]; then go mod download; fi
-        ;;
-      dotnet)
-        echo "Activating .NET ${LANGUAGE_VERSION:-8.0}..."
-        if ! dotnet --list-sdks | grep -q "^${LANGUAGE_VERSION:-8.0}"; then
-          /tmp/dotnet-install.sh --channel ${LANGUAGE_VERSION:-8.0} --install-dir /opt/dotnet 2>/dev/null || true
-        fi
-        dotnet --version
-        if [ -f *.sln ] || [ -f *.csproj ]; then dotnet restore; fi
-        ;;
-      cpp)
-        echo "Activating C++ build environment..."
-        gcc --version | head -1
-        cmake --version | head -1
-        if [ -f CMakeLists.txt ]; then mkdir -p build && cd build && cmake .. && cd ..; fi
-        if [ -f Makefile ]; then make -j$(nproc); fi
-        if [ -f conanfile.txt ] || [ -f conanfile.py ]; then pip install conan && conan install .; fi
-        ;;
-      ruby)
-        echo "Activating Ruby ${LANGUAGE_VERSION:-4.0.1}..."
-        rbenv install -s ${LANGUAGE_VERSION:-4.0.1} && rbenv global ${LANGUAGE_VERSION:-4.0.1}
-        gem install bundler
-        if [ -f Gemfile.lock ]; then bundle install; fi
-        ;;
-      rust)
-        echo "Activating Rust ${LANGUAGE_VERSION:-stable}..."
-        rustup default ${LANGUAGE_VERSION:-stable}
-        rustc --version
-        if [ -f Cargo.toml ]; then cargo fetch; fi
-        ;;
-      nodejs|*)
-        echo "Using Node.js (default)..."
-        if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
-        if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
-        if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
-        ;;
-    esac
+    if [ -f package-lock.json ]; then npm ci
+    elif [ -f package.json ]; then npm install
+    fi
+    if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
+    if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
 commands:
   - |
     sonar-scanner \
@@ -102,11 +49,7 @@ commands:
       -Dsonar.sources=. \
       -Dsonar.sourceEncoding=UTF-8
   - "echo \"SonarCloud analysis complete. Results available at https://sonarcloud.io/project/overview?id=${SONAR_PROJECT_KEY}\""
-# SONAR_TOKEN must be provided at runtime via CodeBuild secrets or environment variables
-# Do NOT define SONAR_TOKEN here or in the Dockerfile
 env:
   SONAR_SCANNER_VERSION: "12.0"
   SONAR_ORGANIZATION: ""
   SONAR_PROJECT_KEY: ""
-  LANGUAGE: nodejs
-  LANGUAGE_VERSION: ""
