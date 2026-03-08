@@ -1,3 +1,17 @@
+## 1.36.8 (2026-03-08)
+
+### 🩹 Fixes
+
+- upgraded pipeline-data=1.38.7 ([046bbaec](https://github.com/mwashburn160/pipeline-builder/commit/046bbaec))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.38.8
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.7 (2026-03-07)
 
 ### 🩹 Fixes
