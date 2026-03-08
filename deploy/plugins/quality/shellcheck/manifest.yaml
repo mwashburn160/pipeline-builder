@@ -1,14 +1,10 @@
 name: shellcheck
 description: ShellCheck shell script linting plugin for detecting bugs, syntax issues, and portability problems in bash, sh, and zsh scripts using AWS CDK CodeBuildStep
 keywords:
-  - shellcheck
-  - shell
   - bash
-  - lint
-  - script
-  - code-quality
-  - ci
-  - pipeline
+  - shell
+  - linter
+  - bug-detection
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -3,12 +3,8 @@ description: Rust plugin for building and testing Rust applications using Cargo 
 keywords:
   - rust
   - cargo
-  - rustup
   - build
   - test
-  - ci
-  - pipeline
-  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

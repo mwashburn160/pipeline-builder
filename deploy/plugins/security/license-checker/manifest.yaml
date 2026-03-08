@@ -4,13 +4,7 @@ keywords:
   - license
   - compliance
   - oss
-  - dependency
-  - legal
-  - gpl
-  - mit
-  - apache
-  - ci
-  - pipeline
+  - dependency-scan
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

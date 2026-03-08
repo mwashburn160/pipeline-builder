@@ -1,14 +1,10 @@
 name: eslint
 description: ESLint JavaScript and TypeScript linting plugin for enforcing code quality and style standards using AWS CDK CodeBuildStep
 keywords:
-  - eslint
-  - lint
   - javascript
   - typescript
+  - linter
   - code-quality
-  - style
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

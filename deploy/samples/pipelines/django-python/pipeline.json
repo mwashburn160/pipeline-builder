@@ -193,25 +193,6 @@
           },
           {
             "plugin": {
-              "name": "safety",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12"
-              }
-            },
-            "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "pip install safety",
-              "safety check"
-            ]
-          },
-          {
-            "plugin": {
               "name": "git-secrets",
               "filter": {
                 "version": "1.0.0",
@@ -232,7 +213,7 @@
         "steps": [
           {
             "plugin": {
-              "name": "twine-publish",
+              "name": "pypi-publish",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
@@ -249,25 +230,6 @@
               "pip install build twine",
               "python -m build",
               "twine upload dist/*"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "mkdocs-build",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "pip install mkdocs mkdocs-material",
-              "mkdocs build --strict"
             ]
           }
         ]

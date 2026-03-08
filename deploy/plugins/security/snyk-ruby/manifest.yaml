@@ -1,15 +1,10 @@
 name: snyk-ruby
 description: Snyk security scanning for Ruby projects using AWS CDK with CodeBuildStep
 keywords:
-  - snyk
-  - security
-  - vulnerability
-  - sca
-  - sast
-  - dependency-scan
   - ruby
-  - ci
-  - pipeline
+  - sca
+  - vulnerability
+  - dependency-scan
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

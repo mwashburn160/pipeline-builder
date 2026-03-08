@@ -1,14 +1,10 @@
 name: helm-deploy
 description: Helm chart deployment plugin for Kubernetes with install, upgrade, uninstall, and template actions including EKS authentication support via AWS CDK CodeBuildStep
 keywords:
-  - helm
   - kubernetes
-  - deploy
-  - k8s
+  - helm
   - chart
-  - eks
-  - ci
-  - pipeline
+  - deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

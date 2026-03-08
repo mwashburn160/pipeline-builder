@@ -1,15 +1,10 @@
 name: artillery
 description: Artillery load testing plugin for running HTTP and WebSocket performance tests with configurable scenarios and reporting using AWS CDK CodeBuildStep
 keywords:
-  - artillery
-  - load-testing
+  - load-test
   - performance
   - http
   - websocket
-  - api
-  - benchmark
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

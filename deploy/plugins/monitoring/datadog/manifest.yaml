@@ -2,13 +2,9 @@ name: datadog
 description: Datadog deployment tracking plugin for sending deploy events and markers to Datadog APM for observability and release correlation using AWS CDK CodeBuildStep
 keywords:
   - datadog
-  - monitoring
-  - deploy
+  - deploy-tracking
   - apm
-  - metrics
   - observability
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

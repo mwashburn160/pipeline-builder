@@ -2,13 +2,9 @@ name: github-status
 description: GitHub commit status and check run plugin for posting build results back to pull requests and commits using AWS CDK CodeBuildStep
 keywords:
   - github
-  - status
-  - check
-  - pr
-  - commit
+  - commit-status
+  - check-run
   - notification
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

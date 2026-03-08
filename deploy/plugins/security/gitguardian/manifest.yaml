@@ -1,14 +1,10 @@
 name: gitguardian
 description: GitGuardian enterprise secret detection plugin for scanning code repositories for hardcoded credentials and API keys using AWS CDK CodeBuildStep
 keywords:
-  - gitguardian
-  - secrets
+  - secret-detection
   - credentials
-  - security
   - enterprise
-  - ggshield
-  - ci
-  - pipeline
+  - api-keys
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

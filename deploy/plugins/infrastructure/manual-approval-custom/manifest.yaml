@@ -3,11 +3,8 @@ description: Custom pipeline approval gate using SNS/SSM polling — publishes a
 keywords:
   - approval
   - gate
-  - manual
-  - pipeline
-  - infrastructure
   - sns
-  - ci
+  - ssm
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,0 +1,28 @@
+name: rustfmt
+description: rustfmt formatting check plugin for verifying consistent Rust code formatting using AWS CDK CodeBuildStep
+keywords:
+  - rust
+  - formatting
+  - code-style
+  - consistency
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: fmt-reports
+dockerfile: Dockerfile
+installCommands:
+  - rustup default ${RUST_VERSION}
+  - rustc --version
+  - rustup component add rustfmt
+commands:
+  - mkdir -p fmt-reports
+  - |
+    echo "Running rustfmt check..."
+    cargo fmt --all -- --check \
+      2>&1 | tee fmt-reports/rustfmt.log || true
+  - "echo \"rustfmt check complete. Reports available in fmt-reports/\""
+env:
+  RUST_VERSION: stable

@@ -1,18 +1,10 @@
 name: cpp
 description: C/C++ plugin for building and testing C/C++ applications using CMake, Make, or Meson with AWS CDK CodeBuildStep
 keywords:
-  - cpp
-  - c
+  - c++
   - cmake
   - make
-  - meson
-  - gcc
-  - clang
   - build
-  - test
-  - ci
-  - pipeline
-  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

@@ -1,0 +1,31 @@
+name: go-test
+description: Go test runner plugin for executing unit and integration tests with coverage reporting using AWS CDK CodeBuildStep
+keywords:
+  - go
+  - unit-test
+  - integration-test
+  - coverage
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: test-reports
+dockerfile: Dockerfile
+installCommands:
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  - go install github.com/jstemmer/go-junit-report/v2@latest
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - mkdir -p test-reports
+  - |
+    echo "Running go test..."
+    go test -v -coverprofile=test-reports/coverage.out ./... \
+      2>&1 | tee test-reports/go-test.log
+    cat test-reports/go-test.log | go-junit-report > test-reports/junit.xml 2>/dev/null || true
+  - "echo \"Go test complete. Reports available in test-reports/\""
+env:
+  GO_VERSION: "1.24.13"
+  GOFLAGS: "-count=1"

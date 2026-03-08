@@ -1,7 +1,7 @@
 {
   "project": "aspnetcore",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes code analysis, multi-TFM testing, container scanning, and NuGet publishing.",
+  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes code analysis, multi-TFM testing, security scanning, and NuGet publishing.",
   "keywords": [
     "dotnet",
     "csharp",
@@ -87,25 +87,6 @@
             "commands": [
               "dotnet build /p:TreatWarningsAsErrors=true /p:EnforceCodeStyleInBuild=true"
             ]
-          },
-          {
-            "plugin": {
-              "name": "dotnet-outdated",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "8.0"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "ignore",
-            "commands": [
-              "dotnet tool install --global dotnet-outdated-tool",
-              "dotnet outdated"
-            ]
           }
         ]
       },
@@ -184,26 +165,6 @@
           },
           {
             "plugin": {
-              "name": "snyk",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "SNYK_SEVERITY_THRESHOLD": "high"
-              }
-            },
-            "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "npm install -g snyk",
-              "snyk test --severity-threshold=high --file=aspnetcore.sln"
-            ]
-          },
-          {
-            "plugin": {
               "name": "trivy",
               "filter": {
                 "version": "1.0.0",
@@ -246,24 +207,6 @@
             "commands": [
               "docker build -t dotnet/aspnetcore:latest .",
               "docker tag dotnet/aspnetcore:latest dotnet/aspnetcore:$(date +%Y%m%d)"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "container-scan",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "IMAGE": "dotnet/aspnetcore:latest"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "trivy image --severity HIGH,CRITICAL dotnet/aspnetcore:latest"
             ]
           }
         ]

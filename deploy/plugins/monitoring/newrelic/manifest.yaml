@@ -2,12 +2,9 @@ name: newrelic
 description: New Relic deployment marker plugin for recording deployments and correlating releases with application performance metrics using AWS CDK CodeBuildStep
 keywords:
   - newrelic
-  - monitoring
-  - deploy
+  - deploy-marker
   - apm
   - observability
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

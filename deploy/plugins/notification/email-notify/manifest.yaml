@@ -5,10 +5,6 @@ keywords:
   - ses
   - smtp
   - notification
-  - alert
-  - aws
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -46,21 +42,7 @@ commands:
         ;;
       smtp)
         echo "Sending email via SMTP..."
-        python3 -c "
-import smtplib, os
-from email.mime.text import MIMEText
-msg = MIMEText('${BODY}'.replace('\\\\n', '\\n'))
-msg['Subject'] = '${SUBJECT}'
-msg['From'] = '${EMAIL_FROM}'
-msg['To'] = '${EMAIL_TO}'
-server = smtplib.SMTP(os.environ.get('SMTP_HOST', 'localhost'), int(os.environ.get('SMTP_PORT', '587')))
-server.starttls()
-pwd = os.environ.get('SMTP_PASSWORD', '')
-if pwd: server.login('${EMAIL_FROM}', pwd)
-server.send_message(msg)
-server.quit()
-print('Email sent successfully')
-" || true
+        python3 -c "import smtplib, os; from email.mime.text import MIMEText; body=os.environ.get('BODY','Pipeline notification'); msg=MIMEText(body); msg['Subject']=os.environ.get('SUBJECT','Pipeline Notification'); msg['From']=os.environ.get('EMAIL_FROM',''); msg['To']=os.environ.get('EMAIL_TO',''); s=smtplib.SMTP(os.environ.get('SMTP_HOST','localhost'),int(os.environ.get('SMTP_PORT','587'))); s.starttls(); pwd=os.environ.get('SMTP_PASSWORD',''); pwd and s.login(msg['From'],pwd); s.send_message(msg); s.quit(); print('Email sent')" || true
         ;;
       *)
         echo "ERROR: Unknown EMAIL_PROVIDER '${EMAIL_PROVIDER}'. Supported: ses, smtp"

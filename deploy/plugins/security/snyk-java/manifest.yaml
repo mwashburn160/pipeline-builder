@@ -1,18 +1,10 @@
 name: snyk-java
 description: Snyk security scanning for Java/Kotlin projects using AWS CDK with CodeBuildStep
 keywords:
-  - snyk
-  - security
-  - vulnerability
-  - sca
-  - sast
-  - dependency-scan
   - java
-  - kotlin
-  - maven
-  - gradle
-  - ci
-  - pipeline
+  - sca
+  - vulnerability
+  - dependency-scan
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

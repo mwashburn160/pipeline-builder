@@ -3,14 +3,8 @@ description: Java and Kotlin plugin for building and testing JVM applications us
 keywords:
   - java
   - kotlin
-  - jvm
   - maven
   - gradle
-  - junit
-  - spring
-  - ktor
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

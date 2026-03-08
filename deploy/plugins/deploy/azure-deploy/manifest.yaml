@@ -2,14 +2,9 @@ name: azure-deploy
 description: Azure infrastructure deployment plugin supporting Web App, Container Instances, AKS, and Function deployments with Azure CLI and kubectl using AWS CDK CodeBuildStep
 keywords:
   - azure
-  - microsoft
-  - cloud
-  - deploy
-  - infrastructure
-  - aks
   - webapp
-  - ci
-  - pipeline
+  - aks
+  - deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

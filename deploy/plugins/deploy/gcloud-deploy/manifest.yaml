@@ -2,13 +2,9 @@ name: gcloud-deploy
 description: Google Cloud Platform deployment plugin supporting App Engine, Cloud Run, GKE, and Compute Engine deployments with gcloud SDK, kubectl, and Terraform using AWS CDK CodeBuildStep
 keywords:
   - gcp
-  - google
-  - cloud
+  - cloud-run
+  - gke
   - deploy
-  - gcloud
-  - infrastructure
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

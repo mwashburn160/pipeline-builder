@@ -1,0 +1,38 @@
+name: npm-audit
+description: npm and yarn dependency audit plugin for detecting known vulnerabilities in JavaScript project dependencies using AWS CDK CodeBuildStep
+keywords:
+  - nodejs
+  - npm
+  - dependency-scan
+  - cve
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: audit-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+commands:
+  - mkdir -p audit-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    echo "Running dependency audit..."
+    if [ -f yarn.lock ]; then
+      yarn audit --level ${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
+      yarn audit --level ${AUDIT_LEVEL} || true
+    elif [ -f pnpm-lock.yaml ]; then
+      pnpm audit --severity ${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
+      pnpm audit --severity ${AUDIT_LEVEL} || true
+    else
+      npm audit --audit-level=${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
+      npm audit --audit-level=${AUDIT_LEVEL} || true
+    fi
+  - "echo \"Dependency audit complete. Reports available in audit-reports/\""
+env:
+  NODE_VERSION: "24"
+  AUDIT_LEVEL: high

@@ -1,15 +1,10 @@
 name: sonarcloud-dotnet
 description: SonarCloud code quality and security analysis for .NET projects using AWS CDK with CodeBuildStep
 keywords:
-  - sonarcloud
-  - sonar
-  - security
-  - code-quality
-  - sast
   - dotnet
-  - csharp
-  - ci
-  - pipeline
+  - code-quality
+  - security-analysis
+  - coverage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

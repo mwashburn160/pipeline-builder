@@ -1,6 +1,10 @@
 name: trivy-java
 description: Trivy security scanning for Java/Kotlin projects using AWS CDK with CodeBuildStep
-keywords: [trivy, security, vulnerability, sca, java, kotlin, ci, pipeline]
+keywords:
+  - java
+  - vulnerability
+  - dependency-scan
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

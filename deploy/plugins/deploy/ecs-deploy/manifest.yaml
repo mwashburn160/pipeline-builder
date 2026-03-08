@@ -1,15 +1,10 @@
 name: ecs-deploy
 description: Amazon ECS service deployment plugin for updating task definitions and services with rolling deployment strategies using AWS CDK CodeBuildStep
 keywords:
-  - ecs
   - aws
+  - ecs
   - container
   - deploy
-  - fargate
-  - task-definition
-  - service
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

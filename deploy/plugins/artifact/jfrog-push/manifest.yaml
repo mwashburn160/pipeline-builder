@@ -1,14 +1,10 @@
 name: jfrog-push
 description: Push container images to JFrog Artifactory Docker registry with JFrog CLI authentication using AWS CDK CodeBuildStep
 keywords:
+  - container
+  - docker
   - jfrog
   - artifactory
-  - container
-  - registry
-  - push
-  - docker
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

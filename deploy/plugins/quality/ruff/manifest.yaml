@@ -1,0 +1,31 @@
+name: ruff
+description: Ruff Python linter and formatter plugin for enforcing code quality and consistent formatting using AWS CDK CodeBuildStep
+keywords:
+  - python
+  - linter
+  - formatter
+  - code-quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  - pyenv global ${PYTHON_VERSION} && python --version
+  - pip install ruff
+commands:
+  - mkdir -p lint-reports
+  - |
+    echo "Running Ruff linter..."
+    ruff check . --output-format json > lint-reports/ruff-check.json 2>&1 || true
+    ruff check . 2>&1 | tee lint-reports/ruff-check.log || true
+  - |
+    echo "Running Ruff formatter check..."
+    ruff format --check . 2>&1 | tee lint-reports/ruff-format.log || true
+  - "echo \"Ruff analysis complete. Reports available in lint-reports/\""
+env:
+  PYTHON_VERSION: "3.14"
+  RUFF_CONFIG: pyproject.toml

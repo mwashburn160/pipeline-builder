@@ -3,13 +3,8 @@ description: AWS CDK single-region deployment plugin for synthesizing and deploy
 keywords:
   - aws
   - cdk
-  - deploy
   - cloudformation
-  - typescript
-  - infrastructure
-  - iac
-  - ci
-  - pipeline
+  - deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

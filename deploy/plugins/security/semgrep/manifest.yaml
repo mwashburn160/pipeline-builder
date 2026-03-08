@@ -1,15 +1,10 @@
 name: semgrep
 description: Semgrep open-source SAST plugin for fast, lightweight static analysis across 30+ languages with custom rule support using AWS CDK CodeBuildStep
 keywords:
-  - semgrep
   - sast
-  - security
-  - static-analysis
-  - code-scan
-  - open-source
   - multi-language
-  - ci
-  - pipeline
+  - custom-rules
+  - vulnerability
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

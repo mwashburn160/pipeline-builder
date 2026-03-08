@@ -3,14 +3,8 @@ description: Java and Kotlin plugin using Amazon Corretto JDK for building and t
 keywords:
   - java
   - kotlin
-  - jvm
   - corretto
   - aws
-  - maven
-  - gradle
-  - ktor
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

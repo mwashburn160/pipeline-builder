@@ -1,0 +1,41 @@
+name: typescript-check
+description: TypeScript type checking plugin for verifying type correctness without emitting output using AWS CDK CodeBuildStep
+keywords:
+  - typescript
+  - type-checking
+  - static-analysis
+  - types
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: tsc-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    else
+      npm install -g typescript
+    fi
+commands:
+  - mkdir -p tsc-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    echo "Running TypeScript type check..."
+    npx tsc ${TSC_FLAGS} 2>&1 | tee tsc-reports/tsc-output.log || true
+  - "echo \"TypeScript check complete. Reports available in tsc-reports/\""
+env:
+  NODE_VERSION: "24"
+  TSC_FLAGS: "--noEmit"

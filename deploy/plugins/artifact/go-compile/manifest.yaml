@@ -1,0 +1,32 @@
+name: go-compile
+description: Go binary compile plugin for compiling static Go binaries with cross-compilation support using AWS CDK CodeBuildStep
+keywords:
+  - go
+  - binary
+  - cross-compilation
+  - compile
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: bin
+dockerfile: Dockerfile
+installCommands:
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - mkdir -p bin
+  - |
+    echo "Building Go binary..."
+    CGO_ENABLED=${CGO_ENABLED} GOOS=${GOOS} GOARCH=${GOARCH} \
+      go build -ldflags='-s -w' -o bin/ ./... \
+      2>&1 | tee bin/build.log
+  - "echo \"Go build complete. Binaries available in bin/\""
+env:
+  GO_VERSION: "1.24.13"
+  CGO_ENABLED: "0"
+  GOOS: linux
+  GOARCH: amd64

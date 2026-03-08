@@ -1,14 +1,10 @@
 name: flyway
 description: Flyway database migration plugin supporting migrate, repair, info, validate, and clean actions via AWS CDK CodeBuildStep
 keywords:
-  - flyway
   - database
   - migration
-  - sql
+  - flyway
   - schema
-  - deploy
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

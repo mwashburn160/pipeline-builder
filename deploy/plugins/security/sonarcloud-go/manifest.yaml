@@ -1,15 +1,10 @@
 name: sonarcloud-go
 description: SonarCloud code quality and security analysis for Go projects using AWS CDK with CodeBuildStep
 keywords:
-  - sonarcloud
-  - sonar
-  - security
-  - code-quality
-  - sast
   - go
-  - golang
-  - ci
-  - pipeline
+  - code-quality
+  - security-analysis
+  - coverage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,15 +1,10 @@
 name: k6
 description: k6 performance and load testing plugin for running configurable load tests with virtual users, duration controls, and performance thresholds using AWS CDK CodeBuildStep
 keywords:
-  - k6
-  - load-testing
+  - load-test
   - performance
-  - stress-test
-  - grafana
-  - api
-  - benchmark
-  - ci
-  - pipeline
+  - virtual-users
+  - threshold
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

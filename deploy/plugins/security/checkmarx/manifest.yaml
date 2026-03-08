@@ -1,15 +1,10 @@
 name: checkmarx
 description: Checkmarx enterprise SAST and KICS infrastructure-as-code scanning plugin for detecting vulnerabilities in application code and IaC templates using AWS CDK CodeBuildStep
 keywords:
-  - checkmarx
   - sast
   - kics
-  - iac
-  - security
   - enterprise
-  - compliance
-  - ci
-  - pipeline
+  - vulnerability
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

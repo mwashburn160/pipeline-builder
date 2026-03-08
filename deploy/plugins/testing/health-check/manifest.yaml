@@ -1,14 +1,10 @@
 name: health-check
 description: Post-deployment health check and smoke testing plugin for verifying application endpoints are responsive and returning expected status codes using AWS CDK CodeBuildStep
 keywords:
-  - health-check
   - smoke-test
-  - deploy-verify
   - endpoint
   - http
-  - uptime
-  - ci
-  - pipeline
+  - post-deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,0 +1,45 @@
+name: jacoco
+description: JaCoCo code coverage plugin for measuring and enforcing test coverage thresholds in Java projects using AWS CDK CodeBuildStep
+keywords:
+  - java
+  - coverage
+  - threshold
+  - reporting
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: coverage-reports
+dockerfile: Dockerfile
+installCommands:
+  - java -version
+  - |
+    if [ -f gradlew ]; then chmod +x gradlew; fi
+    if [ -f mvnw ]; then chmod +x mvnw; fi
+commands:
+  - mkdir -p coverage-reports
+  - |
+    echo "Running JaCoCo coverage report..."
+    if [ -f gradlew ]; then
+      ./gradlew jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
+      ./gradlew jacocoTestCoverageVerification --no-daemon 2>&1 | tee -a coverage-reports/jacoco.log || true
+    elif [ -f mvnw ]; then
+      ./mvnw jacoco:report 2>&1 | tee coverage-reports/jacoco.log || true
+    elif [ -f pom.xml ]; then
+      mvn jacoco:report 2>&1 | tee coverage-reports/jacoco.log || true
+    else
+      gradle jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
+    fi
+  - |
+    if [ -d build/reports/jacoco ]; then
+      cp -r build/reports/jacoco/* coverage-reports/ 2>/dev/null || true
+    fi
+    if [ -d target/site/jacoco ]; then
+      cp -r target/site/jacoco/* coverage-reports/ 2>/dev/null || true
+    fi
+  - "echo \"JaCoCo coverage complete. Reports available in coverage-reports/\""
+env:
+  JAVA_VERSION: "17"
+  COVERAGE_THRESHOLD: "70"

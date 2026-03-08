@@ -2,12 +2,9 @@ name: teams-notify
 description: Microsoft Teams notification plugin for sending pipeline status alerts and build results to Teams channels via webhook using AWS CDK CodeBuildStep
 keywords:
   - teams
-  - microsoft
+  - webhook
   - notification
   - alert
-  - webhook
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

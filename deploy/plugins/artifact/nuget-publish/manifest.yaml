@@ -1,14 +1,10 @@
 name: nuget-publish
 description: NuGet package publish plugin for deploying .NET packages to NuGet Gallery or custom feeds using dotnet CLI with AWS CDK CodeBuildStep
 keywords:
-  - nuget
-  - publish
   - dotnet
-  - csharp
+  - nuget
   - package
-  - ci
-  - pipeline
-  - artifact
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

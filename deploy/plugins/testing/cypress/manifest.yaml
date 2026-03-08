@@ -1,15 +1,10 @@
 name: cypress
 description: Cypress end-to-end testing plugin for running browser-based UI tests with video recording and screenshot capture using AWS CDK CodeBuildStep
 keywords:
-  - cypress
   - e2e
-  - testing
   - browser
-  - frontend
-  - ui
-  - javascript
-  - ci
-  - pipeline
+  - ui-test
+  - video
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

@@ -1,0 +1,37 @@
+name: cargo-release
+description: Cargo release binary build plugin for compiling optimized Rust binaries with cross-compilation support using AWS CDK CodeBuildStep
+keywords:
+  - rust
+  - binary
+  - cross-compilation
+  - release
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: target/release
+dockerfile: Dockerfile
+installCommands:
+  - rustup default ${RUST_VERSION}
+  - rustc --version && cargo --version
+  - |
+    if [ -n "${TARGET}" ]; then
+      rustup target add ${TARGET}
+    fi
+  - if [ -f Cargo.toml ]; then cargo fetch; fi
+commands:
+  - |
+    echo "Building Rust release binary..."
+    TARGET_ARG=""
+    if [ -n "${TARGET}" ]; then
+      TARGET_ARG="--target ${TARGET}"
+    fi
+    cargo build --${CARGO_PROFILE} --all-features ${TARGET_ARG} \
+      2>&1 | tee target/release/cargo-build.log || true
+  - "echo \"Cargo build complete. Binaries available in target/release/\""
+env:
+  RUST_VERSION: stable
+  CARGO_PROFILE: release
+  TARGET: x86_64-unknown-linux-gnu

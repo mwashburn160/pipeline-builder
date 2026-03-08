@@ -1,0 +1,36 @@
+name: rubocop
+description: RuboCop linting and formatting plugin for enforcing Ruby code style and best practices using AWS CDK CodeBuildStep
+keywords:
+  - ruby
+  - linter
+  - code-style
+  - formatting
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  - rbenv global ${RUBY_VERSION} && ruby --version
+  - gem install rubocop
+  - if [ -f Gemfile ]; then bundle install; fi
+commands:
+  - mkdir -p lint-reports
+  - |
+    echo "Running RuboCop..."
+    CONFIG_ARG=""
+    if [ -n "${RUBOCOP_CONFIG}" ] && [ -f "${RUBOCOP_CONFIG}" ]; then
+      CONFIG_ARG="--config ${RUBOCOP_CONFIG}"
+    fi
+    rubocop --parallel ${CONFIG_ARG} \
+      --format json --out lint-reports/rubocop-results.json \
+      2>&1 || true
+    rubocop --parallel ${CONFIG_ARG} \
+      2>&1 | tee lint-reports/rubocop.log || true
+  - "echo \"RuboCop complete. Reports available in lint-reports/\""
+env:
+  RUBY_VERSION: "4.0.1"
+  RUBOCOP_CONFIG: ".rubocop.yml"

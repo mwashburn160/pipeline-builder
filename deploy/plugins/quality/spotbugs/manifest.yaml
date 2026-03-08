@@ -1,0 +1,36 @@
+name: spotbugs
+description: SpotBugs static analysis plugin for detecting bug patterns in Java bytecode using AWS CDK CodeBuildStep
+keywords:
+  - java
+  - static-analysis
+  - bug-detection
+  - bytecode
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: spotbugs-reports
+dockerfile: Dockerfile
+installCommands:
+  - java -version
+  - |
+    if [ -f gradlew ]; then chmod +x gradlew; fi
+    if [ -f mvnw ]; then chmod +x mvnw; fi
+commands:
+  - mkdir -p spotbugs-reports
+  - |
+    echo "Running SpotBugs analysis..."
+    if [ -f gradlew ]; then
+      ./gradlew spotbugsMain --no-daemon 2>&1 | tee spotbugs-reports/spotbugs.log || true
+    elif [ -f mvnw ]; then
+      ./mvnw spotbugs:check 2>&1 | tee spotbugs-reports/spotbugs.log || true
+    elif [ -f pom.xml ]; then
+      mvn spotbugs:check 2>&1 | tee spotbugs-reports/spotbugs.log || true
+    else
+      gradle spotbugsMain --no-daemon 2>&1 | tee spotbugs-reports/spotbugs.log || true
+    fi
+  - "echo \"SpotBugs analysis complete. Reports available in spotbugs-reports/\""
+env:
+  JAVA_VERSION: "17"

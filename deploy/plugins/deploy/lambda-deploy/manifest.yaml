@@ -1,15 +1,10 @@
 name: lambda-deploy
 description: AWS Lambda function deployment plugin for updating code, publishing versions, and managing aliases with zip or container image packaging using AWS CDK CodeBuildStep
 keywords:
-  - lambda
   - aws
+  - lambda
   - serverless
-  - function
   - deploy
-  - zip
-  - container
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

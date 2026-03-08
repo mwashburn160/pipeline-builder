@@ -1,14 +1,10 @@
 name: gem-publish
 description: RubyGems package publish plugin for deploying Ruby gems to RubyGems.org with dry-run support using AWS CDK CodeBuildStep
 keywords:
-  - gem
-  - publish
   - ruby
+  - gem
   - rubygems
-  - package
-  - ci
-  - pipeline
-  - artifact
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

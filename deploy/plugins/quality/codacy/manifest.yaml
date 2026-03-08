@@ -1,14 +1,10 @@
 name: codacy
 description: Codacy code quality and coverage reporting plugin for automated code review and coverage tracking using AWS CDK CodeBuildStep
 keywords:
-  - codacy
-  - coverage
   - code-quality
-  - reporting
-  - code-review
-  - ci
-  - pipeline
-  - quality
+  - coverage
+  - multi-language
+  - review
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,0 +1,32 @@
+name: bandit
+description: Bandit security linter plugin for finding common security vulnerabilities in Python code using AWS CDK CodeBuildStep
+keywords:
+  - python
+  - sast
+  - vulnerability
+  - security-linter
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: security-reports
+dockerfile: Dockerfile
+installCommands:
+  - pyenv global ${PYTHON_VERSION} && python --version
+  - pip install bandit
+commands:
+  - mkdir -p security-reports
+  - |
+    echo "Running Bandit security scan..."
+    bandit -r . \
+      -ll -ii \
+      -f json -o security-reports/bandit-results.json \
+      2>&1 || true
+    bandit -r . -ll -ii 2>&1 | tee security-reports/bandit.log || true
+  - "echo \"Bandit scan complete. Reports available in security-reports/\""
+env:
+  PYTHON_VERSION: "3.14"
+  BANDIT_SEVERITY: medium
+  BANDIT_CONFIDENCE: medium

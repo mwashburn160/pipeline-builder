@@ -1,16 +1,10 @@
 name: git-secrets
 description: Secret detection plugin using Gitleaks and TruffleHog to scan code repositories for leaked credentials, API keys, and sensitive data using AWS CDK CodeBuildStep
 keywords:
-  - secrets
   - gitleaks
   - trufflehog
-  - security
+  - secret-detection
   - credentials
-  - api-keys
-  - passwords
-  - leaks
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

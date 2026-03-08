@@ -12,10 +12,10 @@ An enterprise CI/CD pipeline for ASP.NET Core, Microsoft's cross-platform web fr
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Analysis** | dotnet-format, roslyn-analyzers, dotnet-outdated | Code formatting, static analysis, dependency freshness |
+| **Analysis** | dotnet-format, roslyn-analyzers | Code formatting and static analysis |
 | **Build-Test** | dotnet-test (x2) | Build + test on .NET 8 (primary) and .NET 9 (compat) |
-| **Security** | dotnet-security-scan, snyk, trivy | .NET security scanning, dependency and filesystem analysis |
-| **Container** | docker-build, container-scan | Docker image creation and vulnerability scanning |
+| **Security** | dotnet-security-scan, trivy | .NET security scanning and filesystem vulnerability analysis |
+| **Container** | docker-build | Docker image creation |
 | **Publish** | nuget-publish | Pack and push NuGet packages |
 
 ## Pipeline Flow
@@ -30,7 +30,5 @@ Source (GitHub) → Synth → Analysis → Build-Test → Security → Container
 - **LARGE compute** (15 GB / 8 vCPU) for the main build stage due to solution size
 - **Roslyn analyzers** with `TreatWarningsAsErrors` for strict code quality
 - **dotnet-format** for enforcing consistent code style
-- **Triple security scanning**: .NET-specific, Snyk dependency, and Trivy filesystem
-- **Container scanning** with Trivy on the built Docker image
+- **Dual security scanning**: .NET-specific analysis and Trivy filesystem scanning
 - **Docker privileged mode** enabled for container build stage
-- **dotnet-outdated** runs with `ignore` failure behavior (informational only)

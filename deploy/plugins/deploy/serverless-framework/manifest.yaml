@@ -2,14 +2,9 @@ name: serverless-framework
 description: Serverless Framework deployment plugin for deploying serverless applications to AWS, Azure, or GCP with stage and region configuration using AWS CDK CodeBuildStep
 keywords:
   - serverless
-  - framework
-  - aws
   - lambda
-  - api-gateway
+  - multi-cloud
   - deploy
-  - faas
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

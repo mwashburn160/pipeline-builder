@@ -1,16 +1,10 @@
 name: prisma-cloud
 description: Prisma Cloud (Palo Alto) container image and IaC security scanning plugin with Checkov for infrastructure compliance using AWS CDK CodeBuildStep
 keywords:
-  - prisma
-  - twistlock
-  - palo-alto
   - container
   - iac
-  - security
-  - compliance
   - checkov
-  - ci
-  - pipeline
+  - compliance
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

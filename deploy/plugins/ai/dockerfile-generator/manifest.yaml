@@ -4,11 +4,7 @@ keywords:
   - dockerfile
   - ai
   - ollama
-  - generator
-  - docker
-  - codegen
-  - ci
-  - pipeline
+  - code-generation
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

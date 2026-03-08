@@ -3,17 +3,8 @@ description: Java and Kotlin plugin using Oracle GraalVM JDK for building and te
 keywords:
   - java
   - kotlin
-  - jvm
-  - oracle
   - graalvm
   - native-image
-  - maven
-  - gradle
-  - quarkus
-  - micronaut
-  - ktor
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

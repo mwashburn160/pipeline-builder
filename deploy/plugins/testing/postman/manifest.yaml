@@ -1,15 +1,10 @@
 name: postman
 description: Postman API testing plugin using Newman CLI to run collection-based API contract tests with HTML and JUnit reporting using AWS CDK CodeBuildStep
 keywords:
-  - postman
+  - api-test
   - newman
-  - api
-  - testing
-  - contract
-  - integration
-  - rest
-  - ci
-  - pipeline
+  - contract-test
+  - collection
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -6,7 +6,7 @@
 
 ## Overview
 
-An enterprise-grade CI/CD pipeline for Spring Boot, the industry-standard Java application framework. Features multi-JDK compatibility testing (Java 17 + 21), static analysis, security scanning with OWASP, and Maven artifact publishing.
+An enterprise-grade CI/CD pipeline for Spring Boot, the industry-standard Java application framework. Features multi-JDK compatibility testing (Java 17 + 21), static analysis with Semgrep, OWASP dependency scanning, and Maven artifact publishing.
 
 ## Stages
 
@@ -15,8 +15,8 @@ An enterprise-grade CI/CD pipeline for Spring Boot, the industry-standard Java a
 | **Quality** | checkstyle, spotbugs | Code style enforcement and bug pattern detection |
 | **Build-Test** | java-corretto (x2) | Build and test on Java 17 (primary) and Java 21 (compat) |
 | **Coverage** | jacoco | Code coverage with 70% threshold verification |
-| **SAST** | sonarcloud, owasp-dependency-check | Static analysis and dependency vulnerability scanning |
-| **Publish** | maven-publish, gradle-build-scan | Artifact publishing and build analytics |
+| **SAST** | semgrep, dependency-check | Static analysis and dependency vulnerability scanning |
+| **Publish** | maven-publish | Artifact publishing |
 
 ## Pipeline Flow
 
@@ -31,4 +31,3 @@ Source (GitHub) → Synth → Quality → Build-Test → Coverage → SAST → P
 - **JaCoCo** with 70% coverage threshold
 - **OWASP Dependency Check** fails on CVSS score >= 7
 - **SpotBugs** and **OWASP** run with `warn` failure behavior for advisory reporting
-- **Gradle Build Scan** runs with `ignore` failure behavior (optional analytics)

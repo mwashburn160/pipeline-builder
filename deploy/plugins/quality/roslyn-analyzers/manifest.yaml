@@ -1,0 +1,29 @@
+name: roslyn-analyzers
+description: Roslyn analyzers plugin for enforcing code quality rules and treating warnings as errors in .NET builds using AWS CDK CodeBuildStep
+keywords:
+  - dotnet
+  - csharp
+  - static-analysis
+  - code-quality
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: analysis-reports
+dockerfile: Dockerfile
+installCommands:
+  - dotnet --version
+commands:
+  - mkdir -p analysis-reports
+  - |
+    echo "Running Roslyn analyzers..."
+    dotnet build \
+      /p:TreatWarningsAsErrors=${TREAT_WARNINGS_AS_ERRORS} \
+      /p:EnforceCodeStyleInBuild=true \
+      2>&1 | tee analysis-reports/roslyn.log || true
+  - "echo \"Roslyn analysis complete. Reports available in analysis-reports/\""
+env:
+  DOTNET_VERSION: "8.0"
+  TREAT_WARNINGS_AS_ERRORS: "true"

@@ -1,16 +1,10 @@
 name: trivy
 description: Trivy security scanning for Node.js, C++, and IaC projects using AWS CDK with CodeBuildStep. For other languages use trivy-python, trivy-java, trivy-go, trivy-dotnet, trivy-ruby, or trivy-rust.
 keywords:
-  - trivy
-  - security
-  - vulnerability
-  - sca
-  - sast
-  - iac
   - nodejs
-  - cpp
-  - ci
-  - pipeline
+  - container
+  - vulnerability
+  - dependency-scan
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

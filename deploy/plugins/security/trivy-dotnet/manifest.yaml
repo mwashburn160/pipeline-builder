@@ -1,6 +1,10 @@
 name: trivy-dotnet
 description: Trivy security scanning for .NET projects using AWS CDK with CodeBuildStep
-keywords: [trivy, security, vulnerability, sca, dotnet, csharp, ci, pipeline]
+keywords:
+  - dotnet
+  - vulnerability
+  - dependency-scan
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

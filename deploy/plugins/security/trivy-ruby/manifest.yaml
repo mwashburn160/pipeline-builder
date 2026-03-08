@@ -1,6 +1,10 @@
 name: trivy-ruby
 description: Trivy security scanning for Ruby projects using AWS CDK with CodeBuildStep
-keywords: [trivy, security, vulnerability, sca, ruby, ci, pipeline]
+keywords:
+  - ruby
+  - vulnerability
+  - dependency-scan
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

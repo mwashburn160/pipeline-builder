@@ -1,15 +1,10 @@
 name: sonarcloud-rust
 description: SonarCloud code quality and security analysis for Rust projects using AWS CDK with CodeBuildStep
 keywords:
-  - sonarcloud
-  - sonar
-  - security
-  - code-quality
-  - sast
   - rust
-  - cargo
-  - ci
-  - pipeline
+  - code-quality
+  - security-analysis
+  - coverage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -3,15 +3,8 @@ description: AWS CDK multi-region deployment plugin for deploying CDK stacks acr
 keywords:
   - aws
   - cdk
-  - deploy
   - multi-region
-  - cloudformation
-  - typescript
-  - infrastructure
-  - iac
-  - global
-  - ci
-  - pipeline
+  - deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE
