@@ -6,27 +6,27 @@
 
 ## Overview
 
-A production-ready CI/CD pipeline for Django, the popular Python web framework. Features modern Python tooling with Ruff for linting, multi-version testing (Python 3.11 + 3.12), security scanning with Bandit and Safety, and PyPI publishing.
+A CI/CD pipeline for Django, the popular Python web framework. Includes testing with coverage, linting with Ruff, security scanning with Bandit, and PyPI publishing.
 
 ## Stages
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
+| **Test** | python-pytest, coverage-py | Test execution and 75% coverage threshold |
 | **Lint** | ruff, mypy | Fast linting/formatting and static type checking |
-| **Unit-Test** | python-pytest (x2) | Test execution on Python 3.12 (primary) and 3.11 (compat) |
-| **Coverage** | coverage-py | Code coverage with 75% threshold |
-| **Security** | bandit, git-secrets | SAST and secret detection |
-| **Package** | pypi-publish | PyPI publishing |
+| **Security** | bandit, git-secrets | Python SAST and secret detection |
+| **Publish** | pypi-publish | PyPI publishing |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Lint → Unit-Test → Coverage → Security → Package
+Source (GitHub) → Synth → Test → Lint → Security → Publish
 ```
 
 ## Key Configuration
 
-- **Python 3.12** as primary version, with **Python 3.11** compatibility testing
+- **Python 3.12** across all stages
 - **Ruff** for fast linting and formatting (replaces flake8 + black + isort)
 - **mypy** with django-stubs for type checking (advisory mode)
 - **Bandit** for Python-specific security analysis
+- **75% coverage threshold** enforced via coverage-py

@@ -1,15 +1,12 @@
 {
   "project": "spring-boot",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for spring-projects/spring-boot - an opinionated Java framework for building production-ready applications. Includes code quality analysis, multi-JDK testing, security scanning, and Maven artifact publishing.",
+  "description": "CI/CD pipeline for spring-projects/spring-boot - an opinionated Java framework for building production-ready applications. Includes building, testing, code quality analysis, security scanning, and Maven artifact publishing.",
   "keywords": [
     "java",
-    "spring",
     "spring-boot",
-    "maven",
-    "gradle",
-    "enterprise",
-    "backend"
+    "backend",
+    "web-api"
   ],
   "accessModifier": "public",
   "props": {
@@ -48,7 +45,81 @@
     },
     "stages": [
       {
-        "stageName": "Quality",
+        "stageName": "Build",
+        "steps": [
+          {
+            "plugin": {
+              "name": "java-corretto",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "corretto-17",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "GRADLE_OPTS": "-Xmx4g -XX:MaxMetaspaceSize=512m",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "./gradlew assemble --no-daemon --parallel"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "java-corretto",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "corretto-17",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "GRADLE_OPTS": "-Xmx4g -XX:MaxMetaspaceSize=512m",
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 45,
+            "commands": [
+              "./gradlew test --no-daemon --parallel"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "jacoco",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "JAVA_VERSION": "17",
+                "COVERAGE_THRESHOLD": "70"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "./gradlew jacocoTestReport",
+              "./gradlew jacocoTestCoverageVerification"
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Lint",
         "steps": [
           {
             "plugin": {
@@ -81,7 +152,7 @@
                 "JAVA_VERSION": "17"
               }
             },
-            "position": "pre",
+            "position": "post",
             "failureBehavior": "warn",
             "commands": [
               "./gradlew spotbugsMain"
@@ -90,81 +161,7 @@
         ]
       },
       {
-        "stageName": "Build-Test",
-        "steps": [
-          {
-            "plugin": {
-              "name": "java-corretto",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "corretto-17",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "JAVA_VERSION": "17",
-                "GRADLE_OPTS": "-Xmx4g -XX:MaxMetaspaceSize=512m",
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 45,
-            "commands": [
-              "./gradlew build -x checkstyleMain -x checkstyleTest --no-daemon --parallel"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "java-corretto",
-              "alias": "java21-compat",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "corretto-21",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "JAVA_VERSION": "21",
-                "GRADLE_OPTS": "-Xmx4g"
-              }
-            },
-            "position": "post",
-            "timeout": 45,
-            "failureBehavior": "warn",
-            "commands": [
-              "./gradlew build -x checkstyleMain -x checkstyleTest --no-daemon --parallel"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Coverage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "jacoco",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "JAVA_VERSION": "17",
-                "COVERAGE_THRESHOLD": "70"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "./gradlew jacocoTestReport",
-              "./gradlew jacocoTestCoverageVerification"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "SAST",
+        "stageName": "Security",
         "steps": [
           {
             "plugin": {
@@ -198,10 +195,24 @@
                 "FAIL_ON_CVSS": "7"
               }
             },
-            "position": "post",
+            "position": "pre",
             "failureBehavior": "warn",
             "commands": [
               "./gradlew dependencyCheckAnalyze"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              }
+            },
+            "position": "post",
+            "commands": [
+              "git secrets --scan"
             ]
           }
         ]

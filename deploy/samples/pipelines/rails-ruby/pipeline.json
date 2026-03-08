@@ -1,14 +1,12 @@
 {
   "project": "rails",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for rails/rails - a full-stack web application framework written in Ruby. Includes RuboCop linting, multi-database testing, security scanning with Brakeman, and gem publishing.",
+  "description": "CI/CD pipeline for rails/rails - a full-stack web application framework written in Ruby. Includes testing, linting, security scanning with Brakeman, and gem publishing.",
   "keywords": [
     "ruby",
     "rails",
-    "web-framework",
-    "mvc",
-    "activerecord",
-    "full-stack"
+    "backend",
+    "web-app"
   ],
   "accessModifier": "public",
   "props": {
@@ -47,32 +45,7 @@
     },
     "stages": [
       {
-        "stageName": "Lint",
-        "steps": [
-          {
-            "plugin": {
-              "name": "rubocop",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3",
-                "RUBOCOP_CONFIG": ".rubocop.yml"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "bundle install",
-              "bundle exec rubocop --parallel"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Test-SQLite",
+        "stageName": "Test",
         "steps": [
           {
             "plugin": {
@@ -96,79 +69,30 @@
               "bundle exec rake db:create db:migrate",
               "bundle exec rails test"
             ]
-          },
-          {
-            "plugin": {
-              "name": "minitest-coverage",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3",
-                "COVERAGE_THRESHOLD": "70"
-              }
-            },
-            "position": "post",
-            "commands": [
-              "bundle install",
-              "COVERAGE=true bundle exec rails test"
-            ]
           }
         ]
       },
       {
-        "stageName": "Test-PostgreSQL",
+        "stageName": "Lint",
         "steps": [
           {
             "plugin": {
-              "name": "rails-test",
-              "alias": "rails-test-pg",
+              "name": "rubocop",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "ruby-3.3-pg",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "RUBY_VERSION": "3.3",
-                "DATABASE_ADAPTER": "postgresql",
-                "DATABASE_URL": "postgres://localhost:5432/rails_test",
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+                "RUBOCOP_CONFIG": ".rubocop.yml"
               }
             },
             "position": "pre",
-            "timeout": 40,
             "commands": [
               "bundle install",
-              "bundle exec rake db:create db:migrate",
-              "bundle exec rails test"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "rails-test",
-              "alias": "rails-test-mysql",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "ruby-3.3-mysql",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3",
-                "DATABASE_ADAPTER": "mysql2",
-                "DATABASE_URL": "mysql2://localhost:3306/rails_test"
-              }
-            },
-            "position": "post",
-            "timeout": 40,
-            "failureBehavior": "warn",
-            "commands": [
-              "bundle install",
-              "bundle exec rake db:create db:migrate",
-              "bundle exec rails test"
+              "bundle exec rubocop --parallel"
             ]
           }
         ]
@@ -221,8 +145,7 @@
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true
-              },
-              "metadata": {}
+              }
             },
             "position": "post",
             "commands": [
@@ -240,15 +163,17 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "RUBY_VERSION": "3.3",
                 "GEM_HOST": "https://rubygems.org"
               }
             },
-            "position": "post",
+            "position": "pre",
             "commands": [
+              "gem build *.gemspec",
               "gem push *.gem"
             ]
           }

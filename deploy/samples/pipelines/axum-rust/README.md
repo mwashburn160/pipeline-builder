@@ -6,28 +6,27 @@
 
 ## Overview
 
-A thorough CI/CD pipeline for Axum, the ergonomic Rust web framework built on Tokio. Includes Clippy linting, multi-toolchain testing (stable + MSRV), dependency auditing, and crates.io publishing.
+A CI/CD pipeline for Axum, the ergonomic Rust web framework built on Tokio. Includes building with Docker containerization, testing, Clippy linting, dependency auditing, and crates.io publishing.
 
 ## Stages
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
+| **Build** | cargo-release, docker-build | Release binary compilation and container packaging |
+| **Test** | cargo-test | Workspace test execution |
 | **Lint** | clippy, rustfmt | Lint warnings and formatting checks |
-| **Test** | cargo-test (x2) | Workspace tests on stable and MSRV (1.75.0) |
-| **Safety** | cargo-audit | Dependency audit |
-| **Build** | cargo-build, docker-build | Release binary compilation and container packaging |
+| **Security** | cargo-audit, git-secrets | Dependency audit and secret detection |
 | **Publish** | cargo-publish | Dry-run publish to crates.io |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Lint → Test → Safety → Build → Publish
+Source (GitHub) → Synth → Build → Test → Lint → Security → Publish
 ```
 
 ## Key Configuration
 
 - **Stable Rust** for primary builds, **nightly** for rustfmt
-- **MSRV testing** at Rust 1.75.0 to verify minimum supported version
 - **Clippy** with `-D warnings` to treat all warnings as errors
 - **cargo-audit** for known vulnerability scanning in dependency tree
 - **MEDIUM compute** (7 GB / 4 vCPU) for compilation-heavy stages

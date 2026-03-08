@@ -6,21 +6,21 @@
 
 ## Overview
 
-A comprehensive CI/CD pipeline for Gin, the fastest Go HTTP framework. Includes Go-native static analysis, testing, container image building, and security scanning with Go-specific tools.
+A CI/CD pipeline for Gin, the fastest Go HTTP framework. Includes building with Docker containerization, testing, linting, and Go-native security scanning.
 
 ## Stages
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Static-Analysis** | golangci-lint, govulncheck | Comprehensive linting and vulnerability detection |
-| **Test** | go-test | Unit tests with coverage |
 | **Build** | go-compile, docker-build | Static binary compilation and container image creation |
-| **Security** | trivy, gosec | Filesystem scanning and Go-specific security analysis |
+| **Test** | go-test | Unit tests with coverage |
+| **Lint** | golangci-lint | Comprehensive Go linting |
+| **Security** | govulncheck, gosec, git-secrets | Vulnerability detection, SAST, and secret detection |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Static-Analysis → Test → Build → Security
+Source (GitHub) → Synth → Build → Test → Lint → Security
 ```
 
 ## Key Configuration
@@ -29,5 +29,5 @@ Source (GitHub) → Synth → Static-Analysis → Test → Build → Security
 - **CGO disabled** for fully static Linux/amd64 binary
 - **golangci-lint** for comprehensive Go linting (replaces individual linters)
 - **govulncheck** for Go module vulnerability scanning
-- **gosec** for Go-specific security issues (SQL injection, crypto, etc.)
-- **Docker privileged mode** enabled for container build stage
+- **gosec** for Go-specific security issues
+- **Docker privileged mode** enabled for container build
