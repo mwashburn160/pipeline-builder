@@ -5,9 +5,6 @@ keywords:
   - golang
   - build
   - test
-  - ci
-  - pipeline
-  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

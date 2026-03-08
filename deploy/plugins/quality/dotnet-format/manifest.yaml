@@ -1,0 +1,26 @@
+name: dotnet-format
+description: dotnet format plugin for verifying consistent C# and .NET code formatting using AWS CDK CodeBuildStep
+keywords:
+  - dotnet
+  - csharp
+  - formatting
+  - code-style
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: format-reports
+dockerfile: Dockerfile
+installCommands:
+  - dotnet --version
+commands:
+  - mkdir -p format-reports
+  - |
+    echo "Running dotnet format check..."
+    dotnet format --verify-no-changes --verbosity diagnostic \
+      2>&1 | tee format-reports/dotnet-format.log || true
+  - "echo \"Format check complete. Reports available in format-reports/\""
+env:
+  DOTNET_VERSION: "8.0"

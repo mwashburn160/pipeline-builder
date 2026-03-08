@@ -3,14 +3,8 @@ description: Ruby plugin for building and testing Ruby applications using Bundle
 keywords:
   - ruby
   - bundler
-  - rake
-  - rspec
-  - minitest
   - build
   - test
-  - ci
-  - pipeline
-  - language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

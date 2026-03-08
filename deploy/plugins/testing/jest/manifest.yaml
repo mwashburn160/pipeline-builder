@@ -1,0 +1,51 @@
+name: jest
+description: Jest testing framework plugin for running JavaScript and TypeScript unit tests with coverage reporting using AWS CDK CodeBuildStep
+keywords:
+  - javascript
+  - typescript
+  - unit-test
+  - coverage
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: test-reports
+dockerfile: Dockerfile
+installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+  - node -v && npm -v
+  - |
+    if [ -f pnpm-lock.yaml ]; then
+      npm install -g pnpm && pnpm install --frozen-lockfile
+    elif [ -f yarn.lock ]; then
+      npm install -g yarn && yarn install --frozen-lockfile
+    elif [ -f package-lock.json ]; then
+      npm ci
+    elif [ -f package.json ]; then
+      npm install
+    else
+      echo "No package.json found — installing Jest globally"
+      npm install -g jest
+    fi
+commands:
+  - mkdir -p test-reports
+  - |
+    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    CONFIG_ARG=""
+    if [ -n "${JEST_CONFIG}" ] && [ -f "${JEST_CONFIG}" ]; then
+      CONFIG_ARG="--config ${JEST_CONFIG}"
+    fi
+    echo "Running Jest..."
+    npx jest ${CONFIG_ARG} \
+      --ci \
+      --reporters=default \
+      --reporters=jest-junit \
+      2>&1 | tee test-reports/jest-output.log || true
+  - "echo \"Jest complete. Reports available in test-reports/\""
+env:
+  NODE_VERSION: "24"
+  JEST_CONFIG: ""
+  JEST_JUNIT_OUTPUT_DIR: test-reports

@@ -1,15 +1,10 @@
 name: fortify
 description: Micro Focus Fortify enterprise SAST plugin supporting Fortify on Demand (FoD) and ScanCentral for static code analysis using AWS CDK CodeBuildStep
 keywords:
-  - fortify
   - sast
-  - security
   - enterprise
-  - micro-focus
-  - fod
-  - compliance
-  - ci
-  - pipeline
+  - fortify
+  - vulnerability
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

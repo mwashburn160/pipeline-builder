@@ -1,14 +1,10 @@
 name: acr-push
 description: Push container images to Azure Container Registry with Azure CLI service principal authentication using AWS CDK CodeBuildStep
 keywords:
-  - azure
-  - acr
   - container
-  - registry
-  - push
   - docker
-  - ci
-  - pipeline
+  - azure
+  - registry
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

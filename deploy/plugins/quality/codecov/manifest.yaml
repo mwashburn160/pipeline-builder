@@ -1,14 +1,10 @@
 name: codecov
 description: Codecov coverage reporting plugin for uploading and tracking code coverage with PR comments and badges using AWS CDK CodeBuildStep
 keywords:
-  - codecov
   - coverage
   - reporting
-  - pr-comments
   - badge
-  - ci
-  - pipeline
-  - quality
+  - threshold
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

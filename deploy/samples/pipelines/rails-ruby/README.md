@@ -12,11 +12,11 @@ A full-featured CI/CD pipeline for Ruby on Rails, the original convention-over-c
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Lint** | rubocop, erb-lint | Ruby style enforcement and ERB template linting |
+| **Lint** | rubocop | Ruby style enforcement |
 | **Test-SQLite** | rails-test, minitest-coverage | Fast test suite with SQLite and coverage reporting |
 | **Test-PostgreSQL** | rails-test (pg), rails-test (mysql) | Multi-database compatibility testing |
 | **Security** | brakeman, bundler-audit, git-secrets | Rails SAST, gem vulnerability scanning, secret detection |
-| **Publish** | gem-build, gem-push | Build and publish gems to RubyGems.org |
+| **Publish** | gem-publish | Publish gems to RubyGems.org |
 
 ## Pipeline Flow
 

@@ -2,15 +2,9 @@ name: docker-lint
 description: Docker linting and container security plugin using Hadolint for Dockerfile best practices and Dockle for CIS benchmark compliance using AWS CDK CodeBuildStep
 keywords:
   - docker
-  - dockerfile
   - hadolint
   - dockle
-  - lint
-  - security
-  - cis-benchmark
-  - container
-  - ci
-  - pipeline
+  - best-practices
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

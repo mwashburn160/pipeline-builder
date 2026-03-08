@@ -1,7 +1,7 @@
 {
   "project": "gin",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes static analysis, race condition testing, benchmarking, container building, and binary publishing.",
+  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes static analysis, testing, container building, and binary publishing.",
   "keywords": [
     "go",
     "golang",
@@ -72,23 +72,6 @@
           },
           {
             "plugin": {
-              "name": "go-vet",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "go vet ./..."
-            ]
-          },
-          {
-            "plugin": {
               "name": "govulncheck",
               "filter": {
                 "version": "1.0.0",
@@ -130,48 +113,6 @@
             "commands": [
               "go test -v -coverprofile=coverage.out ./..."
             ]
-          },
-          {
-            "plugin": {
-              "name": "go-test-race",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22"
-              }
-            },
-            "position": "post",
-            "timeout": 30,
-            "commands": [
-              "go test -race -count=1 ./..."
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Benchmark",
-        "steps": [
-          {
-            "plugin": {
-              "name": "go-bench",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22",
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "go test -bench=. -benchmem -run=^$ ./..."
-            ]
           }
         ]
       },
@@ -180,7 +121,7 @@
         "steps": [
           {
             "plugin": {
-              "name": "go-build",
+              "name": "go-compile",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",

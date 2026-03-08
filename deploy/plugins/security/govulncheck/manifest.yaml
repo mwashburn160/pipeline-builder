@@ -1,0 +1,29 @@
+name: govulncheck
+description: govulncheck plugin for scanning Go modules for known vulnerabilities in dependencies using AWS CDK CodeBuildStep
+keywords:
+  - go
+  - dependency-scan
+  - vulnerability
+  - cve
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: vuln-reports
+dockerfile: Dockerfile
+installCommands:
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  - go install golang.org/x/vuln/cmd/govulncheck@latest
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - mkdir -p vuln-reports
+  - |
+    echo "Running govulncheck..."
+    govulncheck -json ./... > vuln-reports/govulncheck.json 2>&1 || true
+    govulncheck ./... 2>&1 | tee vuln-reports/govulncheck.log || true
+  - "echo \"govulncheck complete. Reports available in vuln-reports/\""
+env:
+  GO_VERSION: "1.24.13"

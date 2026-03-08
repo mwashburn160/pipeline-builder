@@ -1,16 +1,10 @@
 name: ecr-push
 description: Push container images to Amazon ECR with AWS CLI authentication and Docker Buildx support using AWS CDK CodeBuildStep
 keywords:
-  - ecr
-  - aws
   - container
-  - registry
-  - push
   - docker
-  - image
-  - ci
-  - pipeline
-  - artifact
+  - ecr
+  - registry
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

@@ -1,14 +1,10 @@
 name: npm-publish
 description: NPM package publish plugin for deploying Node.js packages to the npm registry with tag and access control support using AWS CDK CodeBuildStep
 keywords:
-  - npm
-  - publish
-  - registry
   - nodejs
+  - npm
   - package
-  - ci
-  - pipeline
-  - artifact
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

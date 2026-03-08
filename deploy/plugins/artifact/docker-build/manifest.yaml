@@ -1,16 +1,10 @@
 name: docker-build
 description: Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds and caching using AWS CDK CodeBuildStep
 keywords:
+  - container
   - docker
   - build
-  - push
-  - ecr
-  - dockerhub
-  - container
-  - image
-  - artifact
-  - ci
-  - pipeline
+  - multi-stage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

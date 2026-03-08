@@ -2,13 +2,9 @@ name: slack-notify
 description: Slack notification plugin for sending pipeline status alerts, build results, and custom messages to Slack channels via webhook using AWS CDK CodeBuildStep
 keywords:
   - slack
+  - webhook
   - notification
   - alert
-  - webhook
-  - pipeline-status
-  - teams
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

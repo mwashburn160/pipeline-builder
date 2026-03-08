@@ -1,0 +1,28 @@
+name: cargo-audit
+description: Cargo audit plugin for scanning Rust crate dependencies for known security vulnerabilities using AWS CDK CodeBuildStep
+keywords:
+  - rust
+  - crate
+  - dependency-scan
+  - cve
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: audit-reports
+dockerfile: Dockerfile
+installCommands:
+  - rustup default ${RUST_VERSION}
+  - rustc --version && cargo --version
+  - cargo install cargo-audit
+commands:
+  - mkdir -p audit-reports
+  - |
+    echo "Running cargo audit..."
+    cargo audit --json > audit-reports/cargo-audit.json 2>&1 || true
+    cargo audit 2>&1 | tee audit-reports/cargo-audit.log || true
+  - "echo \"Cargo audit complete. Reports available in audit-reports/\""
+env:
+  RUST_VERSION: stable

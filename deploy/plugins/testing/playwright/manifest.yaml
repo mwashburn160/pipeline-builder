@@ -1,16 +1,10 @@
 name: playwright
 description: Playwright end-to-end testing plugin for cross-browser UI testing with Chromium, Firefox, and WebKit support using AWS CDK CodeBuildStep
 keywords:
-  - playwright
   - e2e
-  - testing
-  - browser
+  - cross-browser
+  - ui-test
   - chromium
-  - firefox
-  - webkit
-  - microsoft
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

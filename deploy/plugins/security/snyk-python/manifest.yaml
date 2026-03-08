@@ -1,15 +1,10 @@
 name: snyk-python
 description: Snyk security scanning for Python projects using AWS CDK with CodeBuildStep
 keywords:
-  - snyk
-  - security
-  - vulnerability
-  - sca
-  - sast
-  - dependency-scan
   - python
-  - ci
-  - pipeline
+  - sca
+  - vulnerability
+  - dependency-scan
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

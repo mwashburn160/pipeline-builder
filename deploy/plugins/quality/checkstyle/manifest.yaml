@@ -1,15 +1,10 @@
 name: checkstyle
 description: Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom rule sets using AWS CDK CodeBuildStep
 keywords:
-  - checkstyle
   - java
-  - lint
   - code-style
-  - google
-  - sun
-  - code-quality
-  - ci
-  - pipeline
+  - linter
+  - formatting
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

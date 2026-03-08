@@ -4,10 +4,7 @@ keywords:
   - sentry
   - release
   - error-tracking
-  - sourcemaps
-  - monitoring
-  - ci
-  - pipeline
+  - sourcemap
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

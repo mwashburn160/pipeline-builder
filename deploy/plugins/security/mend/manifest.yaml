@@ -1,15 +1,10 @@
 name: mend
 description: Mend (formerly WhiteSource) SCA plugin for scanning dependencies for known CVEs and OSS license compliance using AWS CDK CodeBuildStep
 keywords:
-  - mend
-  - whitesource
   - sca
+  - dependency-scan
   - license
-  - vulnerability
-  - compliance
-  - dependency
-  - ci
-  - pipeline
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

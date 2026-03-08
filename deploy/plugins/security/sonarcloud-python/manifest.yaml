@@ -1,14 +1,10 @@
 name: sonarcloud-python
 description: SonarCloud code quality and security analysis for Python projects using AWS CDK with CodeBuildStep
 keywords:
-  - sonarcloud
-  - sonar
-  - security
-  - code-quality
-  - sast
   - python
-  - ci
-  - pipeline
+  - code-quality
+  - security-analysis
+  - coverage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

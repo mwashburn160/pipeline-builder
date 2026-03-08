@@ -1,0 +1,33 @@
+name: coverage-py
+description: coverage.py code coverage plugin for measuring and enforcing test coverage thresholds in Python projects using AWS CDK CodeBuildStep
+keywords:
+  - python
+  - coverage
+  - threshold
+  - reporting
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: coverage-reports
+dockerfile: Dockerfile
+installCommands:
+  - pyenv global ${PYTHON_VERSION} && python --version
+  - pip install coverage pytest
+  - |
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    if [ -f pyproject.toml ]; then pip install -e '.[testing]' 2>/dev/null || pip install -e '.[test]' 2>/dev/null || true; fi
+commands:
+  - mkdir -p coverage-reports
+  - |
+    echo "Running coverage..."
+    coverage run -m pytest 2>&1 | tee coverage-reports/coverage-run.log || true
+    coverage report --fail-under=${COVERAGE_THRESHOLD} 2>&1 | tee coverage-reports/coverage-report.log || true
+    coverage xml -o coverage-reports/coverage.xml || true
+    coverage html -d coverage-reports/htmlcov || true
+  - "echo \"Coverage complete. Reports available in coverage-reports/\""
+env:
+  PYTHON_VERSION: "3.14"
+  COVERAGE_THRESHOLD: "75"

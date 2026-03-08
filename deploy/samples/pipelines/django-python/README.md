@@ -15,8 +15,8 @@ A production-ready CI/CD pipeline for Django, the popular Python web framework. 
 | **Lint** | ruff, mypy | Fast linting/formatting and static type checking |
 | **Unit-Test** | python-pytest (x2) | Test execution on Python 3.12 (primary) and 3.11 (compat) |
 | **Coverage** | coverage-py | Code coverage with 75% threshold |
-| **Security** | bandit, safety, git-secrets | SAST, dependency vulnerabilities, and secret detection |
-| **Package** | twine-publish, mkdocs-build | PyPI publishing and documentation build |
+| **Security** | bandit, git-secrets | SAST and secret detection |
+| **Package** | pypi-publish | PyPI publishing |
 
 ## Pipeline Flow
 
@@ -30,5 +30,3 @@ Source (GitHub) → Synth → Lint → Unit-Test → Coverage → Security → P
 - **Ruff** for fast linting and formatting (replaces flake8 + black + isort)
 - **mypy** with django-stubs for type checking (advisory mode)
 - **Bandit** for Python-specific security analysis
-- **Safety** checks for known vulnerabilities in dependencies
-- **MkDocs** documentation build verification

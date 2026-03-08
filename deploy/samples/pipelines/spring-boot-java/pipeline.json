@@ -168,7 +168,7 @@
         "steps": [
           {
             "plugin": {
-              "name": "sonarcloud",
+              "name": "semgrep",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
@@ -176,18 +176,18 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "17",
-                "SONAR_PROJECT_KEY": "spring-projects_spring-boot"
+                "SEMGREP_RULES": "auto",
+                "SEMGREP_SEVERITY": "ERROR,WARNING"
               }
             },
             "position": "pre",
             "commands": [
-              "./gradlew sonarqube -Dsonar.projectKey=spring-projects_spring-boot"
+              "semgrep scan --config auto --severity ERROR,WARNING ."
             ]
           },
           {
             "plugin": {
-              "name": "owasp-dependency-check",
+              "name": "dependency-check",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
@@ -226,24 +226,6 @@
             "position": "pre",
             "commands": [
               "./gradlew publish"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "gradle-build-scan",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "JAVA_VERSION": "17"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "ignore",
-            "commands": [
-              "./gradlew --scan"
             ]
           }
         ]

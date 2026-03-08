@@ -1,15 +1,10 @@
 name: prettier
 description: Prettier code formatting verification plugin for checking consistent formatting across JavaScript, TypeScript, CSS, HTML, JSON, YAML, and Markdown using AWS CDK CodeBuildStep
 keywords:
-  - prettier
-  - format
-  - code-style
   - javascript
   - typescript
-  - css
-  - html
-  - ci
-  - pipeline
+  - formatting
+  - code-style
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,6 +1,10 @@
 name: trivy-python
 description: Trivy security scanning for Python projects using AWS CDK with CodeBuildStep
-keywords: [trivy, security, vulnerability, sca, python, ci, pipeline]
+keywords:
+  - python
+  - vulnerability
+  - dependency-scan
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

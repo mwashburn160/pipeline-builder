@@ -1,14 +1,10 @@
 name: pypi-publish
 description: PyPI package publish plugin for deploying Python packages to PyPI or custom repositories using twine with AWS CDK CodeBuildStep
 keywords:
-  - pypi
-  - publish
   - python
-  - package
+  - pypi
   - twine
-  - ci
-  - pipeline
-  - artifact
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

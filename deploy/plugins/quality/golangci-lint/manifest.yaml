@@ -1,16 +1,10 @@
 name: golangci-lint
 description: golangci-lint Go code quality plugin for running multiple Go linters in parallel with configurable rules using AWS CDK CodeBuildStep
 keywords:
-  - golangci-lint
   - go
-  - golang
-  - lint
+  - linter
+  - multi-linter
   - code-quality
-  - static-analysis
-  - vet
-  - ci
-  - pipeline
-  - quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

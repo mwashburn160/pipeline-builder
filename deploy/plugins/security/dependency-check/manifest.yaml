@@ -2,15 +2,9 @@ name: dependency-check
 description: OWASP Dependency-Check software composition analysis (SCA) plugin for scanning project dependencies for known CVEs using AWS CDK CodeBuildStep
 keywords:
   - owasp
-  - dependency-check
   - sca
-  - security
-  - vulnerability
+  - dependency-scan
   - cve
-  - nvd
-  - license
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

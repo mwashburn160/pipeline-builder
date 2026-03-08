@@ -1,0 +1,29 @@
+name: gosec
+description: gosec security checker plugin for scanning Go source code for security vulnerabilities and coding issues using AWS CDK CodeBuildStep
+keywords:
+  - go
+  - sast
+  - vulnerability
+  - security-linter
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: security-reports
+dockerfile: Dockerfile
+installCommands:
+  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
+  - go version
+  - go install github.com/securego/gosec/v2/cmd/gosec@latest
+  - if [ -f go.mod ]; then go mod download; fi
+commands:
+  - mkdir -p security-reports
+  - |
+    echo "Running gosec security scan..."
+    gosec -fmt json -out security-reports/gosec-results.json ./... 2>&1 || true
+    gosec ./... 2>&1 | tee security-reports/gosec.log || true
+  - "echo \"gosec scan complete. Reports available in security-reports/\""
+env:
+  GO_VERSION: "1.24.13"

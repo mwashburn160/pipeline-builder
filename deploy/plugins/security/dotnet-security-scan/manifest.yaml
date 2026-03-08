@@ -1,0 +1,28 @@
+name: dotnet-security-scan
+description: dotnet security scan plugin for detecting security vulnerabilities in .NET project dependencies and code using AWS CDK CodeBuildStep
+keywords:
+  - dotnet
+  - dependency-scan
+  - vulnerability
+  - cve
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: security-reports
+dockerfile: Dockerfile
+installCommands:
+  - dotnet --version
+  - dotnet tool install --global security-scan
+commands:
+  - mkdir -p security-reports
+  - |
+    echo "Running .NET security scan..."
+    security-scan . \
+      --excl-proj=*test* \
+      2>&1 | tee security-reports/security-scan.log || true
+  - "echo \"Security scan complete. Reports available in security-reports/\""
+env:
+  DOTNET_VERSION: "8.0"

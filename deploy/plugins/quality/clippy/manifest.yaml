@@ -1,0 +1,30 @@
+name: clippy
+description: Clippy linting plugin for catching common mistakes and enforcing idiomatic Rust patterns using AWS CDK CodeBuildStep
+keywords:
+  - rust
+  - linter
+  - static-analysis
+  - idioms
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: lint-reports
+dockerfile: Dockerfile
+installCommands:
+  - rustup default ${RUST_VERSION}
+  - rustc --version && cargo --version
+  - rustup component add clippy
+  - if [ -f Cargo.toml ]; then cargo fetch; fi
+commands:
+  - mkdir -p lint-reports
+  - |
+    echo "Running Clippy..."
+    cargo clippy --all-targets --all-features -- ${CLIPPY_FLAGS} \
+      2>&1 | tee lint-reports/clippy.log || true
+  - "echo \"Clippy complete. Reports available in lint-reports/\""
+env:
+  RUST_VERSION: stable
+  CLIPPY_FLAGS: "-D warnings"

@@ -1,6 +1,10 @@
 name: trivy-go
 description: Trivy security scanning for Go projects using AWS CDK with CodeBuildStep
-keywords: [trivy, security, vulnerability, sca, go, golang, ci, pipeline]
+keywords:
+  - go
+  - vulnerability
+  - dependency-scan
+  - cve
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

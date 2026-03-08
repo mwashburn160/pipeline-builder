@@ -1,0 +1,36 @@
+name: mypy
+description: mypy static type checking plugin for verifying Python type annotations and detecting type errors using AWS CDK CodeBuildStep
+keywords:
+  - python
+  - type-checking
+  - static-analysis
+  - types
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: mypy-reports
+dockerfile: Dockerfile
+installCommands:
+  - pyenv global ${PYTHON_VERSION} && python --version
+  - pip install mypy
+  - |
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    if [ -f pyproject.toml ]; then pip install -e '.[dev]' 2>/dev/null || true; fi
+commands:
+  - mkdir -p mypy-reports
+  - |
+    echo "Running mypy type check..."
+    CONFIG_ARG=""
+    if [ -n "${MYPY_CONFIG}" ] && [ -f "${MYPY_CONFIG}" ]; then
+      CONFIG_ARG="--config-file ${MYPY_CONFIG}"
+    fi
+    mypy . ${CONFIG_ARG} \
+      --junit-xml mypy-reports/mypy-results.xml \
+      2>&1 | tee mypy-reports/mypy.log || true
+  - "echo \"mypy check complete. Reports available in mypy-reports/\""
+env:
+  PYTHON_VERSION: "3.14"
+  MYPY_CONFIG: ""

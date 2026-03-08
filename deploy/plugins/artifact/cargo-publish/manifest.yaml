@@ -1,14 +1,10 @@
 name: cargo-publish
 description: Cargo crate publish plugin for deploying Rust packages to crates.io with dry-run support using AWS CDK CodeBuildStep
 keywords:
-  - cargo
-  - publish
   - rust
-  - crates
-  - package
-  - ci
-  - pipeline
-  - artifact
+  - crate
+  - crates-io
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

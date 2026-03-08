@@ -1,14 +1,10 @@
 name: maven-publish
 description: Maven artifact publish plugin for deploying Java/Kotlin packages to Maven Central via OSSRH or custom repositories with GPG signing using AWS CDK CodeBuildStep
 keywords:
-  - maven
-  - publish
   - java
-  - central
-  - sonatype
-  - ossrh
-  - ci
-  - pipeline
+  - maven
+  - maven-central
+  - publish
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

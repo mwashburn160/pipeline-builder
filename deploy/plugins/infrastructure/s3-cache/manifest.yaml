@@ -3,12 +3,8 @@ description: Build cache restore and save plugin using S3 for faster pipeline ru
 keywords:
   - cache
   - s3
-  - build
+  - build-cache
   - performance
-  - infrastructure
-  - zstd
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

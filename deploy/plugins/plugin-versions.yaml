@@ -244,21 +244,6 @@ aws_cdk_multi_region:
       default: "10.9.2"
   note: "Also installs Docker CLI + AWS CLI v2 + GNU Parallel."
 
-fastlane:
-  plugin: deploy/fastlane
-  install_type: none
-  tools:
-    ruby:
-      install_type: rbenv
-      versions: ["4.0.1"]
-      default: "4.0.1"
-    android_cmdline_tools:
-      install_type: curl_zip
-      url_template: "https://dl.google.com/android/repository/commandlinetools-linux-{version}.zip"
-      versions: ["14742923_latest"]
-      default: "14742923_latest"
-  note: "Also installs Java 17 JRE, Bundler, Fastlane gem (unpinned)."
-
 flyway:
   plugin: deploy/flyway
   install_type: curl_tar
@@ -278,13 +263,6 @@ gcloud_deploy:
       default: "1.10.3"
   note: "Google Cloud SDK from vendor apt repo. kubectl via curl (latest stable)."
 
-liquibase:
-  plugin: deploy/liquibase
-  install_type: curl_tar
-  url_template: "https://github.com/liquibase/liquibase/releases/download/v{version}/liquibase-{version}.tar.gz"
-  versions: ["4.30.0"]
-  default: "4.30.0"
-
 tflint:
   plugin: deploy/terraform
   install_type: copy_from
@@ -302,7 +280,7 @@ tfsec_terraform:
   binary_path: /usr/bin/tfsec
   versions: ["1.28.11"]
   default: "1.28.11"
-  note: "tfsec bundled in terraform plugin. Standalone tfsec is under security/tfsec."
+  note: "tfsec bundled in terraform plugin for IaC scanning."
 
 # ═══════════════════════════════════════════════════════════════
 # INFRASTRUCTURE PLUGINS
@@ -393,40 +371,6 @@ java_corretto:
       versions: ["2.1.0"]
       default: "2.1.0"
 
-java_ibm:
-  plugin: language/java-ibm
-  install_type: sdkman
-  tools:
-    java:
-      versions: ["17.0.18-sem", "21.0.10-sem"]
-      default: "21.0.10-sem"
-    maven:
-      versions: ["3.9.9"]
-      default: "3.9.9"
-    gradle:
-      versions: ["8.12"]
-      default: "8.12"
-    kotlin:
-      versions: ["2.1.0"]
-      default: "2.1.0"
-
-java_microsoft:
-  plugin: language/java-microsoft
-  install_type: sdkman
-  tools:
-    java:
-      versions: ["17.0.18-ms", "21.0.10-ms"]
-      default: "21.0.10-ms"
-    maven:
-      versions: ["3.9.9"]
-      default: "3.9.9"
-    gradle:
-      versions: ["8.12"]
-      default: "8.12"
-    kotlin:
-      versions: ["2.1.0"]
-      default: "2.1.0"
-
 java_oracle:
   plugin: language/java-oracle
   install_type: sdkman
@@ -470,30 +414,6 @@ dotnet:
   versions: ["8.0", "9.0"]
   default: "9.0"
 
-scala:
-  plugin: language/scala
-  install_type: sdkman
-  tools:
-    java:
-      versions: ["17.0.18-tem", "21.0.10-tem"]
-      default: "21.0.10-tem"
-    sbt:
-      versions: ["1.9.9", "1.10.7"]
-      default: "1.10.7"
-    coursier:
-      install_type: curl_bin
-      url_template: "https://github.com/coursier/coursier/releases/latest/download/coursier"
-      versions: ["latest"]
-      default: "latest"
-  note: "Coursier JAR launcher (arch-independent)."
-
-swift:
-  plugin: language/swift
-  install_type: curl_tar
-  url_template: "https://download.swift.org/swift-{version}-release/ubuntu2404/swift-{version}-RELEASE/swift-{version}-RELEASE-ubuntu24.04.tar.gz"
-  versions: ["5.10.1", "6.1"]
-  default: "6.1"
-
 php:
   plugin: language/php
   install_type: apt
@@ -533,16 +453,6 @@ newrelic:
   install_type: none
   note: "curl + jq only. API-driven, no versioned tools."
 
-grafana_annotation:
-  plugin: monitoring/grafana-annotation
-  install_type: none
-  note: "curl + jq only. API-driven, no versioned tools."
-
-prometheus_pushgateway:
-  plugin: monitoring/prometheus-pushgateway
-  install_type: none
-  note: "curl only. Pushes Prometheus text format metrics via HTTP."
-
 # ═══════════════════════════════════════════════════════════════
 # NOTIFICATION PLUGINS
 # ═══════════════════════════════════════════════════════════════
@@ -554,11 +464,6 @@ slack_notify:
 
 teams_notify:
   plugin: notification/teams-notify
-  install_type: none
-  note: "curl + jq only. Webhook-driven."
-
-discord_notify:
-  plugin: notification/discord-notify
   install_type: none
   note: "curl + jq only. Webhook-driven."
 
@@ -574,11 +479,6 @@ github_status:
 
 pagerduty_notify:
   plugin: notification/pagerduty-notify
-  install_type: none
-  note: "curl + jq only. API-driven."
-
-opsgenie_notify:
-  plugin: notification/opsgenie-notify
   install_type: none
   note: "curl + jq only. API-driven."
 
@@ -599,27 +499,6 @@ golangci_lint:
       versions: ["latest"]
       default: "latest"
 
-markdownlint:
-  plugin: quality/markdownlint
-  install_type: nvm
-  nvm_version: "0.40.1"
-  tools:
-    nodejs:
-      versions: ["22", "24"]
-      default: "24"
-    markdownlint_cli2:
-      install_type: npm
-      package: markdownlint-cli2
-      versions: ["latest"]
-      default: "latest"
-
-stylelint:
-  plugin: quality/stylelint
-  install_type: nvm
-  nvm_version: "0.40.1"
-  versions: ["22", "24"]
-  default: "24"
-
 eslint:
   plugin: quality/eslint
   install_type: nvm
@@ -633,22 +512,6 @@ prettier:
   nvm_version: "0.40.1"
   versions: ["22", "24"]
   default: "24"
-
-coverage_report:
-  plugin: quality/coverage-report
-  install_type: npm
-  tools:
-    nyc:
-      versions: ["17.1.0"]
-      default: "17.1.0"
-    c8:
-      versions: ["10.1.3"]
-      default: "10.1.3"
-    python_coverage:
-      install_type: pip
-      versions: ["7.6.12"]
-      default: "7.6.12"
-  note: "Also installs Node.js 20 via NodeSource + Java 17 JRE."
 
 codacy:
   plugin: quality/codacy
@@ -671,13 +534,6 @@ checkstyle:
   install_path: /opt/checkstyle/versions
   versions: ["10.20.2", "10.21.1"]
   default: "10.21.1"
-
-coveralls:
-  plugin: quality/coveralls
-  install_type: npm
-  package: coveralls
-  versions: ["3.1.1"]
-  default: "3.1.1"
 
 shellcheck:
   plugin: quality/shellcheck
@@ -1015,43 +871,10 @@ dependency_check:
   versions: ["11.1.1", "12.2.0"]
   default: "12.2.0"
 
-owasp_zap:
-  plugin: security/owasp-zap
-  install_type: curl_tar
-  url_template: "https://github.com/zaproxy/zaproxy/releases/download/v{version}/ZAP_{version}_Linux.tar.gz"
-  versions: ["2.16.0"]
-  default: "2.16.0"
-
-grype:
-  plugin: security/grype
-  install_type: copy_from
-  tools:
-    grype:
-      image: anchore/grype
-      tag_prefix: ""
-      binary_path: /grype
-      versions: ["latest"]
-      default: "latest"
-    syft:
-      image: anchore/syft
-      tag_prefix: ""
-      binary_path: /syft
-      versions: ["latest"]
-      default: "latest"
-
 semgrep:
   plugin: security/semgrep
   install_type: pip
   package: semgrep
-  versions: ["latest"]
-  default: "latest"
-
-tfsec:
-  plugin: security/tfsec
-  install_type: copy_from
-  image: aquasec/tfsec
-  tag_prefix: ""
-  binary_path: /usr/bin/tfsec
   versions: ["latest"]
   default: "latest"
 
@@ -1125,19 +948,6 @@ cypress:
   default: "24"
   note: "Cypress browser deps from apt. Cypress itself installed per-project."
 
-jmeter:
-  plugin: testing/jmeter
-  install_type: sdkman
-  tools:
-    java:
-      versions: ["21.0.10-tem"]
-      default: "21.0.10-tem"
-    jmeter:
-      install_type: curl_tar
-      url_template: "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-{version}.tgz"
-      versions: ["5.6.3"]
-      default: "5.6.3"
-
 playwright:
   plugin: testing/playwright
   install_type: nvm
@@ -1152,21 +962,6 @@ playwright:
       versions: ["latest"]
       default: "latest"
   note: "Installs Chromium, Firefox, WebKit via npx playwright install."
-
-selenium:
-  plugin: testing/selenium
-  install_type: nvm
-  nvm_version: "0.40.1"
-  tools:
-    nodejs:
-      versions: ["22", "24"]
-      default: "24"
-    selenium:
-      install_type: pip
-      package: "selenium webdriver-manager"
-      versions: ["latest"]
-      default: "latest"
-  note: "Chrome + ChromeDriver from vendor repos. Python Selenium bindings."
 
 health_check:
   plugin: testing/health-check

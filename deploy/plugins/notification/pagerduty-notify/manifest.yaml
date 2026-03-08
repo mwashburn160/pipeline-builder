@@ -2,12 +2,9 @@ name: pagerduty-notify
 description: PagerDuty incident trigger plugin for alerting on-call teams about pipeline failures and critical events via Events API v2 using AWS CDK CodeBuildStep
 keywords:
   - pagerduty
+  - on-call
   - incident
   - alert
-  - notification
-  - oncall
-  - ci
-  - pipeline
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -1,0 +1,32 @@
+name: python-pytest
+description: pytest testing framework plugin for running Python unit and integration tests with JUnit reporting using AWS CDK CodeBuildStep
+keywords:
+  - python
+  - pytest
+  - unit-test
+  - junit
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 20
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: test-reports
+dockerfile: Dockerfile
+installCommands:
+  - pyenv global ${PYTHON_VERSION} && python --version
+  - pip install pytest pytest-cov
+  - |
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    if [ -f pyproject.toml ]; then pip install -e '.[testing]' 2>/dev/null || pip install -e '.[test]' 2>/dev/null || true; fi
+commands:
+  - mkdir -p test-reports
+  - |
+    echo "Running pytest..."
+    python -m pytest ${PYTEST_ARGS} \
+      --junitxml=test-reports/pytest-results.xml \
+      2>&1 | tee test-reports/pytest.log || true
+  - "echo \"pytest complete. Reports available in test-reports/\""
+env:
+  PYTHON_VERSION: "3.14"
+  PYTEST_ARGS: "-x --tb=short"

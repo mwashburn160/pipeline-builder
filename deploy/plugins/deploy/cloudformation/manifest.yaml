@@ -1,15 +1,10 @@
 name: cloudformation
 description: AWS CloudFormation infrastructure provisioning plugin with template validation (cfn-lint), stack deployment, and change set management using AWS CDK CodeBuildStep
 keywords:
-  - cloudformation
   - aws
-  - infrastructure
-  - iac
-  - deploy
-  - cfn-lint
+  - cloudformation
   - stack
-  - ci
-  - pipeline
+  - infrastructure
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

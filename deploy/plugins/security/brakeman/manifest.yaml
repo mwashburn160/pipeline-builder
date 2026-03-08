@@ -1,0 +1,31 @@
+name: brakeman
+description: Brakeman static security analysis plugin for detecting vulnerabilities in Ruby on Rails applications using AWS CDK CodeBuildStep
+keywords:
+  - ruby
+  - rails
+  - sast
+  - vulnerability
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 15
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: security-reports
+dockerfile: Dockerfile
+installCommands:
+  - rbenv global ${RUBY_VERSION} && ruby --version
+  - gem install brakeman
+commands:
+  - mkdir -p security-reports
+  - |
+    echo "Running Brakeman security scan..."
+    brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \
+      -f json -o security-reports/brakeman-results.json \
+      2>&1 || true
+    brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \
+      2>&1 | tee security-reports/brakeman.log || true
+  - "echo \"Brakeman scan complete. Reports available in security-reports/\""
+env:
+  RUBY_VERSION: "4.0.1"
+  BRAKEMAN_CONFIDENCE: "2"

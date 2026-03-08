@@ -1,15 +1,10 @@
 name: terraform
 description: Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (tfsec) using AWS CDK CodeBuildStep
 keywords:
+  - infrastructure-as-code
   - terraform
-  - infrastructure
-  - iac
-  - deploy
-  - aws
-  - tflint
-  - tfsec
-  - ci
-  - pipeline
+  - hcl
+  - provision
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

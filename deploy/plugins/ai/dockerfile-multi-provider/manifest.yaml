@@ -3,14 +3,9 @@ description: AI-powered Dockerfile generator that analyzes project source code a
 keywords:
   - dockerfile
   - ai
-  - generator
-  - docker
-  - codegen
   - anthropic
   - openai
-  - gemini
-  - ci
-  - pipeline
+  - code-generation
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

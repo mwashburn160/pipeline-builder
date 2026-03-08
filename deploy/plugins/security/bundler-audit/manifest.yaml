@@ -1,0 +1,28 @@
+name: bundler-audit
+description: Bundler Audit plugin for scanning Ruby gem dependencies for known security vulnerabilities using AWS CDK CodeBuildStep
+keywords:
+  - ruby
+  - gem
+  - dependency-scan
+  - cve
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 10
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: audit-reports
+dockerfile: Dockerfile
+installCommands:
+  - rbenv global ${RUBY_VERSION} && ruby --version
+  - gem install bundler-audit
+  - if [ -f Gemfile ]; then bundle install; fi
+commands:
+  - mkdir -p audit-reports
+  - |
+    echo "Running bundler-audit..."
+    bundle audit check --update \
+      2>&1 | tee audit-reports/bundler-audit.log || true
+  - "echo \"Bundler audit complete. Reports available in audit-reports/\""
+env:
+  RUBY_VERSION: "4.0.1"

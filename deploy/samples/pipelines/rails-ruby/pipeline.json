@@ -68,25 +68,6 @@
               "bundle install",
               "bundle exec rubocop --parallel"
             ]
-          },
-          {
-            "plugin": {
-              "name": "erb-lint",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "bundle install",
-              "bundle exec erblint --lint-all"
-            ]
           }
         ]
       },
@@ -255,25 +236,7 @@
         "steps": [
           {
             "plugin": {
-              "name": "gem-build",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "gem build *.gemspec"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "gem-push",
+              "name": "gem-publish",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",

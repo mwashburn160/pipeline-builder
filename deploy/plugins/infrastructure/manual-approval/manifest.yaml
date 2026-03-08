@@ -4,9 +4,7 @@ keywords:
   - approval
   - gate
   - manual
-  - pipeline
-  - infrastructure
-  - ci
+  - pause
 version: 1.0.0
 pluginType: ManualApprovalStep
 computeType: SMALL

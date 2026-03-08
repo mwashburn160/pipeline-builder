@@ -1,14 +1,10 @@
 name: sonarcloud-ruby
 description: SonarCloud code quality and security analysis for Ruby projects using AWS CDK with CodeBuildStep
 keywords:
-  - sonarcloud
-  - sonar
-  - security
-  - code-quality
-  - sast
   - ruby
-  - ci
-  - pipeline
+  - code-quality
+  - security-analysis
+  - coverage
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

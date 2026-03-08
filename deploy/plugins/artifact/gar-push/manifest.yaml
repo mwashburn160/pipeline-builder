@@ -1,14 +1,10 @@
 name: gar-push
 description: Push container images to Google Artifact Registry with gcloud service account authentication using AWS CDK CodeBuildStep
 keywords:
-  - google
-  - gar
-  - artifact-registry
-  - gcp
   - container
   - docker
-  - ci
-  - pipeline
+  - gcp
+  - registry
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

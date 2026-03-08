@@ -1,7 +1,7 @@
 {
   "project": "axum",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for tokio-rs/axum - an ergonomic and modular web framework built with Tokio, Tower, and Hyper. Includes Clippy linting, multi-target testing, Miri safety checks, and crate publishing.",
+  "description": "CI/CD pipeline for tokio-rs/axum - an ergonomic and modular web framework built with Tokio, Tower, and Hyper. Includes Clippy linting, multi-target testing, security auditing, and crate publishing.",
   "keywords": [
     "rust",
     "axum",
@@ -87,25 +87,6 @@
             "commands": [
               "cargo +nightly fmt --all -- --check"
             ]
-          },
-          {
-            "plugin": {
-              "name": "cargo-doc",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable",
-                "RUSTDOCFLAGS": "-D warnings"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --all-features"
-            ]
           }
         ]
       },
@@ -161,27 +142,6 @@
         "steps": [
           {
             "plugin": {
-              "name": "cargo-miri",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "rust-nightly",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "RUST_VERSION": "nightly"
-              }
-            },
-            "position": "pre",
-            "timeout": 45,
-            "failureBehavior": "warn",
-            "commands": [
-              "rustup component add miri",
-              "cargo miri test --workspace"
-            ]
-          },
-          {
-            "plugin": {
               "name": "cargo-audit",
               "filter": {
                 "version": "1.0.0",
@@ -206,7 +166,7 @@
         "steps": [
           {
             "plugin": {
-              "name": "cargo-build",
+              "name": "cargo-release",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
