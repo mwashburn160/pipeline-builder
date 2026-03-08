@@ -11,6 +11,7 @@ set -eu
 #   ./load-plugins.sh --category security,quality            # upload multiple categories
 #   ./load-plugins.sh --rebuild                              # force rebuild all plugin.zip
 #   UPLOAD_DELAY=2 ./load-plugins.sh                         # 2s delay between uploads
+#   UPLOAD_RETRIES=5 UPLOAD_RETRY_DELAY=60 ./load-plugins.sh # retry 503s up to 5 times
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -18,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 UPLOAD_TIMEOUT=900
+UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
+UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
 DRY_RUN=false
 REBUILD=false
 CATEGORY_FILTER=""
@@ -47,6 +50,8 @@ while [ $# -gt 0 ]; do
       echo "Environment:"
       echo "  PLATFORM_TOKEN         JWT token (skips credential prompts and login)"
       echo "  PLATFORM_BASE_URL      Platform API URL (default: https://localhost:8443)"
+      echo "  UPLOAD_RETRIES         Max retries on 503/connection failure (default: 3)"
+      echo "  UPLOAD_RETRY_DELAY     Seconds to wait between retries (default: 30)"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -129,19 +134,33 @@ upload_plugin() {
     return
   fi
 
-  status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-    -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "x-org-id: system" \
-    -F "plugin=@${plugin_dir}/plugin.zip" \
-    -F "accessModifier=public" \
-    --insecure 2>/dev/null || echo "000")
+  _attempt=1
+  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
+    status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+      -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      -H "x-org-id: system" \
+      -F "plugin=@${plugin_dir}/plugin.zip" \
+      -F "accessModifier=public" \
+      --insecure 2>/dev/null || echo "000")
 
-  case "$(classify_status "$status")" in
-    ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
-    exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
-    fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
-  esac
+    _result="$(classify_status "$status")"
+
+    # Retry on 503 (service busy) or connection failure
+    if [ "$_result" = "fail" ] && { [ "$status" = "503" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+      echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
+      sleep "$UPLOAD_RETRY_DELAY"
+      _attempt=$((_attempt + 1))
+      continue
+    fi
+
+    case "$_result" in
+      ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
+      exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
+      fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
+    esac
+    break
+  done
 }
 
 resolve_category() {
