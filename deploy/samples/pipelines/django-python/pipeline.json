@@ -1,14 +1,12 @@
 {
   "project": "django",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for django/django - a high-level Python web framework that encourages rapid development and clean design. Includes linting, multi-version testing, security scanning, and PyPI publishing.",
+  "description": "CI/CD pipeline for django/django - a high-level Python web framework that encourages rapid development and clean design. Includes testing, linting, security scanning, and PyPI publishing.",
   "keywords": [
     "python",
     "django",
-    "web-framework",
     "backend",
-    "orm",
-    "rest-api"
+    "web-api"
   ],
   "accessModifier": "public",
   "props": {
@@ -46,6 +44,55 @@
       }
     },
     "stages": [
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "python-pytest",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "python-3.12",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "pip install -e '.[testing]'",
+              "python -m pytest tests/ -x --tb=short -q"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "coverage-py",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "PYTHON_VERSION": "3.12",
+                "COVERAGE_THRESHOLD": "75"
+              }
+            },
+            "position": "post",
+            "commands": [
+              "pip install coverage",
+              "coverage run -m pytest tests/",
+              "coverage report --fail-under=75",
+              "coverage xml"
+            ]
+          }
+        ]
+      },
       {
         "stageName": "Lint",
         "steps": [
@@ -92,83 +139,6 @@
         ]
       },
       {
-        "stageName": "Unit-Test",
-        "steps": [
-          {
-            "plugin": {
-              "name": "python-pytest",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "python-3.12",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12",
-                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
-              }
-            },
-            "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "pip install -e '.[testing]'",
-              "python -m pytest tests/ -x --tb=short -q"
-            ]
-          },
-          {
-            "plugin": {
-              "name": "python-pytest",
-              "alias": "py311-compat",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "python-3.11",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.11",
-                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
-              }
-            },
-            "position": "post",
-            "timeout": 30,
-            "failureBehavior": "warn",
-            "commands": [
-              "pip install -e '.[testing]'",
-              "python -m pytest tests/ -x --tb=short -q"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Coverage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "coverage-py",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12",
-                "COVERAGE_THRESHOLD": "75"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "pip install coverage",
-              "coverage run -m pytest tests/",
-              "coverage report --fail-under=75",
-              "coverage xml"
-            ]
-          }
-        ]
-      },
-      {
         "stageName": "Security",
         "steps": [
           {
@@ -198,8 +168,7 @@
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true
-              },
-              "metadata": {}
+              }
             },
             "position": "post",
             "commands": [
@@ -209,7 +178,7 @@
         ]
       },
       {
-        "stageName": "Package",
+        "stageName": "Publish",
         "steps": [
           {
             "plugin": {

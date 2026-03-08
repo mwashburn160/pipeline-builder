@@ -1,15 +1,12 @@
 {
   "project": "aspnetcore",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes code analysis, multi-TFM testing, security scanning, and NuGet publishing.",
+  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes building, testing, code analysis, security scanning, and NuGet publishing.",
   "keywords": [
     "dotnet",
     "csharp",
-    "aspnetcore",
-    "web-api",
-    "blazor",
-    "microsoft",
-    "backend"
+    "backend",
+    "web-api"
   ],
   "accessModifier": "public",
   "props": {
@@ -48,7 +45,81 @@
     },
     "stages": [
       {
-        "stageName": "Analysis",
+        "stageName": "Build",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-test",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "dotnet-8.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
+              }
+            },
+            "position": "pre",
+            "timeout": 30,
+            "commands": [
+              "dotnet restore",
+              "dotnet build --no-restore --configuration Release"
+            ]
+          },
+          {
+            "plugin": {
+              "name": "docker-build",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "DOCKERFILE": "Dockerfile",
+                "IMAGE_TAG": "latest",
+                "aws:cdk:codebuild:buildenvironment:privileged": true
+              }
+            },
+            "position": "post",
+            "commands": [
+              "docker build -t dotnet/aspnetcore:latest ."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Test",
+        "steps": [
+          {
+            "plugin": {
+              "name": "dotnet-test",
+              "filter": {
+                "version": "1.0.0",
+                "imageTag": "dotnet-8.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "DOTNET_VERSION": "8.0",
+                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
+              }
+            },
+            "position": "pre",
+            "timeout": 45,
+            "commands": [
+              "dotnet test --no-build --configuration Release --logger trx --collect:\"XPlat Code Coverage\""
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Lint",
         "steps": [
           {
             "plugin": {
@@ -83,60 +154,9 @@
                 "TREAT_WARNINGS_AS_ERRORS": "true"
               }
             },
-            "position": "pre",
+            "position": "post",
             "commands": [
               "dotnet build /p:TreatWarningsAsErrors=true /p:EnforceCodeStyleInBuild=true"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Build-Test",
-        "steps": [
-          {
-            "plugin": {
-              "name": "dotnet-test",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "dotnet-8.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "8.0",
-                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
-              }
-            },
-            "position": "pre",
-            "timeout": 45,
-            "commands": [
-              "dotnet restore",
-              "dotnet build --no-restore --configuration Release",
-              "dotnet test --no-build --configuration Release --logger trx --collect:\"XPlat Code Coverage\""
-            ]
-          },
-          {
-            "plugin": {
-              "name": "dotnet-test",
-              "alias": "net9-compat",
-              "filter": {
-                "version": "1.0.0",
-                "imageTag": "dotnet-9.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "9.0"
-              }
-            },
-            "position": "post",
-            "timeout": 45,
-            "failureBehavior": "warn",
-            "commands": [
-              "dotnet restore",
-              "dotnet build --no-restore",
-              "dotnet test --no-build"
             ]
           }
         ]
@@ -176,37 +196,24 @@
                 "TRIVY_SEVERITY": "HIGH,CRITICAL"
               }
             },
-            "position": "post",
+            "position": "pre",
             "failureBehavior": "warn",
             "commands": [
               "trivy fs --severity HIGH,CRITICAL ."
             ]
-          }
-        ]
-      },
-      {
-        "stageName": "Container",
-        "steps": [
+          },
           {
             "plugin": {
-              "name": "docker-build",
+              "name": "git-secrets",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "8.0",
-                "DOCKERFILE": "Dockerfile",
-                "IMAGE_TAG": "latest",
-                "aws:cdk:codebuild:buildenvironment:privileged": true
+                "isActive": true
               }
             },
-            "position": "pre",
+            "position": "post",
             "commands": [
-              "docker build -t dotnet/aspnetcore:latest .",
-              "docker tag dotnet/aspnetcore:latest dotnet/aspnetcore:$(date +%Y%m%d)"
+              "git secrets --scan"
             ]
           }
         ]

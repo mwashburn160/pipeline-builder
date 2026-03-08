@@ -6,30 +6,26 @@
 
 ## Overview
 
-A full-featured CI/CD pipeline for Ruby on Rails, the original convention-over-configuration web framework. Features multi-database testing (SQLite, PostgreSQL, MySQL), security scanning with Brakeman, and RubyGems publishing.
+A CI/CD pipeline for Ruby on Rails, the original convention-over-configuration web framework. Includes testing with SQLite, RuboCop linting, security scanning with Brakeman, and RubyGems publishing.
 
 ## Stages
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
+| **Test** | rails-test | Test suite with SQLite |
 | **Lint** | rubocop | Ruby style enforcement |
-| **Test-SQLite** | rails-test, minitest-coverage | Fast test suite with SQLite and coverage reporting |
-| **Test-PostgreSQL** | rails-test (pg), rails-test (mysql) | Multi-database compatibility testing |
 | **Security** | brakeman, bundler-audit, git-secrets | Rails SAST, gem vulnerability scanning, secret detection |
 | **Publish** | gem-publish | Publish gems to RubyGems.org |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Lint → Test-SQLite → Test-PostgreSQL → Security → Publish
+Source (GitHub) → Synth → Test → Lint → Security → Publish
 ```
 
 ## Key Configuration
 
 - **Ruby 3.3** across all stages
-- **Multi-database testing** against SQLite (fast), PostgreSQL (production), and MySQL (compat)
-- **MEDIUM compute** for PostgreSQL test stage due to database overhead
 - **Brakeman** for Rails-specific security analysis (SQL injection, XSS, mass assignment)
-- **bundler-audit** for known CVEs in gem dependencies
+- **bundler-audit** for known CVEs in gem dependencies (advisory mode)
 - **RuboCop** with parallel execution for faster linting
-- **MySQL testing** runs with `warn` failure behavior (secondary database)

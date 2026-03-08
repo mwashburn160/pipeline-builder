@@ -1,15 +1,12 @@
 {
   "project": "gin",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes static analysis, testing, container building, and binary publishing.",
+  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes building, testing, linting, and security scanning.",
   "keywords": [
     "go",
-    "golang",
     "gin",
-    "web-framework",
-    "http",
-    "rest-api",
-    "microservice"
+    "backend",
+    "web-api"
   ],
   "accessModifier": "public",
   "props": {
@@ -47,75 +44,6 @@
       }
     },
     "stages": [
-      {
-        "stageName": "Static-Analysis",
-        "steps": [
-          {
-            "plugin": {
-              "name": "golangci-lint",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22",
-                "GOLANGCI_LINT_VERSION": "1.57.2"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.57.2",
-              "golangci-lint run ./..."
-            ]
-          },
-          {
-            "plugin": {
-              "name": "govulncheck",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "go install golang.org/x/vuln/cmd/govulncheck@latest",
-              "govulncheck ./..."
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Test",
-        "steps": [
-          {
-            "plugin": {
-              "name": "go-test",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.22",
-                "GOFLAGS": "-count=1"
-              }
-            },
-            "position": "pre",
-            "timeout": 20,
-            "commands": [
-              "go test -v -coverprofile=coverage.out ./..."
-            ]
-          }
-        ]
-      },
       {
         "stageName": "Build",
         "steps": [
@@ -163,11 +91,11 @@
         ]
       },
       {
-        "stageName": "Security",
+        "stageName": "Test",
         "steps": [
           {
             "plugin": {
-              "name": "trivy",
+              "name": "go-test",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
@@ -175,13 +103,63 @@
                 "isDefault": true
               },
               "metadata": {
-                "TRIVY_SEVERITY": "HIGH,CRITICAL"
+                "GO_VERSION": "1.22",
+                "GOFLAGS": "-count=1"
               }
             },
             "position": "pre",
-            "failureBehavior": "warn",
+            "timeout": 20,
             "commands": [
-              "trivy fs --severity HIGH,CRITICAL --exit-code 1 ."
+              "go test -v -coverprofile=coverage.out ./..."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Lint",
+        "steps": [
+          {
+            "plugin": {
+              "name": "golangci-lint",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22",
+                "GOLANGCI_LINT_VERSION": "1.57.2"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.57.2",
+              "golangci-lint run ./..."
+            ]
+          }
+        ]
+      },
+      {
+        "stageName": "Security",
+        "steps": [
+          {
+            "plugin": {
+              "name": "govulncheck",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "GO_VERSION": "1.22"
+              }
+            },
+            "position": "pre",
+            "commands": [
+              "go install golang.org/x/vuln/cmd/govulncheck@latest",
+              "govulncheck ./..."
             ]
           },
           {
@@ -196,10 +174,24 @@
                 "GO_VERSION": "1.22"
               }
             },
-            "position": "post",
+            "position": "pre",
             "commands": [
               "go install github.com/securego/gosec/v2/cmd/gosec@latest",
               "gosec ./..."
+            ]
+          },
+          {
+            "plugin": {
+              "name": "git-secrets",
+              "filter": {
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true
+              }
+            },
+            "position": "post",
+            "commands": [
+              "git secrets --scan"
             ]
           }
         ]
