@@ -186,7 +186,7 @@ services:
     image: 'redis:7-alpine'
     container_name: redis
     restart: always
-    command: redis-server --maxmemory 128mb --maxmemory-policy noeviction
+    command: redis-server --maxmemory 128mb --maxmemory-policy noeviction --save "" --stop-writes-on-bgsave-error no
     networks:
       - backend-network
     healthcheck:
