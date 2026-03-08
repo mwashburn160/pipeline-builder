@@ -40,10 +40,13 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction", "--save", "", "--stop-writes-on-bgsave-error", "no"]
+          command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
           ports:
             - containerPort: 6379
               name: redis
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
           resources:
             limits:
               cpu: "250m"
@@ -61,3 +64,6 @@ spec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 15
             periodSeconds: 20
+      volumes:
+        - name: redis-data
+          emptyDir: {}
