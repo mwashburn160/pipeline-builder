@@ -373,6 +373,10 @@ Resources:
             - 128mb
             - "--maxmemory-policy"
             - noeviction
+            - "--save"
+            - ""
+            - "--stop-writes-on-bgsave-error"
+            - "no"
           HealthCheck:
             Command:
               - CMD
