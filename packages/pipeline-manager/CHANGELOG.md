@@ -1,3 +1,13 @@
+## 1.34.15 (2026-03-09)
+
+### 🩹 Fixes
+
+- pipeline-manager cleanup ([77d96852](https://github.com/mwashburn160/pipeline-builder/commit/77d96852))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.14 (2026-03-09)
 
 ### 🩹 Fixes
