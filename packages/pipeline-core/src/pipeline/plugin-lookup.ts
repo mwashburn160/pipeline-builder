@@ -131,6 +131,7 @@ export class PluginLookup extends Construct {
       memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
       entry: entrypoint,
+      depsLockFilePath: join(__dirname, '/../../pnpm-lock.yaml'),
       environment: this.buildLambdaEnvironment(),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       bundling: {
