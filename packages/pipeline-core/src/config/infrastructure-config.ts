@@ -59,6 +59,7 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
  * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
  * - `LOG_RETENTION` — Log retention in days (default: `7`)
  * - `LOG_REMOVAL_POLICY` — `'RETAIN'` or destroy (default: DESTROY)
+ * - `LAMBDA_RESERVED_CONCURRENCY` — Reserved concurrent executions (default: `10`)
  * - `CODEBUILD_COMPUTE_TYPE` — CodeBuild compute type (default: `'SMALL'`)
  *
  * @returns AWS infrastructure configuration
@@ -72,6 +73,7 @@ export function loadAWSConfig(): AWSConfig {
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
         ? Architecture.X86_64
         : Architecture.ARM_64,
+      reservedConcurrentExecutions: parseInt(process.env.LAMBDA_RESERVED_CONCURRENCY || '10', 10),
     },
 
     logging: {
