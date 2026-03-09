@@ -1,3 +1,13 @@
+## 1.38.12 (2026-03-09)
+
+### 🩹 Fixes
+
+- search to use partial matching ([1b9d3339](https://github.com/mwashburn160/pipeline-builder/commit/1b9d3339))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.38.11 (2026-03-08)
 
 ### 🩹 Fixes
