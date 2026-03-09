@@ -252,7 +252,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.35.11'
+    image: 'ghcr.io/mwashburn160/frontend:1.35.13'
     container_name: frontend
     restart: always
     environment:
@@ -275,7 +275,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.33.11'
+    image: 'ghcr.io/mwashburn160/platform:1.33.13'
     container_name: platform
     restart: always
     environment:
@@ -353,7 +353,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.32.12'
+    image: 'ghcr.io/mwashburn160/plugin:1.32.14'
     container_name: plugin
     restart: always
     group_add:
@@ -396,7 +396,7 @@ services:
           memory: 768M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.32.11'
+    image: 'ghcr.io/mwashburn160/pipeline:1.32.13'
     container_name: pipeline
     restart: always
     environment:
@@ -416,7 +416,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.14.11'
+    image: 'ghcr.io/mwashburn160/message:1.14.13'
     container_name: message
     restart: always
     environment:
@@ -434,7 +434,7 @@ services:
     deploy: *api-deploy
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.31.11'
+    image: 'ghcr.io/mwashburn160/quota:1.31.13'
     container_name: quota
     restart: always
     environment:
@@ -459,7 +459,7 @@ services:
     deploy: *api-deploy
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:1.16.11'
+    image: 'ghcr.io/mwashburn160/billing:1.16.13'
     container_name: billing
     restart: always
     environment:
