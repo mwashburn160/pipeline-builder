@@ -1,3 +1,13 @@
+## 1.35.14 (2026-03-09)
+
+### 🩹 Fixes
+
+- resp format ([372d36e6](https://github.com/mwashburn160/pipeline-builder/commit/372d36e6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.35.13 (2026-03-09)
 
 ### 🩹 Fixes
