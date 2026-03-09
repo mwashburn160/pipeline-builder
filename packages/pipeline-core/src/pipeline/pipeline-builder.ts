@@ -1,5 +1,6 @@
 import { createLogger } from '@mwashburn160/api-core';
 import { Tags } from 'aws-cdk-lib';
+import { PipelineType } from 'aws-cdk-lib/aws-codepipeline';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
@@ -156,6 +157,7 @@ export class PipelineBuilder extends Construct {
     this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       ...(codeBuildDefaults && { codeBuildDefaults }),
       ...(role && { role }),
+      pipelineType: PipelineType.V2,
       pipelineName: this.config.pipelineName,
       synth,
       ...metadataForCodePipeline(this.config.metadata.merged),
