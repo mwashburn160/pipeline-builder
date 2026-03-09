@@ -254,6 +254,92 @@ cdk deploy  # deploy the pipeline to AWS
 
 ---
 
+## IAM Role Management
+
+Pipeline Builder supports both **static** and **dynamic** IAM role configurations through the `RoleConfig` discriminated union. Choose the approach that fits your security model.
+
+### Static Roles (Existing Infrastructure)
+
+Reference pre-provisioned IAM roles by ARN or name. Best when roles are managed by Terraform, CloudFormation, or your security team.
+
+```typescript
+// Import by ARN
+const role: RoleConfig = {
+  type: 'roleArn',
+  options: {
+    roleArn: 'arn:aws:iam::123456789012:role/MyPipelineRole',
+    mutable: false, // prevent CDK from modifying the role
+  },
+};
+
+// Import by name
+const role: RoleConfig = {
+  type: 'roleName',
+  options: { roleName: 'MyPipelineRole' },
+};
+
+// Auto-create a CodeBuild service role
+const role: RoleConfig = {
+  type: 'codeBuildDefault',
+  options: { roleName: 'MyCodeBuildRole' },
+};
+```
+
+**Benefits:**
+- Full control over IAM policies managed outside CDK
+- Works with existing governance and compliance workflows
+- `mutable: false` prevents CDK from adding unintended permissions
+
+### Dynamic Roles via OIDC (No Static ARNs)
+
+Create IAM roles with OIDC federated trust policies. The CI/CD provider (GitHub Actions, GitLab CI, Bitbucket Pipelines) exchanges a short-lived OIDC token for temporary AWS credentials — no long-lived secrets or hardcoded ARNs required.
+
+```typescript
+// Create a new OIDC provider + role (GitHub Actions)
+const role: RoleConfig = {
+  type: 'oidc',
+  options: {
+    issuer: 'https://token.actions.githubusercontent.com',
+    clientIds: ['sts.amazonaws.com'],
+    conditions: {
+      'token.actions.githubusercontent.com:sub': 'repo:my-org/my-repo:ref:refs/heads/main',
+      'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    },
+  },
+};
+
+// Reference an existing OIDC provider with wildcard matching
+const role: RoleConfig = {
+  type: 'oidc',
+  options: {
+    providerArn: 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com',
+    conditionsLike: {
+      'token.actions.githubusercontent.com:sub': 'repo:my-org/*',
+    },
+    managedPolicyArns: ['arn:aws:iam::aws:policy/ReadOnlyAccess'],
+  },
+};
+```
+
+**Benefits:**
+- No AWS access keys to store, rotate, or leak
+- Short-lived credentials via STS (automatic expiration)
+- Fine-grained trust scoped to specific repos, branches, or environments
+- Full CloudTrail audit trail showing which OIDC identity assumed the role
+
+### Choosing Between Static and Dynamic
+
+| Approach | Config Type | Best For |
+|----------|-------------|----------|
+| Static ARN | `roleArn` | Pre-existing roles managed outside CDK |
+| Static Name | `roleName` | Pre-existing roles referenced by name |
+| CodeBuild Default | `codeBuildDefault` | Auto-created roles for CodeBuild steps |
+| OIDC (dynamic) | `oidc` | CI/CD providers with OIDC support (GitHub Actions, GitLab CI) |
+
+All four variants work at the pipeline level (`BuilderProps.role`). Step-level roles can also be configured via metadata keys — see the [custom IAM roles sample](deploy/samples/cdk/custom-iam-roles-ts/).
+
+---
+
 ## Working with Plugins
 
 Plugins are reusable build step definitions — a `manifest.yaml` and `Dockerfile` packaged as a ZIP. Create them once, reference them across pipelines.

@@ -20,10 +20,49 @@ const pipelineRole: RoleConfig = {
 };
 ```
 
-Three `RoleConfig` variants are available:
-- `roleArn` — import an existing role by ARN
-- `roleName` — import an existing role by name
+Four `RoleConfig` variants are available:
+- `roleArn` — import an existing role by ARN (static)
+- `roleName` — import an existing role by name (static)
 - `codeBuildDefault` — auto-create a role (uses `codebuild.amazonaws.com` trust, not for pipeline-level)
+- `oidc` — create a role with an OIDC federated trust (dynamic, no static ARN needed)
+
+### OIDC: Federated Role (`type: 'oidc'`)
+
+Creates an IAM role that trusts an OpenID Connect identity provider (e.g. GitHub Actions, GitLab CI, Bitbucket Pipelines). Eliminates the need for static role ARNs or long-lived credentials.
+
+```typescript
+// Create a new OIDC provider inline (GitHub Actions)
+const pipelineRole: RoleConfig = {
+  type: 'oidc',
+  options: {
+    issuer: 'https://token.actions.githubusercontent.com',
+    clientIds: ['sts.amazonaws.com'],
+    thumbprints: ['6938fd4d98bab03faadb97b34396831e3780aea1'],
+    conditions: {
+      'token.actions.githubusercontent.com:sub': 'repo:my-org/my-repo:ref:refs/heads/main',
+      'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    },
+  },
+};
+
+// Or reference an existing OIDC provider by ARN
+const pipelineRole: RoleConfig = {
+  type: 'oidc',
+  options: {
+    providerArn: 'arn:aws:iam::111111111111:oidc-provider/token.actions.githubusercontent.com',
+    conditionsLike: {
+      'token.actions.githubusercontent.com:sub': 'repo:my-org/*',
+    },
+  },
+};
+```
+
+Key options:
+- `providerArn` — reference an existing OIDC provider (mutually exclusive with `issuer`)
+- `issuer` — create a new OIDC provider from a URL (mutually exclusive with `providerArn`)
+- `conditions` — `StringEquals` trust policy conditions (exact match)
+- `conditionsLike` — `StringLike` trust policy conditions (wildcard match)
+- `managedPolicyArns` — attach AWS managed policies to the created role
 
 ### Step-Level: CodeBuild Project Role (`aws:cdk:pipelines:codebuildstep:role`)
 
@@ -90,9 +129,19 @@ CodePipeline
 | `aws:cdk:pipelines:codebuildstep:actionrole` | Step | IAM role for CodePipeline action |
 | `aws:cdk:pipelines:codebuildstep:rolepolicystatements` | Step | Additional inline IAM policy statements |
 
+## Static vs Dynamic Roles
+
+| Approach | Config Type | When to Use |
+|----------|------------|-------------|
+| Static ARN | `roleArn` | Pre-existing roles managed by Terraform/CloudFormation |
+| Static Name | `roleName` | Pre-existing roles referenced by name |
+| CodeBuild Default | `codeBuildDefault` | Auto-created roles for CodeBuild steps |
+| OIDC (dynamic) | `oidc` | CI/CD providers with OIDC support (GitHub Actions, GitLab CI) |
+
 ## When to Use This Pattern
 
 - Enterprise environments requiring least-privilege IAM per build step
 - Cross-account deployments where each action needs scoped permissions
 - Compliance requirements mandating separate roles for build, scan, and deploy
 - Preventing privilege escalation by isolating CodeBuild project permissions
+- OIDC-based pipelines where you want to eliminate static credentials and hardcoded role ARNs
