@@ -62,7 +62,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.38.12",
+      "version": "1.39.0",
       "type": "runtime"
     },
     {
