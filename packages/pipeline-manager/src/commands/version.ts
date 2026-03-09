@@ -19,7 +19,7 @@ interface SystemInfo {
   architecture: string;
   memory: {
     total: string;
-    free: string;
+    availableHeap: string;
   };
   uptime: string;
 }
@@ -50,7 +50,7 @@ function getNpmVersion(): string | null {
  */
 function getSystemInfo(): SystemInfo {
   const totalMem = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2);
-  const freeMem = ((process.memoryUsage().heapTotal - process.memoryUsage().heapUsed) / 1024 / 1024).toFixed(2);
+  const availableHeap = ((process.memoryUsage().heapTotal - process.memoryUsage().heapUsed) / 1024 / 1024).toFixed(2);
   const uptime = process.uptime();
   const hours = Math.floor(uptime / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
@@ -63,7 +63,7 @@ function getSystemInfo(): SystemInfo {
     architecture: process.arch,
     memory: {
       total: `${totalMem} MB`,
-      free: `${freeMem} MB`,
+      availableHeap: `${availableHeap} MB`,
     },
     uptime: `${hours}h ${minutes}m ${seconds}s`,
   };
@@ -182,7 +182,7 @@ export function version(program: Command): void {
             'npm': systemInfo.npm || yellow('(not available)'),
             'Platform': systemInfo.platform,
             'Architecture': systemInfo.architecture,
-            'Memory (Heap)': `${systemInfo.memory.total} total, ${systemInfo.memory.free} free`,
+            'Memory (Heap)': `${systemInfo.memory.total} total, ${systemInfo.memory.availableHeap} available`,
             'Process Uptime': systemInfo.uptime,
           });
 

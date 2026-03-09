@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
-import { Pipeline, Config } from '../types';
+import { Pipeline, PipelineResponse, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig, withSSLDisabled } from '../utils/config-loader';
+import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -67,7 +67,7 @@ export function getPipeline(program: Command): void {
         const pipelineId = options.id.trim();
 
         // Load configuration
-        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
+        const config: Config = getConfigWithOptions(options);
 
         // Create API client
         printInfo('Initializing API client', { baseUrl: config.api.baseUrl });
@@ -93,7 +93,7 @@ export function getPipeline(program: Command): void {
         });
 
         const startTime = Date.now();
-        const response = await client.get<any>(endpoint);
+        const response = await client.get<PipelineResponse>(endpoint);
         const duration = Date.now() - startTime;
 
         const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'id');

@@ -211,6 +211,13 @@ export interface PipelineListParams {
 }
 
 /**
+ * Response returned by single-pipeline API endpoints (get, create).
+ */
+export interface PipelineResponse {
+  pipeline: Pipeline;
+}
+
+/**
  * Paginated response returned by the pipeline list API endpoint.
  */
 export interface PipelineListResponse {

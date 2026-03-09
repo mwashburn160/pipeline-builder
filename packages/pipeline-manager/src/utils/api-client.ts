@@ -1,6 +1,7 @@
 import https from 'https';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
+import { ApiError } from '../types';
 import { Config } from './config-loader';
 import { NetworkError } from './error-handler';
 import { printDebug, printError, printWarning } from './output-utils';
@@ -77,12 +78,7 @@ export class ApiClient {
         message = (data as { message: string }).message;
       }
 
-      const apiError = new Error(message);
-      (apiError as any).status = status;
-      (apiError as any).response = error.response;
-      (apiError as any).isAxiosError = true;
-
-      return Promise.reject(apiError);
+      return Promise.reject(new ApiError(message, status, error.response));
     } else if (error.request) {
       const code = error.code || 'UNKNOWN';
       const url = error.config?.url;

@@ -3,7 +3,7 @@ import pico from 'picocolors';
 import { generateExecutionId, formatDuration, validateBoolean, validateNumber } from '../config/cli.constants';
 import { PipelineListResponse, Pipeline, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig, withSSLDisabled } from '../utils/config-loader';
+import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { outputData, extractListResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -149,8 +149,8 @@ export function listPipelines(program: Command): void {
         console.log('');
         printInfo('Pagination Settings');
         printKeyValue({
-          Limit: filterParams.limit?.toString() || '50',
-          Offset: filterParams.offset?.toString() || '0',
+          Limit: (filterParams.limit ?? 50).toString(),
+          Offset: (filterParams.offset ?? 0).toString(),
           Sort: filterParams.sort || 'createdAt:desc',
         });
 
@@ -161,7 +161,7 @@ export function listPipelines(program: Command): void {
         }
 
         // Load configuration
-        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
+        const config: Config = getConfigWithOptions(options);
 
         // Create API client
         console.log('');
@@ -194,7 +194,7 @@ export function listPipelines(program: Command): void {
         const requestStart = Date.now();
         const response = await client.get<PipelineListResponse>(
           config.api.pipelineListUrl,
-          filterParams as any,
+          filterParams as Record<string, unknown>,
         );
         const requestDuration = Date.now() - requestStart;
 

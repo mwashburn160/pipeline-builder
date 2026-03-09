@@ -51,3 +51,21 @@ export interface AxiosErrorLike {
   request?: unknown;
   isAxiosError: true;
 }
+
+/**
+ * Typed API error with status, response, and Axios compatibility flag.
+ * Replaces `as any` casts in api-client.ts error handling.
+ */
+export class ApiError extends Error implements AxiosErrorLike {
+  public readonly isAxiosError = true as const;
+
+  constructor(
+    message: string,
+    public status: number,
+    public response: AxiosErrorLike['response'],
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    Error.captureStackTrace(this, this.constructor);
+  }
+}

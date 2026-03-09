@@ -244,6 +244,13 @@ export interface PluginListParams {
 }
 
 /**
+ * Response returned by single-plugin API endpoints (get, upload).
+ */
+export interface PluginResponse {
+  plugin: Plugin;
+}
+
+/**
  * Paginated response returned by the plugin list API endpoint.
  */
 export interface PluginListResponse {
