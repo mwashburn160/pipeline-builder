@@ -3,12 +3,12 @@ import * as path from 'path';
 import { Command } from 'commander';
 import FormData from 'form-data';
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { generateExecutionId, FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
 import { Plugin, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig } from '../utils/config-loader';
+import { getConfig, withSSLDisabled } from '../utils/config-loader';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler';
-import { fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
 const { bold, cyan, green, magenta } = pico;
 
@@ -104,25 +104,23 @@ export function uploadPlugin(program: Command): void {
         // Get file stats
         const stats = fs.statSync(filePath);
         const sizeBytes = stats.size;
-        const sizeMB = (sizeBytes / 1024 / 1024).toFixed(2);
-        const sizeKB = (sizeBytes / 1024).toFixed(2);
+        const sizeFormatted = formatFileSize(sizeBytes);
 
         printSuccess('Plugin file found', {
           path: filePath,
-          size: sizeBytes > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`,
+          size: sizeFormatted,
           modified: new Date(stats.mtime).toLocaleString(),
         });
 
-        // Check file size (100MB limit)
-        const maxSize = 100 * 1024 * 1024; // 100MB
-        if (sizeBytes > maxSize) {
+        // Check file size
+        if (sizeBytes > FILE_SIZE_LIMITS.PLUGIN) {
           printError('Plugin file too large', {
-            size: `${sizeMB} MB`,
-            maximum: '100 MB',
-            exceededBy: `${((sizeBytes - maxSize) / 1024 / 1024).toFixed(2)} MB`,
+            size: sizeFormatted,
+            maximum: formatFileSize(FILE_SIZE_LIMITS.PLUGIN),
+            exceededBy: formatFileSize(sizeBytes - FILE_SIZE_LIMITS.PLUGIN),
           });
           throw new ValidationError(
-            `Plugin file exceeds maximum size of 100MB (actual: ${sizeMB} MB)`,
+            `Plugin file exceeds maximum size of ${formatFileSize(FILE_SIZE_LIMITS.PLUGIN)} (actual: ${sizeFormatted})`,
             'file.size',
             sizeBytes,
           );
@@ -171,7 +169,7 @@ export function uploadPlugin(program: Command): void {
 
           printKeyValue({
             File: filePath,
-            Size: sizeBytes > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`,
+            Size: sizeFormatted,
             Organization: options.organization,
             Name: options.name || '(will be auto-detected)',
             Version: options.version || '(will be auto-detected)',
@@ -183,19 +181,7 @@ export function uploadPlugin(program: Command): void {
         }
 
         // Load configuration
-        let config: Config = getConfig();
-
-        // Override rejectUnauthorized if --no-verify-ssl flag is provided
-        if (options.verifySsl === false) {
-          config = {
-            ...config,
-            api: {
-              ...config.api,
-              rejectUnauthorized: false,
-            },
-          };
-          printWarning('Overriding config: SSL verification disabled for this request');
-        }
+        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
 
         // Create API client
         console.log('');
@@ -216,7 +202,7 @@ export function uploadPlugin(program: Command): void {
         printSection('Uploading Plugin');
         printInfo('Preparing upload', {
           file: path.basename(filePath),
-          size: sizeBytes > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`,
+          size: sizeFormatted,
         });
 
         const formData = new FormData();
@@ -246,12 +232,7 @@ export function uploadPlugin(program: Command): void {
         const rawResponse = await client.postForm<any>(endpoint, formData);
         const duration = Date.now() - startTime;
 
-        // Unwrap potential response envelopes: { data: Plugin }, { plugin: Plugin }, or bare Plugin
-        const response: Plugin | undefined =
-          rawResponse?.name !== undefined ? rawResponse :
-            rawResponse?.data?.name !== undefined ? rawResponse.data :
-              rawResponse?.plugin?.name !== undefined ? rawResponse.plugin :
-                undefined;
+        const response = extractSingleResponse<Plugin>(rawResponse, 'plugin', 'name');
 
         if (!response) {
           printError('No valid plugin data in response', {

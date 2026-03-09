@@ -3,9 +3,9 @@ import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import { Plugin, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig } from '../utils/config-loader';
+import { getConfig, withSSLDisabled } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { outputData, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
 const { bold, cyan, dim, green, magenta } = pico;
 
@@ -77,19 +77,7 @@ export function getPlugin(program: Command): void {
         }
 
         // Load configuration
-        let config: Config = getConfig();
-
-        // Override rejectUnauthorized if --no-verify-ssl flag is provided
-        if (options.verifySsl === false) {
-          config = {
-            ...config,
-            api: {
-              ...config.api,
-              rejectUnauthorized: false,
-            },
-          };
-          printWarning('Overriding config: SSL verification disabled for this request');
-        }
+        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
 
         // Create API client
         printInfo('Initializing API client', { baseUrl: config.api.baseUrl });
@@ -118,12 +106,7 @@ export function getPlugin(program: Command): void {
         const response = await client.get<any>(endpoint);
         const duration = Date.now() - startTime;
 
-        // Unwrap potential response envelopes: { data: Plugin }, { plugin: Plugin }, or bare Plugin
-        const plugin: Plugin | undefined =
-          response?.id !== undefined ? response :
-            response?.data?.id !== undefined ? response.data :
-              response?.plugin?.id !== undefined ? response.plugin :
-                undefined;
+        const plugin = extractSingleResponse<Plugin>(response, 'plugin', 'id');
 
         if (!plugin) {
           printError('No plugin returned from API', {

@@ -128,3 +128,13 @@ export function getToken(): string {
 export function hasToken(): boolean {
   return !!process.env.PLATFORM_TOKEN;
 }
+
+/**
+ * Return a copy of `config` with SSL verification disabled.
+ */
+export function withSSLDisabled(config: Config): Config {
+  return {
+    ...config,
+    api: { ...config.api, rejectUnauthorized: false },
+  };
+}

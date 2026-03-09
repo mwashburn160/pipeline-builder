@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { APP_NAME, APP_VERSION, generateExecutionId } from '../config/cli.constants';
+import { getCdkInfo } from '../utils/cdk-utils';
 import { getConfig } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printDivider, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
@@ -21,36 +22,6 @@ interface SystemInfo {
     free: string;
   };
   uptime: string;
-}
-
-/**
- * AWS CDK availability and version information.
- */
-interface CdkInfo {
-  available: boolean;
-  version: string | null;
-  error?: string;
-}
-
-/**
- * Checks whether the AWS CDK CLI is installed and returns its version string.
- * @returns CDK availability status and version, or an error message if unavailable.
- */
-function checkCdk(): CdkInfo {
-  try {
-    const output = execSync('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
-    const version = output.trim();
-    return {
-      available: true,
-      version,
-    };
-  } catch (error) {
-    return {
-      available: false,
-      version: null,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
 }
 
 /**
@@ -152,7 +123,7 @@ export function version(program: Command): void {
 
         // JSON output
         if (options.json) {
-          const cdkInfo = checkCdk();
+          const cdkInfo = getCdkInfo();
           const systemInfo = getSystemInfo();
           const configStatus = options.checkConfig ? checkConfiguration() : { valid: true };
           const envStatus = getEnvironmentStatus();
@@ -223,7 +194,7 @@ export function version(program: Command): void {
           printSection('AWS CDK');
         }
 
-        const cdkInfo = checkCdk();
+        const cdkInfo = getCdkInfo();
 
         if (cdkInfo.available && cdkInfo.version) {
           if (options.verbose) {

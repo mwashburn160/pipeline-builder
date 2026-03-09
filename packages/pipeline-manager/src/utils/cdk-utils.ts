@@ -1,16 +1,28 @@
 import { execSync } from 'child_process';
 
+export interface CdkInfo {
+  available: boolean;
+  version: string | null;
+  error?: string;
+}
+
+/**
+ * Checks whether the AWS CDK CLI is installed and returns its version.
+ */
+export function getCdkInfo(): CdkInfo {
+  try {
+    const output = execSync('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
+    return { available: true, version: output.trim() };
+  } catch (error) {
+    return { available: false, version: null, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 /**
  * Checks whether the AWS CDK CLI is installed and accessible on the PATH.
- * @returns `true` if `cdk --version` succeeds, `false` otherwise.
  */
 export function checkCdkAvailable(): boolean {
-  try {
-    execSync('cdk --version', { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return getCdkInfo().available;
 }
 
 /**

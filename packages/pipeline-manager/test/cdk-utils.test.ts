@@ -1,22 +1,45 @@
 jest.mock('child_process');
 
 import { execSync } from 'child_process';
-import { checkCdkAvailable, executeCdkShellCommand } from '../src/utils/cdk-utils';
+import { checkCdkAvailable, getCdkInfo, executeCdkShellCommand } from '../src/utils/cdk-utils';
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+
+describe('getCdkInfo', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('should return available and version when cdk --version succeeds', () => {
+    mockExecSync.mockReturnValue('2.240.0' as any);
+    const info = getCdkInfo();
+    expect(info.available).toBe(true);
+    expect(info.version).toBe('2.240.0');
+    expect(mockExecSync).toHaveBeenCalledWith('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
+  });
+
+  it('should return unavailable with error when cdk --version throws', () => {
+    mockExecSync.mockImplementation(() => {
+      throw new Error('command not found');
+    });
+    const info = getCdkInfo();
+    expect(info.available).toBe(false);
+    expect(info.version).toBeNull();
+    expect(info.error).toBe('command not found');
+  });
+});
 
 describe('checkCdkAvailable', () => {
   beforeEach(() => {
     jest.resetAllMocks();
   });
 
-  it('should return true when cdk --version succeeds', () => {
-    mockExecSync.mockReturnValue(Buffer.from('2.240.0'));
+  it('should return true when cdk is available', () => {
+    mockExecSync.mockReturnValue('2.240.0' as any);
     expect(checkCdkAvailable()).toBe(true);
-    expect(mockExecSync).toHaveBeenCalledWith('cdk --version', { stdio: 'ignore' });
   });
 
-  it('should return false when cdk --version throws', () => {
+  it('should return false when cdk is not available', () => {
     mockExecSync.mockImplementation(() => {
       throw new Error('command not found');
     });

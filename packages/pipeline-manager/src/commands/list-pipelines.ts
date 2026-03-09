@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId, formatDuration, validateBoolean } from '../config/cli.constants';
+import { generateExecutionId, formatDuration, validateBoolean, validateNumber } from '../config/cli.constants';
 import { PipelineListResponse, Pipeline, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig } from '../utils/config-loader';
+import { getConfig, withSSLDisabled } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { outputData, extractListResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -27,30 +27,6 @@ interface PipelineFilterParams {
   project?: string;
   organization?: string;
   pipelineName?: string;
-}
-
-/**
- * Validates and parses a numeric CLI parameter within optional bounds.
- *
- * @param value - The raw string value from the CLI.
- * @param fieldName - Human-readable field name used in error messages.
- * @param min - Optional minimum allowed value (inclusive).
- * @param max - Optional maximum allowed value (inclusive).
- * @returns The parsed integer.
- * @throws {Error} If the value is not a number or falls outside the allowed range.
- */
-function validateNumber(value: string, fieldName: string, min?: number, max?: number): number {
-  const num = parseInt(value, 10);
-  if (isNaN(num)) {
-    throw new Error(`Invalid ${fieldName}: must be a number`);
-  }
-  if (min !== undefined && num < min) {
-    throw new Error(`Invalid ${fieldName}: must be >= ${min}`);
-  }
-  if (max !== undefined && num > max) {
-    throw new Error(`Invalid ${fieldName}: must be <= ${max}`);
-  }
-  return num;
 }
 
 /**
@@ -185,18 +161,7 @@ export function listPipelines(program: Command): void {
         }
 
         // Load configuration
-        let config: Config = getConfig();
-
-        // Override SSL verification if flag is provided
-        if (options.verifySsl === false) {
-          config = {
-            ...config,
-            api: {
-              ...config.api,
-              rejectUnauthorized: false,
-            },
-          };
-        }
+        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
 
         // Create API client
         console.log('');
