@@ -32,7 +32,7 @@ export interface PluginLookupProps {
   readonly memorySize?: number;
   /** Log retention (default: ONE_WEEK) */
   readonly logRetention?: RetentionDays;
-  /** Reserved concurrent executions for the lookup Lambda (default: 10) */
+  /** Reserved concurrent executions for the lookup Lambda (default: 30) */
   readonly reservedConcurrentExecutions?: number;
 }
 
@@ -68,7 +68,7 @@ export class PluginLookup extends Construct {
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 256;
-    this._reservedConcurrentExecutions = props.reservedConcurrentExecutions ?? 10;
+    this._reservedConcurrentExecutions = props.reservedConcurrentExecutions ?? 30;
 
     const onEventHandler = this.createLambdaFunction();
 
