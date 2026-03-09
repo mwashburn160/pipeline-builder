@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **115 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 ---
 
@@ -8,15 +8,15 @@ Pipeline Builder ships with **115 plugins** across **10 categories**, covering t
 
 | Category | Plugins | Description | Doc |
 |----------|---------|-------------|-----|
-| Language | 15 | Build, test, and compile across major languages | [language.md](language.md) |
-| Security | 35 | SAST, DAST, SCA, secret detection, container scanning, IaC scanning, license compliance | [security.md](security.md) |
-| Quality | 11 | Linting, formatting, code coverage reporting | [quality.md](quality.md) |
-| Monitoring | 5 | APM, observability, release tracking, deployment annotations | [monitoring.md](monitoring.md) |
-| Artifact & Registry | 13 | Package publishing and container image push | [artifact.md](artifact.md) |
-| Deploy | 15 | Cloud provisioning, K8s, serverless, database migration, mobile builds | [deploy.md](deploy.md) |
-| Infrastructure | 4 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
-| Testing | 8 | API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
-| Notification | 7 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub, etc.) | [notification.md](notification.md) |
+| Language | 11 | Build, test, and compile across major languages | [language.md](language.md) |
+| Security | 40 | SAST, SCA, secret detection, container scanning, license compliance | [security.md](security.md) |
+| Quality | 17 | Linting, formatting, static analysis, code coverage reporting | [quality.md](quality.md) |
+| Monitoring | 3 | APM and release tracking | [monitoring.md](monitoring.md) |
+| Artifact & Registry | 16 | Package publishing, container image push, and binary compilation | [artifact.md](artifact.md) |
+| Deploy | 11 | Cloud provisioning, K8s, serverless, database migration | [deploy.md](deploy.md) |
+| Infrastructure | 5 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
+| Testing | 14 | Unit, integration, API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
+| Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub) | [notification.md](notification.md) |
 | AI | 2 | AI-powered Dockerfile generation (local + cloud) | [ai.md](ai.md) |
 
 ---
@@ -33,8 +33,6 @@ flowchart LR
     Test --> Coverage
     Coverage --> SAST
     SAST --> SCA
-    SCA --> DAST
-
     Source --> SecretScan[Secret Scan]
     SecretScan --> ContainerScan[Container Scan]
     ContainerScan --> Package
@@ -50,8 +48,6 @@ flowchart LR
         checkstyle
         shellcheck
         golangci-lint
-        markdownlint
-        stylelint
     end
 
     subgraph "Build / Compile"
@@ -65,16 +61,12 @@ flowchart LR
         ruby
         cpp
         php
-        scala
-        swift
     end
 
     subgraph "Coverage Reporting"
         direction TB
         codecov
-        coveralls
         codacy
-        coverage-report
     end
 
     subgraph "SAST / SCA"
@@ -89,12 +81,6 @@ flowchart LR
         mend
         gitguardian_sast[gitguardian]
         semgrep
-        grype
-    end
-
-    subgraph "DAST"
-        direction TB
-        owasp-zap
     end
 
     subgraph "SCA"
@@ -108,11 +94,10 @@ flowchart LR
         gitguardian_sec[gitguardian]
     end
 
-    subgraph "Container / License / IaC"
+    subgraph "Container / License"
         direction TB
         docker-lint
         license-checker
-        tfsec
     end
 
     subgraph "Artifact & Registry"
@@ -147,8 +132,6 @@ flowchart LR
         pulumi
         serverless-framework
         flyway
-        liquibase
-        fastlane
     end
 
     subgraph "Integration & Smoke & E2E"
@@ -157,10 +140,8 @@ flowchart LR
         k6
         health-check
         artillery
-        jmeter
         cypress
         playwright
-        selenium
     end
 
     subgraph "Monitoring"
@@ -168,8 +149,6 @@ flowchart LR
         datadog
         newrelic
         sentry-release
-        grafana-annotation
-        prometheus-pushgateway
     end
 
     subgraph "Notifications"
@@ -177,8 +156,6 @@ flowchart LR
         slack-notify
         teams-notify
         pagerduty-notify
-        opsgenie-notify
-        discord-notify
         email-notify
         github-status
     end
@@ -205,7 +182,6 @@ The following table lists every plugin that requires external tokens or credenti
 | snyk | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
 | sonarcloud | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
 | dependency-check | security | `NVD_API_KEY` (optional) | [nvd.nist.gov](https://nvd.nist.gov) |
-| owasp-zap | security | None (scans target URL) | - |
 | veracode | security | `VERACODE_API_ID`, `VERACODE_API_KEY` | [veracode.com](https://veracode.com) |
 | checkmarx | security | `CX_CLIENT_SECRET` | [checkmarx.com](https://checkmarx.com) |
 | prisma-cloud | security | `PRISMA_ACCESS_KEY`, `PRISMA_SECRET_KEY` | [paloaltonetworks.com](https://www.paloaltonetworks.com) |
@@ -214,12 +190,10 @@ The following table lists every plugin that requires external tokens or credenti
 | fortify | security | `FOD_CLIENT_ID`, `FOD_CLIENT_SECRET` or `FORTIFY_SSC_TOKEN` | [microfocus.com](https://www.microfocus.com) |
 | semgrep | security | `SEMGREP_APP_TOKEN` (optional) | [semgrep.dev](https://semgrep.dev) |
 | codecov | quality | `CODECOV_TOKEN` | [codecov.io](https://codecov.io) |
-| coveralls | quality | `COVERALLS_REPO_TOKEN` | [coveralls.io](https://coveralls.io) |
 | codacy | quality | `CODACY_PROJECT_TOKEN` | [codacy.com](https://www.codacy.com) |
 | datadog | monitoring | `DD_API_KEY` | [datadoghq.com](https://www.datadoghq.com) |
 | newrelic | monitoring | `NEW_RELIC_API_KEY` | [newrelic.com](https://newrelic.com) |
 | sentry-release | monitoring | `SENTRY_AUTH_TOKEN` | [sentry.io](https://sentry.io) |
-| grafana-annotation | monitoring | `GRAFANA_API_KEY` | [grafana.com](https://grafana.com) |
 | docker-build | artifact | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | - |
 | ghcr-push | artifact | `GITHUB_TOKEN` | [github.com](https://github.com) |
 | gar-push | artifact | `GOOGLE_APPLICATION_CREDENTIALS` | [cloud.google.com](https://cloud.google.com) |
@@ -237,13 +211,9 @@ The following table lists every plugin that requires external tokens or credenti
 | kubectl-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
 | helm-deploy | deploy | `KUBECONFIG` or cluster credentials | - |
 | flyway | deploy | `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD` | [flywaydb.org](https://flywaydb.org) |
-| liquibase | deploy | `LIQUIBASE_COMMAND_URL`, `LIQUIBASE_COMMAND_USERNAME`, `LIQUIBASE_COMMAND_PASSWORD` | [liquibase.com](https://www.liquibase.com) |
-| fastlane | deploy | `APPLE_ID`, `APP_STORE_CONNECT_API_KEY` or `MATCH_PASSWORD` | [fastlane.tools](https://fastlane.tools) |
 | slack-notify | notification | `SLACK_WEBHOOK_URL` | [api.slack.com](https://api.slack.com) |
 | teams-notify | notification | `TEAMS_WEBHOOK_URL` | [learn.microsoft.com](https://learn.microsoft.com) |
 | pagerduty-notify | notification | `PAGERDUTY_ROUTING_KEY` | [pagerduty.com](https://www.pagerduty.com) |
-| opsgenie-notify | notification | `OPSGENIE_API_KEY` | [opsgenie.com](https://www.atlassian.com/software/opsgenie) |
-| discord-notify | notification | `DISCORD_WEBHOOK_URL` | [discord.com](https://discord.com) |
 | email-notify | notification | `SMTP_PASSWORD` (optional) | - |
 | github-status | notification | `GITHUB_TOKEN` | [github.com](https://github.com) |
 | dockerfile-multi-provider | ai | `AI_API_KEY` (varies by provider) | - |

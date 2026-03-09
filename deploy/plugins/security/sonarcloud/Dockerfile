@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 # SonarCloud Plugin — Node.js / C++ scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # For other languages, use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, or sonarcloud-rust

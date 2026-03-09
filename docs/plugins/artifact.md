@@ -22,6 +22,11 @@ flowchart LR
     PkgPublish --> nuget-publish
     PkgPublish --> cargo-publish
     PkgPublish --> gem-publish
+
+    ContainerImg -->|Binary| BinaryBuild[Binary Compile]
+    BinaryBuild --> go-compile
+    BinaryBuild --> cargo-release
+    BinaryBuild --> nodejs-bundle
 ```
 
 ## Container Build
@@ -50,6 +55,14 @@ flowchart LR
 | nuget-publish | NuGet Gallery | SMALL | `NUGET_API_KEY` | `NUGET_SOURCE` |
 | cargo-publish | crates.io | SMALL | `CARGO_REGISTRY_TOKEN` | `CARGO_DRY_RUN` |
 | gem-publish | RubyGems | SMALL | `GEM_HOST_API_KEY` | `GEM_DRY_RUN` |
+
+## Binary Compilation
+
+| Plugin | Language | Compute | Secrets | Key Env Vars |
+|--------|----------|---------|---------|--------------|
+| go-compile | Go | MEDIUM | None | `GO_VERSION`, `GOOS`, `GOARCH`, `CGO_ENABLED` |
+| cargo-release | Rust | MEDIUM | None | `RUST_VERSION`, `CARGO_BUILD_TARGET`, `CARGO_PROFILE` |
+| nodejs-bundle | Node.js | MEDIUM | None | `NODE_VERSION`, `BUILD_SCRIPT`, `OUTPUT_DIR` |
 
 ## Helm Charts
 
