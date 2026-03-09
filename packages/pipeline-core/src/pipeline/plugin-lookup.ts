@@ -32,6 +32,8 @@ export interface PluginLookupProps {
   readonly memorySize?: number;
   /** Log retention (default: ONE_WEEK) */
   readonly logRetention?: RetentionDays;
+  /** Reserved concurrent executions for the lookup Lambda (default: 10) */
+  readonly reservedConcurrentExecutions?: number;
 }
 
 /**
@@ -52,6 +54,7 @@ export class PluginLookup extends Construct {
   private readonly _runtime: Runtime;
   private readonly _timeout: Duration;
   private readonly _memorySize: number;
+  private readonly _reservedConcurrentExecutions: number;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
@@ -65,6 +68,7 @@ export class PluginLookup extends Construct {
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 256;
+    this._reservedConcurrentExecutions = props.reservedConcurrentExecutions ?? 10;
 
     const onEventHandler = this.createLambdaFunction();
 
@@ -128,7 +132,7 @@ export class PluginLookup extends Construct {
       architecture: Architecture.ARM_64,
       entry: entrypoint,
       environment: this.buildLambdaEnvironment(),
-      reservedConcurrentExecutions: 10,
+      reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       bundling: {
         minify: true,
         sourceMap: true,

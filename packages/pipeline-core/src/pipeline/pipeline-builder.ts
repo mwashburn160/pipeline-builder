@@ -108,6 +108,7 @@ export class PipelineBuilder extends Construct {
         platformUrl: serverConfig.platformUrl,
         uniqueId,
         runtime: awsConfig.lambda.runtime,
+        reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
       },
     );
 
