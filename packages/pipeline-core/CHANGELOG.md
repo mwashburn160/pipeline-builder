@@ -1,3 +1,13 @@
+## 1.39.3 (2026-03-09)
+
+### 🩹 Fixes
+
+- set concurrent executions ([e2602aed](https://github.com/mwashburn160/pipeline-builder/commit/e2602aed))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.2 (2026-03-09)
 
 ### 🩹 Fixes
