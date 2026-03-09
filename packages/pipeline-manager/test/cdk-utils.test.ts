@@ -60,7 +60,7 @@ describe('executeCdkShellCommand', () => {
     expect(typeof result.duration).toBe('number');
     expect(mockExecSync).toHaveBeenCalledWith(
       'cdk bootstrap aws://123/us-east-1',
-      expect.objectContaining({ stdio: 'inherit' }),
+      expect.objectContaining({ stdio: ['inherit', 'inherit', 'pipe'] }),
     );
   });
 
