@@ -1,3 +1,7 @@
+## 1.11.14 (2026-03-09)
+
+This was a version bump only for @mwashburn160/ai-core to align it with other projects, there were no code changes.
+
 ## 1.11.13 (2026-03-09)
 
 ### 🩹 Fixes
