@@ -42,7 +42,7 @@
     "@mwashburn160/ai-core": "1.11.12",
     "@mwashburn160/api-core": "1.37.12",
     "@mwashburn160/api-server": "1.36.12",
-    "@mwashburn160/pipeline-core": "1.39.0",
+    "@mwashburn160/pipeline-core": "1.39.1",
     "adm-zip": "0.5.16",
     "bullmq": "5.34.8",
     "cors": "2.8.6",
