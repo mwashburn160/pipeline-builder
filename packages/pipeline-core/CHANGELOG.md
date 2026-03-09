@@ -1,3 +1,13 @@
+## 1.39.0 (2026-03-09)
+
+### 🚀 Features
+
+- added oidc support ([d855c223](https://github.com/mwashburn160/pipeline-builder/commit/d855c223))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.38.13 (2026-03-09)
 
 ### 🩹 Fixes
