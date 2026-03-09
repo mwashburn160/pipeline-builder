@@ -129,7 +129,7 @@ export interface AWSConfig {
     readonly timeout: Duration;
     readonly memorySize: number;
     readonly architecture: Architecture;
-    readonly reservedConcurrentExecutions: number;
+    readonly reservedConcurrentExecutions?: number;
   };
   readonly logging: {
     readonly groupName: string;
