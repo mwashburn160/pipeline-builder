@@ -1,3 +1,13 @@
+## 1.39.9 (2026-03-09)
+
+### 🩹 Fixes
+
+- set handlers/pnpm-lock.yaml ([716ccdf1](https://github.com/mwashburn160/pipeline-builder/commit/716ccdf1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.8 (2026-03-09)
 
 ### 🩹 Fixes
