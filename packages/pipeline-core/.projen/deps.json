@@ -40,6 +40,11 @@
       "type": "build"
     },
     {
+      "name": "copyfiles",
+      "version": "2.4.1",
+      "type": "build"
+    },
+    {
       "name": "eslint-import-resolver-typescript",
       "type": "build"
     },

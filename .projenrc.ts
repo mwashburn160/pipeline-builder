@@ -171,12 +171,14 @@ const pipelineCore = new PackageProject({
     '@types/aws-lambda@8.10.160',
     '@types/jsonwebtoken@9.0.10',
     '@jest/globals@30.2.0',
+    'copyfiles@2.4.1'
   ],
 });
 pipelineCore.eslint?.addRules(rules);
 if (pipelineCore.jest) {
   pipelineCore.jest.config.maxWorkers = 1;
 }
+pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/ --verbose --error');
 
 // -- API Server --
 const apiServer = new PackageProject({
