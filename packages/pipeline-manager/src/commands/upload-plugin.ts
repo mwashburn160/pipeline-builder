@@ -4,9 +4,9 @@ import { Command } from 'commander';
 import FormData from 'form-data';
 import pico from 'picocolors';
 import { generateExecutionId, FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
-import { Plugin, Config } from '../types';
+import { Plugin, PluginResponse, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig, withSSLDisabled } from '../utils/config-loader';
+import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler';
 import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -181,7 +181,7 @@ export function uploadPlugin(program: Command): void {
         }
 
         // Load configuration
-        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
+        const config: Config = getConfigWithOptions(options);
 
         // Create API client
         console.log('');
@@ -229,7 +229,7 @@ export function uploadPlugin(program: Command): void {
         console.log('');
 
         const startTime = Date.now();
-        const rawResponse = await client.postForm<any>(endpoint, formData);
+        const rawResponse = await client.postForm<PluginResponse>(endpoint, formData);
         const duration = Date.now() - startTime;
 
         const response = extractSingleResponse<Plugin>(rawResponse, 'plugin', 'name');

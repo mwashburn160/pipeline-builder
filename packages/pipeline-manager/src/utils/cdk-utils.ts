@@ -66,7 +66,7 @@ export function executeCdkShellCommand(
     };
 
     execSync(command, {
-      stdio: showOutput ? 'inherit' : 'pipe',
+      stdio: showOutput ? ['inherit', 'inherit', 'pipe'] : 'pipe',
       env,
     });
 
@@ -77,9 +77,25 @@ export function executeCdkShellCommand(
       duration,
     };
   } catch (error) {
-    if (debug) {
+    const duration = Date.now() - startTime;
+
+    // Extract stderr/stdout from execSync error when available
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      const execError = error as { stderr?: Buffer | string; stdout?: Buffer | string; status?: number };
+      const stderr = execError.stderr?.toString().trim();
+      const stdout = execError.stdout?.toString().trim();
+
+      console.error('');
+      console.error('CDK deployment failed:');
+      if (stderr) console.error(stderr);
+      if (stdout) console.error(stdout);
+      if (execError.status !== undefined) {
+        console.error(`Exit code: ${execError.status} (after ${duration}ms)`);
+      }
+    } else if (debug) {
       console.error('CDK execution failed:', error);
     }
+
     throw error;
   }
 }

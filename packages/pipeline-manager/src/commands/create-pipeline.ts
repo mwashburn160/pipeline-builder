@@ -3,9 +3,9 @@ import * as path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
-import { Pipeline, CreatePipelineRequest, Config } from '../types';
+import { Pipeline, PipelineResponse, CreatePipelineRequest, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig, withSSLDisabled } from '../utils/config-loader';
+import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -191,7 +191,7 @@ export function createPipeline(program: Command): void {
         }
 
         // Load configuration
-        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
+        const config: Config = getConfigWithOptions(options);
 
         // Create API client
         console.log('');
@@ -222,7 +222,7 @@ export function createPipeline(program: Command): void {
         printInfo('Sending request to API...');
 
         const requestStart = Date.now();
-        const rawResponse = await client.post<any>(
+        const rawResponse = await client.post<PipelineResponse>(
           config.api.pipelinePostUrl,
           payload,
         );

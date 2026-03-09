@@ -75,6 +75,15 @@ export function handleError(
         }
       }
 
+      // Show CDK/execSync error details (stderr captured from child process)
+      if ('stderr' in err && err.stderr) {
+        const stderr = (err.stderr as Buffer | string).toString().trim();
+        if (stderr) {
+          console.error(red('CDK Output:'));
+          console.error(dim(stderr));
+        }
+      }
+
       console.error(red('Code:'), getErrorCodeName(code));
       console.error(dim('Error ID:'), dim(errorId));
 
@@ -196,6 +205,9 @@ function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
   if (code === ERROR_CODES.NOT_FOUND) {
     return 'Verify the resource ID exists and you have access to it';
   }
+  if (err instanceof Error && err.message.includes('cdk')) {
+    return 'Check the CDK output above for CloudFormation errors. Run with --debug for full details';
+  }
   if (err instanceof ValidationError && err.field) {
     return `Check the value provided for "${err.field}"`;
   }
@@ -212,7 +224,7 @@ function sanitizeErrorData(data: unknown): string {
   if (typeof data === 'string') return data;
   if (typeof data === 'object' && data !== null) {
     const sanitized = { ...data } as Record<string, unknown>;
-    ['token', 'password', 'secret', 'apiKey', 'authorization'].forEach(field => {
+    ['token', 'password', 'secret', 'apiKey', 'authorization', 'jwt', 'credential', 'bearer'].forEach(field => {
       if (field in sanitized) sanitized[field] = '[REDACTED]';
     });
     return JSON.stringify(sanitized, null, 2);
@@ -255,6 +267,6 @@ function isAxiosError(err: unknown): err is AxiosErrorLike {
     typeof err === 'object' &&
     err !== null &&
     'isAxiosError' in err &&
-    (err as any).isAxiosError === true
+    (err as Record<string, unknown>).isAxiosError === true
   );
 }

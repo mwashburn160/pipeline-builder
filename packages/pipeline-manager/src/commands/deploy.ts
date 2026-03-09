@@ -2,12 +2,12 @@ import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
-import { Pipeline } from '../types';
+import { Pipeline, PipelineResponse } from '../types';
 import { ApiClient } from '../utils/api-client';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 
 const { bold, cyan, dim, magenta } = pico;
-import { getConfig, withSSLDisabled } from '../utils/config-loader';
+import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -66,13 +66,13 @@ export function deploy(program: Command): void {
         printSuccess('AWS CDK is available');
 
         // Load configuration
-        const config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
+        const config = getConfigWithOptions(options);
 
         // Fetch pipeline from API
         printInfo('Fetching pipeline configuration', { id: options.id });
 
         const client = new ApiClient(config);
-        const response = await client.get<any>(
+        const response = await client.get<PipelineResponse>(
           `${config.api.pipelineUrl}/${options.id}`,
         );
 
@@ -139,7 +139,7 @@ export function deploy(program: Command): void {
         }
 
       } catch (error) {
-        handleError(error, ERROR_CODES.GENERAL, {
+        handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
           exit: true,
           context: {

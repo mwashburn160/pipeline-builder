@@ -153,7 +153,7 @@ export function bootstrap(program: Command): void {
         }
 
       } catch (error) {
-        handleError(error, ERROR_CODES.GENERAL, {
+        handleError(error, ERROR_CODES.VALIDATION, {
           debug: program.opts().debug,
           exit: true,
           context: {

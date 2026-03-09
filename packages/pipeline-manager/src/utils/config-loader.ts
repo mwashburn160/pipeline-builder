@@ -138,3 +138,13 @@ export function withSSLDisabled(config: Config): Config {
     api: { ...config.api, rejectUnauthorized: false },
   };
 }
+
+/**
+ * Load configuration, optionally disabling SSL based on command options.
+ * Replaces the repeated pattern:
+ *   `options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig()`
+ */
+export function getConfigWithOptions(options: { verifySsl?: boolean }): Config {
+  const config = getConfig();
+  return options.verifySsl === false ? withSSLDisabled(config) : config;
+}
