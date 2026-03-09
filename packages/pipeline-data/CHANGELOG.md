@@ -1,3 +1,13 @@
+## 1.38.21 (2026-03-09)
+
+### 🩹 Fixes
+
+- lock file ([3252396f](https://github.com/mwashburn160/pipeline-builder/commit/3252396f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.38.20 (2026-03-09)
 
 ### 🩹 Fixes
