@@ -1,5 +1,5 @@
 {
-  "app": "node boilerpoint.js",
+  "app": "node boilerplate.js",
   "watch": {
     "include": [
       "**"
