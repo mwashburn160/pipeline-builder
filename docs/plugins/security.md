@@ -1,6 +1,6 @@
 # Security Plugins
 
-Static analysis, dynamic analysis, dependency scanning, secret detection, container scanning, and license compliance.
+Static analysis, dependency scanning, secret detection, container scanning, and license compliance.
 
 ```mermaid
 flowchart LR
@@ -8,9 +8,7 @@ flowchart LR
     Code --> Secrets[Secret Detection]
     Code --> SCA[SCA / License]
     Code --> Container[Container Scan]
-    Code --> DAST[DAST]
-
-    Code --> IaC[IaC Scanning]
+    Code --> LangSec[Language Security]
 
     SAST --> snyk["snyk (+ 6 lang variants)"]
     SAST --> sonarcloud["sonarcloud (+ 6 lang variants)"]
@@ -24,18 +22,16 @@ flowchart LR
     SCA --> license-checker
 
     Container --> docker-lint
-    Container --> trivy2[trivy]
-    Container --> grype
 
-    IaC --> tfsec
-
-    DAST --> owasp-zap
+    LangSec --> bandit & gosec & govulncheck
+    LangSec --> brakeman & bundler-audit & cargo-audit
+    LangSec --> dotnet-security-scan & npm-audit
 
     snyk & sonarcloud & trivy & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
     git-secrets & gitguardian --> Reports
     dependency-check & mend & prisma-cloud & license-checker --> Reports
-    docker-lint & trivy2 & grype --> Reports
-    owasp-zap & tfsec --> Reports
+    docker-lint --> Reports
+    bandit & gosec & govulncheck & brakeman & bundler-audit & cargo-audit & dotnet-security-scan & npm-audit --> Reports
 ```
 
 ## Open Source
@@ -63,10 +59,8 @@ flowchart LR
 | trivy-dotnet | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `DOTNET_VERSION` |
 | trivy-ruby | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `RUBY_VERSION` |
 | trivy-rust | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY` |
-| owasp-zap | DAST | MEDIUM | None | `ZAP_VERSION`, `ZAP_SCAN_TYPE`, `ZAP_TARGET_URL` |
 | dependency-check | SCA | MEDIUM | `NVD_API_KEY` (optional) | `DC_VERSION`, `DC_FAIL_ON_CVSS`, `DC_FORMAT` |
 | semgrep | SAST | MEDIUM | `SEMGREP_APP_TOKEN` (optional) | `SEMGREP_RULES`, `SEMGREP_SEVERITY`, `SEMGREP_FORMAT` |
-| grype | SCA/Container | MEDIUM | None | `GRYPE_SEVERITY`, `GRYPE_FORMAT`, `GRYPE_SCAN_TARGET` |
 
 ## Enterprise (Vendor)
 
@@ -92,11 +86,18 @@ flowchart LR
 | docker-lint | SMALL | None | `HADOLINT_VERSION`, `DOCKLE_VERSION`, `DOCKER_IMAGE` |
 | license-checker | SMALL | None | `LICENSE_DENY`, `LICENSE_ALLOW` |
 
-## IaC Scanning
+## Language-Specific Security
 
-| Plugin | Compute | Secrets | Key Env Vars |
-|--------|---------|---------|--------------|
-| tfsec | SMALL | None | `TFSEC_FORMAT`, `TFSEC_SEVERITY`, `TFSEC_WORKING_DIR` |
+| Plugin | Language | Type | Compute | Secrets | Key Env Vars |
+|--------|----------|------|---------|---------|--------------|
+| bandit | Python | SAST | SMALL | None | `PYTHON_VERSION`, `BANDIT_SEVERITY`, `BANDIT_CONFIDENCE` |
+| brakeman | Ruby | SAST | SMALL | None | `RUBY_VERSION`, `BRAKEMAN_CONFIDENCE` |
+| bundler-audit | Ruby | SCA | SMALL | None | `RUBY_VERSION` |
+| cargo-audit | Rust | SCA | SMALL | None | `RUST_VERSION` |
+| dotnet-security-scan | .NET | SAST/SCA | SMALL | None | `DOTNET_VERSION` |
+| gosec | Go | SAST | SMALL | None | `GO_VERSION`, `GOSEC_SEVERITY` |
+| govulncheck | Go | SCA | SMALL | None | `GO_VERSION` |
+| npm-audit | Node.js | SCA | SMALL | None | `NODE_VERSION`, `NPM_AUDIT_LEVEL` |
 
 ---
 

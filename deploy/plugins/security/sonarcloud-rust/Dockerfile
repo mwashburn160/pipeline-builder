@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 # SonarCloud Plugin — Rust scanning
 ARG SONAR_DEFAULT_VERSION=12.0
 ARG SONAR_PREV_VERSION=11.5

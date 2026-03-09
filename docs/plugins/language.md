@@ -13,9 +13,6 @@ flowchart TB
     JVM --> java[java\nTemurin]
     JVM --> corretto[java-corretto\nAWS]
     JVM --> oracle[java-oracle\nGraalVM]
-    JVM --> microsoft[java-microsoft\nAzure]
-    JVM --> ibm[java-ibm\nSemeru]
-
     Scripting --> python
     Scripting --> nodejs
     Scripting --> ruby
@@ -26,8 +23,6 @@ flowchart TB
     Systems --> cpp
 
     Other --> php
-    Other --> scala
-    Other --> swift
 ```
 
 | Plugin | Description | Compute | Secrets | Key Env Vars |
@@ -35,8 +30,6 @@ flowchart TB
 | java | Java/Kotlin (Temurin JDK) with Maven/Gradle auto-detect | MEDIUM | None | `JAVA_VERSION`, `KOTLIN_VERSION`, `BUILD_TOOL` |
 | java-corretto | Java/Kotlin (Amazon Corretto) for AWS workloads | MEDIUM | None | `JAVA_VERSION`, `KOTLIN_VERSION`, `BUILD_TOOL` |
 | java-oracle | Java/Kotlin (Oracle GraalVM) with native-image support | LARGE | None | `JAVA_VERSION`, `KOTLIN_VERSION`, `BUILD_TOOL`, `NATIVE_BUILD` |
-| java-microsoft | Java/Kotlin (Microsoft OpenJDK) for Azure workloads | MEDIUM | None | `JAVA_VERSION`, `KOTLIN_VERSION`, `BUILD_TOOL` |
-| java-ibm | Java/Kotlin (IBM Semeru/OpenJ9) low memory footprint | MEDIUM | None | `JAVA_VERSION`, `KOTLIN_VERSION`, `BUILD_TOOL` |
 | python | Python with pip/poetry/pipenv auto-detect | MEDIUM | None | `PYTHON_VERSION`, `PACKAGE_MANAGER`, `TEST_FRAMEWORK` |
 | nodejs | Node.js with npm/yarn/pnpm auto-detect | MEDIUM | None | `NODE_VERSION`, `PACKAGE_MANAGER` |
 | go | Go with module support | MEDIUM | None | `GO_VERSION` |
@@ -45,8 +38,6 @@ flowchart TB
 | ruby | Ruby with rspec/rake/minitest auto-detect | MEDIUM | None | `RUBY_VERSION`, `TEST_FRAMEWORK` |
 | cpp | C/C++ with cmake/meson/make auto-detect | MEDIUM | None | `BUILD_SYSTEM`, `BUILD_TYPE`, `COMPILER` |
 | php | PHP with Composer, Laravel/Symfony support | MEDIUM | None | `PHP_VERSION`, `PACKAGE_MANAGER`, `TEST_FRAMEWORK` |
-| scala | Scala with sbt build tool | MEDIUM | None | `SCALA_VERSION`, `SBT_VERSION`, `BUILD_TOOL` |
-| swift | Swift with Swift Package Manager | MEDIUM | None | `SWIFT_VERSION`, `BUILD_TYPE` |
 
 ## Version Managers
 
@@ -63,5 +54,3 @@ Each language plugin uses a dedicated version manager to install and switch betw
 | Ruby | rbenv | Ruby version management with ruby-build plugin |
 | C/C++ | System packages | Installed via apt/yum; version selected by `COMPILER` env var |
 | PHP | System packages | Installed via apt with ondrej/php PPA |
-| Scala | SDKMAN | Manages sbt and Scala versions |
-| Swift | swiftenv | Swift version management |

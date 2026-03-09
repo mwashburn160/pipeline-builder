@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 # SonarCloud Plugin — Python scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 

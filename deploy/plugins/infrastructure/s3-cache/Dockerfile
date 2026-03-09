@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv,UndefinedVar
 # S3 Cache Plugin — Build Cache Restore/Save
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Restores and saves build caches to S3 for faster pipeline runs

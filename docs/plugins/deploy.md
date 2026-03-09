@@ -1,6 +1,6 @@
 # Deploy Plugins
 
-Cloud provisioning, Kubernetes, database migration, and mobile build plugins.
+Cloud provisioning, Kubernetes, serverless, and database migration plugins.
 
 ```mermaid
 flowchart TB
@@ -8,15 +8,12 @@ flowchart TB
     Deploy --> Cloud[Cloud Providers]
     Deploy --> K8s[Kubernetes]
     Deploy --> DB[Database Migration]
-    Deploy --> Mobile[Mobile]
-
     Deploy --> Serverless[Serverless]
     Deploy --> AWS[AWS Services]
 
     Cloud --> terraform & cloudformation & gcloud-deploy & azure-deploy & pulumi
     K8s --> kubectl-deploy & helm-deploy
-    DB --> flyway & liquibase
-    Mobile --> fastlane
+    DB --> flyway
     Serverless --> serverless-framework & lambda-deploy
     AWS --> ecs-deploy
 ```
@@ -43,13 +40,6 @@ flowchart TB
 | Plugin | Tool | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
 | flyway | Flyway | MEDIUM | `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD` | `FLYWAY_LOCATIONS`, `FLYWAY_SCHEMAS`, `FLYWAY_ACTION` |
-| liquibase | Liquibase | MEDIUM | `LIQUIBASE_COMMAND_URL`, `LIQUIBASE_COMMAND_USERNAME`, `LIQUIBASE_COMMAND_PASSWORD` | `LIQUIBASE_CHANGELOG_FILE`, `LIQUIBASE_ACTION` |
-
-## Mobile
-
-| Plugin | Platform | Compute | Secrets | Key Env Vars |
-|--------|----------|---------|---------|--------------|
-| fastlane | iOS/Android | LARGE | `APPLE_ID`, `APP_STORE_CONNECT_API_KEY` or `MATCH_PASSWORD` | `FASTLANE_LANE`, `PLATFORM` |
 
 ## Serverless
 
