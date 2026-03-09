@@ -1,3 +1,13 @@
+## 1.16.19 (2026-03-09)
+
+### 🩹 Fixes
+
+- added pnpm-llock.yaml ([ac4abc76](https://github.com/mwashburn160/pipeline-builder/commit/ac4abc76))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.16.18 (2026-03-09)
 
 ### 🩹 Fixes
