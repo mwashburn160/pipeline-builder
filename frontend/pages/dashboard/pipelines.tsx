@@ -200,6 +200,13 @@ export default function PipelinesPage() {
       ),
     },
     {
+      id: 'pipelineId',
+      header: 'Pipeline ID',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      sortValue: (p) => p.id,
+      render: (p) => <>{p.id.replace(/-/g, '')}</>,
+    },
+    {
       id: 'project',
       header: 'Project',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
