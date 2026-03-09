@@ -1,3 +1,13 @@
+## 1.37.15 (2026-03-09)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.39.3 ([6f64c698](https://github.com/mwashburn160/pipeline-builder/commit/6f64c698))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.14 (2026-03-09)
 
 This was a version bump only for @mwashburn160/api-core to align it with other projects, there were no code changes.
