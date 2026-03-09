@@ -69,7 +69,7 @@ export class PluginLookup extends Construct {
     const onEventHandler = this.createLambdaFunction();
 
     const logGroup = new LogGroup(this, this._uniqueId.generate('log:group'), {
-      logGroupName: `/aws/lambda/${this._uniqueId.generate('plugin:lookup')}`,
+      logGroupName: `/aws/lambda/${this._uniqueId.generate('plugin:lookup').replace(/:/g, '-')}`,
       retention: props.logRetention ?? RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
