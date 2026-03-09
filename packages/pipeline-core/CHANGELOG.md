@@ -1,3 +1,13 @@
+## 1.39.12 (2026-03-09)
+
+### 🩹 Fixes
+
+- debugging concurrency ([17813f67](https://github.com/mwashburn160/pipeline-builder/commit/17813f67))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.11 (2026-03-09)
 
 ### 🩹 Fixes
