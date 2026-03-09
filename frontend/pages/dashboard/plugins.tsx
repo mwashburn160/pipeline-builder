@@ -174,6 +174,13 @@ export default function PluginsPage() {
       ),
     },
     {
+      id: 'id',
+      header: 'ID',
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      sortValue: (p) => p.id,
+      render: (p) => <span title={p.id}>{p.id.length > 8 ? `${p.id.slice(0, 8)}…` : p.id}</span>,
+    },
+    {
       id: 'version',
       header: 'Version',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',

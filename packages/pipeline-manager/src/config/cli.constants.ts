@@ -136,3 +136,20 @@ export function validateBoolean(value: string, fieldName: string): boolean {
   if (['false', '0', 'no', 'n'].includes(normalized)) return false;
   throw new Error(`Invalid boolean value for ${fieldName}: "${value}". Use true/false, yes/no, or 1/0.`);
 }
+
+/**
+ * Validate and parse a numeric CLI parameter within optional bounds.
+ */
+export function validateNumber(value: string | number, fieldName: string, min?: number, max?: number): number {
+  const num = typeof value === 'number' ? value : parseInt(value, 10);
+  if (isNaN(num)) {
+    throw new Error(`Invalid ${fieldName}: must be a number`);
+  }
+  if (min !== undefined && num < min) {
+    throw new Error(`Invalid ${fieldName}: must be >= ${min}`);
+  }
+  if (max !== undefined && num > max) {
+    throw new Error(`Invalid ${fieldName}: must be <= ${max}`);
+  }
+  return num;
+}

@@ -35,26 +35,6 @@ export interface ErrorHandlerOptions {
 }
 
 /**
- * Configuration for automatic request retry with exponential backoff.
- */
-export interface RetryOptions {
-  /** Maximum number of retry attempts (including the initial request). */
-  maxAttempts?: number;
-  /** Initial delay between retries in milliseconds. */
-  delay?: number;
-  /** Multiplier applied to the delay after each attempt. */
-  backoff?: number;
-  /** Upper bound for the computed delay in milliseconds. */
-  maxDelay?: number;
-  /** Custom predicate to decide whether a given error is retryable. */
-  shouldRetry?: (error: Error) => boolean;
-  /** Callback invoked before each retry attempt. */
-  onRetry?: (attempt: number, error: Error) => void;
-  /** HTTP status codes that should trigger a retry. */
-  retryableStatusCodes?: number[];
-}
-
-/**
  * Minimal Axios-compatible error shape used for duck-typing in error handlers.
  */
 export interface AxiosErrorLike {

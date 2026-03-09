@@ -5,9 +5,9 @@ import pico from 'picocolors';
 import { generateExecutionId, formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
 import { Pipeline, CreatePipelineRequest, Config } from '../types';
 import { ApiClient } from '../utils/api-client';
-import { getConfig } from '../utils/config-loader';
+import { getConfig, withSSLDisabled } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
 const { bold, cyan, dim, green, magenta } = pico;
 
@@ -191,18 +191,7 @@ export function createPipeline(program: Command): void {
         }
 
         // Load configuration
-        let config: Config = getConfig();
-
-        // Override SSL verification if flag is provided
-        if (options.verifySsl === false) {
-          config = {
-            ...config,
-            api: {
-              ...config.api,
-              rejectUnauthorized: false,
-            },
-          };
-        }
+        const config: Config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
 
         // Create API client
         console.log('');
@@ -239,12 +228,7 @@ export function createPipeline(program: Command): void {
         );
         const requestDuration = Date.now() - requestStart;
 
-        // Unwrap potential response envelopes: { data: Pipeline }, { pipeline: Pipeline }, or bare Pipeline
-        const pipeline: Pipeline =
-          rawResponse?.id !== undefined ? rawResponse :
-            rawResponse?.data?.id !== undefined ? rawResponse.data :
-              rawResponse?.pipeline?.id !== undefined ? rawResponse.pipeline :
-                rawResponse;
+        const pipeline = extractSingleResponse<Pipeline>(rawResponse, 'pipeline', 'id');
 
         if (!pipeline?.id) {
           printError('Invalid pipeline response', {
@@ -285,9 +269,7 @@ export function createPipeline(program: Command): void {
 
         // Save pipeline info to file
         const outputDir = './output';
-        if (!fs.existsSync(outputDir)) {
-          fs.mkdirSync(outputDir, { recursive: true });
-        }
+        ensureOutputDirectory(outputDir);
 
         const outputFile = path.join(outputDir, `pipeline-${pipeline.id}.json`);
         fs.writeFileSync(outputFile, JSON.stringify(pipeline, null, 2));

@@ -7,9 +7,9 @@ import { ApiClient } from '../utils/api-client';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 
 const { bold, cyan, dim, magenta } = pico;
-import { getConfig } from '../utils/config-loader';
+import { getConfig, withSSLDisabled } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -66,19 +66,7 @@ export function deploy(program: Command): void {
         printSuccess('AWS CDK is available');
 
         // Load configuration
-        let config = getConfig();
-
-        // Override rejectUnauthorized if --no-verify-ssl flag is provided
-        if (options.verifySsl === false) {
-          config = {
-            ...config,
-            api: {
-              ...config.api,
-              rejectUnauthorized: false,
-            },
-          };
-          printWarning('Overriding config: SSL verification disabled for this request');
-        }
+        const config = options.verifySsl === false ? withSSLDisabled(getConfig()) : getConfig();
 
         // Fetch pipeline from API
         printInfo('Fetching pipeline configuration', { id: options.id });
@@ -88,12 +76,7 @@ export function deploy(program: Command): void {
           `${config.api.pipelineUrl}/${options.id}`,
         );
 
-        // Unwrap potential response envelopes: { data: Pipeline }, { pipeline: Pipeline }, or bare Pipeline
-        const pipeline: Pipeline | undefined =
-          response?.props !== undefined ? response :
-            response?.data?.props !== undefined ? response.data :
-              response?.pipeline?.props !== undefined ? response.pipeline :
-                undefined;
+        const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
 
         if (!pipeline?.props) {
           printError('Invalid pipeline response', {

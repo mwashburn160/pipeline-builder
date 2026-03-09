@@ -279,6 +279,35 @@ export function printDivider(char: string = '─', width?: number): void {
 
 // --- Response parsing ---
 
+/**
+ * Unwrap a sendSuccess API envelope: { success, statusCode, data: { ... } }
+ * Returns the inner `data` object, or the original response if not wrapped.
+ */
+export function unwrapEnvelope(response: unknown): Record<string, unknown> {
+  if (response && typeof response === 'object') {
+    const obj = response as Record<string, unknown>;
+    if ('success' in obj && 'data' in obj && obj.data && typeof obj.data === 'object') {
+      return obj.data as Record<string, unknown>;
+    }
+    return obj;
+  }
+  return {};
+}
+
+/**
+ * Extract a single entity from an API response, handling envelope formats.
+ * Tries: payload[entityKey], payload directly (if identifierKey exists), or undefined.
+ */
+export function extractSingleResponse<T>(response: unknown, entityKey: string, identifierKey: string): T | undefined {
+  const payload = unwrapEnvelope(response);
+  // Direct entity: payload has the identifier (e.g. payload.id, payload.props, payload.name)
+  if (identifierKey in payload) return payload as unknown as T;
+  // Nested under entity key: payload.pipeline, payload.plugin
+  const nested = payload[entityKey] as Record<string, unknown> | undefined;
+  if (nested && typeof nested === 'object' && identifierKey in nested) return nested as unknown as T;
+  return undefined;
+}
+
 export interface ListResponseResult<T> {
   items: T[];
   total?: number;
@@ -295,12 +324,7 @@ export function extractListResponse<T>(response: unknown, itemsKey: string): Lis
   }
 
   if (response && typeof response === 'object') {
-    let obj = response as Record<string, unknown>;
-
-    // Unwrap sendSuccess envelope: { success, statusCode, data: { ... } }
-    if ('success' in obj && 'data' in obj && obj.data && typeof obj.data === 'object') {
-      obj = obj.data as Record<string, unknown>;
-    }
+    const obj = unwrapEnvelope(response);
 
     // Extract pagination metadata if present
     const pagination = obj.pagination as Record<string, unknown> | undefined;
