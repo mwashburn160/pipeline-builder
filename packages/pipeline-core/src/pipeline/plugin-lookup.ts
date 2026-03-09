@@ -122,6 +122,7 @@ export class PluginLookup extends Construct {
    * Creates the Lambda function that serves as the event handler for the custom resource provider
    */
   private createLambdaFunction(): NodejsFunction {
+    const lockfile = join(__dirname, '/../handlers/pnpm-lock.yaml');
     const entrypoint = join(__dirname, '/../handlers/plugin-lookup-handler.js');
     const handlerId = this._uniqueId.generate('onevent:handler');
 
@@ -131,7 +132,7 @@ export class PluginLookup extends Construct {
       memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
       entry: entrypoint,
-      depsLockFilePath: join(__dirname, '/../handlers/pnpm-lock.yaml'),
+      depsLockFilePath: lockfile,
       environment: this.buildLambdaEnvironment(),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       bundling: {
