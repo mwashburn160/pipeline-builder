@@ -786,8 +786,8 @@ importers:
         specifier: 1.37.10
         version: 1.37.10
       '@mwashburn160/pipeline-data':
-        specifier: 1.38.10
-        version: 1.38.10(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 1.38.12
+        version: 1.38.12(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.240.0
         version: 2.240.0(constructs@10.5.1)
@@ -2648,8 +2648,8 @@ packages:
     resolution: {integrity: sha512-4pBDDlV38Q9SGe/9MNQcLygRhQaF9PDv5zN/iExnNEymu+NUfehtuvwIojWDXDwonC8Ux2C9BT11ElNqmMuLgw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-core/1.38.9/08004023af2172240e39cd528a9cfffd2b52adf8}
     engines: {node: '>= 24.14.0'}
 
-  '@mwashburn160/pipeline-data@1.38.10':
-    resolution: {integrity: sha512-k+3GWg18WojjZ4DHfvDd9Kyli6tawZOZd7wuE2A8VXk8j67jvMhr3hjUxav+BTqA8FxRfUa9s5/0gQIqKcM7sA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.38.10/d4da94b4d8804d34ee92c2b0cc5d25ad3a0299d0}
+  '@mwashburn160/pipeline-data@1.38.12':
+    resolution: {integrity: sha512-wh3X3Hg65O6ZvjE9j++htZEIw7QXfgsWiAEib3yCnir+9a+SCnT/tyJAhbMjI8a7PAcuYRgco7K6ezpMVCiWEQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.38.12/63592f9e276cc08506b26e564bbe8a0680e914e9}
     engines: {node: '>= 24.14.0'}
 
   '@mwashburn160/pipeline-data@1.38.8':
@@ -8756,9 +8756,9 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@mwashburn160/pipeline-data@1.38.10(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
+  '@mwashburn160/pipeline-data@1.38.12(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
-      '@mwashburn160/api-core': 1.37.9
+      '@mwashburn160/api-core': 1.37.10
       drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
       pg: 8.18.0
     transitivePeerDependencies:

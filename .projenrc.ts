@@ -22,7 +22,7 @@ const expressVersion = '5.2.1';
 // const ws = 'workspace:*';
 const pkg = {
   apiCore:      '1.37.10',
-  pipelineData: '1.38.10',
+  pipelineData: '1.38.12',
   pipelineCore: '1.38.10',
   apiServer:    '1.36.10',
   aiCore:       '1.11.10',
