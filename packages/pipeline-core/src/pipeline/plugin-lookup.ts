@@ -128,6 +128,7 @@ export class PluginLookup extends Construct {
       architecture: Architecture.ARM_64,
       entry: entrypoint,
       environment: this.buildLambdaEnvironment(),
+      reservedConcurrentExecutions: 10,
       bundling: {
         minify: true,
         sourceMap: true,
