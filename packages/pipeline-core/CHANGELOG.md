@@ -1,3 +1,14 @@
+## 1.39.5 (2026-03-09)
+
+### 🩹 Fixes
+
+- upgraded pipeline-core=1.39.4 ([5dd3023a](https://github.com/mwashburn160/pipeline-builder/commit/5dd3023a))
+- set lambda execution=30 ([ae413adb](https://github.com/mwashburn160/pipeline-builder/commit/ae413adb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.4 (2026-03-09)
 
 ### 🩹 Fixes
