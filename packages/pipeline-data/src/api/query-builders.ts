@@ -1,4 +1,4 @@
-import { eq, isNull, or, SQL } from 'drizzle-orm';
+import { eq, ilike, isNull, or, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   normalizeStringFilter,
@@ -69,7 +69,7 @@ export function buildPluginConditions(
   }
 
   if (filter.name !== undefined) {
-    conditions.push(eq(schema.plugin.name, normalizeStringFilter(filter.name)));
+    conditions.push(ilike(schema.plugin.name, `%${normalizeStringFilter(filter.name)}%`));
   }
 
   if (filter.version !== undefined) {
