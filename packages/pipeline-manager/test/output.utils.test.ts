@@ -79,4 +79,36 @@ describe('extractListResponse', () => {
     const result = extractListResponse(response, 'plugins');
     expect(result.hasMore).toBe(false);
   });
+
+  it('should unwrap sendSuccess envelope format', () => {
+    const response = {
+      success: true,
+      statusCode: 200,
+      data: {
+        pipelines: [{ id: '1' }, { id: '2' }],
+        pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+      },
+    };
+    const result = extractListResponse(response, 'pipelines');
+
+    expect(result.items).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(result.total).toBe(2);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it('should unwrap sendSuccess envelope with hasMore true', () => {
+    const response = {
+      success: true,
+      statusCode: 200,
+      data: {
+        plugins: [{ id: '1' }],
+        pagination: { total: 10, limit: 1, offset: 0, hasMore: true },
+      },
+    };
+    const result = extractListResponse(response, 'plugins');
+
+    expect(result.items).toEqual([{ id: '1' }]);
+    expect(result.total).toBe(10);
+    expect(result.hasMore).toBe(true);
+  });
 });

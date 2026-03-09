@@ -295,16 +295,26 @@ export function extractListResponse<T>(response: unknown, itemsKey: string): Lis
   }
 
   if (response && typeof response === 'object') {
-    const obj = response as Record<string, unknown>;
+    let obj = response as Record<string, unknown>;
+
+    // Unwrap sendSuccess envelope: { success, statusCode, data: { ... } }
+    if ('success' in obj && 'data' in obj && obj.data && typeof obj.data === 'object') {
+      obj = obj.data as Record<string, unknown>;
+    }
+
+    // Extract pagination metadata if present
+    const pagination = obj.pagination as Record<string, unknown> | undefined;
+    const total = (pagination?.total ?? obj.total) as number | undefined;
+    const hasMore = ((pagination?.hasMore ?? obj.hasMore) as boolean) || false;
 
     // Try primary key (e.g. 'pipelines', 'plugins')
     if (itemsKey in obj && Array.isArray(obj[itemsKey])) {
-      return { items: obj[itemsKey] as T[], total: obj.total as number | undefined, hasMore: (obj.hasMore as boolean) || false };
+      return { items: obj[itemsKey] as T[], total, hasMore };
     }
 
     // Try generic 'items' key
     if ('items' in obj && Array.isArray(obj.items)) {
-      return { items: obj.items as T[], total: obj.total as number | undefined, hasMore: (obj.hasMore as boolean) || false };
+      return { items: obj.items as T[], total, hasMore };
     }
 
     printWarning('Unexpected response format, attempting to handle');
