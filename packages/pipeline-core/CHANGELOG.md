@@ -1,3 +1,13 @@
+## 1.39.1 (2026-03-09)
+
+### 🩹 Fixes
+
+- log group name ([aa73da0d](https://github.com/mwashburn160/pipeline-builder/commit/aa73da0d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.0 (2026-03-09)
 
 ### 🚀 Features
