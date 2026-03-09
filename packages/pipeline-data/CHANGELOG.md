@@ -1,3 +1,7 @@
+## 1.38.15 (2026-03-09)
+
+This was a version bump only for @mwashburn160/pipeline-data to align it with other projects, there were no code changes.
+
 ## 1.38.14 (2026-03-09)
 
 ### 🩹 Fixes
