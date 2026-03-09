@@ -1,3 +1,14 @@
+## 1.34.21 (2026-03-09)
+
+### 🩹 Fixes
+
+- unit tests ([7128c195](https://github.com/mwashburn160/pipeline-builder/commit/7128c195))
+- upgraded pipeline-core=1.39.6 ([f58a7a29](https://github.com/mwashburn160/pipeline-builder/commit/f58a7a29))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.20 (2026-03-09)
 
 ### 🩹 Fixes
