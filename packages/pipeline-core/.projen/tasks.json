@@ -89,7 +89,7 @@
       "description": "Runs after successful compilation",
       "steps": [
         {
-          "exec": "copyfiles -f ./pnpm-lock.yaml lib/ --verbose --error"
+          "exec": "copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error"
         }
       ]
     },

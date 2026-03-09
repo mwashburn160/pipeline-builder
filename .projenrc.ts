@@ -178,7 +178,7 @@ pipelineCore.eslint?.addRules(rules);
 if (pipelineCore.jest) {
   pipelineCore.jest.config.maxWorkers = 1;
 }
-pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/ --verbose --error');
+pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
 
 // -- API Server --
 const apiServer = new PackageProject({
