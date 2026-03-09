@@ -1,8 +1,18 @@
-import { Stack } from 'aws-cdk-lib';
-import { Effect, IRole, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { Duration, Stack } from 'aws-cdk-lib';
+import {
+  Effect,
+  IOpenIdConnectProvider,
+  IRole,
+  ManagedPolicy,
+  OpenIdConnectPrincipal,
+  OpenIdConnectProvider,
+  PolicyStatement,
+  Role,
+  ServicePrincipal,
+} from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { UniqueId } from './id-generator';
-import type { CodeBuildDefaultRoleOptions, RoleConfig } from './role-types';
+import type { CodeBuildDefaultRoleOptions, OidcRoleOptions, RoleConfig } from './role-types';
 import { Config } from '../config/app-config';
 
 /**
@@ -30,6 +40,8 @@ export function resolveRole(
       });
     case 'codeBuildDefault':
       return createCodeBuildDefaultRole(scope, id, config.options);
+    case 'oidc':
+      return createOidcRole(scope, id, config.options);
     default: {
       const _exhaustive: never = config;
       throw new Error(`Unknown role config type: ${(_exhaustive as RoleConfig).type}`);
@@ -67,6 +79,81 @@ function createCodeBuildDefaultRole(
       ],
     }),
   );
+
+  return role;
+}
+
+/**
+ * Creates a new IAM role with an OIDC federated trust principal.
+ *
+ * Supports either referencing an existing OIDC provider by ARN
+ * or creating a new one from issuer URL + client IDs.
+ */
+function createOidcRole(
+  scope: Construct,
+  id: UniqueId,
+  options: OidcRoleOptions,
+): IRole {
+  if (options.providerArn && options.issuer) {
+    throw new Error('OIDC role config must specify either providerArn or issuer, not both');
+  }
+
+  let provider: IOpenIdConnectProvider;
+
+  if (options.providerArn) {
+    provider = OpenIdConnectProvider.fromOpenIdConnectProviderArn(
+      scope,
+      id.generate('oidc:provider'),
+      options.providerArn,
+    );
+  } else if (options.issuer) {
+    provider = new OpenIdConnectProvider(scope, id.generate('oidc:provider'), {
+      url: options.issuer,
+      clientIds: options.clientIds ?? ['sts.amazonaws.com'],
+      thumbprints: options.thumbprints,
+    });
+  } else {
+    throw new Error('OIDC role config requires either providerArn or issuer');
+  }
+
+  const principal = new OpenIdConnectPrincipal(provider, {
+    ...(options.conditions && { StringEquals: options.conditions }),
+    ...(options.conditionsLike && { StringLike: options.conditionsLike }),
+  });
+
+  const role = new Role(scope, id.generate('role:oidc'), {
+    assumedBy: principal,
+    ...(options.roleName && { roleName: options.roleName }),
+    ...(options.description && { description: options.description }),
+    ...(options.maxSessionDuration && {
+      maxSessionDuration: Duration.seconds(options.maxSessionDuration),
+    }),
+    ...(options.permissionsBoundaryArn && {
+      permissionsBoundary: ManagedPolicy.fromManagedPolicyArn(
+        scope,
+        id.generate('oidc:boundary'),
+        options.permissionsBoundaryArn,
+      ),
+    }),
+  });
+
+  if (options.managedPolicyArns) {
+    for (const arn of options.managedPolicyArns) {
+      role.addManagedPolicy(ManagedPolicy.fromManagedPolicyArn(scope, id.generate('oidc:policy'), arn));
+    }
+  }
+
+  if (options.policyStatements) {
+    for (const stmt of options.policyStatements) {
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: stmt.effect === 'Deny' ? Effect.DENY : Effect.ALLOW,
+          actions: stmt.actions,
+          resources: stmt.resources,
+        }),
+      );
+    }
+  }
 
   return role;
 }

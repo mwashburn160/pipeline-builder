@@ -36,6 +36,48 @@ export class CustomIamRolesPipelineStack extends Stack {
       },
     };
 
+    // ─── Alternative: OIDC-based pipeline role (dynamic, no static ARN) ─
+    // Creates an IAM role with an OIDC trust policy for federated access.
+    // Use this when your CI/CD provider (GitHub Actions, GitLab CI, etc.)
+    // supports OIDC tokens, eliminating the need for static credentials.
+    //
+    // Option A: Create a new OIDC provider inline
+    // const pipelineRole: RoleConfig = {
+    //   type: 'oidc',
+    //   options: {
+    //     issuer: 'https://token.actions.githubusercontent.com',
+    //     clientIds: ['sts.amazonaws.com'],
+    //     thumbprints: ['6938fd4d98bab03faadb97b34396831e3780aea1'],
+    //     conditions: {
+    //       'token.actions.githubusercontent.com:sub': 'repo:acmecorp/secure-api:ref:refs/heads/main',
+    //       'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    //     },
+    //     roleName: 'AcmeCorp-CodePipeline-OIDC-Role',
+    //   },
+    // };
+    //
+    // Option B: Reference an existing OIDC provider by ARN
+    // const pipelineRole: RoleConfig = {
+    //   type: 'oidc',
+    //   options: {
+    //     providerArn: `arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com`,
+    //     conditions: {
+    //       'token.actions.githubusercontent.com:sub': 'repo:acmecorp/secure-api:ref:refs/heads/main',
+    //     },
+    //   },
+    // };
+    //
+    // Option C: Wildcard matching for multiple repos/branches
+    // const pipelineRole: RoleConfig = {
+    //   type: 'oidc',
+    //   options: {
+    //     providerArn: `arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com`,
+    //     conditionsLike: {
+    //       'token.actions.githubusercontent.com:sub': 'repo:acmecorp/*',
+    //     },
+    //   },
+    // };
+
     const pipelineProps: BuilderProps = {
       project: 'secure-api',
       organization: 'AcmeCorp',
