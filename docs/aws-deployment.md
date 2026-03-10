@@ -267,6 +267,7 @@ sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/update-tls-secret.sh
 
 ```bash
 aws cloudformation delete-stack --stack-name pipeline-builder
+aws cloudformation wait stack-delete-complete --stack-name pipeline-builder
 ```
 
 ---
