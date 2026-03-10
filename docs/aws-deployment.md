@@ -168,6 +168,83 @@ graph LR
     style D fill:#f0f4fa,color:#333
 ```
 
+### Scripts
+
+All scripts are in `deploy/aws/ec2/bin/`. On the EC2 instance, they are located at `/opt/pipeline-builder/deploy/aws/ec2/bin/`.
+
+#### bootstrap.sh
+
+Runs automatically via CloudFormation UserData on first boot. Handles the full EC2 setup.
+
+**Phases:**
+1. System update (`dnf update`)
+2. System hardening (fail2ban, SSH lockdown, dnf-automatic)
+3. Install Docker, Minikube, kubectl
+4. Configure environment (generate `.env` from `.env.example`)
+5. TLS certificates (Let's Encrypt with domain, self-signed without)
+6. iptables port forwarding (443→30443, 80→30080)
+7. Launch Minikube via `startup.sh`
+
+**Environment variables** (set by CloudFormation UserData):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DOMAIN` | No | FQDN for Let's Encrypt. Omit for self-signed cert. |
+| `GHCR_TOKEN` | Yes | GitHub Container Registry token |
+| `GHCR_USER` | No | GitHub username (default: `mwashburn160`) |
+| `GIT_REPO` | No | Git repository URL |
+| `GIT_BRANCH` | No | Git branch (default: `main`) |
+
+> You should not need to run `bootstrap.sh` manually. It runs once on instance creation.
+
+#### startup.sh
+
+Starts Minikube and deploys all K8s manifests. Called by `bootstrap.sh` and can be re-run to restart services.
+
+```bash
+# Run as minikube user
+sudo -u minikube bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
+```
+
+**What it does:**
+- Starts Minikube with dynamic CPU/memory allocation
+- Creates the `pipeline-builder` namespace
+- Configures GHCR image pull secret
+- Deploys TLS certificate as K8s secret
+- Applies all K8s manifests via kustomize
+- Waits for pods to become ready
+
+#### shutdown.sh
+
+Stops Minikube and removes iptables forwarding rules.
+
+```bash
+# Run as root
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
+```
+
+**What it does:**
+- Removes iptables DNAT rules (443→30443, 80→30080)
+- Saves cleaned iptables rules
+- Stops Minikube
+
+> To restart after shutdown, run `startup.sh` then re-apply iptables rules from bootstrap Phase 6.
+
+#### update-tls-secret.sh
+
+Certbot deploy-hook that updates the K8s TLS secret after certificate renewal.
+
+```bash
+# Called automatically by certbot (daily cron at 3am)
+# Manual run (if needed):
+sudo certbot renew --deploy-hook /opt/pipeline-builder/deploy/aws/ec2/bin/update-tls-secret.sh
+```
+
+**What it does:**
+- Reads renewed certificate from certbot's `RENEWED_LINEAGE` path
+- Updates the `nginx-tls-secret` in K8s
+- Rolling-restarts the nginx deployment
+
 ### Post-Deploy
 
 ```bash
@@ -362,6 +439,96 @@ flowchart LR
 **Nginx HTTP-only:** ALB terminates TLS using the Let's Encrypt certificate imported to ACM. Nginx listens on port 8080 (HTTP only) and handles JWT parsing + routing.
 
 **MongoDB Replica Set:** Uses a non-essential sidecar container that waits for MongoDB to start, runs `rs.initiate()`, then exits. Fargate handles the essential container lifecycle.
+
+### Scripts
+
+All scripts are in `deploy/aws/fargate/bin/`. Run them from the `deploy/aws/fargate` directory on your local machine.
+
+#### deploy.sh
+
+Full deployment orchestrator. Provisions secrets, deploys all 6 CloudFormation stacks in dependency order, and uploads config files to S3.
+
+```bash
+cd deploy/aws/fargate
+
+# Full deploy (auto-provisions certificate)
+bash bin/deploy.sh \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-token ghp_xxxxxxxxxxxx
+
+# Deploy with existing ACM certificate (skips Let's Encrypt)
+bash bin/deploy.sh \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-token ghp_xxxxxxxxxxxx \
+  --certificate-arn arn:aws:acm:us-east-1:123456789012:certificate/abc-123
+```
+
+**What it does:**
+1. Validates required parameters
+2. Runs `init-secrets.sh` to create/update Secrets Manager entries
+3. Runs `init-cert.sh` to provision Let's Encrypt certificate (if no `--certificate-arn`)
+4. Deploys stacks in order: foundation → cluster → databases → services → observability → admin
+5. Uploads config files (Prometheus, Loki, Grafana, Fluent Bit) to S3
+
+#### init-cert.sh
+
+Provisions a Let's Encrypt certificate via Route53 DNS-01 challenge and imports it to ACM.
+
+```bash
+# Obtain and import certificate
+bash bin/init-cert.sh --domain pipeline.example.com
+
+# Specify region and notification email
+bash bin/init-cert.sh --domain pipeline.example.com --region us-west-2 --email admin@example.com
+```
+
+**Prerequisites:**
+- certbot + certbot-dns-route53 installed locally
+- AWS credentials with Route53 + ACM permissions
+
+**What it does:**
+- Runs certbot with `--dns-route53` plugin (DNS-01 challenge)
+- Imports the certificate into ACM
+- Outputs the ACM certificate ARN
+
+#### init-secrets.sh
+
+Generates random secrets (JWT keys, database passwords, API tokens) and stores them in AWS Secrets Manager.
+
+```bash
+# Initial setup
+bash bin/init-secrets.sh --domain pipeline.example.com --ghcr-token ghp_xxxxxxxxxxxx
+
+# Rotate secrets (generates new values, requires ECS service restart)
+bash bin/init-secrets.sh --domain pipeline.example.com --ghcr-token ghp_xxxxxxxxxxxx
+```
+
+**What it does:**
+- Generates random passwords for PostgreSQL, MongoDB, Redis
+- Generates JWT signing keys
+- Creates `pipeline-builder/app-secrets` in Secrets Manager
+- Creates `pipeline-builder/ghcr-auth` in Secrets Manager (Docker registry credentials)
+
+> After rotating secrets, restart all ECS services to pick up new values.
+
+#### teardown.sh
+
+Deletes all CloudFormation stacks in reverse dependency order and empties the S3 config bucket.
+
+```bash
+# Delete all stacks
+bash bin/teardown.sh --stack-prefix pb --region us-east-1
+```
+
+**What it does:**
+1. Deletes stacks in reverse order: admin → observability → services → databases → cluster
+2. Empties the S3 config bucket
+3. Deletes the foundation stack
+4. Prints reminder about Secrets Manager secrets (not auto-deleted)
+
+> Secrets Manager secrets are **not** deleted automatically. Remove them manually if no longer needed.
 
 ### TLS Certificate Renewal
 
