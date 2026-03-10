@@ -1,3 +1,13 @@
+## 1.39.14 (2026-03-10)
+
+### 🩹 Fixes
+
+- set logger ([fa304ac1](https://github.com/mwashburn160/pipeline-builder/commit/fa304ac1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.13 (2026-03-10)
 
 ### 🩹 Fixes
