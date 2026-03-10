@@ -5,6 +5,8 @@ import { bootstrap } from './commands/bootstrap';
 import { createPipeline } from './commands/create-pipeline';
 import { deploy } from './commands/deploy';
 import { getPipeline } from './commands/get-pipeline';
+import { login } from './commands/login';
+import { refresh } from './commands/refresh';
 import { getPlugin } from './commands/get-plugin';
 import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
@@ -160,6 +162,11 @@ Documentation:
 
   // Version command (special handling)
   version(program);
+
+  // Authentication commands
+  printDebug('Registering authentication commands');
+  login(program); // Login and obtain PLATFORM_TOKEN
+  refresh(program); // Refresh an expired PLATFORM_TOKEN
 
   // Query commands
   printDebug('Registering query commands');
