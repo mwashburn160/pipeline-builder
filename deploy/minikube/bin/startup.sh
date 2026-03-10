@@ -315,7 +315,7 @@ if [ -n "$REGISTRY_IP" ]; then
   minikube ssh --profile="$PROFILE" -- \
     "grep -q '\\sregistry\$' /etc/hosts 2>/dev/null && \
        sudo sed -i 's/.*\\sregistry\$/'"$REGISTRY_IP"' registry/' /etc/hosts || \
-       echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts > /dev/null"
+       echo '"$REGISTRY_IP"' registry | sudo tee -a /etc/hosts > /dev/null"
   echo "  registry -> $REGISTRY_IP"
 else
   echo "  WARNING: Could not get registry ClusterIP — plugin builds may fail"

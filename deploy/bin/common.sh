@@ -1,6 +1,7 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Shared functions for deploy/bin scripts.
 # Source this file: . "$(dirname "$0")/common.sh"
+# Note: Requires bash (uses arrays, ERRORS+=(), ${#ERRORS[@]}).
 
 # Common paths (caller may override SCRIPT_DIR before sourcing)
 COMMON_DIR="$(cd "$(dirname "$0")" && pwd)"

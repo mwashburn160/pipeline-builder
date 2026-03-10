@@ -37,9 +37,17 @@ spec:
         app: redis
         app.kubernetes.io/component: cache
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
       containers:
         - name: redis
           image: redis:7-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
           ports:
             - containerPort: 6379

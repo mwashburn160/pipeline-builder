@@ -80,9 +80,16 @@ spec:
         app: postgres
         app.kubernetes.io/component: database
     spec:
+      securityContext:
+        runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:
         - name: postgres
           image: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
           ports:
             - containerPort: 5432
               name: postgres
