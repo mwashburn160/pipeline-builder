@@ -108,13 +108,18 @@ deploy_stack() {
   echo "=== Deploying: ${STACK_PREFIX}-${stack_name} ==="
   echo "  Template: $template_file"
 
-  aws cloudformation deploy \
-    --stack-name "${STACK_PREFIX}-${stack_name}" \
-    --template-file "$template_file" \
-    --parameter-overrides "${params[@]}" \
-    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-    --region "$REGION" \
+  local cmd=(
+    aws cloudformation deploy
+    --stack-name "${STACK_PREFIX}-${stack_name}"
+    --template-file "$template_file"
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+    --region "$REGION"
     --no-fail-on-empty-changeset
+  )
+  if [ ${#params[@]} -gt 0 ]; then
+    cmd+=(--parameter-overrides "${params[@]}")
+  fi
+  "${cmd[@]}"
 
   echo "  Stack ${STACK_PREFIX}-${stack_name} deployed successfully"
 

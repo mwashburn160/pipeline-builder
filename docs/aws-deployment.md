@@ -75,11 +75,7 @@ cd deploy/aws/ec2
 aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
-  --parameter-overrides \
-    DomainName=pipeline.example.com \
-    HostedZoneId=Z1234567890 \
-    KeyPairName=my-keypair \
-    GhcrToken=ghp_xxxxxxxxxxxx \
+  --parameter-overrides DomainName=pipeline.example.com HostedZoneId=Z1234567890 KeyPairName=my-keypair GhcrToken=ghp_xxxxxxxxxxxx \
   --capabilities CAPABILITY_IAM
 ```
 
@@ -93,9 +89,7 @@ cd deploy/aws/ec2
 aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
-  --parameter-overrides \
-    KeyPairName=my-keypair \
-    GhcrToken=ghp_xxxxxxxxxxxx \
+  --parameter-overrides KeyPairName=my-keypair GhcrToken=ghp_xxxxxxxxxxxx \
   --capabilities CAPABILITY_IAM
 ```
 
