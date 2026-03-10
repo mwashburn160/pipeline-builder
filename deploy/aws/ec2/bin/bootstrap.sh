@@ -297,18 +297,23 @@ echo "========================================"
 
 MINIKUBE_IP=$(su - minikube -c "minikube ip --profile=pipeline-builder" 2>/dev/null || true)
 if [ -n "$MINIKUBE_IP" ]; then
-  # Forward 443 → minikube:30443 (HTTPS)
-  iptables -t nat -A PREROUTING -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443"
-  # Forward 80 → minikube:30080 (HTTP redirect)
-  iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
-  # Masquerade for return traffic
-  iptables -t nat -A POSTROUTING -j MASQUERADE
+  # Detect primary network interface (eth0, ens5, etc.)
+  PRIMARY_IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+  PRIMARY_IF="${PRIMARY_IF:-eth0}"
+
+  # Forward external traffic only (-i $PRIMARY_IF) so minikube VM
+  # outbound traffic to port 443 is not intercepted.
+  iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443"
+  iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
+  # Masquerade return traffic from minikube back to external clients
+  iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
 
   # Persist iptables rules across reboots
   dnf install -y iptables-services 2>/dev/null || true
   iptables-save > /etc/sysconfig/iptables
   systemctl enable iptables 2>/dev/null || true
 
+  echo "  Interface: ${PRIMARY_IF}"
   echo "  443 → ${MINIKUBE_IP}:30443"
   echo "  80  → ${MINIKUBE_IP}:30080"
   echo "  Rules persisted to /etc/sysconfig/iptables"
