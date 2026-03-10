@@ -2,7 +2,7 @@
 
 Pipeline Builder supports two AWS deployment methods: **EC2 (Minikube)** for single-instance Kubernetes and **Fargate** for serverless container orchestration.
 
-Both methods use **Let's Encrypt** for TLS certificates and deploy the full stack: application services, databases, observability (Prometheus, Loki, Grafana), and admin tools (PgAdmin, Mongo Express, Registry UI).
+Both methods deploy the full stack: application services, databases, observability (Prometheus, Loki, Grafana), and admin tools (PgAdmin, Mongo Express, Registry UI). TLS is handled via **Let's Encrypt** (with a custom domain) or **self-signed certificates** (without a domain).
 
 ---
 
@@ -13,7 +13,7 @@ Both methods use **Let's Encrypt** for TLS certificates and deploy the full stac
 | **Runtime** | Kubernetes on a single EC2 instance | AWS ECS Fargate (serverless containers) |
 | **Infrastructure** | 1 CloudFormation stack | 6 CloudFormation stacks |
 | **Networking** | VPC + public subnet + iptables | VPC + ALB + private subnets + NAT |
-| **TLS** | Let's Encrypt (certbot on instance) | Let's Encrypt (certbot + ACM import) |
+| **TLS** | Let's Encrypt or self-signed | Let's Encrypt (certbot + ACM import) |
 | **Service Discovery** | K8s DNS (cluster.local) | AWS Cloud Map (pipeline-builder.local) |
 | **Storage** | hostPath PVCs on EBS | AWS EFS with access points |
 | **Secrets** | K8s Secrets | AWS Secrets Manager |
@@ -33,14 +33,15 @@ Deploys Pipeline Builder on a single hardened EC2 instance running Minikube. All
 
 - AWS CLI configured with appropriate permissions
 - An SSH key pair created in the target region
-- A Route53 hosted zone for your domain
+- (Optional) A Route53 hosted zone for your domain
 
 ### Architecture
 
 ```mermaid
 flowchart TB
-    INET["Internet"] --> R53["Route53 A Record"]
+    INET["Internet"] --> R53["Route53 A Record<br/>(optional)"]
     R53 --> EIP["Elastic IP"]
+    INET -.-> EIP
     EIP --> EC2["EC2 Instance"]
 
     subgraph EC2_INNER["EC2 Instance"]
@@ -64,10 +65,13 @@ flowchart TB
 
 ### Deploy
 
+#### With custom domain (Let's Encrypt TLS)
+
+Requires a Route 53 hosted zone for your domain.
+
 ```bash
 cd deploy/aws/ec2
 
-# Deploy CloudFormation stack
 aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
@@ -77,17 +81,54 @@ aws cloudformation deploy \
     KeyPairName=my-keypair \
     GhcrToken=ghp_xxxxxxxxxxxx \
   --capabilities CAPABILITY_IAM
-
-# SSH to the instance (optional, for debugging)
-ssh -i my-keypair.pem ec2-user@pipeline.example.com
 ```
+
+#### Without domain (self-signed TLS)
+
+No DNS setup required. Access via Elastic IP.
+
+```bash
+cd deploy/aws/ec2
+
+aws cloudformation deploy \
+  --stack-name pipeline-builder \
+  --template-file template.yaml \
+  --parameter-overrides \
+    KeyPairName=my-keypair \
+    GhcrToken=ghp_xxxxxxxxxxxx \
+  --capabilities CAPABILITY_IAM
+```
+
+Get the application URL from stack outputs:
+
+```bash
+aws cloudformation describe-stacks --stack-name pipeline-builder \
+  --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text
+```
+
+> **Note:** Without a domain, the browser will show a certificate warning for the self-signed cert.
+
+### Parameters
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `DomainName` | No | (empty) | FQDN for Route 53 + Let's Encrypt. Omit for IP-only access. |
+| `HostedZoneId` | When DomainName set | (empty) | Route 53 hosted zone ID |
+| `InstanceType` | No | `t3.large` | EC2 instance size |
+| `KeyPairName` | Yes | - | EC2 key pair for SSH |
+| `GhcrToken` | Yes | - | GHCR token for pulling images |
+| `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
+| `SshCidr` | No | `0.0.0.0/0` | CIDR for SSH access (restrict to your IP) |
+| `EbsVolumeSize` | No | `50` | Root volume size in GiB |
+| `GitRepo` | No | (this repo) | Git repository URL |
+| `GitBranch` | No | `main` | Git branch to deploy |
 
 ### What Happens
 
-1. CloudFormation creates VPC, subnet, security group, Elastic IP, EC2 instance, Route53 record
+1. CloudFormation creates VPC, subnet, security group, Elastic IP, EC2 instance, and (optionally) Route53 record
 2. EC2 UserData clones the repo and runs `bin/bootstrap.sh`
-3. Bootstrap installs Docker, Minikube, kubectl, certbot
-4. Obtains Let's Encrypt certificate via certbot (standalone challenge)
+3. Bootstrap installs Docker, Minikube, kubectl
+4. Provisions TLS certificate (Let's Encrypt with domain, or self-signed without)
 5. Starts Minikube and deploys all K8s manifests via `bin/startup.sh`
 6. Sets up iptables DNAT for port forwarding (443->30443, 80->30080)
 
@@ -127,6 +168,30 @@ graph LR
     style D fill:#f0f4fa,color:#333
 ```
 
+### Post-Deploy
+
+```bash
+# Check bootstrap progress
+ssh -i my-keypair.pem ec2-user@<elastic-ip> 'tail -f /var/log/user-data.log'
+
+# Check pod status
+ssh -i my-keypair.pem ec2-user@<elastic-ip> 'sudo -u minikube kubectl get pods -n pipeline-builder'
+
+# Connect via SSM (no SSH key needed)
+aws ssm start-session --target <instance-id>
+```
+
+### TLS Certificates
+
+- **With domain**: Let's Encrypt auto-provisions and auto-renews (daily cron at 3am)
+- **Without domain**: Self-signed cert generated at `/etc/pipeline-builder/tls/`
+
+To manually update the TLS secret in minikube after renewal:
+
+```bash
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/update-tls-secret.sh
+```
+
 ### Teardown
 
 ```bash
@@ -146,6 +211,8 @@ Deploys Pipeline Builder as serverless containers on AWS ECS Fargate. The K8s ma
 - certbot + certbot-dns-route53 installed locally (for Let's Encrypt)
   - macOS: `brew install certbot && pip3 install certbot-dns-route53`
   - Linux: `pip3 install certbot certbot-dns-route53`
+
+> **Note:** Unlike EC2, the Fargate deployment requires a custom domain. The ALB uses ACM certificates provisioned via Let's Encrypt DNS challenge, which needs Route53.
 
 ### Architecture
 
@@ -186,9 +253,20 @@ flowchart TB
 
 ### Deploy
 
+`deploy.sh` orchestrates the full deployment: certificate provisioning, secrets creation, all 6 CloudFormation stacks, and config file uploads.
+
 ```bash
 cd deploy/aws/fargate
 
+bash bin/deploy.sh \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-token ghp_xxxxxxxxxxxx
+```
+
+Or step by step:
+
+```bash
 # Step 1: Obtain Let's Encrypt certificate (imports to ACM)
 bash bin/init-cert.sh --domain pipeline.example.com
 
@@ -196,17 +274,21 @@ bash bin/init-cert.sh --domain pipeline.example.com
 bash bin/deploy.sh \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
-  --ghcr-token ghp_xxxxxxxxxxxx
+  --ghcr-token ghp_xxxxxxxxxxxx \
+  --certificate-arn arn:aws:acm:us-east-1:123456789012:certificate/abc-123
 ```
 
-Or combine into one command (deploy.sh calls init-cert.sh automatically):
+### Parameters
 
-```bash
-bash bin/deploy.sh \
-  --domain pipeline.example.com \
-  --hosted-zone-id Z1234567890 \
-  --ghcr-token ghp_xxxxxxxxxxxx
-```
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--domain` | Yes | - | FQDN for Route 53 + Let's Encrypt |
+| `--hosted-zone-id` | Yes | - | Route 53 hosted zone ID |
+| `--ghcr-token` | Yes | - | GHCR token for pulling images |
+| `--ghcr-user` | No | `mwashburn160` | GitHub username for GHCR |
+| `--region` | No | `us-east-1` | AWS region |
+| `--stack-prefix` | No | `pb` | Prefix for CloudFormation stack names |
+| `--certificate-arn` | No | (auto-provisioned) | Existing ACM certificate ARN (skips Let's Encrypt) |
 
 ### CloudFormation Stacks
 
