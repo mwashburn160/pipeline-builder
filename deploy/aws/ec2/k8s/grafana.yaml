@@ -102,6 +102,22 @@ spec:
               echo "Waiting for loki..."
               until wget -qO- http://loki:3100/ready > /dev/null 2>&1; do sleep 3; done
               echo "Loki ready"
+        - name: fix-permissions
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 472:472 /var/lib/grafana"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
       containers:
         - name: grafana
           image: grafana/grafana

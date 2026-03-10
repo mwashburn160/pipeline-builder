@@ -305,6 +305,9 @@ if [ -n "$MINIKUBE_IP" ]; then
   # outbound traffic to port 443 is not intercepted.
   iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443"
   iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
+  # Allow DNAT'd packets through the FORWARD chain to reach minikube
+  iptables -A FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30443 -j ACCEPT
+  iptables -A FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT
   # Masquerade return traffic from minikube back to external clients
   iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
 
