@@ -23,15 +23,15 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.large
+    Default: t3.xlarge
     AllowedValues:
       - t3.medium
       - t3.large
       - t3.xlarge
       - t3.2xlarge
     Description: >
-      EC2 instance type. t3.large (2 vCPU/8 GiB) is the cost-focused default.
-      t3.xlarge (4 vCPU/16 GiB) recommended for comfortable production usage.
+      EC2 instance type. t3.xlarge (4 vCPU/16 GiB) is the recommended default.
+      t3.large (2 vCPU/8 GiB) is insufficient for full deployment.
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName

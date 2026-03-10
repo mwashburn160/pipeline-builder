@@ -92,10 +92,10 @@ spec:
                   key: MONGODB_URI
           resources:
             limits:
-              cpu: "400m"
+              cpu: "250m"
               memory: 384Mi
             requests:
-              cpu: "200m"
+              cpu: "75m"
               memory: 192Mi
           readinessProbe:
             httpGet:

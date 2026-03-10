@@ -68,10 +68,10 @@ spec:
             - "-config.file=/etc/promtail/promtail-config.yml"
           resources:
             limits:
-              cpu: "250m"
+              cpu: "200m"
               memory: 256Mi
             requests:
-              cpu: "100m"
+              cpu: "50m"
               memory: 128Mi
           readinessProbe:
             httpGet:

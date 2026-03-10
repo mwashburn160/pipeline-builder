@@ -57,10 +57,10 @@ spec:
               mountPath: /data
           resources:
             limits:
-              cpu: "250m"
+              cpu: "200m"
               memory: 256Mi
             requests:
-              cpu: "100m"
+              cpu: "50m"
               memory: 128Mi
           readinessProbe:
             exec:
