@@ -95,6 +95,22 @@ spec:
               echo "Waiting for postgres..."
               until nc -z postgres.pipeline-builder 5432; do sleep 3; done
               echo "Postgres ready"
+        - name: fix-permissions
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 5050:5050 /var/lib/pgadmin"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: pgadmin-data
+              mountPath: /var/lib/pgadmin
       securityContext:
         fsGroup: 5050
       containers:

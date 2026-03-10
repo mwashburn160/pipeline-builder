@@ -84,6 +84,23 @@ spec:
         fsGroup: 10001
         runAsUser: 10001
         runAsNonRoot: true
+      initContainers:
+        - name: fix-permissions
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 10001:10001 /loki"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: loki-data
+              mountPath: /loki
       containers:
         - name: loki
           image: grafana/loki
