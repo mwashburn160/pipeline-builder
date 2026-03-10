@@ -633,10 +633,12 @@ cd deploy
 
 # All-in-one: register admin, load plugins, load pipelines (interactive)
 bash bin/init-platform.sh local        # Docker Compose (localhost:8443)
-bash bin/init-platform.sh minikube     # Minikube or EC2 (auto port-forward)
+bash bin/init-platform.sh minikube     # Minikube (auto port-forward)
+bash bin/init-platform.sh ec2          # EC2 (auto-resolves URL from CloudFormation stack)
 
-# Or with a custom URL (e.g., EC2 with domain or Fargate ALB)
-PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh minikube
+# EC2 with custom stack name or explicit URL
+STACK_NAME=my-stack bash bin/init-platform.sh ec2
+PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh ec2
 ```
 
 `init-platform.sh` is interactive — it prompts for admin credentials and asks whether to load plugins and sample pipelines.
@@ -653,11 +655,17 @@ Registers an admin user and optionally loads plugins and sample pipelines.
 # Local Docker Compose
 bash bin/init-platform.sh local
 
-# EC2 / Minikube (sets up kubectl port-forward automatically)
+# Minikube (sets up kubectl port-forward automatically)
 bash bin/init-platform.sh minikube
 
-# EC2 with domain or Fargate (specify URL directly)
-PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh minikube
+# EC2 (auto-resolves URL from CloudFormation stack outputs)
+bash bin/init-platform.sh ec2
+
+# EC2 with custom stack name
+STACK_NAME=my-stack bash bin/init-platform.sh ec2
+
+# Any target with explicit URL
+PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh ec2
 ```
 
 **What it does:**
@@ -794,8 +802,8 @@ export PLATFORM_BASE_URL=https://pipeline.example.com
 export PLATFORM_IDENTIFIER=admin@internal
 export PLATFORM_PASSWORD=SecurePassword123!
 
-# Initialize platform
-bash deploy/bin/init-platform.sh minikube
+# Initialize platform (use ec2 for EC2 deployments, minikube for local k8s)
+bash deploy/bin/init-platform.sh ec2
 
 # Or run each step separately
 bash deploy/bin/load-plugins.sh --category language,security,quality

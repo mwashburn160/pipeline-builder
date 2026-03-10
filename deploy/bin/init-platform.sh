@@ -7,6 +7,7 @@ set -eu
 #   ./init-platform.sh                                         # defaults to "local"
 #   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
 #   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
+#   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -51,8 +52,28 @@ case "$TARGET" in
       PLATFORM_BASE_URL="https://localhost:8443"
     fi
     ;;
+  ec2)
+    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+      echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
+    else
+      # Try to resolve URL from CloudFormation stack outputs
+      STACK_NAME="${STACK_NAME:-pipeline-builder}"
+      echo "=== Resolving URL from CloudFormation stack: $STACK_NAME ==="
+      APP_URL=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' \
+        --output text 2>/dev/null || true)
+      if [ -z "$APP_URL" ] || [ "$APP_URL" = "None" ]; then
+        echo "ERROR: Could not resolve ApplicationURL from stack '$STACK_NAME'." >&2
+        echo "  Set PLATFORM_BASE_URL or STACK_NAME manually." >&2
+        exit 1
+      fi
+      PLATFORM_BASE_URL="$APP_URL"
+      echo "  Resolved: $PLATFORM_BASE_URL"
+    fi
+    ;;
   *)
-    echo "Usage: $0 [local|minikube]" >&2
+    echo "Usage: $0 [local|minikube|ec2]" >&2
     exit 1
     ;;
 esac
