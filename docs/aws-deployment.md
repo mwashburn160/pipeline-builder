@@ -627,6 +627,188 @@ graph LR
 
 ---
 
+## Platform Initialization
+
+After deploying either EC2 or Fargate, initialize the platform by registering an admin user, loading plugins, and loading sample pipelines. These scripts are in `deploy/bin/` and work with both deployment methods.
+
+### Quick Start
+
+```bash
+cd deploy
+
+# All-in-one: register admin, load plugins, load pipelines (interactive)
+bash bin/init-platform.sh local        # Docker Compose (localhost:8443)
+bash bin/init-platform.sh minikube     # Minikube or EC2 (auto port-forward)
+
+# Or with a custom URL (e.g., EC2 with domain or Fargate ALB)
+PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh minikube
+```
+
+`init-platform.sh` is interactive — it prompts for admin credentials and asks whether to load plugins and sample pipelines.
+
+### Scripts
+
+All scripts are in `deploy/bin/` and share common helpers from `common.sh`.
+
+#### init-platform.sh
+
+Registers an admin user and optionally loads plugins and sample pipelines.
+
+```bash
+# Local Docker Compose
+bash bin/init-platform.sh local
+
+# EC2 / Minikube (sets up kubectl port-forward automatically)
+bash bin/init-platform.sh minikube
+
+# EC2 with domain or Fargate (specify URL directly)
+PLATFORM_BASE_URL=https://pipeline.example.com bash bin/init-platform.sh minikube
+```
+
+**What it does:**
+1. Waits for platform health check (`/health` endpoint)
+2. Prompts for admin email and password (defaults: `admin@internal` / `SecurePassword123!`)
+3. Registers the admin user (skips if already exists)
+4. Logs in and obtains a JWT token
+5. Prompts to load plugins (calls `load-plugins.sh`)
+6. Prompts to load sample pipelines (calls `load-pipelines.sh`)
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLATFORM_BASE_URL` | `https://localhost:8443` | Platform API URL |
+| `PLATFORM_IDENTIFIER` | (prompted) | Admin email — set to skip prompt |
+| `PLATFORM_PASSWORD` | (prompted) | Admin password — set to skip prompt |
+
+> For EC2 with `minikube` target, the script auto-creates a `kubectl port-forward` tunnel if localhost:8443 is not already reachable.
+
+#### load-plugins.sh
+
+Loads all plugins from `deploy/plugins/` into the platform. Validates manifests, builds plugin.zip files, and uploads via the plugin API.
+
+```bash
+# Interactive (prompts for categories and credentials)
+bash bin/load-plugins.sh
+
+# Non-interactive with pre-authenticated token
+PLATFORM_BASE_URL=https://pipeline.example.com \
+PLATFORM_TOKEN="eyJ..." \
+  bash bin/load-plugins.sh
+
+# Load only specific categories
+bash bin/load-plugins.sh --category language,security
+
+# Validate without uploading
+bash bin/load-plugins.sh --dry-run
+
+# Force rebuild all plugin.zip files
+bash bin/load-plugins.sh --rebuild
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Validate manifests and rebuild zips, skip upload |
+| `--rebuild` | Force rebuild all plugin.zip files |
+| `--category CATS` | Comma-separated categories (e.g., `language,security,quality`) |
+| `--timeout SECS` | Upload timeout per plugin (default: 900) |
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLATFORM_BASE_URL` | `https://localhost:8443` | Platform API URL |
+| `PLATFORM_TOKEN` | (prompted) | JWT token — set to skip login |
+| `UPLOAD_DELAY` | `5` | Seconds between uploads |
+| `UPLOAD_RETRIES` | `3` | Max retries on 503/connection failure |
+| `UPLOAD_RETRY_DELAY` | `30` | Seconds between retries |
+
+#### load-pipelines.sh
+
+Loads all sample pipelines from `deploy/samples/pipelines/` into the platform.
+
+```bash
+# Interactive
+bash bin/load-pipelines.sh
+
+# Non-interactive
+PLATFORM_BASE_URL=https://pipeline.example.com \
+PLATFORM_TOKEN="eyJ..." \
+  bash bin/load-pipelines.sh
+
+# Validate without uploading
+bash bin/load-pipelines.sh --dry-run
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Validate pipeline files, skip upload |
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLATFORM_BASE_URL` | `https://localhost:8443` | Platform API URL |
+| `PLATFORM_TOKEN` | (prompted) | JWT token — set to skip login |
+| `UPLOAD_DELAY` | `3` | Seconds between uploads |
+
+### Plugin Validation Scripts
+
+Additional scripts for validating plugins before loading.
+
+#### generate-plugins.sh
+
+Verifies tool versions declared in `deploy/plugins/plugin-versions.yaml` are downloadable.
+
+```bash
+bash bin/generate-plugins.sh              # verify all versions
+bash bin/generate-plugins.sh --dump       # dump parsed version matrix
+bash bin/generate-plugins.sh --check-one trivy  # check a single tool
+```
+
+#### test-plugins.sh
+
+Validates plugin manifests, Dockerfile structure, and optionally builds Docker images.
+
+```bash
+bash bin/test-plugins.sh                       # test all plugins
+bash bin/test-plugins.sh language/java         # test a specific plugin
+bash bin/test-plugins.sh --manifest-only       # manifests only (fast)
+bash bin/test-plugins.sh --build               # build Docker images (slow)
+```
+
+#### verify-plugin-urls.sh
+
+Checks that all download URLs in plugin Dockerfiles are reachable.
+
+```bash
+bash bin/verify-plugin-urls.sh                    # check all plugins
+bash bin/verify-plugin-urls.sh security/trivy     # check a specific plugin
+```
+
+### Full Non-Interactive Example
+
+For CI/CD or automated deployments, set environment variables to skip all prompts:
+
+```bash
+export PLATFORM_BASE_URL=https://pipeline.example.com
+export PLATFORM_IDENTIFIER=admin@internal
+export PLATFORM_PASSWORD=SecurePassword123!
+
+# Initialize platform
+bash deploy/bin/init-platform.sh minikube
+
+# Or run each step separately
+bash deploy/bin/load-plugins.sh --category language,security,quality
+bash deploy/bin/load-pipelines.sh
+```
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
