@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pipeline Builder - EC2 deployment with minikube, Let's Encrypt SSL,
-  Route53 DNS, and hardened security.
+  Pipeline Builder - EC2 deployment with minikube, optional Let's Encrypt SSL,
+  optional Route53 DNS, and hardened security.
 
 # =============================================================================
 # Parameters
@@ -9,13 +9,17 @@ Description: >
 Parameters:
   DomainName:
     Type: String
-    Description: Fully qualified domain name (e.g., pipeline.example.com)
-    AllowedPattern: "^[a-zA-Z0-9][a-zA-Z0-9\\-\\.]*[a-zA-Z0-9]$"
-    ConstraintDescription: Must be a valid domain name
+    Default: ""
+    Description: >
+      Fully qualified domain name (e.g., pipeline.example.com).
+      Leave empty to skip DNS and use Elastic IP with self-signed TLS.
 
   HostedZoneId:
-    Type: AWS::Route53::HostedZone::Id
-    Description: Route53 Hosted Zone ID for the domain
+    Type: String
+    Default: ""
+    Description: >
+      Route53 Hosted Zone ID for the domain.
+      Required only when DomainName is provided.
 
   InstanceType:
     Type: String
@@ -67,6 +71,12 @@ Parameters:
     Description: Git branch to checkout
 
 # =============================================================================
+# Conditions
+# =============================================================================
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+
+# =============================================================================
 # Resources
 # =============================================================================
 Resources:
@@ -82,7 +92,10 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-${DomainName}"
+          Value: !If
+            - HasDomain
+            - !Sub "pipeline-builder-${DomainName}"
+            - "pipeline-builder"
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -264,13 +277,17 @@ Resources:
             echo "=== Bootstrap complete: $(date -u) ==="
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-${DomainName}"
+          Value: !If
+            - HasDomain
+            - !Sub "pipeline-builder-${DomainName}"
+            - "pipeline-builder"
 
   # ---------------------------------------------------------------------------
-  # Route53 DNS Record
+  # Route53 DNS Record (only when DomainName is provided)
   # ---------------------------------------------------------------------------
   DNSRecord:
     Type: AWS::Route53::RecordSet
+    Condition: HasDomain
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Ref DomainName
@@ -289,7 +306,10 @@ Outputs:
 
   ApplicationURL:
     Description: Application URL
-    Value: !Sub "https://${DomainName}"
+    Value: !If
+      - HasDomain
+      - !Sub "https://${DomainName}"
+      - !Sub "https://${ElasticIP}"
 
   SSHCommand:
     Description: SSH command to connect to the instance

@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
-DOMAIN="${DOMAIN:?DOMAIN environment variable is required}"
+DOMAIN="${DOMAIN:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 
@@ -117,30 +117,49 @@ echo "  minikube installed"
 dnf install -y conntrack-tools socat
 
 # =============================================================================
-# Phase 5: Install certbot & obtain certificate
+# Phase 5: TLS Certificate
 # =============================================================================
 echo ""
 echo "========================================"
-echo "Phase 5: Let's Encrypt Certificate"
+echo "Phase 5: TLS Certificate"
 echo "========================================"
-dnf install -y certbot
 
-echo "  Obtaining certificate for ${DOMAIN}..."
-certbot certonly --standalone \
-  --non-interactive \
-  --agree-tos \
-  --email "admin@${DOMAIN}" \
-  -d "${DOMAIN}" \
-  --preferred-challenges http
+TLS_CERT_DIR="/etc/pipeline-builder/tls"
+mkdir -p "$TLS_CERT_DIR"
 
-echo "  Certificate obtained: /etc/letsencrypt/live/${DOMAIN}/"
+if [ -n "$DOMAIN" ]; then
+  # --- Let's Encrypt (domain provided) ---
+  dnf install -y certbot
 
-# Setup auto-renewal cron
-cat > /etc/cron.d/certbot-renew << CRON
+  echo "  Obtaining Let's Encrypt certificate for ${DOMAIN}..."
+  certbot certonly --standalone \
+    --non-interactive \
+    --agree-tos \
+    --email "admin@${DOMAIN}" \
+    -d "${DOMAIN}" \
+    --preferred-challenges http
+
+  # Symlink to standard location
+  ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$TLS_CERT_DIR/tls.crt"
+  ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" "$TLS_CERT_DIR/tls.key"
+
+  echo "  Certificate obtained: /etc/letsencrypt/live/${DOMAIN}/"
+
+  # Setup auto-renewal cron
+  cat > /etc/cron.d/certbot-renew << CRON
 # Certbot auto-renewal - runs daily at 3am
 0 3 * * * root certbot renew --quiet --deploy-hook "${DEPLOY_DIR}/bin/update-tls-secret.sh"
 CRON
-echo "  Auto-renewal cron configured"
+  echo "  Auto-renewal cron configured"
+else
+  # --- Self-signed certificate (no domain) ---
+  echo "  No domain provided — generating self-signed certificate..."
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$TLS_CERT_DIR/tls.key" \
+    -out "$TLS_CERT_DIR/tls.crt" \
+    -subj "/CN=pipeline-builder/O=pipeline-builder"
+  echo "  Self-signed certificate generated at ${TLS_CERT_DIR}/"
+fi
 
 # =============================================================================
 # Phase 6: Create minikube user
@@ -159,11 +178,13 @@ fi
 # Give minikube user access to the deployment directory
 chown -R minikube:minikube "$DEPLOY_DIR"
 
-# Allow minikube user to read Let's Encrypt certs
-setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
-  # Fallback if ACL not available
-  chmod -R o+rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/
-}
+# Allow minikube user to read TLS certs
+if [ -n "$DOMAIN" ]; then
+  setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
+    chmod -R o+rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/
+  }
+fi
+chmod -R o+rx "$TLS_CERT_DIR"
 
 # =============================================================================
 # Phase 7: Generate .env from template
@@ -186,8 +207,15 @@ ME_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
 
-# Replace domain placeholder
-sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
+# Replace domain placeholder (use Elastic IP metadata if no domain)
+if [ -n "$DOMAIN" ]; then
+  sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
+else
+  # Fetch Elastic IP from instance metadata (IMDSv2)
+  IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+  PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || echo "localhost")
+  sed -i "s|YOUR_DOMAIN_HERE|${PUBLIC_IP}|g" .env
+fi
 
 # Replace CHANGE_ME secrets
 sed -i "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${JWT_SECRET}|" .env
@@ -293,7 +321,12 @@ echo ""
 echo "========================================"
 echo "Bootstrap Complete"
 echo "========================================"
-echo "  Application URL: https://${DOMAIN}"
+if [ -n "$DOMAIN" ]; then
+  echo "  Application URL: https://${DOMAIN}"
+else
+  echo "  Application URL: https://${PUBLIC_IP:-<elastic-ip>}"
+  echo "  (self-signed TLS — browser will show certificate warning)"
+fi
 echo "  SSH: ssh ec2-user@<elastic-ip>"
 echo "  Logs: /var/log/user-data.log"
 echo "  Pods: sudo -u minikube kubectl get pods -n pipeline-builder"
