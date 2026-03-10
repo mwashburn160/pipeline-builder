@@ -163,7 +163,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP (Let's Encrypt + redirect)
+          Description: HTTP (LetsEncrypt + redirect)
         # HTTPS - public application access
         - IpProtocol: tcp
           FromPort: 443
