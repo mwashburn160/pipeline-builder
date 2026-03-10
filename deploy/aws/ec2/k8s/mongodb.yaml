@@ -131,10 +131,10 @@ spec:
               value: "platform"
           resources:
             limits:
-              cpu: "1.5"
+              cpu: "1000m"
               memory: 1536Mi
             requests:
-              cpu: "800m"
+              cpu: "150m"
               memory: 768Mi
           readinessProbe:
             exec:

@@ -57,7 +57,7 @@ spec:
               cpu: "2000m"
               memory: 4Gi
             requests:
-              cpu: "500m"
+              cpu: "250m"
               memory: 1Gi
       containers:
         - name: ollama
@@ -70,10 +70,10 @@ spec:
               mountPath: /root/.ollama
           resources:
             limits:
-              cpu: "4000m"
+              cpu: "2000m"
               memory: 8Gi
             requests:
-              cpu: "2000m"
+              cpu: "250m"
               memory: 4Gi
           readinessProbe:
             httpGet:

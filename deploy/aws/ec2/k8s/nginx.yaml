@@ -101,10 +101,10 @@ spec:
                   key: JWT_SECRET
           resources:
             limits:
-              cpu: "500m"
+              cpu: "300m"
               memory: 256Mi
             requests:
-              cpu: "200m"
+              cpu: "50m"
               memory: 128Mi
           readinessProbe:
             exec:
