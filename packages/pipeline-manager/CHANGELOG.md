@@ -1,3 +1,13 @@
+## 1.34.27 (2026-03-10)
+
+### 🩹 Fixes
+
+- added login,refresh command ([eb6af1b8](https://github.com/mwashburn160/pipeline-builder/commit/eb6af1b8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.34.26 (2026-03-10)
 
 ### 🩹 Fixes
