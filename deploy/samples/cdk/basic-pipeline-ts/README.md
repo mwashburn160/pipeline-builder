@@ -31,6 +31,20 @@ GitHub (acmecorp/my-web-app)
           → Security (snyk + git-secrets)
 ```
 
+## Prerequisites
+
+### GitHub Personal Access Token
+
+CDK's `CodePipelineSource.gitHub()` requires a GitHub PAT stored in AWS Secrets Manager. Create the secret:
+
+```bash
+aws secretsmanager create-secret --name github-token --secret-string "ghp_YOUR_TOKEN_HERE"
+```
+
+The GitHub PAT needs these scopes: **repo** and **admin:repo_hook**.
+
+CDK automatically looks for a secret named `github-token` when no explicit token is provided.
+
 ## Usage
 
 ```typescript
