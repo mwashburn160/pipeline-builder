@@ -1,5 +1,5 @@
-name: sonarcloud
-description: SonarCloud code quality and security analysis for Node.js and C++ projects using AWS CDK with CodeBuildStep. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, or sonarcloud-rust.
+name: sonarcloud-nodejs
+description: SonarCloud code quality and security analysis for Node.js projects using AWS CDK with CodeBuildStep. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, or sonarcloud-rust.
 keywords:
   - nodejs
   - code-quality

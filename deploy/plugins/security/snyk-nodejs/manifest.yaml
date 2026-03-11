@@ -1,5 +1,5 @@
-name: snyk
-description: Snyk security scanning for Node.js and C++ projects using AWS CDK with CodeBuildStep. For other languages use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, or snyk-rust.
+name: snyk-nodejs
+description: Snyk security scanning for Node.js projects using AWS CDK with CodeBuildStep. For other languages use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, or snyk-rust.
 keywords:
   - nodejs
   - sca
