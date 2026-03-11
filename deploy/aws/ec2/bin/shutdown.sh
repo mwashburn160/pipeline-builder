@@ -15,10 +15,20 @@ echo "=== Pipeline Builder EC2 Shutdown ==="
 echo ""
 echo "=== Removing iptables forwarding rules ==="
 MINIKUBE_IP=$(su - minikube -c "minikube ip --profile=$PROFILE" 2>/dev/null || true)
+PRIMARY_IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+PRIMARY_IF="${PRIMARY_IF:-eth0}"
+
 if [ -n "$MINIKUBE_IP" ]; then
+  # Remove PREROUTING DNAT rules
+  iptables -t nat -D PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443" 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
+  # Also remove rules without -i flag (from manual iptables commands)
   iptables -t nat -D PREROUTING -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443" 2>/dev/null || true
   iptables -t nat -D PREROUTING -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
-  echo "  iptables rules removed"
+  # Remove FORWARD rules
+  iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30443 -j ACCEPT 2>/dev/null || true
+  iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT 2>/dev/null || true
+  echo "  iptables PREROUTING + FORWARD rules removed"
 else
   echo "  Could not determine minikube IP — flushing NAT PREROUTING chain"
   iptables -t nat -F PREROUTING 2>/dev/null || true
@@ -35,5 +45,4 @@ echo "  Minikube stopped"
 
 echo ""
 echo "=== Shutdown complete ==="
-echo "  To restart: sudo -u minikube bash deploy/aws/ec2/bin/startup.sh"
-echo "  Then re-run iptables setup from bootstrap.sh Phase 10"
+echo "  To restart: sudo bash deploy/aws/ec2/bin/startup.sh"

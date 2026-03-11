@@ -381,6 +381,53 @@ echo "=== Services ==="
 kubectl get svc -n "$NAMESPACE"
 
 echo ""
+echo "=== Setting up iptables port forwarding ==="
+# Only run when executed as root (bootstrap calls startup.sh as minikube user,
+# then sets iptables separately in Phase 10 — but on manual restarts the
+# operator runs startup.sh via sudo, so we handle it here too).
+if [ "$(id -u)" = "0" ]; then
+  MINIKUBE_IP=$(su - minikube -c "minikube ip --profile=$PROFILE" 2>/dev/null || minikube ip --profile="$PROFILE" 2>/dev/null || true)
+  if [ -n "$MINIKUBE_IP" ]; then
+    PRIMARY_IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+    PRIMARY_IF="${PRIMARY_IF:-eth0}"
+
+    # Enable IP forwarding
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+    # Remove stale rules (ignore errors if they don't exist)
+    iptables -t nat -D PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443" 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
+    iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30443 -j ACCEPT 2>/dev/null || true
+    iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT 2>/dev/null || true
+
+    # PREROUTING: DNAT external traffic to minikube NodePorts
+    iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443"
+    iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
+
+    # FORWARD: Allow DNAT'd packets through to minikube
+    iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport 30443 -j ACCEPT
+    iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT
+
+    # POSTROUTING: Masquerade return traffic
+    if ! iptables -t nat -C POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE 2>/dev/null; then
+      iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
+    fi
+
+    # Persist rules
+    iptables-save > /etc/sysconfig/iptables 2>/dev/null || true
+
+    echo "  Interface: ${PRIMARY_IF}"
+    echo "  443 → ${MINIKUBE_IP}:30443"
+    echo "  80  → ${MINIKUBE_IP}:30080"
+    echo "  FORWARD rules set, rules persisted"
+  else
+    echo "  WARNING: Could not determine minikube IP — iptables rules not set"
+  fi
+else
+  echo "  Skipping (not root) — run as root or use bootstrap.sh for iptables setup"
+fi
+
+echo ""
 echo "=== Access URLs ==="
 if [ -n "$DOMAIN" ]; then
   echo "  Application:   https://${DOMAIN}"
