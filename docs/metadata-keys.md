@@ -1,17 +1,17 @@
-# Metadata Keys Reference
+# Metadata Keys
 
-Pipeline Builder provides 50+ strongly-typed metadata keys for configuring every aspect of CodePipeline and CodeBuild resources. Import them from `@mwashburn160/pipeline-core`.
+Strongly-typed keys for configuring CodePipeline and CodeBuild resources. Import from `@mwashburn160/pipeline-core`.
 
 ---
 
-## CodePipeline Configuration
+## Pipeline
 
 ```typescript
 MetadataKeys.SELF_MUTATION                      // Enable self-mutation
 MetadataKeys.CROSS_ACCOUNT_KEYS                 // Enable cross-account keys
-MetadataKeys.DOCKER_ENABLED_FOR_SELF_MUTATION   // Enable Docker for self-mutation
-MetadataKeys.DOCKER_ENABLED_FOR_SYNTH           // Enable Docker for synth
-MetadataKeys.ENABLE_KEY_ROTATION                // Enable KMS key rotation
+MetadataKeys.DOCKER_ENABLED_FOR_SELF_MUTATION   // Docker for self-mutation
+MetadataKeys.DOCKER_ENABLED_FOR_SYNTH           // Docker for synth
+MetadataKeys.ENABLE_KEY_ROTATION                // KMS key rotation
 MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL         // Parallel asset publishing
 MetadataKeys.PIPELINE_ROLE                      // Custom pipeline IAM role
 MetadataKeys.PIPELINE_NAME                      // Override pipeline name
@@ -20,33 +20,35 @@ MetadataKeys.ARTIFACT_BUCKET                    // Custom artifact bucket
 MetadataKeys.CODE_BUILD_DEFAULTS                // CodeBuild defaults for all steps
 ```
 
-## CodeBuild Step Configuration
+## CodeBuild Step
 
 ```typescript
 MetadataKeys.STEP_ROLE                          // Custom CodeBuild role
 MetadataKeys.ACTION_ROLE                        // Custom action role
 MetadataKeys.BUILD_ENVIRONMENT                  // Build environment config
-MetadataKeys.CACHE                              // Build cache configuration
+MetadataKeys.CACHE                              // Build cache
 MetadataKeys.COMMANDS                           // Build commands
 MetadataKeys.INSTALL_COMMANDS                   // Install commands
 MetadataKeys.TIMEOUT                            // Build timeout
-MetadataKeys.COMPUTE_TYPE                       // Compute type (SMALL to X2_LARGE)
-MetadataKeys.PRIVILEGED                         // Privileged mode for Docker
+MetadataKeys.COMPUTE_TYPE                       // SMALL to X2_LARGE
+MetadataKeys.PRIVILEGED                         // Privileged mode (Docker)
 MetadataKeys.BUILD_IMAGE                        // Custom build image
-MetadataKeys.ROLE_POLICY_STATEMENTS             // Additional IAM policy statements
+MetadataKeys.ROLE_POLICY_STATEMENTS             // Additional IAM policies
 ```
 
-## Network Configuration
+## Network
 
 ```typescript
 MetadataKeys.NETWORK_VPC_ID                     // VPC ID
 MetadataKeys.NETWORK_SUBNET_IDS                 // Subnet IDs
-MetadataKeys.NETWORK_SUBNET_TYPE                // Subnet type (PUBLIC, PRIVATE, etc.)
+MetadataKeys.NETWORK_SUBNET_TYPE                // PUBLIC, PRIVATE, etc.
 MetadataKeys.NETWORK_SECURITY_GROUP_IDS         // Security group IDs
 MetadataKeys.NETWORK_AVAILABILITY_ZONES         // Availability zones
 ```
 
-## Advanced Example: Custom IAM Roles
+---
+
+## Example
 
 ```typescript
 import { PipelineBuilder, MetadataKeys } from '@mwashburn160/pipeline-core';
@@ -67,15 +69,18 @@ new PipelineBuilder(stack, 'Pipeline', {
   synth: {
     source: {
       type: 'github',
-      options: { repo: 'enterprise/secure-app', branch: 'main',
-        connectionArn: 'arn:aws:codestar-connections:...' }
+      options: {
+        repo: 'enterprise/secure-app',
+        branch: 'main',
+        connectionArn: 'arn:aws:codestar-connections:...',
+      },
     },
     plugin: { name: 'build-synth', version: '1.0.0' },
     metadata: {
       [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,
       [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',
       [MetadataKeys.TIMEOUT]: '60',
-    }
-  }
+    },
+  },
 });
 ```
