@@ -28,7 +28,7 @@ GitHub (acmecorp/my-web-app)
     → Lint (eslint + prettier)
       → Test (jest)
         → Build (nodejs-build, MEDIUM compute)
-          → Security (snyk + git-secrets)
+          → Security (snyk-nodejs + git-secrets)
 ```
 
 ## Prerequisites

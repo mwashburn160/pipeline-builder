@@ -10,9 +10,9 @@ flowchart LR
     Code --> Container[Container Scan]
     Code --> LangSec[Language Security]
 
-    SAST --> snyk["snyk (+ 6 lang variants)"]
-    SAST --> sonarcloud["sonarcloud (+ 6 lang variants)"]
-    SAST --> trivy["trivy (+ 6 lang variants)"]
+    SAST --> snyk-nodejs["snyk-nodejs (+ 6 lang variants)"]
+    SAST --> sonarcloud-nodejs["sonarcloud-nodejs (+ 6 lang variants)"]
+    SAST --> trivy-nodejs["trivy-nodejs (+ 6 lang variants)"]
     SAST --> veracode & checkmarx & fortify
     SAST --> semgrep
 
@@ -27,7 +27,7 @@ flowchart LR
     LangSec --> brakeman & bundler-audit & cargo-audit
     LangSec --> dotnet-security-scan & npm-audit
 
-    snyk & sonarcloud & trivy & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
+    snyk-nodejs & sonarcloud-nodejs & trivy-nodejs & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
     git-secrets & gitguardian --> Reports
     dependency-check & mend & prisma-cloud & license-checker --> Reports
     docker-lint --> Reports
@@ -38,21 +38,21 @@ flowchart LR
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| snyk | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
+| snyk-nodejs | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
 | snyk-python | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `PYTHON_VERSION` |
 | snyk-java | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `JAVA_VERSION` |
 | snyk-go | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `GO_VERSION` |
 | snyk-dotnet | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `DOTNET_VERSION` |
 | snyk-ruby | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD`, `RUBY_VERSION` |
 | snyk-rust | SAST/SCA | SMALL | `SNYK_TOKEN` | `SNYK_SEVERITY_THRESHOLD` |
-| sonarcloud | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
+| sonarcloud-nodejs | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` |
 | sonarcloud-python | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `PYTHON_VERSION` |
 | sonarcloud-java | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `JAVA_VERSION` |
 | sonarcloud-go | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `GO_VERSION` |
 | sonarcloud-dotnet | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `DOTNET_VERSION` |
 | sonarcloud-ruby | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `RUBY_VERSION` |
 | sonarcloud-rust | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION` |
-| trivy | SAST/SCA/IaC | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT` |
+| trivy-nodejs | SAST/SCA/IaC | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT` |
 | trivy-python | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `PYTHON_VERSION` |
 | trivy-java | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `JAVA_VERSION` |
 | trivy-go | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `GO_VERSION` |
@@ -101,4 +101,4 @@ flowchart LR
 
 ---
 
-Security plugins with multi-language support (snyk, trivy, sonarcloud) are split into language-specific variants. The base plugin covers Node.js and C++ projects. Use the language-suffixed variant (e.g., `snyk-python`, `trivy-java`) for other languages — each variant includes the security tool plus the appropriate language runtime.
+Security plugins with multi-language support (snyk, trivy, sonarcloud) are split into language-specific variants. The base plugin (e.g., `snyk-nodejs`, `trivy-nodejs`, `sonarcloud-nodejs`) covers Node.js projects. Use the language-suffixed variant (e.g., `snyk-python`, `trivy-java`) for other languages — each variant includes the security tool plus the appropriate language runtime.

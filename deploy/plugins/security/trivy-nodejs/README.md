@@ -1,6 +1,6 @@
-# trivy
+# trivy-nodejs
 
-Trivy security scanning plugin for vulnerability detection in dependencies, code, and configuration using AWS CDK with CodeBuildStep
+Trivy security scanning plugin for Node.js vulnerability detection in dependencies, code, and configuration using AWS CDK with CodeBuildStep
 
 **Version:** 1.0.0  
 **Category:** security  
@@ -11,18 +11,11 @@ Trivy security scanning plugin for vulnerability detection in dependencies, code
 
 ## Keywords
 
-`trivy`, `security`, `vulnerability`, `sca`, `sast`, `iac`
+`trivy-nodejs`, `trivy`, `security`, `vulnerability`, `sca`, `sast`, `iac`, `nodejs`
 
 ## Requirements
 
 - Node.js
-- Python
-- Java
-- Go
-- Ruby
-- Rust
-- .NET SDK
-- C++ build tools (gcc, cmake, make)
 
 ## Configuration
 
@@ -44,8 +37,8 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 
 ```json
 {
-  "name": "trivy",
-  "plugin": "trivy",
+  "name": "trivy-nodejs",
+  "plugin": "trivy-nodejs",
   "env": {
     "TRIVY_VERSION": "0.59.1",
     "TRIVY_SEVERITY": "HIGH,CRITICAL",

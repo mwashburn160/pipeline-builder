@@ -34,7 +34,7 @@ Each plugin declares its secret requirements in its database record:
 ```typescript
 // Plugin database record (created via API, not in pipeline config)
 {
-  name: 'snyk',
+  name: 'snyk-nodejs',
   secrets: [
     { name: 'SNYK_TOKEN', required: true, description: 'Snyk API authentication token' }
   ]
@@ -50,7 +50,7 @@ BuilderProps.orgId = 'acmecorp-tenant-001'
          │
          ▼
 ┌─────────────────────────────────────────────────────┐
-│  Plugin: snyk                                       │
+│  Plugin: snyk-nodejs                                │
 │  secrets: [{ name: 'SNYK_TOKEN', required: true }]  │
 │                                                     │
 │  Resolves to CodeBuild env var:                     │
@@ -85,7 +85,7 @@ BuilderProps.orgId = 'acmecorp-tenant-001'
 | Stage | Plugin | Secrets | Required |
 |-------|--------|---------|----------|
 | **Build-Test** | nodejs-build | `NPM_TOKEN` | Yes |
-| **Security** | snyk | `SNYK_TOKEN` | Yes |
+| **Security** | snyk-nodejs | `SNYK_TOKEN` | Yes |
 | **Container** | docker-build | `DOCKER_USERNAME`, `DOCKER_PASSWORD` | Yes |
 | **Deploy** | cdk-deploy | `AWS_DEPLOY_ROLE_ARN`, `DATADOG_API_KEY` | Yes / No |
 | **Notify** | slack-notify | `SLACK_WEBHOOK_URL` | Yes |

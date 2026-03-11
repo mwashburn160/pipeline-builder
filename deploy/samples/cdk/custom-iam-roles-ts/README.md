@@ -107,10 +107,10 @@ CodePipeline
 │       Trust: codebuild.amazonaws.com
 │
 ├── Security Stage
-│   ├── snyk step
+│   ├── snyk-nodejs step
 │   │   Action Role: AcmeCorp-Action-SecurityScan-Role
 │   │
-│   └── trivy step
+│   └── trivy-nodejs step
 │       Project Role: AcmeCorp-CodeBuild-ContainerScan-Role
 │       Action Role:  AcmeCorp-Action-ContainerScan-Role
 │

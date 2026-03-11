@@ -71,9 +71,9 @@ flowchart LR
 
     subgraph "SAST / SCA"
         direction TB
-        snyk
-        sonarcloud
-        trivy
+        snyk-nodejs
+        sonarcloud-nodejs
+        trivy-nodejs
         checkmarx
         veracode
         fortify
@@ -179,8 +179,8 @@ The following table lists every plugin that requires external tokens or credenti
 
 | Plugin | Category | Required Secrets | Source |
 |--------|----------|-----------------|--------|
-| snyk | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
-| sonarcloud | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
+| snyk-nodejs | security | `SNYK_TOKEN` | [snyk.io](https://snyk.io) |
+| sonarcloud-nodejs | security | `SONAR_TOKEN` | [sonarcloud.io](https://sonarcloud.io) |
 | dependency-check | security | `NVD_API_KEY` (optional) | [nvd.nist.gov](https://nvd.nist.gov) |
 | veracode | security | `VERACODE_API_ID`, `VERACODE_API_KEY` | [veracode.com](https://veracode.com) |
 | checkmarx | security | `CX_CLIENT_SECRET` | [checkmarx.com](https://checkmarx.com) |

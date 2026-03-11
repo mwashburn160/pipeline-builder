@@ -1,6 +1,6 @@
-# snyk
+# snyk-nodejs
 
-Snyk security scanning plugin for vulnerability detection in dependencies and code using AWS CDK with CodeBuildStep
+Snyk security scanning plugin for Node.js vulnerability detection in dependencies and code using AWS CDK with CodeBuildStep
 
 **Version:** 1.0.0  
 **Category:** security  
@@ -11,18 +11,11 @@ Snyk security scanning plugin for vulnerability detection in dependencies and co
 
 ## Keywords
 
-`snyk`, `security`, `vulnerability`, `sca`, `sast`
+`snyk-nodejs`, `snyk`, `security`, `vulnerability`, `sca`, `sast`, `nodejs`
 
 ## Requirements
 
 - Node.js
-- Python
-- Java
-- Go
-- Ruby
-- Rust
-- .NET SDK
-- C++ build tools (gcc, cmake, make)
 - 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets
@@ -76,8 +69,8 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 
 ```json
 {
-  "name": "snyk",
-  "plugin": "snyk",
+  "name": "snyk-nodejs",
+  "plugin": "snyk-nodejs",
   "env": {
     "SNYK_VERSION": "latest",
     "SNYK_SEVERITY_THRESHOLD": "high",
