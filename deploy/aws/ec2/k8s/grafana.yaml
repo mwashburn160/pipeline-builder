@@ -165,7 +165,7 @@ spec:
               memory: 256Mi
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /grafana/api/health
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 30
@@ -173,7 +173,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /grafana/api/health
               port: 3000
             initialDelaySeconds: 45
             periodSeconds: 30
