@@ -51,7 +51,7 @@ Source (CodeStar, full clone)
     → Lint (eslint + typecheck, all packages)
       → Build-Services (frontend + api + worker, parallel)
         → Package (3x docker-build, parallel)
-          → Security (snyk all-projects + trivy 3 images)
+          → Security (snyk-nodejs all-projects + trivy-nodejs 3 images)
             → Deploy (cdk deploy --all)
 ```
 
