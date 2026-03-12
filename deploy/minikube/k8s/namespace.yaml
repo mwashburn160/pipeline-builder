@@ -4,3 +4,11 @@ metadata:
   name: pipeline-builder
   labels:
     app.kubernetes.io/part-of: pipeline-builder
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: pipeline-builder
+  labels:
+    app.kubernetes.io/part-of: pipeline-builder

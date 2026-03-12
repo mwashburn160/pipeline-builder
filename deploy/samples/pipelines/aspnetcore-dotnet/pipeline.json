@@ -185,7 +185,7 @@
           },
           {
             "plugin": {
-              "name": "trivy-nodejs",
+              "name": "trivy-dotnet",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",

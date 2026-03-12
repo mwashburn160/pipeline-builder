@@ -167,7 +167,7 @@ export class MonorepoPipelineStack extends Stack {
           steps: [
             {
               plugin: {
-                name: 'snyk',
+                name: 'snyk-nodejs',
                 filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },
@@ -182,7 +182,7 @@ export class MonorepoPipelineStack extends Stack {
             },
             {
               plugin: {
-                name: 'trivy',
+                name: 'trivy-nodejs',
                 filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
                 metadata: { TRIVY_SEVERITY: 'HIGH,CRITICAL' },
               },

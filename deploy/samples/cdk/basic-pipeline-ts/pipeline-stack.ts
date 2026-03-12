@@ -111,7 +111,7 @@ export class BasicPipelineStack extends Stack {
           steps: [
             {
               plugin: {
-                name: 'snyk',
+                name: 'snyk-nodejs',
                 filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
                 metadata: { SNYK_SEVERITY_THRESHOLD: 'high' },
               },

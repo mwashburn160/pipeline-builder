@@ -71,6 +71,12 @@ echo "=== Enabling addons ==="
 minikube addons enable metrics-server --profile="$PROFILE"
 
 echo ""
+echo "=== Installing KEDA (queue-based autoscaling) ==="
+kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
+kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  WARNING: KEDA operator not ready yet (will retry in background)"
+echo "  KEDA installed"
+
+echo ""
 echo "=== Ensuring namespace exists ==="
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
