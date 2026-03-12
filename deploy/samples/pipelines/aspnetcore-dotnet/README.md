@@ -15,7 +15,7 @@ A CI/CD pipeline for ASP.NET Core, Microsoft's cross-platform web framework. Inc
 | **Build** | dotnet-test, docker-build | Compile .NET solution and build Docker image |
 | **Test** | dotnet-test | Run test suite with code coverage |
 | **Lint** | dotnet-format, roslyn-analyzers | Code formatting and static analysis |
-| **Security** | dotnet-security-scan, trivy-nodejs, git-secrets | .NET security scanning, filesystem analysis, secret detection |
+| **Security** | dotnet-security-scan, trivy-dotnet, git-secrets | .NET security scanning, filesystem analysis, secret detection |
 | **Publish** | nuget-publish | Pack and push NuGet packages |
 
 ## Pipeline Flow

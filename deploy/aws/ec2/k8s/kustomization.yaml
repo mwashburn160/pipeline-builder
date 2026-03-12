@@ -47,18 +47,6 @@ resources:
   - networkpolicy.yaml
   - resource-limits.yaml
 
-replacements:
-  - source:
-      kind: Deployment
-      name: plugin
-      fieldPath: spec.replicas
-    targets:
-      - select:
-          kind: Deployment
-          name: plugin
-        fieldPaths:
-          - spec.template.spec.containers.[name=plugin].env.[name=PLUGIN_BUILD_CONCURRENCY].value
-
 labels:
   - pairs:
       app.kubernetes.io/part-of: pipeline-builder
