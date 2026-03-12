@@ -55,10 +55,10 @@ Parameters:
 
   EbsVolumeSize:
     Type: Number
-    Default: 50
+    Default: 120
     MinValue: 30
-    MaxValue: 200
-    Description: Root EBS volume size in GiB (gp3, encrypted)
+    MaxValue: 500
+    Description: Root EBS volume size in GiB (gp3, encrypted). 120 GiB recommended for 125+ plugins.
 
   GitRepo:
     Type: String
