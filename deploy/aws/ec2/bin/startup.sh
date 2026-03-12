@@ -347,6 +347,11 @@ echo "=== Applying Kubernetes manifests ==="
 kubectl apply -k "$K8S_DIR"
 
 echo ""
+echo "=== Fixing data directory permissions ==="
+minikube ssh --profile="$PROFILE" -- 'sudo chown -R 1000:1000 /mnt/data/registry-data'
+echo "  registry-data -> 1000:1000"
+
+echo ""
 echo "=== Patching minikube /etc/hosts for Docker registry access ==="
 # BuildKit (docker-container driver with host network) runs on the minikube
 # node and needs to resolve the 'registry' hostname. K8s DNS only serves
