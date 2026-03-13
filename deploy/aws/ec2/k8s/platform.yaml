@@ -144,7 +144,7 @@ spec:
     kind: Deployment
     name: platform
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 2
   metrics:
     - type: Resource
       resource:
