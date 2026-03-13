@@ -21,7 +21,7 @@ spec:
 
 ---
 # =============================================================================
-# pgAdmin PersistentVolume (hostPath on cluster node)
+# pgAdmin PersistentVolume (hostPath)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume

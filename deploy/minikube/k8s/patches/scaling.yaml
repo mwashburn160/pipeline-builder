@@ -1,0 +1,36 @@
+# =============================================================================
+# Minikube scaling overrides
+# =============================================================================
+
+# --- Plugin KEDA ScaledObject (maxReplicaCount 3 → 5) ---
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: plugin
+spec:
+  maxReplicaCount: 5
+
+# --- ResourceQuota (adjusted for minikube cluster) ---
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pipeline-builder-quota
+spec:
+  hard:
+    requests.cpu: "10"
+    limits.cpu: "16"
+
+# --- LimitRange (adjusted for minikube cluster) ---
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: pipeline-builder-limits
+spec:
+  limits:
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: 4Gi

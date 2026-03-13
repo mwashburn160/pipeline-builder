@@ -20,7 +20,7 @@ spec:
 
 ---
 # =============================================================================
-# PostgreSQL PersistentVolume (hostPath on cluster node)
+# PostgreSQL PersistentVolume (hostPath)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume
@@ -30,7 +30,6 @@ metadata:
     app: postgres
 spec:
   # Empty storageClassName opts out of dynamic provisioning and uses manual PV binding.
-  # This is intentional for hostPath-based local development (cluster node).
   storageClassName: ""
   capacity:
     storage: 1Gi
