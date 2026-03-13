@@ -3,6 +3,8 @@ kind: Kustomization
 
 # EC2 — standalone manifests for AWS EC2 deployment.
 
+namespace: pipeline-builder
+
 resources:
   - namespace.yaml
   - networkpolicy.yaml
