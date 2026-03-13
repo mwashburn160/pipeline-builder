@@ -47,7 +47,8 @@ else
   exit 1
 fi
 
-# Verify data directory is accessible
+# Ensure data directory exists and is accessible
+mkdir -p "$DATA_DIR" 2>/dev/null || true
 if ! touch "$DATA_DIR/.write-test" 2>/dev/null; then
   echo "ERROR: Cannot write to $DATA_DIR — check mount and permissions" >&2
   exit 1

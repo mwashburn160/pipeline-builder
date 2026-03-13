@@ -175,7 +175,8 @@ else
   echo "  User 'minikube' already exists"
 fi
 
-# Give minikube user access to the deployment directory
+# Create data directory and give minikube user access to the deployment directory
+mkdir -p "$DEPLOY_DIR/data"
 chown -R minikube:minikube "$DEPLOY_DIR"
 
 # Allow minikube user to read TLS certs
