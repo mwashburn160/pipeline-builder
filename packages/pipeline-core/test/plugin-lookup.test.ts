@@ -67,7 +67,7 @@ describe('PluginLookup', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...originalEnv, PLATFORM_TOKEN: 'test-jwt-token' };
+    process.env = { ...originalEnv, PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' };
 
     // Reset the mock to return the provider shape
     mockProvider.mockImplementation(() => ({
@@ -111,32 +111,30 @@ describe('PluginLookup', () => {
     });
   });
 
-  describe('PLATFORM_TOKEN validation', () => {
-    it('should throw if PLATFORM_TOKEN is not set', () => {
-      delete process.env.PLATFORM_TOKEN;
+  describe('credential validation', () => {
+    it('should throw if PLATFORM_EMAIL is not set', () => {
+      delete process.env.PLATFORM_EMAIL;
 
       expect(() => new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
-      })).toThrow('PLATFORM_TOKEN environment variable is not set');
+      })).toThrow('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
     });
 
-    it('should throw if PLATFORM_TOKEN is empty string', () => {
-      process.env.PLATFORM_TOKEN = '';
+    it('should throw if PLATFORM_PASSWORD is not set', () => {
+      delete process.env.PLATFORM_PASSWORD;
 
       expect(() => new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
-      })).toThrow('PLATFORM_TOKEN environment variable is not set');
+      })).toThrow('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
     });
 
-    it('should pass PLATFORM_TOKEN to Lambda environment', () => {
-      process.env.PLATFORM_TOKEN = 'my-secret-jwt';
-
+    it('should pass PLATFORM_EMAIL and PLATFORM_PASSWORD to Lambda environment', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
@@ -148,7 +146,7 @@ describe('PluginLookup', () => {
         expect.anything(),
         expect.any(String),
         expect.objectContaining({
-          environment: { PLATFORM_TOKEN: 'my-secret-jwt' },
+          environment: { PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' },
         }),
       );
     });
