@@ -106,7 +106,7 @@ spec:
     kind: Deployment
     name: frontend
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 2
   metrics:
     - type: Resource
       resource:
