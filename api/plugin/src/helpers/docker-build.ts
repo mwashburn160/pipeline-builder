@@ -13,7 +13,8 @@ export interface RegistryInfo {
   port: number;
   user: string;
   token: string;
-  /** Compose network name (empty = use default Docker networking). */
+  /** Docker network name for buildx builder (e.g. 'backend-network' for Compose,
+   *  'host' for Kubernetes dind sidecar). Empty = use default Docker networking. */
   network: string;
 }
 
@@ -37,8 +38,8 @@ export interface BuildResult {
   fullImage: string;
 }
 
-/** Root directory for Docker build temp files. Must be accessible to both
- *  the container AND the Docker host so buildkitd.toml bind mounts resolve. */
+/** Root directory for Docker build temp files. The build context is sent
+ *  to the Docker daemon (or dind sidecar) via the Docker API as a tar stream. */
 export const BUILD_TEMP_ROOT = process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp');
 
 const BUILDER_NAME = CoreConstants.DOCKER_BUILDER_NAME;
@@ -72,8 +73,10 @@ function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
  * Build a Docker image and push it to the configured registry.
  *
  * Uses a persistent buildx builder when a compose network is configured.
- * The builder is created lazily on first use and reused across builds.
- * It is only recreated when the network changes or the builder is unhealthy.
+ * In Kubernetes deployments, the Docker CLI connects to a docker:dind sidecar
+ * via DOCKER_HOST (tcp://localhost:2375). The builder is created lazily on
+ * first use and reused across builds. It is only recreated when the network
+ * changes or the builder is unhealthy.
  */
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   const { contextDir, dockerfile, imageTag, registry, buildArgs } = req;
@@ -139,6 +142,8 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
 /**
  * Remove the persistent builder. Call during graceful shutdown.
+ * In dind sidecar deployments, the builder lives inside the dind container
+ * and is automatically cleaned up when the pod terminates.
  */
 export function destroyBuilder(): void {
   if (activeBuilderNetwork === null) return;
@@ -220,6 +225,8 @@ function isBuilderHealthy(configDir: string): boolean {
  * Creates the builder lazily on first call. Recreates it only when:
  *  - The network has changed (e.g. after docker compose down/up)
  *  - The builder is unhealthy or missing
+ * In dind deployments, the builder runs inside the sidecar container
+ * and shares the pod network namespace.
  */
 function ensureBuilder(
   configDir: string,

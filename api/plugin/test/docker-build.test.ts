@@ -531,4 +531,53 @@ describe('docker-build', () => {
       expect(spawnArgs[progressIdx + 1]).toBe('plain');
     });
   });
+
+  describe('docker:dind sidecar compatibility', () => {
+    afterEach(() => {
+      delete process.env.DOCKER_HOST;
+    });
+
+    it('should use DOCKER_HOST environment variable when set', async () => {
+      // Set DOCKER_HOST to simulate dind sidecar
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+
+      await buildAndPush(makeRequest());
+
+      // Verify docker spawn was called (it respects DOCKER_HOST from env)
+      expect(mockSpawn).toHaveBeenCalled();
+
+      // The docker CLI args should NOT include --host flag
+      // (DOCKER_HOST env var is used instead)
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).not.toContain('--host');
+    });
+
+    it('should create buildx builder inside dind when network is configured', async () => {
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+
+      const req = makeRequest({ registry: makeRegistry({ network: 'my_net' }) });
+      await buildAndPush(req);
+
+      // Builder should be created with docker-container driver
+      const createCall = findBuildxCreateCall();
+      expect(createCall).toBeDefined();
+      expect(createCall).toContain('--driver');
+      expect(createCall).toContain('docker-container');
+    });
+
+    it('should work without network when DOCKER_HOST is set', async () => {
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+
+      // No network — default Docker networking, but via dind
+      const result = await buildAndPush(makeRequest());
+
+      expect(result.fullImage).toBe('registry:5000/plugin:p-test-abc123');
+      expect(mockSpawn).toHaveBeenCalled();
+
+      // Without a network, no buildx builder should be created
+      const createCall = findBuildxCreateCall();
+      expect(createCall).toBeUndefined();
+    });
+
+  });
 });

@@ -29,6 +29,7 @@ metadata:
     app.kubernetes.io/component: admin
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: registry-express
@@ -55,6 +56,12 @@ spec:
               value: "true"
             - name: SHOW_CONTENT_DIGEST
               value: "true"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             limits:
               cpu: "250m"

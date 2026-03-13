@@ -28,6 +28,7 @@ metadata:
     app.kubernetes.io/component: cache
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: redis
@@ -67,11 +68,15 @@ spec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
       volumes:
         - name: redis-data
           emptyDir: {}

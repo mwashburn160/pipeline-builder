@@ -68,6 +68,7 @@ metadata:
     app.kubernetes.io/component: registry
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: registry
@@ -92,6 +93,8 @@ spec:
           ports:
             - containerPort: 5000
               name: registry
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: REGISTRY_AUTH
               value: "htpasswd"

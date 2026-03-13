@@ -28,6 +28,7 @@ metadata:
     app.kubernetes.io/component: frontend
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: frontend
@@ -37,12 +38,17 @@ spec:
         app: frontend
         app.kubernetes.io/component: frontend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: frontend
           image: ghcr.io/mwashburn160/frontend:1.35.25
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -52,6 +58,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             limits:
               cpu: "300m"
@@ -75,6 +84,11 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
 
 ---
 # =============================================================================
@@ -100,3 +114,19 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
+
+---
+# =============================================================================
+# Frontend PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

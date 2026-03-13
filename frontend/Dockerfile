@@ -1,11 +1,4 @@
-ARG ALPINE_VERSION=3.22
 ARG NODE_VERSION=24.14.0
-# Cert stage
-FROM alpine:${ALPINE_VERSION} AS certs
-RUN apk update && \
-    apk add ca-certificates --no-cache
-COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates
 
 # Build stage
 FROM node:${NODE_VERSION}-alpine AS builder
@@ -33,13 +26,16 @@ FROM node:${NODE_VERSION}-alpine AS runner
 
 WORKDIR /app
 
+RUN apk update && \
+    apk add ca-certificates --no-cache
+COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
+RUN update-ca-certificates
+
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
-
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # Copy built application
 COPY --from=builder /app/public ./public

@@ -37,5 +37,5 @@ spec:
         memory: 2Gi
     - type: Pod
       max:
-        cpu: "4"
-        memory: 4Gi
+        cpu: "6"
+        memory: 10Gi

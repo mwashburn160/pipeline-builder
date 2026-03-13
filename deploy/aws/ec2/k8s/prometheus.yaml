@@ -53,7 +53,7 @@ spec:
 
 ---
 # =============================================================================
-# Prometheus PersistentVolume (hostPath on minikube node)
+# Prometheus PersistentVolume (hostPath on cluster node)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume
@@ -104,6 +104,7 @@ metadata:
     app.kubernetes.io/component: observability
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: prometheus
