@@ -161,7 +161,7 @@ services:
     deploy: *db-deploy
 
   postgres:
-    image: 'postgres:16'
+    image: 'postgres:18'
     container_name: postgres
     restart: always
     command: postgres -c listen_addresses=*
@@ -170,7 +170,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - './data/db-data/postgres/:/var/lib/postgresql/data:rw'
+      - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
