@@ -20,7 +20,7 @@ spec:
 
 ---
 # =============================================================================
-# Loki PersistentVolume (hostPath on minikube node)
+# Loki PersistentVolume (hostPath)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume
@@ -85,6 +85,23 @@ spec:
         fsGroup: 10001
         runAsUser: 10001
         runAsNonRoot: true
+      initContainers:
+        - name: fix-permissions
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 10001:10001 /loki"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: loki-data
+              mountPath: /loki
       containers:
         - name: loki
           image: grafana/loki
@@ -100,10 +117,10 @@ spec:
               name: http
           resources:
             limits:
-              cpu: "500m"
+              cpu: "300m"
               memory: 512Mi
             requests:
-              cpu: "250m"
+              cpu: "50m"
               memory: 256Mi
           readinessProbe:
             httpGet:

@@ -361,7 +361,7 @@ echo "  grafana-dashboards ConfigMap created/updated"
 
 echo ""
 echo "=== Pre-pulling container images ==="
-minikube ssh --profile="$PROFILE" -- 'docker pull docker:27-dind' 2>/dev/null && echo "  docker:27-dind pulled" || echo "  WARNING: Could not pre-pull docker:27-dind"
+minikube ssh --profile="$PROFILE" -- 'docker pull docker:27.5.1-dind' 2>/dev/null && echo "  docker:27.5.1-dind pulled" || echo "  WARNING: Could not pre-pull docker:27.5.1-dind"
 
 echo ""
 echo "=== Applying Kubernetes manifests ==="

@@ -132,6 +132,8 @@ spec:
             - "--host=tcp://0.0.0.0:2375"
             - "--host=unix:///var/run/docker.sock"
             - "--insecure-registry=registry:5000"
+            - "--max-concurrent-downloads=3"
+            - "--max-concurrent-uploads=3"
           env:
             - name: DOCKER_TLS_CERTDIR
               value: ""
@@ -152,6 +154,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
         # --- Plugin service ---
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:1.32.24

@@ -1,0 +1,323 @@
+# =============================================================================
+# Minikube resource overrides
+# Higher CPU allocations for single-node development cluster
+# =============================================================================
+
+# --- Databases ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+spec:
+  template:
+    spec:
+      containers:
+        - name: mongodb
+          resources:
+            limits:
+              cpu: "1.5"
+            requests:
+              cpu: "800m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgres
+          resources:
+            limits:
+              cpu: "1.5"
+            requests:
+              cpu: "800m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  template:
+    spec:
+      containers:
+        - name: redis
+          resources:
+            limits:
+              cpu: "250m"
+            requests:
+              cpu: "100m"
+
+# --- AI / LLM ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-model
+          resources:
+            requests:
+              cpu: "500m"
+      containers:
+        - name: ollama
+          resources:
+            limits:
+              cpu: "4000m"
+            requests:
+              cpu: "2000m"
+
+# --- API Gateway ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "200m"
+
+# --- Application Services ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform
+          resources:
+            limits:
+              cpu: "750m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline
+spec:
+  template:
+    spec:
+      containers:
+        - name: pipeline
+          resources:
+            limits:
+              cpu: "750m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin
+spec:
+  template:
+    spec:
+      containers:
+        - name: plugin
+          resources:
+            limits:
+              cpu: "1000m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message
+spec:
+  template:
+    spec:
+      containers:
+        - name: message
+          resources:
+            limits:
+              cpu: "750m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota
+spec:
+  template:
+    spec:
+      containers:
+        - name: quota
+          resources:
+            limits:
+              cpu: "750m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+spec:
+  template:
+    spec:
+      containers:
+        - name: billing
+          resources:
+            limits:
+              cpu: "750m"
+            requests:
+              cpu: "400m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "250m"
+
+# --- Admin UIs ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-express
+spec:
+  template:
+    spec:
+      containers:
+        - name: mongo-express
+          resources:
+            limits:
+              cpu: "400m"
+            requests:
+              cpu: "200m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgadmin
+spec:
+  template:
+    spec:
+      containers:
+        - name: pgadmin
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "200m"
+
+# --- Docker Registry ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+spec:
+  template:
+    spec:
+      containers:
+        - name: registry
+          resources:
+            limits:
+              cpu: "600m"
+            requests:
+              cpu: "300m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-express
+spec:
+  template:
+    spec:
+      containers:
+        - name: registry-express
+          resources:
+            limits:
+              cpu: "400m"
+            requests:
+              cpu: "200m"
+
+# --- Observability ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  template:
+    spec:
+      containers:
+        - name: prometheus
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "250m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "250m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  template:
+    spec:
+      containers:
+        - name: grafana
+          resources:
+            limits:
+              cpu: "500m"
+            requests:
+              cpu: "250m"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+spec:
+  template:
+    spec:
+      containers:
+        - name: promtail
+          resources:
+            limits:
+              cpu: "250m"
+            requests:
+              cpu: "100m"

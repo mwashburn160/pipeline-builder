@@ -361,12 +361,14 @@ services:
       - "--host=tcp://0.0.0.0:2375"
       - "--host=unix:///var/run/docker.sock"
       - "--insecure-registry=registry:5000"
+      - "--max-concurrent-downloads=3"
+      - "--max-concurrent-uploads=3"
     environment:
       DOCKER_TLS_CERTDIR: ''
     volumes:
       - 'dind-storage:/var/lib/docker'
     networks:
-      - backend-network
+      - dind-network
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 30s
@@ -395,13 +397,14 @@ services:
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
-      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/tmp/plugin-builds}
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-data/tmp}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-2}
     networks:
       - backend-network
+      - dind-network
     depends_on:
       docker-dind:
         condition: service_healthy
@@ -811,3 +814,7 @@ networks:
   backend-network:
     name: backend-network
     driver: bridge
+  dind-network:
+    name: dind-network
+    driver: bridge
+    internal: true
