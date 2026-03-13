@@ -1,3 +1,13 @@
+## 1.12.2 (2026-03-13)
+
+### 🩹 Fixes
+
+- version=1.38.1 ([d11b4eab](https://github.com/mwashburn160/pipeline-builder/commit/d11b4eab))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.12.1 (2026-03-13)
 
 ### 🩹 Fixes
