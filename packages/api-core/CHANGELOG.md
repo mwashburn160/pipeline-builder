@@ -1,3 +1,13 @@
+## 1.38.0 (2026-03-13)
+
+### 🚀 Features
+
+- added dind ([28743702](https://github.com/mwashburn160/pipeline-builder/commit/28743702))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.23 (2026-03-10)
 
 ### 🩹 Fixes

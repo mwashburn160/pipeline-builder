@@ -1,3 +1,19 @@
+## 1.32.0 (2026-03-13)
+
+### 🚀 Features
+
+- added dind ([28743702](https://github.com/mwashburn160/pipeline-builder/commit/28743702))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.40.0
+- Updated @mwashburn160/api-server to 1.37.0
+- Updated @mwashburn160/api-core to 1.38.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.31.23 (2026-03-10)
 
 ### 🩹 Fixes
