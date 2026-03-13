@@ -19,49 +19,6 @@ spec:
     app: plugin
 
 ---
-# =============================================================================
-# Docker-in-Docker PersistentVolume (build cache)
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: docker-dind-pv
-  labels:
-    app: plugin
-    component: dind
-spec:
-  storageClassName: ""
-  capacity:
-    storage: 40Gi
-  accessModes: ["ReadWriteOnce"]
-  persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: /mnt/data/docker-dind
-    type: DirectoryOrCreate
-
----
-# =============================================================================
-# Docker-in-Docker PersistentVolumeClaim
-# =============================================================================
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: docker-dind-data
-  labels:
-    app: plugin
-    component: dind
-spec:
-  storageClassName: ""
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 40Gi
-  selector:
-    matchLabels:
-      app: plugin
-      component: dind
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -134,6 +91,8 @@ spec:
             - "--insecure-registry=registry:5000"
             - "--max-concurrent-downloads=3"
             - "--max-concurrent-uploads=3"
+            - "--storage-driver=vfs"
+            - "--tls=false"
           env:
             - name: DOCKER_TLS_CERTDIR
               value: ""
@@ -233,8 +192,8 @@ spec:
             failureThreshold: 5
       volumes:
         - name: docker-graph
-          persistentVolumeClaim:
-            claimName: docker-dind-data
+          emptyDir:
+            sizeLimit: 10Gi
         - name: build-temp
           hostPath:
             path: /mnt/data/tmp
