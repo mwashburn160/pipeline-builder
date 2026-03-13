@@ -149,20 +149,22 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Builds the Lambda environment variables. Fails fast if PLATFORM_TOKEN is not set
-   * at synth time, since deploying without it guarantees custom resource failure.
+   * Builds the Lambda environment variables for authentication.
+   * The Lambda authenticates at runtime using service credentials,
+   * so tokens are always fresh and never expire.
    */
   private buildLambdaEnvironment(): Record<string, string> {
-    const token = process.env.PLATFORM_TOKEN;
-    if (!token) {
+    const email = process.env.PLATFORM_EMAIL;
+    const password = process.env.PLATFORM_PASSWORD;
+
+    if (!email || !password) {
       throw new Error(
-        'PLATFORM_TOKEN environment variable is not set. '
-        + 'The plugin lookup Lambda requires a valid token to authenticate API calls. '
-        + 'Set it before running cdk synth: export PLATFORM_TOKEN=<jwt>',
+        'PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required. '
+        + 'The plugin lookup Lambda uses these to authenticate at runtime.',
       );
     }
 
-    return { PLATFORM_TOKEN: token };
+    return { PLATFORM_EMAIL: email, PLATFORM_PASSWORD: password };
   }
 
   /**
