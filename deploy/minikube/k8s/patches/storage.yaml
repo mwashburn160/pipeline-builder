@@ -2,25 +2,6 @@
 # Minikube storage overrides — smaller volumes for local development
 # =============================================================================
 
-# --- Docker-in-Docker PV (40Gi → 10Gi) ---
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: docker-dind-pv
-spec:
-  capacity:
-    storage: 10Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: docker-dind-data
-spec:
-  resources:
-    requests:
-      storage: 10Gi
-
 # --- Registry PV (80Gi → 2Gi) ---
 ---
 apiVersion: v1

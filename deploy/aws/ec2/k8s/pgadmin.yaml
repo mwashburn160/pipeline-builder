@@ -126,9 +126,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 5050
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            allowPrivilegeEscalation: true
           resources:
             limits:
               cpu: "300m"
