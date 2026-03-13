@@ -8,6 +8,11 @@ K8S_DIR="$DEPLOY_DIR/k8s"
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 
+echo "=== Stopping port-forwards ==="
+pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
+echo "  Port-forwards stopped"
+
+echo ""
 echo "=== Removing Kubernetes resources ==="
 kubectl delete -k "$K8S_DIR" --ignore-not-found 2>/dev/null || true
 

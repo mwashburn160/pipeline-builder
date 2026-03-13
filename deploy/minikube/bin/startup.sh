@@ -345,14 +345,53 @@ echo "=== Services ==="
 kubectl get svc -n "$NAMESPACE"
 
 echo ""
+echo "=== Starting port-forward (background) ==="
+# Kill any existing port-forwards for this namespace
+pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
+sleep 1
+
+# API Gateway (nginx) — forwards localhost:8443 → nginx:8443 and localhost:8080 → nginx:8080
+kubectl port-forward svc/nginx 8443:8443 8080:8080 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_NGINX=$!
+
+# Grafana
+kubectl port-forward svc/grafana 3200:3000 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_GRAFANA=$!
+
+# Mongo Express
+kubectl port-forward svc/mongo-express 8081:8081 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_MONGO_EXPRESS=$!
+
+# pgAdmin
+kubectl port-forward svc/pgadmin 5480:80 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_PGADMIN=$!
+
+# Registry UI
+kubectl port-forward svc/registry-express 5580:80 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_REGISTRY_UI=$!
+
+sleep 2
+echo "  Port-forward PIDs: nginx=$PF_NGINX grafana=$PF_GRAFANA mongo-express=$PF_MONGO_EXPRESS pgadmin=$PF_PGADMIN registry-ui=$PF_REGISTRY_UI"
+
+echo ""
 echo "=== Access URLs ==="
 MINIKUBE_IP=$(minikube ip --profile="$PROFILE")
-echo "  API Gateway (HTTPS): https://$MINIKUBE_IP:30443"
-echo "  API Gateway (HTTP):  http://$MINIKUBE_IP:30080"
-echo "  Grafana:             http://$MINIKUBE_IP:30200"
-echo "  Mongo Express:       http://$MINIKUBE_IP:30081"
-echo "  pgAdmin:             http://$MINIKUBE_IP:30480"
-echo "  Registry UI:         http://$MINIKUBE_IP:30580"
+echo ""
+echo "  Via port-forward (localhost):"
+echo "    API Gateway (HTTPS): https://localhost:8443"
+echo "    API Gateway (HTTP):  http://localhost:8080"
+echo "    Grafana:             http://localhost:3200"
+echo "    Mongo Express:       http://localhost:8081"
+echo "    pgAdmin:             http://localhost:5480"
+echo "    Registry UI:         http://localhost:5580"
+echo ""
+echo "  Via NodePort (minikube IP):"
+echo "    API Gateway (HTTPS): https://$MINIKUBE_IP:30443"
+echo "    API Gateway (HTTP):  http://$MINIKUBE_IP:30080"
+echo "    Grafana:             http://$MINIKUBE_IP:30200"
+echo "    Mongo Express:       http://$MINIKUBE_IP:30081"
+echo "    pgAdmin:             http://$MINIKUBE_IP:30480"
+echo "    Registry UI:         http://$MINIKUBE_IP:30580"
 
 echo ""
 echo "=== Credentials (from .env) ==="
@@ -362,3 +401,6 @@ echo "  Grafana:       admin / $GRAFANA_ADMIN_PASSWORD"
 echo "  Mongo Express: $ME_CONFIG_BASICAUTH_USERNAME / $ME_CONFIG_BASICAUTH_PASSWORD"
 echo "  pgAdmin:       $PGADMIN_DEFAULT_EMAIL / $PGADMIN_DEFAULT_PASSWORD"
 echo "  Registry:      $IMAGE_REGISTRY_USER / $IMAGE_REGISTRY_TOKEN"
+
+echo ""
+echo "  To stop port-forwards: pkill -f 'kubectl port-forward.*-n $NAMESPACE'"
