@@ -60,7 +60,7 @@ spec:
   template:
     spec:
       initContainers:
-        - name: wait-for-model
+        - name: model-pull
           resources:
             requests:
               cpu: "500m"
