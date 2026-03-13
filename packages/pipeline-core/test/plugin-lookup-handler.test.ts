@@ -14,9 +14,10 @@ jest.mock('../src/config/app-config', () => ({
 // Mock axios before importing handler
 const mockPost = jest.fn();
 const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
+const mockAxiosPost = jest.fn().mockResolvedValue({ data: { token: 'fresh-jwt-token' } });
 jest.mock('axios', () => ({
   __esModule: true,
-  default: { create: mockAxiosCreate },
+  default: { create: mockAxiosCreate, post: mockAxiosPost },
   AxiosError: class AxiosError extends Error {
     code?: string;
     response?: { status: number; statusText: string; data?: unknown };
@@ -73,7 +74,7 @@ describe('plugin-lookup-handler', () => {
     jest.spyOn(console, 'log').mockImplementation();
     jest.spyOn(console, 'error').mockImplementation();
     jest.spyOn(console, 'debug').mockImplementation();
-    process.env = { ...originalEnv, PLATFORM_TOKEN: 'test-token' };
+    process.env = { ...originalEnv, PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' };
   });
 
   afterEach(() => {
@@ -118,7 +119,7 @@ describe('plugin-lookup-handler', () => {
       );
     });
 
-    it('should pass Authorization header with PLATFORM_TOKEN', async () => {
+    it('should pass Authorization header with fresh token from login', async () => {
       mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
 
       const event = createEvent();
@@ -127,7 +128,7 @@ describe('plugin-lookup-handler', () => {
       expect(mockAxiosCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           headers: expect.objectContaining({
-            Authorization: 'Bearer test-token',
+            Authorization: 'Bearer fresh-jwt-token',
           }),
         }),
       );
@@ -205,14 +206,49 @@ describe('plugin-lookup-handler', () => {
   });
 
   describe('authentication', () => {
-    it('should fail if PLATFORM_TOKEN is not set', async () => {
-      delete process.env.PLATFORM_TOKEN;
+    it('should authenticate with PLATFORM_EMAIL and PLATFORM_PASSWORD', async () => {
+      mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+
+      const event = createEvent();
+      await handler(event);
+
+      expect(mockAxiosPost).toHaveBeenCalledWith(
+        'https://api.example.com/api/auth/login',
+        { email: 'admin@internal', password: 'test-password' },
+        expect.objectContaining({
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+
+    it('should fail if PLATFORM_EMAIL is not set', async () => {
+      delete process.env.PLATFORM_EMAIL;
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('PLATFORM_TOKEN environment variable is not set');
+      expect(result.Reason).toContain('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
+    });
+
+    it('should fail if PLATFORM_PASSWORD is not set', async () => {
+      delete process.env.PLATFORM_PASSWORD;
+
+      const event = createEvent();
+      const result = await handler(event);
+
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
+    });
+
+    it('should fail if login returns no token', async () => {
+      mockAxiosPost.mockResolvedValueOnce({ data: {} });
+
+      const event = createEvent();
+      const result = await handler(event);
+
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('Login response missing token');
     });
   });
 
