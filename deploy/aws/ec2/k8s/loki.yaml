@@ -104,7 +104,7 @@ spec:
               mountPath: /loki
       containers:
         - name: loki
-          image: grafana/loki
+          image: grafana/loki:3.4.2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

@@ -107,7 +107,7 @@ spec:
               mountPath: /keyfile
       containers:
         - name: mongodb
-          image: mongo
+          image: mongo:7.0
           args:
             - "--bind_ip_all"
             - "--replSet"

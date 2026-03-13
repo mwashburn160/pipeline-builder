@@ -138,7 +138,7 @@ spec:
               mountPath: /prometheus
       containers:
         - name: prometheus
-          image: prom/prometheus
+          image: prom/prometheus:v3.2.1
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

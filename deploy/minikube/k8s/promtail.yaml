@@ -58,7 +58,7 @@ spec:
         fsGroup: 0
       containers:
         - name: promtail
-          image: grafana/promtail
+          image: grafana/promtail:3.4.2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

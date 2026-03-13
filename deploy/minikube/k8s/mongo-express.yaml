@@ -58,7 +58,7 @@ spec:
               echo "MongoDB ready"
       containers:
         - name: mongo-express
-          image: mongo-express
+          image: mongo-express:1.0
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
