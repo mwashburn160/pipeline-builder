@@ -83,7 +83,7 @@ spec:
               echo "All services ready"
       containers:
         - name: nginx
-          image: nginx
+          image: nginx:1.27
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

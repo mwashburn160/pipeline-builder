@@ -89,7 +89,7 @@ spec:
             runAsUser: 0
       containers:
         - name: registry
-          image: registry
+          image: registry:2
           ports:
             - containerPort: 5000
               name: registry

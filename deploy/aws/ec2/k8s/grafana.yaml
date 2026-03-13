@@ -121,7 +121,7 @@ spec:
               mountPath: /var/lib/grafana
       containers:
         - name: grafana
-          image: grafana/grafana
+          image: grafana/grafana:11.5.2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
