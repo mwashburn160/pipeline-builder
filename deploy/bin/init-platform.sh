@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 set -eu
 
 # Initialize the platform — register admin, optionally load plugins and pipelines.
