@@ -368,7 +368,7 @@ services:
     volumes:
       - 'dind-storage:/var/lib/docker'
     networks:
-      - dind-network
+      - backend-network
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 30s
@@ -396,7 +396,7 @@ services:
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
-      DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-bridge}
       DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -408,7 +408,6 @@ services:
       - '${DOCKER_BUILD_TEMP_ROOT}:${DOCKER_BUILD_TEMP_ROOT}:rw'
     networks:
       - backend-network
-      - dind-network
     depends_on:
       docker-dind:
         condition: service_healthy
@@ -818,7 +817,3 @@ networks:
   backend-network:
     name: backend-network
     driver: bridge
-  dind-network:
-    name: dind-network
-    driver: bridge
-    internal: true
