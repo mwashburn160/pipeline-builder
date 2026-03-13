@@ -4,6 +4,8 @@ kind: Kustomization
 # Minikube — standalone manifests with local development overrides.
 # Higher CPU allocations, smaller storage volumes.
 
+namespace: pipeline-builder
+
 resources:
   - namespace.yaml
   - networkpolicy.yaml
