@@ -63,7 +63,7 @@ spec:
               echo "Waiting for mongodb..."
               until nc -z mongodb.pipeline-builder 27017; do sleep 3; done
               echo "Waiting for quota..."
-              until wget -qO- http://quota.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do sleep 3; done
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
               echo "Dependencies ready"
       containers:
         - name: billing
