@@ -1,3 +1,13 @@
+## 1.40.6 (2026-03-13)
+
+### 🩹 Fixes
+
+- set lambda timeout ([d8e8f141](https://github.com/mwashburn160/pipeline-builder/commit/d8e8f141))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.5 (2026-03-13)
 
 ### 🩹 Fixes
