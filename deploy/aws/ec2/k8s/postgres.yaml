@@ -86,7 +86,7 @@ spec:
         runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:
         - name: postgres
-          image: postgres
+          image: postgres:18
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -140,7 +140,7 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
