@@ -44,19 +44,53 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Creates a pre-configured Axios instance for API requests.
- * Includes JWT authorization from the PLATFORM_TOKEN environment variable.
+ * Authenticates with the platform API using service credentials and returns a fresh JWT.
+ * Falls back to PLATFORM_TOKEN env var if credentials are not available.
  *
  * @param baseURL - Base URL of the target API
- * @returns Configured Axios instance
- * @throws Error if PLATFORM_TOKEN is not set
+ * @returns Fresh JWT token
+ * @throws Error if authentication fails or no credentials are available
  */
-function create(baseURL: string): AxiosInstance {
-  const token = process.env.PLATFORM_TOKEN;
-  if (!token) {
-    throw new Error('PLATFORM_TOKEN environment variable is not set — cannot authenticate API calls');
+async function authenticate(baseURL: string): Promise<string> {
+  const email = process.env.PLATFORM_EMAIL;
+  const password = process.env.PLATFORM_PASSWORD;
+
+  if (!email || !password) {
+    throw new Error('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
   }
 
+  lambdaLog.info('AUTH', 'Authenticating with service credentials');
+  try {
+    const { data } = await axios.post(`${baseURL}/api/auth/login`, {
+      email,
+      password,
+    }, {
+      timeout: CoreConstants.HANDLER_TIMEOUT_MS,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!data?.token) {
+      throw new Error('Login response missing token');
+    }
+
+    lambdaLog.info('AUTH', 'Authentication successful');
+    return data.token;
+  } catch (error) {
+    const msg = error instanceof AxiosError
+      ? `${error.response?.status || error.code}: ${error.response?.statusText || error.message}`
+      : error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Authentication failed: ${msg}`);
+  }
+}
+
+/**
+ * Creates a pre-configured Axios instance for API requests.
+ *
+ * @param baseURL - Base URL of the target API
+ * @param token - JWT token for authorization
+ * @returns Configured Axios instance
+ */
+function create(baseURL: string, token: string): AxiosInstance {
   return axios.create({
     baseURL,
     timeout: CoreConstants.HANDLER_TIMEOUT_MS,
@@ -223,8 +257,9 @@ export const handler = async (
     // Validate filter
     validatePluginFilter(pluginFilter);
 
-    // Create API client
-    const api = create(baseURL);
+    // Authenticate and create API client
+    const token = await authenticate(baseURL);
+    const api = create(baseURL, token);
 
     // Fetch plugin
     lambdaLog.info('FETCH', 'Initiating plugin lookup...');

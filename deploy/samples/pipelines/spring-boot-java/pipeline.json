@@ -200,44 +200,6 @@
             "commands": [
               "./gradlew dependencyCheckAnalyze"
             ]
-          },
-          {
-            "plugin": {
-              "name": "git-secrets",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true
-              }
-            },
-            "position": "post",
-            "commands": [
-              "git secrets --scan"
-            ]
-          }
-        ]
-      },
-      {
-        "stageName": "Publish",
-        "steps": [
-          {
-            "plugin": {
-              "name": "maven-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "JAVA_VERSION": "17",
-                "MAVEN_REPO": "https://repo.spring.io/release"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "./gradlew publish"
-            ]
           }
         ]
       }
