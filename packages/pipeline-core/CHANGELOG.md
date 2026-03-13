@@ -1,3 +1,13 @@
+## 1.40.8 (2026-03-13)
+
+### 🩹 Fixes
+
+- lambda authenication ([1cbd7711](https://github.com/mwashburn160/pipeline-builder/commit/1cbd7711))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.7 (2026-03-13)
 
 ### 🩹 Fixes
