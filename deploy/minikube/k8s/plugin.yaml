@@ -206,6 +206,8 @@ spec:
               mountPath: /mnt/data/tmp
             - name: tmp
               mountPath: /tmp
+            - name: uploads
+              mountPath: /app/uploads
           resources:
             limits:
               cpu: "750m"
@@ -241,6 +243,9 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
+        - name: uploads
+          emptyDir:
+            sizeLimit: 512Mi
 
 ---
 # =============================================================================
