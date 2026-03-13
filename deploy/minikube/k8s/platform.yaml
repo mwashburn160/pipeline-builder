@@ -1,13 +1,13 @@
 ---
 # =============================================================================
-# Pipeline Service
+# Platform Service
 # =============================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: pipeline
+  name: platform
   labels:
-    app: pipeline
+    app: platform
 spec:
   type: ClusterIP
   ports:
@@ -16,26 +16,26 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: pipeline
+    app: platform
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pipeline
+  name: platform
   labels:
-    app: pipeline
+    app: platform
     app.kubernetes.io/component: backend
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: pipeline
+      app: platform
   template:
     metadata:
       labels:
-        app: pipeline
+        app: platform
         app.kubernetes.io/component: backend
       annotations:
         prometheus.io/scrape: "true"
@@ -60,14 +60,18 @@ spec:
             - sh
             - -c
             - |
+              echo "Waiting for mongodb..."
+              until nc -z mongodb.pipeline-builder 27017; do sleep 3; done
               echo "Waiting for postgres..."
               until nc -z postgres.pipeline-builder 5432; do sleep 3; done
               echo "Waiting for quota..."
               until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Waiting for billing..."
+              until wget -qO- http://billing:3000/health > /dev/null 2>&1; do sleep 3; done
               echo "Dependencies ready"
       containers:
-        - name: pipeline
-          image: ghcr.io/mwashburn160/pipeline:1.32.23
+        - name: platform
+          image: ghcr.io/mwashburn160/platform:1.34.5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -85,9 +89,13 @@ spec:
                 name: jwt-secret
             - secretRef:
                 name: postgres-secret
+            - secretRef:
+                name: mongodb-secret
           env:
             - name: SERVICE_NAME
-              value: "pipeline"
+              value: "platform"
+            - name: PORT
+              value: "3000"
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -122,21 +130,21 @@ spec:
 
 ---
 # =============================================================================
-# Pipeline HorizontalPodAutoscaler
+# Platform HorizontalPodAutoscaler
 # =============================================================================
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: pipeline
+  name: platform
   labels:
-    app: pipeline
+    app: platform
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: pipeline
+    name: platform
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
@@ -147,16 +155,16 @@ spec:
 
 ---
 # =============================================================================
-# Pipeline PodDisruptionBudget
+# Platform PodDisruptionBudget
 # =============================================================================
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: pipeline
+  name: platform
   labels:
-    app: pipeline
+    app: platform
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: pipeline
+      app: platform

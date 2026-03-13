@@ -1,8 +1,29 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# EC2 overlay — base manifests use EC2 resource values by default.
-# Only environment-specific overrides go here.
+# EC2 — standalone manifests for AWS EC2 deployment.
 
 resources:
-  - ../../../base
+  - namespace.yaml
+  - networkpolicy.yaml
+  - resource-limits.yaml
+  - mongodb.yaml
+  - postgres.yaml
+  - redis.yaml
+  - ollama.yaml
+  - nginx.yaml
+  - platform.yaml
+  - pipeline.yaml
+  - plugin.yaml
+  - message.yaml
+  - quota.yaml
+  - billing.yaml
+  - frontend.yaml
+  - mongo-express.yaml
+  - pgadmin.yaml
+  - registry.yaml
+  - registry-express.yaml
+  - prometheus.yaml
+  - loki.yaml
+  - grafana.yaml
+  - promtail.yaml

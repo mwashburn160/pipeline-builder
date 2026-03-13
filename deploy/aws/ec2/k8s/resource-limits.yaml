@@ -1,0 +1,41 @@
+---
+# =============================================================================
+# Namespace Resource Quota
+# =============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pipeline-builder-quota
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 10Gi
+    limits.cpu: "12"
+    limits.memory: 16Gi
+    pods: "30"
+    persistentvolumeclaims: "10"
+
+---
+# =============================================================================
+# Default Resource Limits (for containers that don't specify them)
+# =============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: pipeline-builder-limits
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: 512Mi
+      defaultRequest:
+        cpu: "100m"
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+    - type: Pod
+      max:
+        cpu: "6"
+        memory: 10Gi

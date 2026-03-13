@@ -1,11 +1,33 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Minikube overlay — patches base manifests for local development.
+# Minikube — standalone manifests with local development overrides.
 # Higher CPU allocations, smaller storage volumes.
 
 resources:
-  - ../../base
+  - namespace.yaml
+  - networkpolicy.yaml
+  - resource-limits.yaml
+  - mongodb.yaml
+  - postgres.yaml
+  - redis.yaml
+  - ollama.yaml
+  - nginx.yaml
+  - platform.yaml
+  - pipeline.yaml
+  - plugin.yaml
+  - message.yaml
+  - quota.yaml
+  - billing.yaml
+  - frontend.yaml
+  - mongo-express.yaml
+  - pgadmin.yaml
+  - registry.yaml
+  - registry-express.yaml
+  - prometheus.yaml
+  - loki.yaml
+  - grafana.yaml
+  - promtail.yaml
 
 patches:
   # Resource (CPU) overrides for all deployments

@@ -1,13 +1,13 @@
 ---
 # =============================================================================
-# Quota Service
+# Pipeline Service
 # =============================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: quota
+  name: pipeline
   labels:
-    app: quota
+    app: pipeline
 spec:
   type: ClusterIP
   ports:
@@ -16,26 +16,26 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: quota
+    app: pipeline
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: quota
+  name: pipeline
   labels:
-    app: quota
+    app: pipeline
     app.kubernetes.io/component: backend
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: quota
+      app: pipeline
   template:
     metadata:
       labels:
-        app: quota
+        app: pipeline
         app.kubernetes.io/component: backend
       annotations:
         prometheus.io/scrape: "true"
@@ -47,7 +47,7 @@ spec:
         runAsUser: 1000
         fsGroup: 1000
       initContainers:
-        - name: wait-for-mongodb
+        - name: wait-for-dependencies
           image: busybox
           resources:
             limits:
@@ -60,12 +60,14 @@ spec:
             - sh
             - -c
             - |
-              echo "Waiting for mongodb..."
-              until nc -z mongodb.pipeline-builder 27017; do sleep 3; done
-              echo "MongoDB ready"
+              echo "Waiting for postgres..."
+              until nc -z postgres.pipeline-builder 5432; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
       containers:
-        - name: quota
-          image: ghcr.io/mwashburn160/quota:1.31.23
+        - name: pipeline
+          image: ghcr.io/mwashburn160/pipeline:1.33.5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -82,12 +84,10 @@ spec:
             - secretRef:
                 name: jwt-secret
             - secretRef:
-                name: mongodb-secret
+                name: postgres-secret
           env:
             - name: SERVICE_NAME
-              value: "quota"
-            - name: PORT
-              value: "3000"
+              value: "pipeline"
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -122,19 +122,19 @@ spec:
 
 ---
 # =============================================================================
-# Quota HorizontalPodAutoscaler
+# Pipeline HorizontalPodAutoscaler
 # =============================================================================
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: quota
+  name: pipeline
   labels:
-    app: quota
+    app: pipeline
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: quota
+    name: pipeline
   minReplicas: 1
   maxReplicas: 5
   metrics:
@@ -147,16 +147,16 @@ spec:
 
 ---
 # =============================================================================
-# Quota PodDisruptionBudget
+# Pipeline PodDisruptionBudget
 # =============================================================================
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: quota
+  name: pipeline
   labels:
-    app: quota
+    app: pipeline
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: quota
+      app: pipeline

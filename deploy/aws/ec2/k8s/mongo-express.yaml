@@ -1,0 +1,116 @@
+---
+# =============================================================================
+# Mongo Express Service (MongoDB Admin UI)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-express
+  labels:
+    app: mongo-express
+spec:
+  type: NodePort
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30081
+      protocol: TCP
+      name: http
+  selector:
+    app: mongo-express
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-express
+  labels:
+    app: mongo-express
+    app.kubernetes.io/component: admin
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: mongo-express
+  template:
+    metadata:
+      labels:
+        app: mongo-express
+        app.kubernetes.io/component: admin
+    spec:
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for mongodb..."
+              until nc -z mongodb.pipeline-builder 27017; do sleep 3; done
+              echo "MongoDB ready"
+      containers:
+        - name: mongo-express
+          image: mongo-express
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8081
+              name: http
+          envFrom:
+            - secretRef:
+                name: mongo-express-secret
+          env:
+            - name: ME_CONFIG_SITE_BASEURL
+              value: "/mongo-express/"
+            - name: ME_CONFIG_MONGODB_ENABLE_ADMIN
+              value: "true"
+            - name: ME_CONFIG_MONGODB_ADMINUSERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_USERNAME
+            - name: ME_CONFIG_MONGODB_ADMINPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_PASSWORD
+            - name: ME_CONFIG_MONGODB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGODB_URI
+          resources:
+            limits:
+              cpu: "250m"
+              memory: 384Mi
+            requests:
+              cpu: "75m"
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /mongo-express/status
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /mongo-express/status
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5

@@ -1,0 +1,284 @@
+---
+# =============================================================================
+# Plugin Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: plugin
+
+---
+# =============================================================================
+# Docker-in-Docker PersistentVolume (build cache)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: docker-dind-pv
+  labels:
+    app: plugin
+    component: dind
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 40Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/docker-dind
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Docker-in-Docker PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: docker-dind-data
+  labels:
+    app: plugin
+    component: dind
+spec:
+  storageClassName: ""
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 40Gi
+  selector:
+    matchLabels:
+      app: plugin
+      component: dind
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: plugin
+  template:
+    metadata:
+      labels:
+        app: plugin
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres.pipeline-builder 5432; do sleep 3; done
+              echo "Waiting for redis..."
+              until nc -z redis.pipeline-builder 6379; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+        - name: fix-permissions
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 1000:1000 /mnt/data/tmp"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: build-temp
+              mountPath: /mnt/data/tmp
+      containers:
+        # --- Docker-in-Docker sidecar ---
+        - name: docker-dind
+          image: docker:27-dind
+          securityContext:
+            privileged: true
+          args:
+            - "--host=tcp://0.0.0.0:2375"
+            - "--host=unix:///var/run/docker.sock"
+            - "--insecure-registry=registry:5000"
+            - "--max-concurrent-downloads=3"
+            - "--max-concurrent-uploads=3"
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          volumeMounts:
+            - name: docker-graph
+              mountPath: /var/lib/docker
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: 2Gi
+            requests:
+              cpu: "200m"
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+        # --- Plugin service ---
+        - name: plugin
+          image: ghcr.io/mwashburn160/plugin:1.33.5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+            - secretRef:
+                name: registry-secret
+          env:
+            - name: SERVICE_NAME
+              value: "plugin"
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2375"
+            - name: IMAGE_REGISTRY_HOST
+              value: "registry"
+            - name: IMAGE_REGISTRY_PORT
+              value: "5000"
+            - name: DOCKER_NETWORK
+              value: "host"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: DOCKER_BUILD_TEMP_ROOT
+              value: "/mnt/data/tmp"
+          volumeMounts:
+            - name: build-temp
+              mountPath: /mnt/data/tmp
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            limits:
+              cpu: "750m"
+              memory: 1536Mi
+            requests:
+              cpu: "100m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: docker-graph
+          persistentVolumeClaim:
+            claimName: docker-dind-data
+        - name: build-temp
+          hostPath:
+            path: /mnt/data/tmp
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+
+---
+# =============================================================================
+# Plugin KEDA ScaledObject — scales on BullMQ queue depth
+# =============================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  scaleTargetRef:
+    name: plugin
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: redis
+      metadata:
+        address: redis.pipeline-builder.svc.cluster.local:6379
+        listName: "bull:plugin-build:wait"
+        listLength: "2"
+        activationListLength: "1"
+
+---
+# =============================================================================
+# Plugin PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: plugin
