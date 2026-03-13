@@ -1,0 +1,150 @@
+---
+# =============================================================================
+# Nginx Service (NodePort — external entry point)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  type: NodePort
+  ports:
+    - port: 8443
+      targetPort: 8443
+      nodePort: 30443
+      protocol: TCP
+      name: https
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
+      protocol: TCP
+      name: http
+  selector:
+    app: nginx
+
+---
+# =============================================================================
+# Nginx Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8443"
+        prometheus.io/path: "/metrics"
+        prometheus.io/scheme: "https"
+    spec:
+      initContainers:
+        - name: wait-for-services
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for backend services..."
+              for svc in platform plugin pipeline quota billing; do
+                until wget -qO- http://${svc}.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do
+                  echo "Waiting for ${svc}..."
+                  sleep 5
+                done
+                echo "${svc} is ready"
+              done
+              echo "Waiting for frontend..."
+              until wget --spider -qO- http://frontend.pipeline-builder.svc.cluster.local:3000/ > /dev/null 2>&1; do
+                echo "Waiting for frontend..."
+                sleep 5
+              done
+              echo "frontend is ready"
+              echo "All services ready"
+      containers:
+        - name: nginx
+          image: nginx
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE", "CHOWN", "SETGID", "SETUID"]
+          ports:
+            - containerPort: 8443
+              name: https
+            - containerPort: 8080
+              name: http
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
+          resources:
+            limits:
+              cpu: "300m"
+              memory: 256Mi
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sfk https://localhost:8443/health || exit 1"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sfk https://localhost:8443/health || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: nginx-njs
+              mountPath: /etc/nginx/njs
+              readOnly: true
+            - name: tls-certs
+              mountPath: /etc/nginx/certs
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-njs
+          configMap:
+            name: nginx-njs
+        - name: tls-certs
+          secret:
+            secretName: nginx-tls-secret

@@ -1,13 +1,13 @@
 ---
 # =============================================================================
-# Billing Service
+# Quota Service
 # =============================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: billing
+  name: quota
   labels:
-    app: billing
+    app: quota
 spec:
   type: ClusterIP
   ports:
@@ -16,26 +16,26 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: billing
+    app: quota
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: billing
+  name: quota
   labels:
-    app: billing
+    app: quota
     app.kubernetes.io/component: backend
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: billing
+      app: quota
   template:
     metadata:
       labels:
-        app: billing
+        app: quota
         app.kubernetes.io/component: backend
       annotations:
         prometheus.io/scrape: "true"
@@ -62,12 +62,10 @@ spec:
             - |
               echo "Waiting for mongodb..."
               until nc -z mongodb.pipeline-builder 27017; do sleep 3; done
-              echo "Waiting for quota..."
-              until wget -qO- http://quota.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do sleep 3; done
-              echo "Dependencies ready"
+              echo "MongoDB ready"
       containers:
-        - name: billing
-          image: ghcr.io/mwashburn160/billing:1.16.23
+        - name: quota
+          image: ghcr.io/mwashburn160/quota:1.32.5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -87,7 +85,7 @@ spec:
                 name: mongodb-secret
           env:
             - name: SERVICE_NAME
-              value: "billing"
+              value: "quota"
             - name: PORT
               value: "3000"
           volumeMounts:
@@ -124,21 +122,21 @@ spec:
 
 ---
 # =============================================================================
-# Billing HorizontalPodAutoscaler
+# Quota HorizontalPodAutoscaler
 # =============================================================================
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: billing
+  name: quota
   labels:
-    app: billing
+    app: quota
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: billing
+    name: quota
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 5
   metrics:
     - type: Resource
       resource:
@@ -149,16 +147,16 @@ spec:
 
 ---
 # =============================================================================
-# Billing PodDisruptionBudget
+# Quota PodDisruptionBudget
 # =============================================================================
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: billing
+  name: quota
   labels:
-    app: billing
+    app: quota
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: billing
+      app: quota

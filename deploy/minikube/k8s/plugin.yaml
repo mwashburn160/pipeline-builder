@@ -163,11 +163,11 @@ spec:
             failureThreshold: 3
         # --- Plugin service ---
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.32.24
+          image: ghcr.io/mwashburn160/plugin:1.33.5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
             allowPrivilegeEscalation: false
             capabilities:
               drop:
