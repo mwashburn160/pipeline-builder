@@ -69,6 +69,7 @@ metadata:
     app.kubernetes.io/component: admin
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: pgadmin
@@ -106,6 +107,12 @@ spec:
           envFrom:
             - secretRef:
                 name: pgadmin-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 5050
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             limits:
               cpu: "500m"

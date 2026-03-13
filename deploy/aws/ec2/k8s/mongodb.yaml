@@ -21,7 +21,7 @@ spec:
 
 ---
 # =============================================================================
-# MongoDB PersistentVolume (hostPath on minikube node)
+# MongoDB PersistentVolume (hostPath on cluster node)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume
@@ -72,6 +72,7 @@ metadata:
     app.kubernetes.io/component: database
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: mongodb

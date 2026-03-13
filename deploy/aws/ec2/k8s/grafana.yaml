@@ -21,7 +21,7 @@ spec:
 
 ---
 # =============================================================================
-# Grafana PersistentVolume (hostPath on minikube node)
+# Grafana PersistentVolume (hostPath on cluster node)
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolume
@@ -72,6 +72,7 @@ metadata:
     app.kubernetes.io/component: observability
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: grafana

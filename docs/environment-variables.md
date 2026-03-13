@@ -88,7 +88,8 @@ All services configured via env vars. Copy the appropriate `.env.example` to `.e
 | `IMAGE_REGISTRY_PORT` | `5000` | Registry port |
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
-| `DOCKER_GID` | `0` | Docker socket GID on host |
+| `DOCKER_GID` | `0` | Docker socket GID on host (docker-compose only, not needed for k8s dind sidecar) |
+| `DOCKER_HOST` | (unset) | Docker daemon address. Set to `tcp://localhost:2375` in k8s (dind sidecar) or `tcp://docker-dind:2375` in docker-compose |
 | `DOCKER_NETWORK` | `backend-network` | Network for plugin builds |
 
 ---
@@ -97,11 +98,11 @@ All services configured via env vars. Copy the appropriate `.env.example` to `.e
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent Docker builds |
+| `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent Docker builds (configure via ConfigMap or `.env`, not hardcoded in manifests) |
 | `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name |
 | `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
-| `DOCKER_BUILDER_NAME` | `plugin-builder` | Docker buildx builder name |
+| `DOCKER_BUILDER_NAME` | `plugin-builder` | Docker buildx builder name. In dind deployments, the builder lives inside the dind container |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
 
 ---

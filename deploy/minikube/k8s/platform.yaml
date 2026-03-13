@@ -28,6 +28,7 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: platform
@@ -41,6 +42,10 @@ spec:
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       initContainers:
         - name: wait-for-dependencies
           image: busybox
@@ -70,6 +75,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -90,6 +96,9 @@ spec:
               value: "platform"
             - name: PORT
               value: "3000"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             limits:
               cpu: "750m"
@@ -113,6 +122,11 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
 
 ---
 # =============================================================================

@@ -29,6 +29,7 @@ metadata:
     app.kubernetes.io/component: admin
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: mongo-express

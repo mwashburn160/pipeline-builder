@@ -352,31 +352,59 @@ services:
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
+  docker-dind:
+    image: 'docker:27-dind'
+    container_name: docker-dind
+    restart: always
+    privileged: true
+    command:
+      - "--host=tcp://0.0.0.0:2375"
+      - "--host=unix:///var/run/docker.sock"
+      - "--insecure-registry=registry:5000"
+    environment:
+      DOCKER_TLS_CERTDIR: ''
+    volumes:
+      - 'dind-storage:/var/lib/docker'
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
   plugin:
     image: 'ghcr.io/mwashburn160/plugin:1.32.24'
     container_name: plugin
     restart: always
-    group_add:
-      - ${DOCKER_GID:-999}
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: plugin
+      DOCKER_HOST: tcp://docker-dind:2375
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
       DOCKER_NETWORK: ${DOCKER_NETWORK:-backend-network}
-      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT}
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/tmp/plugin-builds}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
-      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
-    volumes:
-      - '/var/run/docker.sock:/var/run/docker.sock'
-      - '${DOCKER_BUILD_TEMP_ROOT}:${DOCKER_BUILD_TEMP_ROOT}'
+      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-2}
     networks:
       - backend-network
     depends_on:
+      docker-dind:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       quota:
@@ -766,6 +794,13 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  dind-storage:
+    name: dind-storage
 
 # =============================================================================
 # Networks

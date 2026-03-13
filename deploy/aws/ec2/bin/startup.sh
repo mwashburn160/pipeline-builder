@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -euo pipefail
 
 # =============================================================================
 # Pipeline Builder - EC2 Minikube Startup Script
@@ -46,6 +46,13 @@ else
   echo "  Run bootstrap.sh first to generate .env from .env.example"
   exit 1
 fi
+
+# Verify data directory is accessible
+if ! touch "$DATA_DIR/.write-test" 2>/dev/null; then
+  echo "ERROR: Cannot write to $DATA_DIR — check mount and permissions" >&2
+  exit 1
+fi
+rm -f "$DATA_DIR/.write-test"
 
 # Ensure local data directories exist (host-side mount source)
 mkdir -p "$DATA_DIR/db-data/postgres" "$DATA_DIR/db-data/mongodb" \
@@ -204,6 +211,10 @@ if [ -n "$GHCR_TOKEN" ]; then
     -n "$NAMESPACE" \
     --dry-run=client -o yaml | kubectl apply -f -
   kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
+  # Validate token works (inside minikube where image pulls actually happen)
+  if ! minikube ssh --profile="$PROFILE" -- "echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null 2>&1; then
+    echo "  WARNING: GHCR token validation failed — image pulls may fail"
+  fi
   echo "  ghcr-secret created/updated (default SA patched)"
 else
   echo "  WARNING: No GHCR token found (set GHCR_TOKEN env var)"
@@ -349,6 +360,10 @@ kubectl create configmap grafana-dashboards \
 echo "  grafana-dashboards ConfigMap created/updated"
 
 echo ""
+echo "=== Pre-pulling container images ==="
+minikube ssh --profile="$PROFILE" -- 'docker pull docker:27-dind' 2>/dev/null && echo "  docker:27-dind pulled" || echo "  WARNING: Could not pre-pull docker:27-dind"
+
+echo ""
 echo "=== Applying Kubernetes manifests ==="
 kubectl apply -k "$K8S_DIR"
 
@@ -359,10 +374,11 @@ echo "  registry-data -> 1000:1000"
 
 echo ""
 echo "=== Patching minikube /etc/hosts for Docker registry access ==="
-# BuildKit (docker-container driver with host network) runs on the minikube
-# node and needs to resolve the 'registry' hostname. K8s DNS only serves
-# pods, not the node itself, so we add an /etc/hosts entry mapping the
-# registry Service ClusterIP.
+# Plugin builds run BuildKit inside a docker:dind sidecar container within the
+# plugin pod. When the dind container uses host networking or needs to push to
+# the in-cluster registry, it must resolve the 'registry' hostname. K8s DNS
+# only serves pods, not the minikube node itself, so we add an /etc/hosts
+# entry mapping the registry Service ClusterIP on the node.
 REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 if [ -n "$REGISTRY_IP" ]; then
   minikube ssh --profile="$PROFILE" -- \

@@ -94,6 +94,9 @@ images:
     newTag: "3.4.2"
   - name: grafana/promtail
     newTag: "3.4.2"
+  # AI / LLM
+  - name: ollama/ollama
+    newTag: "0.6.2"
   # Init containers
   - name: busybox
     newTag: "1.36"

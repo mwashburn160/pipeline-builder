@@ -242,10 +242,6 @@ sed -i "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${REGISTRY_TOKEN}|
 sed -i "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" .env
 sed -i "s|GHCR_USER=mwashburn160|GHCR_USER=${GHCR_USER}|" .env
 
-# Detect Docker GID for plugin builds
-DOCKER_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "0")
-sed -i "s|DOCKER_GID=0|DOCKER_GID=${DOCKER_GID}|" .env
-
 echo "  .env generated with auto-generated secrets"
 echo "  Domain: ${DOMAIN}"
 

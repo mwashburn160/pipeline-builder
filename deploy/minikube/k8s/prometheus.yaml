@@ -104,6 +104,7 @@ metadata:
     app.kubernetes.io/component: observability
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: prometheus
