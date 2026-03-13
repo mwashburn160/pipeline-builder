@@ -26,7 +26,7 @@ export interface PluginLookupProps {
   readonly platformUrl: string;
   readonly uniqueId: UniqueId;
   readonly runtime?: Runtime;
-  /** Lambda timeout (default: 30s) */
+  /** Lambda timeout (default: 60s) */
   readonly timeout?: Duration;
   /** Lambda memory in MB (default: 256) */
   readonly memorySize?: number;
@@ -66,7 +66,7 @@ export class PluginLookup extends Construct {
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
-    this._timeout = props.timeout ?? Duration.seconds(30);
+    this._timeout = props.timeout ?? Duration.seconds(60);
     this._memorySize = props.memorySize ?? 256;
     this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
 
