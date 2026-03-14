@@ -2,6 +2,8 @@ import { execSync } from 'child_process';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
+import { requireAdmin } from '../utils/auth-guard';
+import { getToken } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
@@ -31,6 +33,10 @@ export function storeCredentials(program: Command): void {
       const executionId = generateExecutionId();
 
       try {
+        // Require admin role before executing this command
+        const token = getToken();
+        requireAdmin(token);
+
         printSection('Store Service Credentials');
 
         console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
