@@ -270,6 +270,29 @@ export function assembleBuilderProps(
       case 'codeBuildDefault':
         role = { type: 'codeBuildDefault', options: { ...(state.role.roleName && { roleName: state.role.roleName }) } };
         break;
+      case 'oidc': {
+        const oidcOptions: Record<string, unknown> = {};
+        if (state.role.oidcProviderArn) {
+          oidcOptions.providerArn = state.role.oidcProviderArn;
+        } else if (state.role.oidcIssuer) {
+          oidcOptions.issuer = state.role.oidcIssuer;
+          if (state.role.oidcClientIds) {
+            oidcOptions.clientIds = state.role.oidcClientIds.split(',').map(s => s.trim()).filter(Boolean);
+          }
+        }
+        if (state.role.oidcConditions) {
+          const conditions: Record<string, string> = {};
+          state.role.oidcConditions.split('\n').forEach(line => {
+            const [key, ...rest] = line.split('=');
+            if (key?.trim() && rest.length) conditions[key.trim()] = rest.join('=').trim();
+          });
+          if (Object.keys(conditions).length) oidcOptions.conditions = conditions;
+        }
+        if (state.role.roleName) oidcOptions.roleName = state.role.roleName;
+        if (state.role.oidcDescription) oidcOptions.description = state.role.oidcDescription;
+        role = { type: 'oidc', options: oidcOptions };
+        break;
+      }
     }
   }
 

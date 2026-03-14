@@ -1,5 +1,32 @@
+import { sendError } from '@mwashburn160/api-core';
+import { Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config';
+
+/**
+ * Validate data against a Zod schema.
+ * Returns parsed value or null (sends 400 response on failure).
+ */
+export function validateBody<T>(
+  schema: z.ZodType<T>,
+  body: unknown,
+  res: Response,
+): T | null {
+  try {
+    return schema.parse(body);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const firstIssue = error.issues[0];
+      const message = firstIssue
+        ? `${firstIssue.path.join('.')}: ${firstIssue.message}`
+        : 'Validation failed';
+      sendError(res, 400, message, 'VALIDATION_ERROR');
+      return null;
+    }
+    sendError(res, 400, 'Validation failed', 'VALIDATION_ERROR');
+    return null;
+  }
+}
 
 /**
  * Relaxed email regex: requires local@domain but does NOT require a TLD.
@@ -21,6 +48,7 @@ export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   organizationName: z.string().min(2).max(100).optional(),
+  planId: z.string().optional(),
 });
 
 /** Login request body schema (identifier can be username or email). */
@@ -65,7 +93,7 @@ export const sendInvitationSchema = z.object({
   email: emailSchema,
   role: z.enum(['user', 'admin']).optional().default('user'),
   invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
-  allowedOAuthProviders: z.array(z.enum(['google'])).optional(),
+  allowedOAuthProviders: z.array(z.enum(['google', 'github'])).optional(),
 });
 
 // Organization Schemas

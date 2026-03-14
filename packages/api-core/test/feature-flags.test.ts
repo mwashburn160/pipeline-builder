@@ -10,9 +10,8 @@ import {
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 6 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(6);
-    expect(ALL_FEATURE_FLAGS).toContain('advanced_analytics');
+  it('should contain all 5 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(5);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
@@ -28,9 +27,8 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.developer).toEqual([]);
   });
 
-  it('pro tier has 4 features', () => {
-    expect(TIER_FEATURES.pro).toHaveLength(4);
-    expect(TIER_FEATURES.pro).toContain('advanced_analytics');
+  it('pro tier has 3 features', () => {
+    expect(TIER_FEATURES.pro).toHaveLength(3);
     expect(TIER_FEATURES.pro).toContain('priority_support');
     expect(TIER_FEATURES.pro).toContain('ai_generation');
     expect(TIER_FEATURES.pro).toContain('bulk_operations');
@@ -63,15 +61,16 @@ describe('FEATURE_METADATA', () => {
 
 describe('isValidFeatureFlag', () => {
   it('returns true for valid flags', () => {
-    expect(isValidFeatureFlag('advanced_analytics')).toBe(true);
     expect(isValidFeatureFlag('audit_log')).toBe(true);
     expect(isValidFeatureFlag('ai_generation')).toBe(true);
+    expect(isValidFeatureFlag('bulk_operations')).toBe(true);
   });
 
   it('returns false for invalid flags', () => {
     expect(isValidFeatureFlag('not_a_flag')).toBe(false);
     expect(isValidFeatureFlag('')).toBe(false);
-    expect(isValidFeatureFlag('ADVANCED_ANALYTICS')).toBe(false);
+    expect(isValidFeatureFlag('AUDIT_LOG')).toBe(false);
+    expect(isValidFeatureFlag('advanced_analytics')).toBe(false);
   });
 });
 
@@ -83,10 +82,9 @@ describe('resolveUserFeatures', () => {
     expect(features).toEqual([]);
   });
 
-  it('pro tier gets 4 features by default', () => {
+  it('pro tier gets 3 features by default', () => {
     const features = resolveUserFeatures('pro');
-    expect(features).toHaveLength(4);
-    expect(features).toContain('advanced_analytics');
+    expect(features).toHaveLength(3);
     expect(features).toContain('priority_support');
     expect(features).toContain('ai_generation');
     expect(features).toContain('bulk_operations');
@@ -105,32 +103,32 @@ describe('resolveUserFeatures', () => {
   });
 
   it('system org ignores overrides', () => {
-    const features = resolveUserFeatures('developer', { advanced_analytics: false }, true);
+    const features = resolveUserFeatures('developer', { ai_generation: false }, true);
     expect(features).toEqual([...ALL_FEATURE_FLAGS]);
   });
 
   it('override true adds a feature to the tier', () => {
     const features = resolveUserFeatures('pro', { audit_log: true });
     expect(features).toContain('audit_log');
-    expect(features).toHaveLength(5);
+    expect(features).toHaveLength(4);
   });
 
   it('override false removes a feature from the tier', () => {
-    const features = resolveUserFeatures('pro', { advanced_analytics: false });
-    expect(features).not.toContain('advanced_analytics');
-    expect(features).toHaveLength(3);
+    const features = resolveUserFeatures('pro', { priority_support: false });
+    expect(features).not.toContain('priority_support');
+    expect(features).toHaveLength(2);
   });
 
   it('multiple overrides are applied correctly', () => {
     const features = resolveUserFeatures('pro', {
-      advanced_analytics: false,
+      priority_support: false,
       audit_log: true,
       custom_integrations: true,
     });
-    expect(features).not.toContain('advanced_analytics');
+    expect(features).not.toContain('priority_support');
     expect(features).toContain('audit_log');
     expect(features).toContain('custom_integrations');
-    expect(features).toHaveLength(5); // 4 - 1 + 2
+    expect(features).toHaveLength(4); // 3 - 1 + 2
   });
 
   it('invalid override keys are silently ignored', () => {
@@ -140,21 +138,20 @@ describe('resolveUserFeatures', () => {
 
   it('null overrides are treated as no overrides', () => {
     const features = resolveUserFeatures('pro', null);
-    expect(features).toHaveLength(4);
+    expect(features).toHaveLength(3);
   });
 
   it('returns features in canonical order', () => {
     const features = resolveUserFeatures('developer', {
       audit_log: true,
-      advanced_analytics: true,
+      ai_generation: true,
     });
-    // advanced_analytics should come before audit_log per ALL_FEATURE_FLAGS order
-    expect(features.indexOf('advanced_analytics')).toBeLessThan(features.indexOf('audit_log'));
+    expect(features.indexOf('ai_generation')).toBeLessThan(features.indexOf('audit_log'));
   });
 
   it('adding an already-included feature via override is a no-op', () => {
-    const features = resolveUserFeatures('pro', { advanced_analytics: true });
-    expect(features).toHaveLength(4); // unchanged
+    const features = resolveUserFeatures('pro', { ai_generation: true });
+    expect(features).toHaveLength(3); // unchanged
   });
 
   it('removing a feature not in the tier via override is a no-op', () => {
@@ -167,18 +164,18 @@ describe('resolveUserFeatures', () => {
 
 describe('hasFeature', () => {
   it('returns true for tier-included features', () => {
-    expect(hasFeature('pro', 'advanced_analytics')).toBe(true);
+    expect(hasFeature('pro', 'ai_generation')).toBe(true);
     expect(hasFeature('unlimited', 'audit_log')).toBe(true);
   });
 
   it('returns false for tier-excluded features', () => {
-    expect(hasFeature('developer', 'advanced_analytics')).toBe(false);
+    expect(hasFeature('developer', 'ai_generation')).toBe(false);
     expect(hasFeature('pro', 'audit_log')).toBe(false);
   });
 
   it('system org always returns true', () => {
     expect(hasFeature('developer', 'audit_log', undefined, true)).toBe(true);
-    expect(hasFeature('developer', 'advanced_analytics', undefined, true)).toBe(true);
+    expect(hasFeature('developer', 'ai_generation', undefined, true)).toBe(true);
   });
 
   it('override true enables a feature', () => {
@@ -186,15 +183,15 @@ describe('hasFeature', () => {
   });
 
   it('override false disables a feature', () => {
-    expect(hasFeature('pro', 'advanced_analytics', { advanced_analytics: false })).toBe(false);
+    expect(hasFeature('pro', 'ai_generation', { ai_generation: false })).toBe(false);
   });
 
   it('falls back to tier default when no override', () => {
-    expect(hasFeature('pro', 'advanced_analytics', {})).toBe(true);
+    expect(hasFeature('pro', 'ai_generation', {})).toBe(true);
     expect(hasFeature('pro', 'audit_log', {})).toBe(false);
   });
 
   it('null overrides fall back to tier default', () => {
-    expect(hasFeature('pro', 'advanced_analytics', null)).toBe(true);
+    expect(hasFeature('pro', 'ai_generation', null)).toBe(true);
   });
 });

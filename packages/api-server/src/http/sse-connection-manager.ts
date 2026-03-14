@@ -294,17 +294,21 @@ export class SSEManager {
         return;
       }
 
+      // Check client limit BEFORE flushing headers, so we can still send 429
+      const existing = this.clients.get(requestId) || [];
+      if (existing.length >= this.maxClientsPerRequest) {
+        logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
+        res.status(429).end('Too many connections for this request');
+        return;
+      }
+
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
       res.flushHeaders();
 
-      const added = this.addClient(requestId, res);
-
-      if (!added) {
-        res.status(429).end('Too many connections for this request');
-      }
+      this.addClient(requestId, res);
     };
   }
 
@@ -367,7 +371,7 @@ export class SSEManager {
       this.cleanupInterval = null;
     }
 
-    for (const [requestId] of this.clients.entries()) {
+    for (const requestId of [...this.clients.keys()]) {
       this.closeRequest(requestId, 'Server shutting down');
     }
 

@@ -1,6 +1,6 @@
 import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import type { QuotaService } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-core';
 import { Router } from 'express';
 import { pluginService } from '../services/plugin-service';
 

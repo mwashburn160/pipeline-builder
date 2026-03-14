@@ -5,11 +5,11 @@ import { generateExecutionId } from '../config/cli.constants';
 import { Pipeline, PipelineResponse } from '../types';
 import { ApiClient } from '../utils/api-client';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
-
-const { bold, cyan, dim, magenta } = pico;
 import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+
+const { bold, cyan, dim, magenta } = pico;
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -17,6 +17,9 @@ import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, pr
  * Fetches pipeline properties by ID from the platform API, then
  * runs `cdk synth` or `cdk deploy` to provision the pipeline
  * infrastructure in AWS.
+ *
+ * Requires service credentials to be pre-stored in AWS Secrets Manager.
+ * Create them first with: `pipeline-manager store-credentials`
  *
  * @param program - The root Commander program instance to attach the command to.
  */

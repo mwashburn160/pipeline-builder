@@ -16,6 +16,9 @@ export interface User {
   updatedAt?: string;
 }
 
+/** System organization identifier (must match backend SYSTEM_ORG_ID). */
+const SYSTEM_ORG_ID = 'system';
+
 /**
  * Check if user belongs to the system organization
  */
@@ -23,7 +26,7 @@ export function isSystemOrg(user: User | null): boolean {
   if (!user) return false;
   const orgId = user.organizationId?.toLowerCase();
   const orgName = user.organizationName?.toLowerCase();
-  return orgId === 'system' || orgName === 'system';
+  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
 }
 
 /**

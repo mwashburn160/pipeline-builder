@@ -2,9 +2,9 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { createLogger } from '@mwashburn160/api-core';
 import nodemailer, { Transporter } from 'nodemailer';
 import { config } from '../config';
-
-const logger = createLogger('platform-api');
 import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';
+
+const logger = createLogger('EmailService');
 
 /**
  * Email options interface
@@ -24,7 +24,7 @@ export type InvitationType = 'email' | 'oauth' | 'any';
 /**
  * OAuth provider type
  */
-export type OAuthProvider = 'google';
+export type OAuthProvider = 'google' | 'github';
 
 /**
  * Email template data for invitations
@@ -95,7 +95,7 @@ class EmailService {
       this.initialized = true;
     } catch (error) {
       logger.error('Failed to initialize email service:', error);
-      this.initialized = true;
+      // Do NOT mark as initialized — allow retry on next call
     }
   }
 

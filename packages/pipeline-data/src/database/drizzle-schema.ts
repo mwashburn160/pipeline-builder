@@ -2,7 +2,6 @@ import { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashbur
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 
-
 /**
  * Pipeline builder configuration properties stored in database.
  * Mirrors the canonical BuilderProps from pipeline-core (JSON-serializable form).
@@ -390,4 +389,3 @@ export type MessageInsert = typeof message.$inferInsert;
 export type PluginUpdate = Partial<Omit<PluginInsert, 'id' | 'createdAt' | 'createdBy'>>;
 export type PipelineUpdate = Partial<Omit<PipelineInsert, 'id' | 'createdAt' | 'createdBy'>>;
 export type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
-

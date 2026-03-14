@@ -9,12 +9,12 @@ import {
   toOrgId,
 } from '../helpers/controller-helper';
 import { Organization, User } from '../models';
-import { validateBody } from '../utils/auth-utils';
 import {
+  validateBody,
   addMemberSchema,
   updateMemberRoleSchema,
   transferOwnershipSchema,
-} from '../validation/schemas';
+} from '../utils/validation';
 
 const logger = createLogger('OrganizationMembersController');
 

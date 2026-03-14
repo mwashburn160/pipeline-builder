@@ -13,7 +13,7 @@ import {
   PipelineFilterSchema,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import type { QuotaService } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-core';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
 

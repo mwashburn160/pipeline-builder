@@ -18,6 +18,7 @@ export interface OAuthProviderData {
  */
 export interface OAuthProviders {
   google?: OAuthProviderData;
+  github?: OAuthProviderData;
 }
 
 /**
@@ -31,6 +32,8 @@ export interface UserDocument extends Document {
   role: 'user' | 'admin';
   organizationId?: Types.ObjectId | string;
   isEmailVerified: boolean;
+  emailVerificationToken?: string;
+  emailVerificationExpires?: Date;
   tokenVersion: number;
   refreshToken?: string;
   featureOverrides?: Map<string, boolean>;
@@ -86,6 +89,14 @@ const userSchema = new Schema<UserDocument>(
       type: Boolean,
       default: false,
     },
+    emailVerificationToken: {
+      type: String,
+      select: false,
+    },
+    emailVerificationExpires: {
+      type: Date,
+      select: false,
+    },
     tokenVersion: {
       type: Number,
       default: 0,
@@ -101,6 +112,7 @@ const userSchema = new Schema<UserDocument>(
     },
     oauth: {
       google: oauthProviderSchema,
+      github: oauthProviderSchema,
     },
   },
   { timestamps: true },
@@ -161,6 +173,7 @@ userSchema.methods.hasOAuthProvider = function (provider: keyof OAuthProviders):
 userSchema.methods.getLinkedProviders = function (): string[] {
   const providers: string[] = [];
   if (this.oauth?.google?.id) providers.push('google');
+  if (this.oauth?.github?.id) providers.push('github');
   return providers;
 };
 
@@ -168,6 +181,7 @@ userSchema.methods.getLinkedProviders = function (): string[] {
  * Indexes
  */
 userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
+userSchema.index({ 'oauth.github.id': 1 }, { sparse: true });
 userSchema.index({ organizationId: 1, role: 1 }); // listAllUsers filter: org + role
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 

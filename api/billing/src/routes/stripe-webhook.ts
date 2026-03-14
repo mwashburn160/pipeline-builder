@@ -57,7 +57,7 @@ export function createStripeWebhookRoutes(): Router {
         event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
       } catch (error) {
         logger.warn('Stripe webhook signature verification failed', { error: errorMessage(error) });
-        return sendError(res, 400, 'Invalid webhook signature', ErrorCode.INSUFFICIENT_PERMISSIONS);
+        return sendError(res, 400, 'Invalid webhook signature', ErrorCode.VALIDATION_ERROR);
       }
 
       /** Stripe event type → handler dispatch map. */

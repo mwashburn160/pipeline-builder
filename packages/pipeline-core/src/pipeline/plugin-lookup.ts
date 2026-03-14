@@ -2,12 +2,14 @@ import { join } from 'path';
 import { createLogger } from '@mwashburn160/api-core';
 import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types';
+import { CoreConstants } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 
 const log = createLogger('Lookup');
@@ -44,6 +46,17 @@ export interface PluginLookupProps {
  * - A Lambda function (plugin-lookup-handler) that fetches plugin configs
  * - A CloudWatch Log Group for the Lambda
  * - A Custom Resource Provider that invokes the Lambda
+ * - An IAM policy granting the Lambda access to the credentials secret
+ *
+ * ## Prerequisites
+ *
+ * Before deploying, store the service credentials in Secrets Manager:
+ * ```sh
+ * pipeline-manager store-credentials --email <email> --password <password> --region <region>
+ * ```
+ *
+ * The Lambda resolves the secret by name at runtime:
+ * `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials` (default: `pipeline-builder/plugin-lookup/credentials`)
  *
  * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
@@ -119,7 +132,14 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Creates the Lambda function that serves as the event handler for the custom resource provider
+   * Creates the Lambda function that serves as the event handler for the custom resource provider.
+   *
+   * Service credentials are stored in a pre-existing Secrets Manager secret at
+   * `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials`. The Lambda resolves the
+   * secret by name at runtime using the same `CoreConstants.SECRETS_PATH_PREFIX`.
+   *
+   * Create the secret before deploying with:
+   *   pipeline-manager store-credentials --email <email> --password <password>
    */
   private createLambdaFunction(): NodejsFunction {
     const lockfile = join(__dirname, '/../handlers/pnpm-lock.yaml');
@@ -133,7 +153,6 @@ export class PluginLookup extends Construct {
       architecture: Architecture.ARM_64,
       entry: entrypoint,
       depsLockFilePath: lockfile,
-      environment: this.buildLambdaEnvironment(),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       bundling: {
         minify: true,
@@ -142,29 +161,17 @@ export class PluginLookup extends Construct {
       },
     });
 
-    // CDK's NodejsFunction auto-creates a scoped CloudWatch Logs policy
-    // for the function's log group — no explicit broad `Resource: '*'` grant needed.
+    // Grant the Lambda permission to read the credentials secret by name.
+    // The secret name follows the standard format: {prefix}/plugin-lookup/credentials
+    // The wildcard suffix handles the 6-char random ID that Secrets Manager appends.
+    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/plugin-lookup/credentials`;
+    fn.addToRolePolicy(new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:*:*:secret:${secretName}-*`],
+    }));
 
     return fn;
-  }
-
-  /**
-   * Builds the Lambda environment variables for authentication.
-   * The Lambda authenticates at runtime using service credentials,
-   * so tokens are always fresh and never expire.
-   */
-  private buildLambdaEnvironment(): Record<string, string> {
-    const email = process.env.PLATFORM_EMAIL;
-    const password = process.env.PLATFORM_PASSWORD;
-
-    if (!email || !password) {
-      throw new Error(
-        'PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required. '
-        + 'The plugin lookup Lambda uses these to authenticate at runtime.',
-      );
-    }
-
-    return { PLATFORM_EMAIL: email, PLATFORM_PASSWORD: password };
   }
 
   /**

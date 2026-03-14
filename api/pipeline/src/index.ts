@@ -1,6 +1,7 @@
-import { createLogger } from '@mwashburn160/api-core';
-import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
+import { createLogger, createQuotaService } from '@mwashburn160/api-core';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
+import { createBulkPipelineRoutes } from './routes/bulk-pipeline';
 import { createCreatePipelineRoutes } from './routes/create-pipeline';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline';
@@ -30,6 +31,9 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createUpdatePipeline
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipelineRoutes());
+
+// -- Bulk routes — auth + orgId (no quota check) ----------------------------
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createBulkPipelineRoutes());
 
 logger.info('All /pipelines routes registered');
 

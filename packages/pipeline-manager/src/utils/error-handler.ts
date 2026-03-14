@@ -145,7 +145,6 @@ export class ValidationError extends Error {
     this.name = 'ValidationError';
     Error.captureStackTrace(this, this.constructor);
   }
-
 }
 
 /**
@@ -164,7 +163,6 @@ export class NetworkError extends Error {
     this.name = 'NetworkError';
     Error.captureStackTrace(this, this.constructor);
   }
-
 }
 
 // --- Private helpers ---

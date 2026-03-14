@@ -1,20 +1,25 @@
 import crypto from 'crypto';
+import { createLogger } from '@mwashburn160/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import { User } from '../models';
+import { User, Organization } from '../models';
 import { UserDocument } from '../models/user';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types';
+
+const logger = createLogger('Token');
 
 /**
  * Build an access token JWT payload from a user document.
  * @param user - Mongoose user document
+ * @param organizationName - Resolved org name (optional)
  * @returns Payload object ready for signing
  */
-export function createAccessTokenPayload(user: UserDocument): AccessTokenPayload {
+export function createAccessTokenPayload(user: UserDocument, organizationName?: string): AccessTokenPayload {
   return {
     type: 'access',
     sub: user._id.toString(),
     organizationId: user.organizationId?.toString(),
+    ...(organizationName && { organizationName }),
     username: user.username,
     email: user.email,
     role: user.role,
@@ -82,16 +87,44 @@ export function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/** Shape returned by {@link issueTokens}. */
+export interface IssuedTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
 /**
  * Generate a new token pair and persist the hashed refresh token in the database.
+ * Resolves the organization name for inclusion in the access token payload.
+ *
  * @param user - Mongoose user document
- * @returns Access and refresh token strings
+ * @returns Access token, refresh token, and expiry (seconds)
  */
-export async function issueTokens(user: UserDocument): Promise<{ accessToken: string; refreshToken: string }> {
-  const { accessToken, refreshToken } = generateTokenPair(user);
+export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
+  // Resolve organization name for the access token
+  let organizationName: string | undefined;
+  if (user.organizationId) {
+    try {
+      const org = await Organization.findById(user.organizationId).select('name').lean();
+      organizationName = org?.name;
+    } catch (error) {
+      logger.warn('Failed to fetch organization name for token', { error });
+    }
+  }
+
+  const accessToken = jwt.sign(
+    createAccessTokenPayload(user, organizationName),
+    config.auth.jwt.secret,
+    { algorithm: config.auth.jwt.algorithm, expiresIn: config.auth.jwt.expiresIn },
+  );
+
+  const refreshToken = generateRefreshToken(user);
   const hashedRefresh = hashRefreshToken(refreshToken);
+
   await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
-  return { accessToken, refreshToken };
+
+  return { accessToken, refreshToken, expiresIn: config.auth.jwt.expiresIn };
 }
 
 /**

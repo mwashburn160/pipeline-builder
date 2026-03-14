@@ -1,6 +1,6 @@
 import https from 'https';
-import { Command } from 'commander';
 import axios from 'axios';
+import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import { ERROR_CODES, handleError } from '../utils/error-handler';

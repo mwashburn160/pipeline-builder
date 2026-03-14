@@ -2,10 +2,6 @@ import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config';
 import type { AppConfig } from './config-types';
 import {
-  loadDatabaseConfig,
-  validateDatabaseConfig,
-} from './database-config';
-import {
   loadRegistryConfig,
   loadRedisConfig,
   loadPluginBuildConfig,
@@ -73,68 +69,57 @@ export class CoreConstants {
 }
 
 /**
- * Configuration facade - composes domain-specific configs.
- * Delegates loading and validation to domain-specific config modules.
+ * Per-section loader map — each section is loaded lazily on first access.
+ * This avoids loading all config sections (and their required env vars)
+ * when only one section is needed (e.g. CDK synthesis only needs 'aws').
+ */
+const sectionLoaders: { [K in keyof AppConfig]: () => AppConfig[K] } = {
+  server: loadServerConfig,
+  auth: loadAuthConfig,
+  registry: loadRegistryConfig,
+  redis: loadRedisConfig,
+  pluginBuild: loadPluginBuildConfig,
+  aws: loadAWSConfig,
+  rateLimit: loadRateLimitConfig,
+  billing: loadBillingConfig,
+};
+
+/** Per-section validators — only run for sections that have validation logic. */
+const sectionValidators: Partial<{ [K in keyof AppConfig]: (config: AppConfig[K]) => void }> = {
+  server: validateServerConfig,
+};
+
+/**
+ * Configuration facade with lazy per-section loading.
+ *
+ * Each section is loaded and validated independently on first access,
+ * so requesting `Config.get('aws')` does not trigger loading of
+ * server, auth, or billing config (and their env var requirements).
  *
  * Usage: `Config.get('server')`, `Config.get('auth')`, etc.
  */
 export class Config {
-  private static instance: AppConfig | null = null;
+  private static cache = new Map<keyof AppConfig, unknown>();
 
   /**
-   * Get a specific configuration section.
-   *
-   * @param section - The configuration section key (e.g. 'server', 'auth', 'database')
-   * @returns The typed configuration for that section
-   *
-   * @example
-   * ```typescript
-   * const server = Config.get('server');  // ServerConfig
-   * const auth = Config.get('auth');      // AuthConfig
-   * ```
+   * Get a specific configuration section (loaded lazily on first access).
    */
   static get<K extends keyof AppConfig>(section: K): AppConfig[K] {
-    if (!this.instance) {
-      this.instance = this.loadConfig();
-      this.validate(this.instance);
+    if (!this.cache.has(section)) {
+      const loader = sectionLoaders[section];
+      const value = loader();
+      const validator = sectionValidators[section];
+      if (validator) (validator as (v: AppConfig[K]) => void)(value);
+      this.cache.set(section, value);
     }
-    return this.instance[section];
+    return this.cache.get(section) as AppConfig[K];
   }
 
   /**
    * @internal Reset configuration (for testing only)
    */
   static _resetForTesting(): void {
-    this.instance = null;
-  }
-
-  /**
-   * Load configuration by composing domain-specific loaders
-   */
-  private static loadConfig(): AppConfig {
-    return {
-      server: loadServerConfig(),
-      auth: loadAuthConfig(),
-      database: loadDatabaseConfig(),
-      registry: loadRegistryConfig(),
-      redis: loadRedisConfig(),
-      pluginBuild: loadPluginBuildConfig(),
-      aws: loadAWSConfig(),
-      rateLimit: loadRateLimitConfig(),
-      billing: loadBillingConfig(),
-    };
-  }
-
-  /**
-   * Validate infrastructure configuration (runs on first Config.get() call)
-   */
-  private static validate(config: AppConfig): void {
-    validateServerConfig(config.server);
-    validateDatabaseConfig(config.database);
-    // Validate auth at startup when JWT_SECRET is set (skip during CDK synthesis)
-    if (config.auth.jwt.secret) {
-      validateAuthConfig(config.auth);
-    }
+    this.cache.clear();
   }
 
   /**

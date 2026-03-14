@@ -9,7 +9,7 @@ export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 /**
  * OAuth provider type for invitations
  */
-export type InvitationOAuthProvider = 'google';
+export type InvitationOAuthProvider = 'google' | 'github';
 
 /**
  * Invitation type - how the invitation can be accepted
@@ -103,12 +103,12 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     allowedOAuthProviders: {
       type: [String],
-      enum: ['google'],
+      enum: ['google', 'github'],
       default: undefined,
     },
     acceptedVia: {
       type: String,
-      enum: ['email', 'google'],
+      enum: ['email', 'google', 'github'],
     },
   },
   {

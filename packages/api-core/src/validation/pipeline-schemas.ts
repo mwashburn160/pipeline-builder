@@ -9,6 +9,7 @@ export const PipelineFilterSchema = BaseFilterSchema.extend({
   organization: z.string().min(1).optional(),
   pipelineName: z.string().min(1).optional(),
   orgId: z.string().min(1).optional(),
+  keyword: z.string().min(1).optional(),
 });
 
 /**

@@ -5,9 +5,8 @@ import { config } from '../config';
 import { requireOrgMembership, handleTransactionError } from '../helpers/controller-helper';
 import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation';
-import { validateBody } from '../utils/auth-utils';
 import { emailService } from '../utils/email';
-import { sendInvitationSchema } from '../validation/schemas';
+import { validateBody, sendInvitationSchema } from '../utils/validation';
 
 const logger = createLogger('InvitationController');
 

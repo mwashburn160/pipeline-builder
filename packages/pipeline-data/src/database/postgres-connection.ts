@@ -343,10 +343,6 @@ export class Connection {
       }
     });
 
-    this.pool.on('acquire', () => {
-      // Only log at debug level for verbose connection tracking
-    });
-
     this.pool.on('remove', () => {
       if (this.options.enableLogging) {
         logger.debug('Client removed from pool');

@@ -46,7 +46,9 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
   const user = req.user;
   return {
     orgId: user?.organizationId || getHeaderString(req.headers['x-org-id']),
-    userId: user?.userId || getHeaderString(req.headers['x-user-id']),
+    userId: (user as Record<string, unknown> | undefined)?.sub as string | undefined
+      || user?.userId
+      || getHeaderString(req.headers['x-user-id']),
     requestId: getHeaderString(req.headers['x-request-id']),
     role: user?.role || getHeaderString(req.headers['x-user-role']),
   };

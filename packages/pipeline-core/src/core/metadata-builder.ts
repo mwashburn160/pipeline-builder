@@ -92,16 +92,3 @@ export function metadataForShellStep(metadata: MetaDataType): Partial<ShellStepP
 export function metadataForBuildEnvironment(metadata: MetaDataType): Partial<BuildEnvironment> {
   return buildConfigFromMetadata(metadata, NAMESPACE.BUILD_ENVIRONMENT) as Partial<BuildEnvironment>;
 }
-
-
-/**
- * @deprecated Use the standalone metadataForXxx() functions instead.
- */
-export class MetadataBuilder {
-  constructor(private readonly metadata: MetaDataType) {}
-  forCodePipeline(): Partial<CodePipelineProps> { return metadataForCodePipeline(this.metadata); }
-  forCodeBuildStep(): Partial<CodeBuildStepProps> { return metadataForCodeBuildStep(this.metadata); }
-  forShellStep(): Partial<ShellStepProps> { return metadataForShellStep(this.metadata); }
-  forBuildEnvironment(): Partial<BuildEnvironment> { return metadataForBuildEnvironment(this.metadata); }
-  static from(metadata: MetaDataType): MetadataBuilder { return new MetadataBuilder(metadata); }
-}

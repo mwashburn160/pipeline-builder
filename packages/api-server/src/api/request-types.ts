@@ -59,7 +59,18 @@ export function createRequestContext(
 
   // Create logger that outputs to Winston and SSE
   const log: RequestLogger = (type, message, data) => {
-    logger.info(message, { requestId, orgId: identity.orgId, type, data });
+    const meta = { requestId, orgId: identity.orgId, type, data };
+    switch (type) {
+      case 'ERROR':
+        logger.error(message, meta);
+        break;
+      case 'WARN':
+        logger.warn(message, meta);
+        break;
+      default:
+        logger.info(message, meta);
+        break;
+    }
     sseManager.send(requestId, type, message, data);
   };
 
@@ -69,4 +80,3 @@ export function createRequestContext(
     log,
   };
 }
-

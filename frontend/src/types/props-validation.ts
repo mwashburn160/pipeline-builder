@@ -30,6 +30,9 @@ export function validateFormState(state: FormBuilderState): Record<string, strin
   // Role
   if (state.role.type === 'roleArn' && !state.role.roleArn.trim()) errors['role.roleArn'] = 'Role ARN is required';
   if (state.role.type === 'roleName' && !state.role.roleName.trim()) errors['role.roleName'] = 'Role name is required';
+  if (state.role.type === 'oidc' && !state.role.oidcProviderArn.trim() && !state.role.oidcIssuer.trim()) {
+    errors['role.oidcProviderArn'] = 'Either Provider ARN or Issuer URL is required';
+  }
 
   // Stages
   for (let i = 0; i < state.stages.length; i++) {

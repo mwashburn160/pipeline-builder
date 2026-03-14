@@ -286,9 +286,11 @@ export interface PaginationParams {
   sortOrder: 'asc' | 'desc';
 }
 
+const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
+
 /** Parse pagination/sort params from query string, clamping to safe defaults. */
 export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {
-  const limit = Math.min(Math.max(parseInt(String(query.limit), 10) || 10, 1), 100);
+  const limit = Math.min(Math.max(parseInt(String(query.limit), 10) || 10, 1), MAX_PAGE_LIMIT);
   const offset = Math.max(parseInt(String(query.offset), 10) || 0, 0);
   const sortBy = String(query.sortBy || 'createdAt');
   const sortOrder: 'asc' | 'desc' =

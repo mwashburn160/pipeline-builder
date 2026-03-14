@@ -78,35 +78,6 @@ function buildHeaders(orgId: string, authHeader?: string): Record<string, string
  * quotaService.increment(orgId, 'apiCalls', authHeader).catch(err => logger.warn('Quota increment failed', { error: err }));
  * ```
  */
-/**
- * Fire-and-forget quota increment with standardized error logging.
- *
- * Wraps `quotaService.increment()` with a `.catch()` that logs a warning.
- * Eliminates the identical one-liner repeated across every read route.
- *
- * @param quotaService - Quota service client
- * @param orgId - Organization ID
- * @param quotaType - Quota type to increment
- * @param authHeader - Authorization header value
- * @param logWarn - Logging function for warnings (e.g., `(msg, meta) => ctx.log('WARN', msg, meta)` or `logger.warn`)
- *
- * @example
- * ```typescript
- * incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', (msg, meta) => ctx.log('WARN', msg, meta));
- * ```
- */
-export function incrementQuota(
-  quotaService: QuotaService,
-  orgId: string,
-  quotaType: QuotaType,
-  authHeader: string,
-  logWarn: (message: string, data?: unknown) => void,
-): void {
-  quotaService.increment(orgId, quotaType, authHeader).catch((err: unknown) =>
-    logWarn('Quota increment failed', { error: err instanceof Error ? err.message : String(err) }),
-  );
-}
-
 export function createQuotaService(config: QuotaServiceConfig = {}): QuotaService {
   const serviceConfig: ServiceConfig = {
     host: config.host ?? process.env.QUOTA_SERVICE_HOST ?? 'quota',
@@ -193,4 +164,28 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return true;
     },
   };
+}
+
+/**
+ * Fire-and-forget quota increment with standardized error logging.
+ *
+ * Wraps `quotaService.increment()` with a `.catch()` that logs a warning.
+ * Eliminates the identical one-liner repeated across every read route.
+ *
+ * @param quotaService - Quota service client
+ * @param orgId - Organization ID
+ * @param quotaType - Quota type to increment
+ * @param authHeader - Authorization header value
+ * @param logWarn - Logging function for warnings
+ */
+export function incrementQuota(
+  quotaService: QuotaService,
+  orgId: string,
+  quotaType: QuotaType,
+  authHeader: string,
+  logWarn: (message: string, data?: unknown) => void,
+): void {
+  quotaService.increment(orgId, quotaType, authHeader).catch((err: unknown) =>
+    logWarn('Quota increment failed', { error: err instanceof Error ? err.message : String(err) }),
+  );
 }

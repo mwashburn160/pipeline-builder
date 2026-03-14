@@ -147,7 +147,7 @@ export type MetadataKey = typeof MetadataKeys[keyof typeof MetadataKeys];
 
 /**
  * Prefix for AWS CDK metadata keys.
- * Keys with this prefix are handled by MetadataBuilder and should NOT
- * be passed as CodeBuild environment variables.
+ * Keys with this prefix are handled by the metadata extraction functions
+ * (metadataForCodePipeline, etc.) and should NOT be passed as CodeBuild environment variables.
  */
 export const CDK_METADATA_PREFIX = 'aws:cdk:';

@@ -160,10 +160,20 @@ export interface FormBuilderState {
   // Role
   /** IAM role configuration for the pipeline's CodeBuild project. */
   role: {
-    type: 'none' | 'roleArn' | 'roleName' | 'codeBuildDefault';
+    type: 'none' | 'roleArn' | 'roleName' | 'codeBuildDefault' | 'oidc';
     roleArn: string;
     roleName: string;
     mutable: boolean;
+    /** OIDC: existing provider ARN (mutually exclusive with issuer) */
+    oidcProviderArn: string;
+    /** OIDC: issuer URL for creating a new provider */
+    oidcIssuer: string;
+    /** OIDC: client IDs (comma-separated) */
+    oidcClientIds: string;
+    /** OIDC: StringEquals conditions (key=value, one per line) */
+    oidcConditions: string;
+    /** OIDC: optional description for the created role */
+    oidcDescription: string;
   };
 
   // Synth (required)
@@ -294,6 +304,11 @@ export function createInitialFormState(): FormBuilderState {
       roleArn: '',
       roleName: '',
       mutable: true,
+      oidcProviderArn: '',
+      oidcIssuer: '',
+      oidcClientIds: '',
+      oidcConditions: '',
+      oidcDescription: '',
     },
     synth: {
       sourceType: 'github',
@@ -311,4 +326,3 @@ export function createInitialFormState(): FormBuilderState {
     stages: [],
   };
 }
-

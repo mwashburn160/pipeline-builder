@@ -22,6 +22,7 @@ export interface ProviderEntry {
 }
 
 const registry = new Map<string, ProviderEntry>();
+let initialized = false;
 
 /** Default Ollama base URL when not explicitly configured. */
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434/v1';
@@ -43,7 +44,8 @@ function createOllamaFactory(baseURL: string): (modelId: string) => LanguageMode
  * Ollama is registered when OLLAMA_BASE_URL is set.
  */
 function initRegistry(): void {
-  if (registry.size > 0) return;
+  if (initialized) return;
+  initialized = true;
 
   const factories: Record<string, (key: string) => (modelId: string) => LanguageModel> = {
     'anthropic': (key) => createAnthropic({ apiKey: key }),
@@ -59,10 +61,7 @@ function initRegistry(): void {
     const apiKey = envVar ? process.env[envVar] : undefined;
     if (apiKey && factories[id]) {
       const provider = factories[id](apiKey);
-      registry.set(id, {
-        info,
-        createModel: (modelId) => provider(modelId),
-      });
+      registry.set(id, { info, createModel: provider });
     }
   }
 }
@@ -101,8 +100,7 @@ export function resolveModel(providerId: string, modelId: string): LanguageModel
   if (!entry) {
     throw new Error(`AI provider "${providerId}" is not configured. Set the corresponding API key environment variable.`);
   }
-  const validModel = entry.info.models.find((m) => m.id === modelId);
-  if (!validModel) {
+  if (!entry.info.models.some((m) => m.id === modelId)) {
     const available = entry.info.models.map((m) => m.id).join(', ');
     throw new Error(`Model "${modelId}" is not available for provider "${providerId}". Available models: ${available}`);
   }
@@ -123,7 +121,7 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
   if (models.length === 0) {
     throw new Error(`Unknown AI provider "${providerId}". Supported: ${Object.keys(AI_PROVIDER_CATALOG).join(', ')}`);
   }
-  if (!models.find((m) => m.id === modelId)) {
+  if (!models.some((m) => m.id === modelId)) {
     throw new Error(`Model "${modelId}" is not available for provider "${providerId}". Available: ${models.map((m) => m.id).join(', ')}`);
   }
 

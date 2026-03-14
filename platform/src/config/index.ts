@@ -124,6 +124,14 @@ export const config = {
       tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
       userinfoUrl: process.env.GOOGLE_USERINFO_URL || 'https://www.googleapis.com/oauth2/v2/userinfo',
     },
+    github: {
+      clientId: process.env.OAUTH_GITHUB_CLIENT_ID || '',
+      clientSecret: process.env.OAUTH_GITHUB_CLIENT_SECRET || '',
+      enabled: !!process.env.OAUTH_GITHUB_CLIENT_ID,
+      authorizeUrl: process.env.GITHUB_AUTHORIZE_URL || 'https://github.com/login/oauth/authorize',
+      tokenUrl: process.env.GITHUB_TOKEN_URL || 'https://github.com/login/oauth/access_token',
+      userinfoUrl: process.env.GITHUB_USERINFO_URL || 'https://api.github.com/user',
+    },
   },
 
   services: {

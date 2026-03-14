@@ -270,12 +270,14 @@ describe('parsePaginationParams', () => {
     expect(result).toEqual({ limit: 10, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' });
   });
 
-  it('should clamp limit to 1-100', () => {
+  it('should clamp limit to 1-MAX_PAGE_LIMIT', () => {
     // 0 is falsy so falls through to default 10, then clamped to max(10,1)=10
     expect(parsePaginationParams({ limit: '0' }).limit).toBe(10);
     // -5 is truthy so goes through Math.max(-5,1)=1
     expect(parsePaginationParams({ limit: '-5' }).limit).toBe(1);
-    expect(parsePaginationParams({ limit: '200' }).limit).toBe(100);
+    // MAX_PAGE_LIMIT defaults to 1000
+    expect(parsePaginationParams({ limit: '200' }).limit).toBe(200);
+    expect(parsePaginationParams({ limit: '5000' }).limit).toBe(1000);
   });
 
   it('should clamp offset to minimum 0', () => {

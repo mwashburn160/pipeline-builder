@@ -35,7 +35,7 @@ type Action =
   | { type: 'SET_DEFAULTS_METADATA'; value: MetadataEntry[] }
   // Role
   | { type: 'SET_ROLE_TYPE'; value: FormBuilderState['role']['type'] }
-  | { type: 'SET_ROLE_FIELD'; field: 'roleArn' | 'roleName'; value: string }
+  | { type: 'SET_ROLE_FIELD'; field: 'roleArn' | 'roleName' | 'oidcProviderArn' | 'oidcIssuer' | 'oidcClientIds' | 'oidcConditions' | 'oidcDescription'; value: string }
   | { type: 'SET_ROLE_MUTABLE'; value: boolean }
   // Synth source
   | { type: 'SET_SYNTH_SOURCE_TYPE'; value: FormBuilderState['synth']['sourceType'] }
