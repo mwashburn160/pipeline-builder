@@ -21,4 +21,3 @@ export function getHeaderString(value: HeaderValue): string | undefined {
   }
   return value;
 }
-

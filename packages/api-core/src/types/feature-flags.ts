@@ -4,7 +4,6 @@ import type { QuotaTier } from './quota-tiers';
 
 /** Canonical feature flag identifiers. */
 export type FeatureFlag =
-  | 'advanced_analytics'
   | 'priority_support'
   | 'custom_integrations'
   | 'ai_generation'
@@ -13,7 +12,6 @@ export type FeatureFlag =
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
-  'advanced_analytics',
   'priority_support',
   'ai_generation',
   'bulk_operations',
@@ -31,7 +29,7 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 /** Features enabled by default for each tier. */
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
-  pro: ['advanced_analytics', 'priority_support', 'ai_generation', 'bulk_operations'],
+  pro: ['priority_support', 'ai_generation', 'bulk_operations'],
   unlimited: [...ALL_FEATURE_FLAGS],
 };
 
@@ -39,13 +37,9 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
 
 /** Human-readable metadata for each feature flag. */
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
-  advanced_analytics: {
-    label: 'Advanced Analytics',
-    description: 'Detailed usage analytics, trends, and reporting dashboards',
-  },
   priority_support: {
     label: 'Priority Support',
-    description: 'Faster response times and dedicated support channels',
+    description: 'Faster response times and dedicated support channels (coming soon)',
   },
   ai_generation: {
     label: 'AI Generation',
@@ -57,7 +51,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   },
   custom_integrations: {
     label: 'Custom Integrations',
-    description: 'Connect to external services and custom webhook endpoints',
+    description: 'Connect to external services and custom webhook endpoints (coming soon)',
   },
   audit_log: {
     label: 'Audit Log',

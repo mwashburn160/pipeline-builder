@@ -1,6 +1,6 @@
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota } from '@mwashburn160/api-core';
 import { createProtectedRoute, withRoute } from '@mwashburn160/api-server';
-import type { QuotaService } from '@mwashburn160/api-server';
+import type { QuotaService } from '@mwashburn160/api-core';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service';

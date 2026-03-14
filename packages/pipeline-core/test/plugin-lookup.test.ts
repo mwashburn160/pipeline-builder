@@ -1,5 +1,7 @@
 // Mock CDK and heavy dependencies before imports
-const mockNodejsFunction = jest.fn();
+const mockNodejsFunction = jest.fn().mockImplementation(() => ({
+  addToRolePolicy: jest.fn(),
+}));
 const mockLogGroup = jest.fn();
 const mockProvider = jest.fn().mockImplementation(() => ({
   serviceToken: 'arn:aws:lambda:us-east-1:123456789:function:provider',
@@ -67,7 +69,7 @@ describe('PluginLookup', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...originalEnv, PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' };
+    process.env = { ...originalEnv, CREDENTIALS_SECRET_ARN: 'arn:aws:secretsmanager:us-east-1:123456789:secret:test-AbCdEf' };
 
     // Reset the mock to return the provider shape
     mockProvider.mockImplementation(() => ({
@@ -111,30 +113,8 @@ describe('PluginLookup', () => {
     });
   });
 
-  describe('credential validation', () => {
-    it('should throw if PLATFORM_EMAIL is not set', () => {
-      delete process.env.PLATFORM_EMAIL;
-
-      expect(() => new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      })).toThrow('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
-    });
-
-    it('should throw if PLATFORM_PASSWORD is not set', () => {
-      delete process.env.PLATFORM_PASSWORD;
-
-      expect(() => new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      })).toThrow('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
-    });
-
-    it('should pass PLATFORM_EMAIL and PLATFORM_PASSWORD to Lambda environment', () => {
+  describe('credential security', () => {
+    it('should not embed plaintext credentials in Lambda environment', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
@@ -142,16 +122,14 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      expect(mockNodejsFunction).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          environment: { PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' },
-        }),
-      );
+      const callArgs = mockNodejsFunction.mock.calls[0][2];
+      const env = callArgs.environment || {};
+      expect(env).not.toHaveProperty('PLATFORM_EMAIL');
+      expect(env).not.toHaveProperty('PLATFORM_PASSWORD');
+      expect(env).not.toHaveProperty('PLATFORM_BASE_URL');
     });
 
-    it('should NOT pass PLATFORM_BASE_URL to Lambda environment', () => {
+    it('should grant Secrets Manager read access via IAM policy', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
@@ -159,8 +137,9 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      const envArg = mockNodejsFunction.mock.calls[0][2].environment;
-      expect(envArg).not.toHaveProperty('PLATFORM_BASE_URL');
+      // The mock NodejsFunction should have addToRolePolicy called
+      const fnInstance = mockNodejsFunction.mock.results[0].value;
+      expect(fnInstance.addToRolePolicy).toHaveBeenCalled();
     });
   });
 

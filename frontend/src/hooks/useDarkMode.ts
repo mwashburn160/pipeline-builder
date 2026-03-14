@@ -23,26 +23,13 @@ export function getInitialDark(): boolean {
 export function useDarkMode() {
   const [isDark, setIsDark] = useState(getInitialDark);
 
-  // Sync the DOM class on first render (synchronous init handles state, effect handles class)
+  // Single source of truth: sync DOM class and localStorage whenever isDark changes
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
+    document.documentElement.classList.toggle('dark', isDark);
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  }, [isDark]);
 
-  const toggle = () => {
-    const next = !isDark;
-    setIsDark(next);
-    if (next) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  };
+  const toggle = () => setIsDark(prev => !prev);
 
   return { isDark, toggle };
 }

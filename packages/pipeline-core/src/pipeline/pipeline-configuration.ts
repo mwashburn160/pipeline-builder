@@ -18,7 +18,7 @@ import { TriggerType } from '../core/pipeline-types';
  * 2. `BuilderProps.defaults.metadata` — pipeline-level CodeBuild defaults metadata
  * 3. `BuilderProps.synth.metadata` or `StageStepOptions.metadata` — per-step metadata
  * 4. `plugin.metadata` — plugin's own metadata (merged in `createCodeBuildStep`)
- * 5. `MetadataBuilder.forXxx()` — extracted CDK props spread last into construct calls
+ * 5. `metadataForXxx()` — extracted CDK props spread last into construct calls
  *
  * Steps 1–3 are merged here into `this.metadata.merged`.
  * Step 4 happens in `createCodeBuildStep` via `merge(metadata, plugin.metadata)`.

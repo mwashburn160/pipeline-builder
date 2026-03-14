@@ -4,26 +4,19 @@ import CollapsibleSection from '../editors/CollapsibleSection';
 
 /** Props for {@link RoleSection}. */
 interface RoleSectionProps {
-  /** Current IAM role configuration state. */
   role: FormBuilderState['role'];
-  /** Callback when the role type selector changes (none, roleArn, roleName, codeBuildDefault). */
   onTypeChange: (type: FormBuilderState['role']['type']) => void;
-  /** Callback when the role ARN or role name text field changes. */
-  onFieldChange: (field: 'roleArn' | 'roleName', value: string) => void;
-  /** Callback when the mutable checkbox toggles. */
+  onFieldChange: (field: 'roleArn' | 'roleName' | 'oidcProviderArn' | 'oidcIssuer' | 'oidcClientIds' | 'oidcConditions' | 'oidcDescription', value: string) => void;
   onMutableChange: (mutable: boolean) => void;
-  /** Whether all inputs should be disabled. */
   disabled?: boolean;
-  /** Validation errors keyed by field path (e.g. 'role.roleArn'). */
   errors?: Record<string, string>;
 }
 
 /**
  * Collapsible section for configuring the IAM role used by the pipeline.
  *
- * Supports four modes: none, explicit role ARN (with mutable toggle),
- * role by name (with mutable toggle), and CodeBuild default role
- * (with optional custom name).
+ * Supports five modes: none, explicit role ARN, role by name,
+ * CodeBuild default role, and OIDC federated role (e.g. GitHub Actions).
  */
 export default function RoleSection({
   role, onTypeChange, onFieldChange, onMutableChange, disabled, errors = {},
@@ -42,6 +35,7 @@ export default function RoleSection({
             <option value="roleArn">Role ARN</option>
             <option value="roleName">Role Name</option>
             <option value="codeBuildDefault">CodeBuild Default</option>
+            <option value="oidc">OIDC (GitHub Actions, GitLab CI, etc.)</option>
           </select>
         </FormField>
 
@@ -105,6 +99,83 @@ export default function RoleSection({
                 value={role.roleName}
                 onChange={(e) => onFieldChange('roleName', e.target.value)}
                 placeholder="Optional custom role name"
+                disabled={disabled}
+                className="input"
+              />
+            </FormField>
+          </div>
+        )}
+
+        {role.type === 'oidc' && (
+          <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Create a role trusted by an OIDC identity provider (e.g. GitHub Actions, GitLab CI).
+              Provide either an existing provider ARN or an issuer URL to create a new one.
+            </p>
+
+            <FormField label="Provider ARN" error={errors['role.oidcProviderArn']}>
+              <input
+                type="text"
+                value={role.oidcProviderArn}
+                onChange={(e) => onFieldChange('oidcProviderArn', e.target.value)}
+                placeholder="arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+                disabled={disabled || !!role.oidcIssuer}
+                className="input"
+              />
+            </FormField>
+
+            <div className="text-center text-xs text-gray-400 dark:text-gray-500">— or —</div>
+
+            <FormField label="Issuer URL">
+              <input
+                type="text"
+                value={role.oidcIssuer}
+                onChange={(e) => onFieldChange('oidcIssuer', e.target.value)}
+                placeholder="https://token.actions.githubusercontent.com"
+                disabled={disabled || !!role.oidcProviderArn}
+                className="input"
+              />
+            </FormField>
+
+            <FormField label="Client IDs (comma-separated)">
+              <input
+                type="text"
+                value={role.oidcClientIds}
+                onChange={(e) => onFieldChange('oidcClientIds', e.target.value)}
+                placeholder="sts.amazonaws.com"
+                disabled={disabled}
+                className="input"
+              />
+            </FormField>
+
+            <FormField label="Trust Policy Conditions (key=value, one per line)">
+              <textarea
+                value={role.oidcConditions}
+                onChange={(e) => onFieldChange('oidcConditions', e.target.value)}
+                placeholder={"token.actions.githubusercontent.com:sub=repo:my-org/my-repo:ref:refs/heads/main\ntoken.actions.githubusercontent.com:aud=sts.amazonaws.com"}
+                disabled={disabled}
+                rows={3}
+                className="input font-mono text-xs"
+              />
+            </FormField>
+
+            <FormField label="Role Name (optional)">
+              <input
+                type="text"
+                value={role.roleName}
+                onChange={(e) => onFieldChange('roleName', e.target.value)}
+                placeholder="Optional custom role name"
+                disabled={disabled}
+                className="input"
+              />
+            </FormField>
+
+            <FormField label="Description (optional)">
+              <input
+                type="text"
+                value={role.oidcDescription}
+                onChange={(e) => onFieldChange('oidcDescription', e.target.value)}
+                placeholder="OIDC role for GitHub Actions CI/CD"
                 disabled={disabled}
                 className="input"
               />

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, logout, register, refresh } from '../controllers';
+import { login, logout, register, refresh, sendVerificationEmail, verifyEmail } from '../controllers';
 import { requireAuth, isValidRefreshToken } from '../middleware';
 
 const router = Router();
@@ -15,5 +15,11 @@ router.post('/refresh', isValidRefreshToken, refresh);
 
 /** POST /auth/logout - Invalidate current session */
 router.post('/logout', requireAuth, logout);
+
+/** POST /auth/send-verification - Send email verification link */
+router.post('/send-verification', requireAuth, sendVerificationEmail);
+
+/** POST /auth/verify-email - Verify email with token (public, no auth needed) */
+router.post('/verify-email', verifyEmail);
 
 export default router;

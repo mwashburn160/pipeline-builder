@@ -6,7 +6,7 @@ import { Construct } from 'constructs';
 import type { PipelineConfiguration } from './pipeline-configuration';
 import { UniqueId } from '../core/id-generator';
 import { unwrapSecret } from '../core/pipeline-helpers';
-import { TriggerType } from '../core/pipeline-types';
+import { TriggerType, type SourceType } from '../core/pipeline-types';
 
 /**
  * Creates the appropriate CodePipelineSource based on the pipeline configuration.
@@ -36,9 +36,10 @@ export class SourceBuilder {
         return this.createGitHubSource();
       case 'codestar':
         return this.createCodeStarSource();
-      default:
-        const exhaustiveCheck: never = this.config.source;
-        throw new Error(`Unsupported source type: ${exhaustiveCheck}`);
+      default: {
+        const _exhaustive: never = this.config.source;
+        throw new Error(`Unsupported source type: ${(_exhaustive as SourceType).type}`);
+      }
     }
   }
 

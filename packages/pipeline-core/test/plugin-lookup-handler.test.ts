@@ -11,6 +11,15 @@ jest.mock('../src/config/app-config', () => ({
   },
 }));
 
+// Mock Secrets Manager — return credentials from the standard secret name
+const mockSend = jest.fn().mockResolvedValue({
+  SecretString: JSON.stringify({ email: 'admin@internal', password: 'test-password' }),
+});
+jest.mock('@aws-sdk/client-secrets-manager', () => ({
+  SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
+  GetSecretValueCommand: jest.fn((params: unknown) => params),
+}));
+
 // Mock axios before importing handler
 const mockPost = jest.fn();
 const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
@@ -30,7 +39,7 @@ jest.mock('axios', () => ({
   },
 }));
 
-import { handler } from '../src/handlers/plugin-lookup-handler';
+import { handler, _resetCredentialsCache } from '../src/handlers/plugin-lookup-handler';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { AxiosError } = require('axios');
@@ -71,10 +80,14 @@ describe('plugin-lookup-handler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    _resetCredentialsCache();
     jest.spyOn(console, 'log').mockImplementation();
     jest.spyOn(console, 'error').mockImplementation();
     jest.spyOn(console, 'debug').mockImplementation();
-    process.env = { ...originalEnv, PLATFORM_EMAIL: 'admin@internal', PLATFORM_PASSWORD: 'test-password' };
+    process.env = { ...originalEnv };
+    mockSend.mockResolvedValue({
+      SecretString: JSON.stringify({ email: 'admin@internal', password: 'test-password' }),
+    });
   });
 
   afterEach(() => {
@@ -206,12 +219,16 @@ describe('plugin-lookup-handler', () => {
   });
 
   describe('authentication', () => {
-    it('should authenticate with PLATFORM_EMAIL and PLATFORM_PASSWORD', async () => {
+    it('should fetch credentials from Secrets Manager and authenticate', async () => {
       mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
 
       const event = createEvent();
       await handler(event);
 
+      // Should have called Secrets Manager
+      expect(mockSend).toHaveBeenCalled();
+
+      // Should have called login with credentials from secret
       expect(mockAxiosPost).toHaveBeenCalledWith(
         'https://api.example.com/api/auth/login',
         { email: 'admin@internal', password: 'test-password' },
@@ -221,24 +238,24 @@ describe('plugin-lookup-handler', () => {
       );
     });
 
-    it('should fail if PLATFORM_EMAIL is not set', async () => {
-      delete process.env.PLATFORM_EMAIL;
+    it('should fail if Secrets Manager returns empty secret', async () => {
+      mockSend.mockResolvedValueOnce({ SecretString: undefined });
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
+      expect(result.Reason).toContain('empty');
     });
 
-    it('should fail if PLATFORM_PASSWORD is not set', async () => {
-      delete process.env.PLATFORM_PASSWORD;
+    it('should fail if credentials secret is missing fields', async () => {
+      mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ email: 'test@test.com' }) });
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('PLATFORM_EMAIL and PLATFORM_PASSWORD environment variables are required');
+      expect(result.Reason).toContain('missing email or password');
     });
 
     it('should fail if login returns no token', async () => {

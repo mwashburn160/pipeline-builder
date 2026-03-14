@@ -1,5 +1,6 @@
 import {
   AccessModifier,
+  SYSTEM_ORG_ID,
   sendError,
   sendBadRequest,
   sendSuccess,
@@ -51,7 +52,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     }
 
     // Business logic: announcements can only be created by system org
-    if (messageType === 'announcement' && orgId !== 'system') {
+    if (messageType === 'announcement' && orgId !== SYSTEM_ORG_ID) {
       return sendError(res, 403, 'Only system org can create announcements', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -61,7 +62,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     }
 
     // Conversations: non-system orgs can only message system org
-    if (messageType === 'conversation' && orgId !== 'system' && recipientOrgId.toLowerCase() !== 'system') {
+    if (messageType === 'conversation' && orgId !== SYSTEM_ORG_ID && recipientOrgId.toLowerCase() !== SYSTEM_ORG_ID) {
       return sendError(res, 403, 'Organizations can only start conversations with the system org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -129,7 +130,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     const isSender = rootMessage.orgId.toLowerCase() === orgId;
     const isRecipient = rootMessage.recipientOrgId.toLowerCase() === orgId;
     const isBroadcast = rootMessage.recipientOrgId === '*';
-    const isSystem = orgId === 'system';
+    const isSystem = orgId === SYSTEM_ORG_ID;
 
     if (!isSender && !isRecipient && !isBroadcast && !isSystem) {
       return sendError(res, 403, 'You are not a participant in this conversation', ErrorCode.INSUFFICIENT_PERMISSIONS);

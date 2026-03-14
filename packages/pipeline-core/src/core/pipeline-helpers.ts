@@ -22,7 +22,7 @@ export function merge(...sources: Array<Partial<MetaDataType>>): MetaDataType {
 /**
  * Extract non-namespaced metadata keys as environment variable strings.
  * Keys starting with 'aws:cdk:' are reserved for CDK construct props
- * (processed by MetadataBuilder) and are excluded here.
+ * (processed by metadata extraction functions) and are excluded here.
  *
  * All values are converted to strings for CodeBuild compatibility.
  */
@@ -175,8 +175,6 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     });
   }
 
-  const mergedMeta = merged;
-
   log.debug('[CreateCodeBuildStep] Building step with merged metadata');
 
   // Warn about required secrets without orgId (can't resolve)
@@ -204,7 +202,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     return new ShellStep(id, {
       ...programmatic,
       env,
-      ...metadataForShellStep(mergedMeta),
+      ...metadataForShellStep(merged),
     });
   }
 
@@ -229,9 +227,9 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
       },
-      ...metadataForBuildEnvironment(mergedMeta),
+      ...metadataForBuildEnvironment(merged),
     },
-    ...metadataForCodeBuildStep(mergedMeta),
+    ...metadataForCodeBuildStep(merged),
   });
 
   // Register with artifact manager if primaryOutputDirectory is set

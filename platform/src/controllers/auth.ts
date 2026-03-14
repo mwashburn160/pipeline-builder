@@ -1,17 +1,13 @@
+import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess, createSafeClient, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
+import { audit } from '../helpers/audit';
 import { handleControllerError } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
-import {
-  validateBody,
-  registerSchema,
-  loginSchema,
-  refreshSchema,
-  issueTokens,
-  hashRefreshToken,
-} from '../utils/auth-utils';
+import { issueTokens, hashRefreshToken } from '../utils/token';
+import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation';
 
 const logger = createLogger('AuthController');
 
@@ -114,6 +110,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       void createBillingSubscription(orgId, selectedPlan);
     }
 
+    if (result) audit(req, 'user.register', { targetType: 'user', targetId: (result as Record<string, string>).sub });
     sendSuccess(res, 201, { user: result });
   } catch (error) {
     handleControllerError(res, error, 'Registration failed', registerErrorMap);
@@ -146,6 +143,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     res.cookie('grafana_token', tokens.accessToken, {
       httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
     });
+    audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
     sendSuccess(res, 200, tokens);
   } catch (error) {
     logger.error('Login Error', error);
@@ -221,8 +219,91 @@ export async function logout(req: Request, res: Response): Promise<void> {
     );
 
     res.clearCookie('grafana_token', { httpOnly: true, sameSite: 'lax', path: '/' });
+    audit(req, 'user.logout');
     sendSuccess(res, 200, undefined, 'Logged out');
   } catch (error) {
     return sendError(res, 500, 'Logout failed');
+  }
+}
+
+// Email Verification
+
+/** Token validity period (24 hours). */
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * POST /auth/send-verification
+ * Send (or re-send) an email verification link to the authenticated user.
+ */
+export async function sendVerificationEmail(req: Request, res: Response): Promise<void> {
+  try {
+    const userId = req.user?.sub;
+    if (!userId) return sendError(res, 401, 'Unauthorized');
+
+    const user = await User.findById(userId).select('+emailVerificationToken +emailVerificationExpires');
+    if (!user) return sendError(res, 404, 'User not found');
+
+    if (user.isEmailVerified) {
+      return sendSuccess(res, 200, undefined, 'Email already verified');
+    }
+
+    // Generate token
+    const token = crypto.randomBytes(32).toString('hex');
+    user.emailVerificationToken = crypto.createHash('sha256').update(token).digest('hex');
+    user.emailVerificationExpires = new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS);
+    await user.save();
+
+    // Send verification email
+    const verifyUrl = `${config.app.frontendUrl}/auth/verify-email?token=${token}`;
+    const { emailService } = await import('../utils/email.js');
+
+    await emailService.send({
+      to: user.email,
+      subject: 'Verify your email address',
+      text: `Click this link to verify your email: ${verifyUrl}\n\nThis link expires in 24 hours.`,
+      html: `<p>Click the link below to verify your email address:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>This link expires in 24 hours.</p>`,
+    });
+
+    logger.info('[AUTH] Verification email sent', { userId, email: user.email });
+    sendSuccess(res, 200, undefined, 'Verification email sent');
+  } catch (error) {
+    logger.error('[AUTH] Send verification error', error);
+    return sendError(res, 500, 'Failed to send verification email');
+  }
+}
+
+/**
+ * POST /auth/verify-email
+ * Verify email address using token from the verification link.
+ * Body: { token: string }
+ */
+export async function verifyEmail(req: Request, res: Response): Promise<void> {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') {
+      return sendError(res, 400, 'Verification token is required');
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await User.findOne({
+      emailVerificationToken: hashedToken,
+      emailVerificationExpires: { $gt: new Date() },
+    }).select('+emailVerificationToken +emailVerificationExpires');
+
+    if (!user) {
+      return sendError(res, 400, 'Invalid or expired verification token');
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    logger.info('[AUTH] Email verified', { userId: user._id, email: user.email });
+    sendSuccess(res, 200, undefined, 'Email verified successfully');
+  } catch (error) {
+    logger.error('[AUTH] Verify email error', error);
+    return sendError(res, 500, 'Email verification failed');
   }
 }

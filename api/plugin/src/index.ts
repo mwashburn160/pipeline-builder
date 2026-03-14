@@ -1,7 +1,8 @@
-import { createLogger } from '@mwashburn160/api-core';
-import { createApp, runServer, createQuotaService, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
+import { createLogger, createQuotaService } from '@mwashburn160/api-core';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
+import { createBulkPluginRoutes } from './routes/bulk-plugin';
 import { createDeletePluginRoutes } from './routes/delete-plugin';
 import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin';
 import { createGeneratePluginRoutes } from './routes/generate-plugin';
@@ -39,6 +40,9 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createUpdatePluginRout
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeletePluginRoutes());
+
+// -- Bulk routes — auth + orgId (no quota check) ----------------------------
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createBulkPluginRoutes());
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);

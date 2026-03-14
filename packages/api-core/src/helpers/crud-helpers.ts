@@ -31,4 +31,3 @@ export function normalizeArrayFields<T extends Record<string, unknown>>(
 export function sendEntityNotFound(res: Response, entityName: string): void {
   sendError(res, 404, `${entityName} not found.`, ErrorCode.NOT_FOUND);
 }
-

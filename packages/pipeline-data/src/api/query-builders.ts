@@ -1,6 +1,8 @@
-import { eq, ilike, isNull, or, SQL } from 'drizzle-orm';
+import { SYSTEM_ORG_ID } from '@mwashburn160/api-core';
+import { eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
+  escapeLikeWildcards,
   normalizeStringFilter,
   parseBooleanFilter,
 } from './access-control-builder';
@@ -40,6 +42,11 @@ export function buildPipelineConditions(
     conditions.push(eq(schema.pipeline.organization, normalizeStringFilter(filter.organization)));
   }
 
+  if (filter.keyword !== undefined) {
+    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.keyword));
+    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.pipeline.keywords}) AS kw WHERE lower(kw) LIKE ${'%' + escaped + '%'})`);
+  }
+
   return conditions;
 }
 
@@ -69,7 +76,7 @@ export function buildPluginConditions(
   }
 
   if (filter.name !== undefined) {
-    conditions.push(ilike(schema.plugin.name, `%${normalizeStringFilter(filter.name)}%`));
+    conditions.push(ilike(schema.plugin.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
   }
 
   if (filter.version !== undefined) {
@@ -78,6 +85,11 @@ export function buildPluginConditions(
 
   if (filter.imageTag !== undefined) {
     conditions.push(eq(schema.plugin.imageTag, filter.imageTag as string));
+  }
+
+  if (filter.keyword !== undefined) {
+    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.keyword));
+    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.plugin.keywords}) AS kw WHERE lower(kw) LIKE ${'%' + escaped + '%'})`);
   }
 
   return conditions;
@@ -103,7 +115,7 @@ export function buildMessageConditions(
   const normalizedOrgId = orgId.toLowerCase();
 
   // Custom access control: sender OR recipient OR broadcast
-  if (normalizedOrgId === 'system') {
+  if (normalizedOrgId === SYSTEM_ORG_ID) {
     // System org can see all messages
   } else {
     conditions.push(

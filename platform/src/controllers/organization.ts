@@ -15,9 +15,8 @@ import {
 } from '../middleware/quota';
 import { Organization, User } from '../models';
 import type { QuotaTier } from '../models/organization';
-import { validateBody } from '../utils/auth-utils';
 import { parsePagination } from '../utils/pagination';
-import { updateOrganizationSchema, updateQuotasSchema } from '../validation/schemas';
+import { validateBody, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation';
 
 const logger = createLogger('OrganizationController');
 
@@ -256,7 +255,7 @@ export async function getOrganizationQuotas(req: Request, res: Response): Promis
           used: quotaStatus.used,
           limit: formatQuotaValue(quotaStatus.limit),
           remaining: formatQuotaValue(quotaStatus.remaining),
-          resetAt: quotaStatus.resetAt,
+          resetAt: new Date(quotaStatus.resetAt),
           resetPeriod: tierConfig.resetPeriod[type],
           unlimited: quotaStatus.unlimited,
         };

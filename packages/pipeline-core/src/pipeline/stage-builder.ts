@@ -146,7 +146,7 @@ export class StageBuilder {
       postCommands: stepConfig.postCommands,
       env: stepConfig.env,
       timeout: stepConfig.timeout ?? plugin.timeout ?? undefined,
-      failureBehavior: stepConfig.failureBehavior ?? (plugin.failureBehavior as 'fail' | 'warn' | 'ignore' | undefined) ?? undefined,
+      failureBehavior: stepConfig.failureBehavior ?? plugin.failureBehavior as 'fail' | 'warn' | 'ignore' | undefined,
       orgId: this.orgId,
     });
   }

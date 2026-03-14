@@ -33,7 +33,6 @@ export class ApiError extends Error {
     this.code = code;
     this.details = details;
   }
-
 }
 
 /** SSE event received from AI streaming endpoints. */
@@ -466,7 +465,6 @@ class ApiClient {
     this.applyTokens(response);
     return response;
   }
-
 
   // ============================================
   // Organization endpoints

@@ -1,6 +1,6 @@
 import https from 'https';
-import { Command } from 'commander';
 import axios from 'axios';
+import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
@@ -94,7 +94,7 @@ export function refresh(program: Command): void {
         if (!quiet) {
           console.log('');
           printInfo('Tip: Run the following to set the token in your shell:');
-          console.log(green(`  eval $(pipeline-manager refresh -t '<refresh-token>' --quiet)`));
+          console.log(green('  eval $(pipeline-manager refresh -t \'<refresh-token>\' --quiet)'));
         }
       } catch (error) {
         if (axios.isAxiosError(error)) {

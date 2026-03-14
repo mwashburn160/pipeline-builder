@@ -5,11 +5,12 @@ import { bootstrap } from './commands/bootstrap';
 import { createPipeline } from './commands/create-pipeline';
 import { deploy } from './commands/deploy';
 import { getPipeline } from './commands/get-pipeline';
-import { login } from './commands/login';
-import { refresh } from './commands/refresh';
 import { getPlugin } from './commands/get-plugin';
 import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
+import { login } from './commands/login';
+import { refresh } from './commands/refresh';
+import { storeCredentials } from './commands/store-credentials';
 import { uploadPlugin } from './commands/upload-plugin';
 import { version } from './commands/version';
 import {
@@ -152,6 +153,7 @@ Examples:
   $ ${APP_NAME} version
   $ ${APP_NAME} list-pipelines --project my-app
   $ ${APP_NAME} get-pipeline --id pipe-123 --format json
+  $ ${APP_NAME} store-credentials --email admin@example.com --password '***'
   $ ${APP_NAME} bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} deploy --id pipe-123 --profile production
 
@@ -182,6 +184,7 @@ Documentation:
 
   // Deployment commands
   printDebug('Registering deployment commands');
+  storeCredentials(program); // Store service credentials in Secrets Manager
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK
 

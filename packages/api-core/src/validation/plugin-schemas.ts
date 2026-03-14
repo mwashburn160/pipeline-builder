@@ -10,6 +10,7 @@ export const PluginFilterSchema = BaseFilterSchema.extend({
   orgId: z.string().min(1).optional(),
   imageTag: z.string().min(1).optional(),
   pluginType: z.string().optional(),
+  keyword: z.string().min(1).optional(),
 });
 
 /**

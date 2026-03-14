@@ -348,4 +348,54 @@ export abstract class CrudService<
       .where(and(...conditions))
       .returning() as unknown as TEntity[];
   }
+
+  /**
+   * Create multiple entities in a single transaction.
+   * Uses upsert (onConflictDoUpdate) for each row.
+   */
+  async bulkCreate(items: TInsert[], userId: string): Promise<TEntity[]> {
+    if (items.length === 0) return [];
+
+    return db.transaction(async (tx) => {
+      const results: TEntity[] = [];
+      for (const data of items) {
+        const [created] = await tx
+          .insert(this.schema)
+          .values({
+            ...data,
+            createdBy: userId || 'system',
+            updatedBy: userId || 'system',
+          } as any)
+          .onConflictDoUpdate({
+            target: this.conflictTarget as any,
+            set: {
+              ...data,
+              updatedAt: new Date(),
+              updatedBy: userId || 'system',
+            } as any,
+          })
+          .returning() as unknown as TEntity[];
+        results.push(created);
+      }
+      return results;
+    });
+  }
+
+  /**
+   * Soft-delete multiple entities by IDs in a single operation.
+   */
+  async bulkDelete(
+    ids: string[],
+    orgId: string,
+    userId: string,
+  ): Promise<TEntity[]> {
+    if (ids.length === 0) return [];
+
+    const results: TEntity[] = [];
+    for (const id of ids) {
+      const deleted = await this.delete(id, orgId, userId);
+      if (deleted) results.push(deleted);
+    }
+    return results;
+  }
 }

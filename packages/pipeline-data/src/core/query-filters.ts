@@ -100,6 +100,11 @@ export interface PluginFilter extends CommonFilter {
    * Docker image tag associated with the plugin
    */
   readonly imageTag?: string;
+
+  /**
+   * Keyword to search within the keywords JSONB array (case-insensitive contains)
+   */
+  readonly keyword?: string;
 }
 
 /**
@@ -131,6 +136,11 @@ export interface PipelineFilter extends CommonFilter {
    * Pipeline name to filter by
    */
   readonly pipelineName?: string;
+
+  /**
+   * Keyword to search within the keywords JSONB array (case-insensitive contains)
+   */
+  readonly keyword?: string;
 }
 
 /**

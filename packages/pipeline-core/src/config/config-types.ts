@@ -11,7 +11,6 @@ import type { Algorithm } from 'jsonwebtoken';
 export interface AppConfig {
   readonly server: ServerConfig;
   readonly auth: AuthConfig;
-  readonly database: DatabaseConfig;
   readonly registry: RegistryConfig;
   readonly redis: RedisConfig;
   readonly pluginBuild: PluginBuildConfig;

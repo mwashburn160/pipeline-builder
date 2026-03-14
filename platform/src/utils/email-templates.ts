@@ -49,6 +49,7 @@ function buildOAuthText(data: InvitationEmailData): string {
 function buildOAuthHtml(data: InvitationEmailData): string {
   const providerIcons: Record<string, string> = {
     google: '🔵 Google',
+    github: '⚫ GitHub',
   };
 
   switch (data.invitationType) {

@@ -224,11 +224,22 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
     const r = rawProps.role as AnyRecord;
     const roleType = String(r.type || 'none') as FormBuilderState['role']['type'];
     const opts = (r.options as AnyRecord) || {};
+    const conditions = opts.conditions as Record<string, string> | undefined;
+    const conditionsStr = conditions
+      ? Object.entries(conditions).map(([k, v]) => `${k}=${v}`).join('\n')
+      : '';
+    const clientIds = Array.isArray(opts.clientIds) ? (opts.clientIds as string[]).join(', ') : '';
+
     base.role = {
       type: roleType,
       roleArn: String(opts.roleArn || ''),
       roleName: String(opts.roleName || ''),
       mutable: opts.mutable !== false,
+      oidcProviderArn: String(opts.providerArn || ''),
+      oidcIssuer: String(opts.issuer || ''),
+      oidcClientIds: clientIds,
+      oidcConditions: conditionsStr,
+      oidcDescription: String(opts.description || ''),
     };
   }
 

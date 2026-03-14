@@ -130,7 +130,7 @@ export function listPipelines(program: Command): void {
         }
 
         // Display active filters
-        const activeFilters: Record<string, any> = {};
+        const activeFilters: Record<string, unknown> = {};
         if (filterParams.id) activeFilters.ID = filterParams.id;
         if (filterParams.accessModifier) activeFilters['Access Modifier'] = filterParams.accessModifier;
         if (filterParams.isDefault !== undefined) activeFilters['Is Default'] = filterParams.isDefault;
