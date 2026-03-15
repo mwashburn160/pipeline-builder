@@ -31,7 +31,7 @@ export interface TableColumn {
   key: string;
   width?: number;
   align?: 'left' | 'center' | 'right';
-  formatter?: (value: any) => string;
+  formatter?: (value: unknown) => string;
 }
 
 // --- Logging functions ---
@@ -132,8 +132,8 @@ export function formatTable(data: unknown[], columns?: TableColumn[]): string {
     const headerWidth = col.header.length;
     const dataWidth = Math.max(...data.map(item => {
       const value = col.formatter
-        ? col.formatter((item as any)[col.key])
-        : String((item as any)[col.key] ?? '');
+        ? col.formatter((item as Record<string, unknown>)[col.key])
+        : String((item as Record<string, unknown>)[col.key] ?? '');
       return value.length;
     }));
     return Math.max(headerWidth, dataWidth, 3);
@@ -167,8 +167,8 @@ export function formatTable(data: unknown[], columns?: TableColumn[]): string {
     const row = border.bodyLeft + ' ' +
       cols.map((col, i) => {
         const value = col.formatter
-          ? col.formatter((item as any)[col.key])
-          : String((item as any)[col.key] ?? '');
+          ? col.formatter((item as Record<string, unknown>)[col.key])
+          : String((item as Record<string, unknown>)[col.key] ?? '');
         return formatCell(value, colWidths[i] ?? 0, col.align);
       }).join(` ${border.bodyJoin} `) +
       ` ${border.bodyRight}`;
@@ -189,7 +189,7 @@ function formatCsv(data: unknown): string {
   const headers = Object.keys(firstItem);
   const rows: string[] = [headers.map(h => escapeCsvValue(h)).join(',')];
   data.forEach(item => {
-    rows.push(headers.map(h => escapeCsvValue((item as any)[h])).join(','));
+    rows.push(headers.map(h => escapeCsvValue((item as Record<string, unknown>)[h])).join(','));
   });
   return rows.join('\n');
 }

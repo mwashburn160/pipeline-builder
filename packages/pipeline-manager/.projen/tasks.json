@@ -85,6 +85,9 @@
         },
         {
           "exec": "copyfiles -f ./config.yml dist/ --verbose --error"
+        },
+        {
+          "exec": "copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error"
         }
       ]
     },

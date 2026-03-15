@@ -4,7 +4,7 @@ import path from 'path';
 import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
-import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
+import { Config, CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
 import IORedis from 'ioredis';
@@ -120,6 +120,45 @@ function cleanupContextDir(dir: string): void {
 }
 
 /**
+ * Persist a plugin build event to the pipeline_events table (fire-and-forget).
+ * Used for build reporting — never blocks the build pipeline.
+ */
+function recordBuildEvent(
+  orgId: string,
+  status: 'completed' | 'failed',
+  job: Job,
+  detail: Record<string, unknown>,
+): void {
+  const startedMs = job.processedOn ?? job.timestamp;
+  const completedMs = job.finishedOn ?? Date.now();
+  const durationMs = startedMs ? completedMs - startedMs : undefined;
+
+  if (!db?.insert) return; // db may be unavailable in unit tests
+
+  db.insert(schema.pipelineEvent)
+    .values({
+      orgId,
+      eventSource: 'plugin-build',
+      eventType: 'BUILD',
+      status,
+      executionId: job.id ?? undefined,
+      errorMessage: status === 'failed' ? (detail.errorMessage as string) : undefined,
+      startedAt: startedMs ? new Date(startedMs) : undefined,
+      completedAt: new Date(completedMs),
+      durationMs,
+      detail: {
+        ...detail,
+        jobId: job.id,
+        attemptsMade: job.attemptsMade,
+        maxAttempts: job.opts.attempts,
+      },
+    })
+    .catch((err: unknown) => {
+      logger.warn('Failed to record build event', { error: errorMessage(err) });
+    });
+}
+
+/**
  * Start the BullMQ worker that processes plugin Docker builds.
  * Called once from plugin service index.ts after createApp().
  */
@@ -161,7 +200,13 @@ export function startWorker(
         // 3. Increment quota
         incrementQuota(quotaService, orgId, 'plugins', authToken, logger.warn.bind(logger));
 
-        // 4. Send completion SSE
+        // 4. Persist build event for reporting
+        recordBuildEvent(orgId, 'completed', job, {
+          pluginName: result.name, pluginVersion: result.version,
+          imageTag: result.imageTag, pluginId: result.id,
+        });
+
+        // 5. Send completion SSE
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
           id: result.id,
           name: result.name,
@@ -206,6 +251,15 @@ export function startWorker(
         jobId: job.id,
         attemptsMade: job.attemptsMade,
         maxAttempts: job.opts.attempts,
+      });
+
+      // Persist build failure event for reporting
+      const { orgId, pluginRecord } = job.data;
+      recordBuildEvent(orgId, 'failed', job, {
+        pluginName: pluginRecord.name,
+        pluginVersion: pluginRecord.version,
+        imageTag: pluginRecord.imageTag,
+        errorMessage: error.message,
       });
     }
   });

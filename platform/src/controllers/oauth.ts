@@ -109,7 +109,8 @@ function createGitHubProvider(): OAuthProvider {
       // GitHub may not return email in profile — fetch from /user/emails
       let email = profile.email as string | null;
       if (!email) {
-        const emailsRes = await fetch('https://api.github.com/user/emails', {
+        const emailsUrl = userinfoUrl.replace(/\/user$/, '/user/emails');
+        const emailsRes = await fetch(emailsUrl, {
           headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
         });
         if (emailsRes.ok) {

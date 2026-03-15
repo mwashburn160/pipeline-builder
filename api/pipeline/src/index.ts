@@ -6,6 +6,7 @@ import { createCreatePipelineRoutes } from './routes/create-pipeline';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline';
 import { createReadPipelineRoutes } from './routes/read-pipelines';
+import { createRegistryRoutes } from './routes/registry';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline';
 
 const logger = createLogger('pipeline');
@@ -34,6 +35,9 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipeline
 
 // -- Bulk routes — auth + orgId (no quota check) ----------------------------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createBulkPipelineRoutes());
+
+// -- Registry route — auth + orgId (upsert pipeline ARN for event reporting) -
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
 
 logger.info('All /pipelines routes registered');
 

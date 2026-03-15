@@ -3,6 +3,12 @@ import { Algorithm } from 'jsonwebtoken';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 
+/** Default platform URL used as fallback for PLATFORM_BASE_URL, CORS, OAuth callbacks, and service URLs. */
+const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
+
+/** Default MongoDB connection URI for local development only. */
+const DEV_MONGODB_URI = 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin';
+
 /**
  * Require an environment variable in production, allow a dev-only fallback.
  * @internal
@@ -37,8 +43,8 @@ function parseQuotaLimit(value: string | undefined, defaultValue: number | 'unli
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
-    baseUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
-    frontendUrl: process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
+    baseUrl: process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL,
+    frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
   },
 
   server: {
@@ -53,7 +59,7 @@ export const config = {
     credentials: process.env.CORS_CREDENTIALS !== 'false',
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-      : [process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443'],
+      : [process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL],
   },
 
   rateLimit: {
@@ -84,7 +90,7 @@ export const config = {
   mongodb: {
     // MONGODB_URI must be set via environment; no credentials in source code.
     // Example: mongodb://mongo:<password>@mongodb:27017/platform?replicaSet=rs0&authSource=admin
-    uri: process.env.MONGODB_URI || (isDev ? 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin' : ''),
+    uri: process.env.MONGODB_URI || (isDev ? DEV_MONGODB_URI : ''),
   },
 
   email: {
@@ -113,7 +119,7 @@ export const config = {
 
   oauth: {
     /** Base URL for OAuth callback redirects (e.g. https://yourdomain.com) */
-    callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || 'https://localhost:8443',
+    callbackBaseUrl: process.env.OAUTH_CALLBACK_BASE_URL || process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
     stateTtlMs: parseInt(process.env.OAUTH_STATE_TTL_MS || '600000', 10), // 10 min
     cleanupIntervalMs: parseInt(process.env.OAUTH_CLEANUP_INTERVAL_MS || '60000', 10), // 1 min
     google: {
@@ -135,12 +141,12 @@ export const config = {
   },
 
   services: {
-    listPlugins: process.env.LIST_PLUGINS_URL || 'https://localhost:8443',
-    getPlugin: process.env.GET_PLUGIN_URL || 'https://localhost:8443',
-    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || 'https://localhost:8443',
-    listPipelines: process.env.LIST_PIPELINES_URL || 'https://localhost:8443',
-    getPipeline: process.env.GET_PIPELINE_URL || 'https://localhost:8443',
-    createPipeline: process.env.CREATE_PIPELINE_URL || 'https://localhost:8443',
+    listPlugins: process.env.LIST_PLUGINS_URL || DEFAULT_PLATFORM_URL,
+    getPlugin: process.env.GET_PLUGIN_URL || DEFAULT_PLATFORM_URL,
+    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || DEFAULT_PLATFORM_URL,
+    listPipelines: process.env.LIST_PIPELINES_URL || DEFAULT_PLATFORM_URL,
+    getPipeline: process.env.GET_PIPELINE_URL || DEFAULT_PLATFORM_URL,
+    createPipeline: process.env.CREATE_PIPELINE_URL || DEFAULT_PLATFORM_URL,
     timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000', 10), // 30s
   },
 

@@ -105,6 +105,8 @@ services:
         condition: service_healthy
       message:
         condition: service_healthy
+      reporting:
+        condition: service_healthy
       quota:
         condition: service_healthy
       billing:
@@ -463,6 +465,21 @@ services:
       postgres:
         condition: service_healthy
       quota:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  reporting:
+    image: 'ghcr.io/mwashburn160/reporting:0.0.0'
+    container_name: reporting
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env, *server-env]
+      SERVICE_NAME: reporting
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy: *api-deploy

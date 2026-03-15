@@ -6,6 +6,7 @@ packages:
   - packages/pipeline-core
   - packages/api-server
   - packages/ai-core
+  - packages/event-ingestion
   - packages/pipeline-manager
   - platform
   - frontend
@@ -14,3 +15,4 @@ packages:
   - api/plugin
   - api/pipeline
   - api/message
+  - api/reporting

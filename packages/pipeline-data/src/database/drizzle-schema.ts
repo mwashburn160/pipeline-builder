@@ -363,12 +363,89 @@ export const message = pgTable('messages', {
 }));
 
 /**
+ * Pipeline deployment registry.
+ * Maps deployed CodePipeline ARNs back to pipeline records and org IDs.
+ * Populated by the deploy command after successful CDK deploy.
+ * Used by the event-ingestion Lambda to resolve EventBridge events to org-scoped records.
+ *
+ * @table pipeline_registry
+ */
+export const pipelineRegistry = pgTable('pipeline_registry', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pipelineId: uuid('pipeline_id').notNull(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  pipelineArn: varchar('pipeline_arn', { length: 512 }).notNull().unique(),
+  pipelineName: varchar('pipeline_name', { length: 255 }).notNull(),
+  accountId: varchar('account_id', { length: 12 }),
+  region: varchar('region', { length: 30 }),
+  project: varchar('project', { length: 255 }),
+  organization: varchar('organization', { length: 255 }),
+  lastDeployed: timestamp('last_deployed', { withTimezone: true }),
+  stackName: varchar('stack_name', { length: 255 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pipelineIdIdx: index('registry_pipeline_id_idx').on(table.pipelineId),
+  orgIdIdx: index('registry_org_id_idx').on(table.orgId),
+  orgRegionIdx: index('registry_org_region_idx').on(table.orgId, table.region),
+}));
+
+/**
+ * Event source identifiers for pipeline_events.
+ */
+export type EventSource = 'codepipeline' | 'codebuild' | 'plugin-build';
+
+/**
+ * Event type granularity levels for pipeline_events.
+ */
+export type EventType = 'PIPELINE' | 'STAGE' | 'ACTION' | 'BUILD';
+
+/**
+ * Pipeline execution and build events.
+ * Captures CodePipeline/CodeBuild state changes from EventBridge
+ * and plugin Docker build outcomes from BullMQ.
+ * All events are org-scoped for multi-tenant reporting.
+ *
+ * @table pipeline_events
+ */
+export const pipelineEvent = pgTable('pipeline_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pipelineId: uuid('pipeline_id'),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  eventSource: varchar('event_source', { length: 50 }).$type<EventSource>().notNull(),
+  eventType: varchar('event_type', { length: 50 }).$type<EventType>().notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  pipelineArn: varchar('pipeline_arn', { length: 512 }),
+  executionId: varchar('execution_id', { length: 255 }),
+  stageName: varchar('stage_name', { length: 255 }),
+  actionName: varchar('action_name', { length: 255 }),
+  errorMessage: text('error_message'),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  durationMs: integer('duration_ms'),
+  detail: jsonb('detail').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pipelineIdIdx: index('event_pipeline_id_idx').on(table.pipelineId),
+  orgIdIdx: index('event_org_id_idx').on(table.orgId),
+  eventTypeIdx: index('event_type_idx').on(table.eventType),
+  statusIdx: index('event_status_idx').on(table.status),
+  pipelineArnIdx: index('event_pipeline_arn_idx').on(table.pipelineArn),
+  executionIdIdx: index('event_execution_id_idx').on(table.executionId),
+  createdAtIdx: index('event_created_at_idx').on(table.createdAt),
+  orgTypeCreatedIdx: index('event_org_type_created_idx').on(table.orgId, table.eventType, table.createdAt),
+  orgSourceStatusIdx: index('event_org_source_status_idx').on(table.orgId, table.eventSource, table.status),
+}));
+
+/**
  * Complete Drizzle schema export
  */
 export const schema = {
   plugin,
   pipeline,
   message,
+  pipelineRegistry,
+  pipelineEvent,
 } as const;
 
 /**
@@ -382,6 +459,12 @@ export type PipelineInsert = typeof pipeline.$inferInsert;
 
 export type Message = typeof message.$inferSelect;
 export type MessageInsert = typeof message.$inferInsert;
+
+export type PipelineRegistry = typeof pipelineRegistry.$inferSelect;
+export type PipelineRegistryInsert = typeof pipelineRegistry.$inferInsert;
+
+export type PipelineEvent = typeof pipelineEvent.$inferSelect;
+export type PipelineEventInsert = typeof pipelineEvent.$inferInsert;
 
 /**
  * Helper types for working with partial updates

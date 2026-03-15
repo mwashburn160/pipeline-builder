@@ -71,6 +71,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
     PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
   },
   Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+  // db and schema are re-exported from pipeline-data — mock that module directly
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({

@@ -26,7 +26,10 @@ export class CoreConstants {
 
   // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling)
   static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '25000', 10); // 25s
-  static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
+  /** Default platform URL fallback when PLATFORM_BASE_URL is not set. */
+  static readonly DEFAULT_PLATFORM_URL = 'https://localhost:8443';
+
+  static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL;
   static readonly HANDLER_MAX_RETRIES = parseInt(process.env.HANDLER_MAX_RETRIES || '2', 10);
   static readonly HANDLER_RETRY_DELAY_MS = parseInt(process.env.HANDLER_RETRY_DELAY_MS || '1000', 10); // 1s
 
@@ -57,6 +60,11 @@ export class CoreConstants {
   // Git provider API base URLs (configurable for enterprise instances)
   static readonly GITHUB_API_BASE_URL = process.env.GITHUB_API_BASE_URL || 'https://api.github.com';
   static readonly BITBUCKET_API_BASE_URL = process.env.BITBUCKET_API_BASE_URL || 'https://api.bitbucket.org/2.0';
+
+  // Bulk operations and event ingestion
+  static readonly MAX_BULK_ITEMS = parseInt(process.env.MAX_BULK_ITEMS || '100', 10);
+  static readonly MAX_EVENTS_PER_BATCH = parseInt(process.env.MAX_EVENTS_PER_BATCH || '100', 10);
+  static readonly DEFAULT_REPORT_RANGE_DAYS = parseInt(process.env.DEFAULT_REPORT_RANGE_DAYS || '30', 10);
 
   // Secrets Manager path prefix for org-scoped secrets
   static readonly SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';

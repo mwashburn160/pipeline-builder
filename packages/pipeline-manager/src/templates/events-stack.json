@@ -1,0 +1,142 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Pipeline Builder event ingestion — EventBridge rule, SQS queue, and Lambda that forwards CodePipeline/CodeBuild events to the reporting service API. Lambda code is deployed separately via pipeline-manager setup-events.",
+  "Parameters": {
+    "PlatformBaseUrl": {
+      "Type": "String",
+      "Description": "Base URL of the platform (e.g. https://app.example.com)"
+    },
+    "SecretsPathPrefix": {
+      "Type": "String",
+      "Default": "pipeline-builder",
+      "Description": "Secrets Manager path prefix (must match SECRETS_PATH_PREFIX env var)"
+    }
+  },
+  "Resources": {
+    "EventQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "pipeline-builder-events",
+        "VisibilityTimeout": 300,
+        "MessageRetentionPeriod": 1209600,
+        "RedrivePolicy": {
+          "deadLetterTargetArn": { "Fn::GetAtt": ["DeadLetterQueue", "Arn"] },
+          "maxReceiveCount": 3
+        }
+      }
+    },
+    "DeadLetterQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "pipeline-builder-events-dlq",
+        "MessageRetentionPeriod": 1209600
+      }
+    },
+    "EventQueuePolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Properties": {
+        "Queues": [{ "Ref": "EventQueue" }],
+        "PolicyDocument": {
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": "events.amazonaws.com" },
+            "Action": "sqs:SendMessage",
+            "Resource": { "Fn::GetAtt": ["EventQueue", "Arn"] }
+          }]
+        }
+      }
+    },
+    "EventRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "pipeline-builder-codepipeline-events",
+        "Description": "Capture CodePipeline and CodeBuild state changes for reporting",
+        "State": "ENABLED",
+        "EventPattern": {
+          "source": ["aws.codepipeline", "aws.codebuild"],
+          "detail-type": [
+            "CodePipeline Pipeline Execution State Change",
+            "CodePipeline Stage Execution State Change",
+            "CodePipeline Action Execution State Change",
+            "CodeBuild Build State Change"
+          ]
+        },
+        "Targets": [{
+          "Id": "pipeline-events-queue",
+          "Arn": { "Fn::GetAtt": ["EventQueue", "Arn"] }
+        }]
+      }
+    },
+    "LambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "pipeline-builder-event-ingestion",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [{
+          "PolicyName": "event-ingestion",
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+                "Resource": { "Fn::GetAtt": ["EventQueue", "Arn"] }
+              },
+              {
+                "Effect": "Allow",
+                "Action": "secretsmanager:GetSecretValue",
+                "Resource": { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretsPathPrefix}/plugin-lookup/credentials-*" }
+              }
+            ]
+          }
+        }]
+      }
+    },
+    "EventHandler": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "pipeline-builder-event-ingestion",
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Code": {
+          "ZipFile": "exports.handler=async(event)=>{console.log('Placeholder handler — run pipeline-manager setup-events to deploy real code');return{statusCode:200,body:JSON.stringify({message:'hello',records:event.Records?.length||0})}}"
+        },
+        "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
+        "Timeout": 60,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
+            "SECRETS_PATH_PREFIX": { "Ref": "SecretsPathPrefix" }
+          }
+        }
+      }
+    },
+    "EventSourceMapping": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "Properties": {
+        "EventSourceArn": { "Fn::GetAtt": ["EventQueue", "Arn"] },
+        "FunctionName": { "Ref": "EventHandler" },
+        "BatchSize": 10,
+        "MaximumBatchingWindowInSeconds": 5,
+        "Enabled": true
+      }
+    }
+  },
+  "Outputs": {
+    "EventQueueArn": { "Value": { "Fn::GetAtt": ["EventQueue", "Arn"] } },
+    "EventQueueUrl": { "Value": { "Ref": "EventQueue" } },
+    "DeadLetterQueueUrl": { "Value": { "Ref": "DeadLetterQueue" } },
+    "LambdaFunctionArn": { "Value": { "Fn::GetAtt": ["EventHandler", "Arn"] } },
+    "EventRuleName": { "Value": { "Ref": "EventRule" } }
+  }
+}

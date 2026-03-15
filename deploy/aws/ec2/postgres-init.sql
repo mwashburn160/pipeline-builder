@@ -149,6 +149,51 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 -- ============================================================================
+-- PIPELINE REGISTRY TABLE (Maps deployed CodePipeline ARNs to org IDs)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS pipeline_registry (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id         UUID NOT NULL,
+    org_id              VARCHAR(255) NOT NULL,
+    pipeline_arn        VARCHAR(512) NOT NULL UNIQUE,
+    pipeline_name       VARCHAR(255) NOT NULL,
+    account_id          VARCHAR(12),
+    region              VARCHAR(30),
+    project             VARCHAR(255),
+    organization        VARCHAR(255),
+    last_deployed       TIMESTAMPTZ,
+    stack_name          VARCHAR(255),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================================
+-- PIPELINE EVENTS TABLE (Execution and build events for reporting)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS pipeline_events (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id         UUID,
+    org_id              VARCHAR(255) NOT NULL,
+    event_source        VARCHAR(50) NOT NULL
+                        CHECK (event_source IN ('codepipeline', 'codebuild', 'plugin-build')),
+    event_type          VARCHAR(50) NOT NULL
+                        CHECK (event_type IN ('PIPELINE', 'STAGE', 'ACTION', 'BUILD')),
+    status              VARCHAR(20) NOT NULL,
+    pipeline_arn        VARCHAR(512),
+    execution_id        VARCHAR(255),
+    stage_name          VARCHAR(255),
+    action_name         VARCHAR(255),
+    error_message       TEXT,
+    started_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ,
+    duration_ms         INTEGER,
+    detail              JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================================
 -- Add missing columns to existing tables (if tables already exist)
 -- ============================================================================
 
@@ -183,6 +228,12 @@ CREATE TRIGGER update_pipelines_modtime
 DROP TRIGGER IF EXISTS update_messages_modtime ON messages;
 CREATE TRIGGER update_messages_modtime
     BEFORE UPDATE ON messages
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_pipeline_registry_modtime ON pipeline_registry;
+CREATE TRIGGER update_pipeline_registry_modtime
+    BEFORE UPDATE ON pipeline_registry
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 
@@ -257,6 +308,44 @@ CREATE INDEX IF NOT EXISTS pipeline_org_access_idx
 -- Pipelines unique constraint (required for ON CONFLICT upsert in pipeline create)
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
     ON pipelines(project, organization, org_id);
+
+-- Pipeline Registry indexes
+CREATE INDEX IF NOT EXISTS registry_pipeline_id_idx
+    ON pipeline_registry(pipeline_id);
+
+CREATE INDEX IF NOT EXISTS registry_org_id_idx
+    ON pipeline_registry(org_id);
+
+CREATE INDEX IF NOT EXISTS registry_org_region_idx
+    ON pipeline_registry(org_id, region);
+
+-- Pipeline Events indexes
+CREATE INDEX IF NOT EXISTS event_pipeline_id_idx
+    ON pipeline_events(pipeline_id);
+
+CREATE INDEX IF NOT EXISTS event_org_id_idx
+    ON pipeline_events(org_id);
+
+CREATE INDEX IF NOT EXISTS event_type_idx
+    ON pipeline_events(event_type);
+
+CREATE INDEX IF NOT EXISTS event_status_idx
+    ON pipeline_events(status);
+
+CREATE INDEX IF NOT EXISTS event_pipeline_arn_idx
+    ON pipeline_events(pipeline_arn);
+
+CREATE INDEX IF NOT EXISTS event_execution_id_idx
+    ON pipeline_events(execution_id);
+
+CREATE INDEX IF NOT EXISTS event_created_at_idx
+    ON pipeline_events(created_at);
+
+CREATE INDEX IF NOT EXISTS event_org_type_created_idx
+    ON pipeline_events(org_id, event_type, created_at);
+
+CREATE INDEX IF NOT EXISTS event_org_source_status_idx
+    ON pipeline_events(org_id, event_source, status);
 
 -- Messages indexes
 CREATE INDEX IF NOT EXISTS message_org_id_idx
@@ -334,18 +423,42 @@ SELECT
     indexname,
     indexdef
 FROM pg_indexes
-WHERE tablename IN ('plugins', 'pipelines', 'messages')
+WHERE tablename IN ('plugins', 'pipelines', 'messages', 'pipeline_registry', 'pipeline_events')
 ORDER BY tablename, indexname;
 
 \echo ''
+\echo '=== PIPELINE REGISTRY TABLE STRUCTURE ==='
+SELECT
+    column_name,
+    data_type,
+    character_maximum_length,
+    is_nullable,
+    column_default
+FROM information_schema.columns
+WHERE table_name = 'pipeline_registry'
+ORDER BY ordinal_position;
+
+\echo ''
+\echo '=== PIPELINE EVENTS TABLE STRUCTURE ==='
+SELECT
+    column_name,
+    data_type,
+    character_maximum_length,
+    is_nullable,
+    column_default
+FROM information_schema.columns
+WHERE table_name = 'pipeline_events'
+ORDER BY ordinal_position;
+
+\echo ''
 \echo '=== TRIGGERS ==='
-SELECT 
+SELECT
     trigger_name,
     event_manipulation,
     event_object_table,
     action_statement
 FROM information_schema.triggers
-WHERE event_object_table IN ('plugins', 'pipelines', 'messages')
+WHERE event_object_table IN ('plugins', 'pipelines', 'messages', 'pipeline_registry')
 ORDER BY event_object_table, trigger_name;
 
 \echo ''

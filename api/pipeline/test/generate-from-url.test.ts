@@ -29,6 +29,30 @@ jest.mock('@mwashburn160/api-core', () => ({
     return { post: mockPluginClientPost };
   },
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  initSSEStream: jest.fn((req: any, res: any, timeoutMs: number) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setTimeout(timeoutMs);
+    res.flushHeaders?.();
+    let _aborted = false;
+    req.on('close', () => { _aborted = true; });
+    return { aborted: () => _aborted };
+  }),
+  handleAIError: jest.fn((res: any, message: string, fallbackMessage: string) => {
+    if (!res.headersSent) {
+      if (message.includes('not configured') || message.includes('API key')) {
+        return mockSendInternalError(res, 'AI generation is not configured for the requested provider');
+      }
+      if (message.includes('not available for provider')) {
+        return mockSendBadRequest(res, message);
+      }
+      return mockSendInternalError(res, fallbackMessage, { details: message });
+    }
+    res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+    res.end();
+  }),
   sendBadRequest: mockSendBadRequest.mockImplementation((res: any, msg: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg });
   }),

@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
@@ -139,6 +140,40 @@ export function deploy(program: Command): void {
             'Output Directory': outputPath,
             'Status': '✓ Success',
           });
+
+          // Register pipeline ARN for event reporting (non-blocking)
+          if (!options.synth) {
+            try {
+              const profileFlag = options.profile ? `--profile ${options.profile}` : '';
+              const account = execSync(`aws sts get-caller-identity --query Account --output text ${profileFlag}`, { encoding: 'utf-8' }).trim();
+              const region = execSync(`aws configure get region ${profileFlag}`, { encoding: 'utf-8' }).trim()
+                || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+
+              const pipelineName = pipeline.pipelineName
+                || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
+              const pipelineArn = `arn:aws:codepipeline:${region}:${account}:${pipelineName}`;
+
+              // Upsert pipeline_registry via the API
+              await client.post(`${config.api.pipelineUrl}/registry`, {
+                pipelineId: pipeline.id,
+                orgId: pipeline.orgId,
+                pipelineArn,
+                pipelineName,
+                accountId: account,
+                region,
+                project: pipeline.project,
+                organization: pipeline.organization,
+                stackName: `${pipeline.project}-${pipeline.organization}`.toLowerCase(),
+              });
+
+              printSuccess('Pipeline registered for event reporting', { arn: pipelineArn });
+            } catch (regError) {
+              // Non-blocking — deploy succeeded even if registration fails
+              printWarning('Pipeline registry update failed (reporting may be incomplete)', {
+                error: regError instanceof Error ? regError.message : String(regError),
+              });
+            }
+          }
         }
 
       } catch (error) {

@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Pipeline Builder - Application Services.
   Deploys all Fargate services: Nginx reverse proxy, Platform, Pipeline, Plugin,
-  Quota, Billing, Message, and Frontend on ECS with Cloud Map service discovery.
+  Quota, Billing, Message, Reporting, and Frontend on ECS with Cloud Map service discovery.
 
 Parameters:
   StackPrefix:
@@ -18,37 +18,42 @@ Parameters:
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:1.34.5
+    Default: ghcr.io/mwashburn160/platform:1.34.6
     Description: Docker image for the Platform service
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:1.33.5
+    Default: ghcr.io/mwashburn160/pipeline:1.33.6
     Description: Docker image for the Pipeline service
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:1.33.5
+    Default: ghcr.io/mwashburn160/plugin:1.33.6
     Description: Docker image for the Plugin service
 
   QuotaImage:
     Type: String
-    Default: ghcr.io/mwashburn160/quota:1.32.5
+    Default: ghcr.io/mwashburn160/quota:1.32.6
     Description: Docker image for the Quota service
 
   BillingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/billing:1.17.5
+    Default: ghcr.io/mwashburn160/billing:1.17.6
     Description: Docker image for the Billing service
 
   MessageImage:
     Type: String
-    Default: ghcr.io/mwashburn160/message:1.15.5
+    Default: ghcr.io/mwashburn160/message:1.15.6
     Description: Docker image for the Message service
+
+  ReportingImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/reporting:0.0.0
+    Description: Docker image for the Reporting service
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.36.5
+    Default: ghcr.io/mwashburn160/frontend:1.36.6
     Description: Docker image for the Frontend service
 
   AppSecretsName:
@@ -1149,6 +1154,136 @@ Resources:
         FailureThreshold: 1
 
   # ===========================================================================
+  # Reporting Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Reporting - Task Definition
+  # ---------------------------------------------------------------------------
+  ReportingTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-reporting"
+      Cpu: "256"
+      Memory: "512"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: reporting
+          Image: !Ref ReportingImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: !Ref GhcrAuthSecretName
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: reporting
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=reporting
+              Line_Format: json
+        - Name: log-router
+          Image: !Ref FluentBitImage
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-ReportingLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Reporting - Service
+  # ---------------------------------------------------------------------------
+  ReportingService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-reporting"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref ReportingTaskDefinition
+      DesiredCount: !Ref DefaultDesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ReportingDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Reporting - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  ReportingDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: reporting
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
   # Frontend Service
   # ===========================================================================
 
@@ -1348,6 +1483,19 @@ Outputs:
     Value: !Ref MessageTaskDefinition
     Export:
       Name: !Sub "${StackPrefix}-MessageTaskDefinitionArn"
+
+  # Reporting
+  ReportingServiceArn:
+    Description: ARN of the Reporting ECS service
+    Value: !Ref ReportingService
+    Export:
+      Name: !Sub "${StackPrefix}-ReportingServiceArn"
+
+  ReportingTaskDefinitionArn:
+    Description: ARN of the Reporting task definition
+    Value: !Ref ReportingTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-ReportingTaskDefinitionArn"
 
   # Frontend
   FrontendServiceArn:
