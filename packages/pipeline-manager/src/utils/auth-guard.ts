@@ -22,7 +22,7 @@ interface TokenPayload {
 export function decodeTokenPayload(token: string): TokenPayload | null {
   try {
     const parts = token.split('.');
-    if (parts.length !== 3) return null;
+    if (parts.length !== 3 || !parts[1]) return null;
 
     const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
     return JSON.parse(payload) as TokenPayload;

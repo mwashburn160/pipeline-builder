@@ -36,6 +36,7 @@ jest.mock('../src/services/message-service', () => ({
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
+  SYSTEM_ORG_ID: 'system',
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   ErrorCode: {
