@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, maskAccountInArn } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger, hashAccountInArn } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
 import { inArray } from 'drizzle-orm';
@@ -60,7 +60,7 @@ export function createEventIngestRoutes(): Router {
         eventSource: event.eventSource as 'codepipeline' | 'codebuild' | 'plugin-build',
         eventType: event.eventType as 'PIPELINE' | 'STAGE' | 'ACTION' | 'BUILD',
         status: event.status,
-        pipelineArn: maskAccountInArn(event.pipelineArn),
+        pipelineArn: hashAccountInArn(event.pipelineArn),
         executionId: event.executionId,
         stageName: event.stageName,
         actionName: event.actionName,
