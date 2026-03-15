@@ -5,14 +5,6 @@
 const mockSelect = jest.fn();
 const mockInsert = jest.fn();
 
-jest.mock('@mwashburn160/api-core', () => ({
-  sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
-  sendBadRequest: jest.fn((_res: any, msg: string) => msg),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
-}));
-
 jest.mock('@mwashburn160/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'test-org', userId: 'user-1' }, requestId: 'req-1' };
@@ -24,7 +16,20 @@ jest.mock('@mwashburn160/api-server', () => ({
   attachRequestContext: () => jest.fn(),
 }));
 
+jest.mock('@mwashburn160/api-core', () => ({
+  sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
+  sendBadRequest: jest.fn((_res: any, msg: string) => msg),
+  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
+  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
+  hashAccountInArn: (arn: string) => arn,
+  hashId: (value: string) => value,
+}));
+
 jest.mock('@mwashburn160/pipeline-core', () => ({
+  CoreConstants: {
+    MAX_EVENTS_PER_BATCH: 100,
+  },
   db: {
     select: mockSelect,
     insert: mockInsert,
@@ -41,6 +46,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
 
 jest.mock('drizzle-orm', () => ({
   eq: jest.fn((col: any, val: any) => ({ col, val })),
+  inArray: jest.fn((col: any, vals: any) => ({ col, vals })),
 }));
 
 import { createEventIngestRoutes } from '../src/routes/event-ingest';
