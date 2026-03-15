@@ -284,7 +284,8 @@ export function uploadPlugin(program: Command): void {
         }
 
         // Print deployment logs URL if available
-        const requestId = (response as any)['X-Request-Id'] || (response as any).requestId;
+        const resp = response as unknown as Record<string, unknown>;
+        const requestId = resp['X-Request-Id'] || resp.requestId;
         if (requestId) {
           console.log('');
           printInfo('Deployment logs available', {

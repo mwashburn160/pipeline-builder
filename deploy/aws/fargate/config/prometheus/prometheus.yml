@@ -37,6 +37,10 @@ scrape_configs:
   - job_name: 'message'
     static_configs:
       - targets: ['message.pipeline-builder.local:3000']
+
+  - job_name: 'reporting'
+    static_configs:
+      - targets: ['reporting:3000']
         labels:
           service: message
 

@@ -21,11 +21,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:      ws,
-  pipelineData: ws,
-  pipelineCore: ws,
-  apiServer:    ws,
-  aiCore:       ws,
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // -- Root project --
@@ -170,6 +171,7 @@ const pipelineCore = new PackageProject({
     '@types/node@25.3.0',
     '@types/aws-lambda@8.10.160',
     '@types/jsonwebtoken@9.0.10',
+    '@aws-sdk/client-secrets-manager@3.997.0',
     '@jest/globals@30.2.0',
     'copyfiles@2.4.1'
   ],
@@ -236,6 +238,22 @@ const aiCore = new PackageProject({
 });
 aiCore.eslint?.addRules(rules);
 
+// -- Event Ingestion Lambda --
+const eventIngestion = new PackageProject({
+  ...pkgDefaults,
+  parent: root,
+  name: '@mwashburn160/event-ingestion',
+  outdir: './packages/event-ingestion',
+  deps: [],
+  devDeps: [
+    '@types/node@25.3.0',
+    '@types/aws-lambda@8.10.160',
+    '@aws-sdk/client-secrets-manager@3.997.0',
+    `typescript@${typescriptVersion}`,
+  ],
+});
+eventIngestion.eslint?.addRules(rules);
+
 // =============================================================================
 // Pipeline Manager CLI
 // =============================================================================
@@ -269,6 +287,7 @@ manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
+manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
 
 // =============================================================================
 // Platform Service
@@ -411,6 +430,14 @@ const services: Array<{
     name: 'message',
     deps: [
       'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6',
+    ],
+    devDeps: ['@types/pg@8.16.0'],
+  },
+  {
+    name: 'reporting',
+    deps: [
+      `@mwashburn160/pipeline-data@${pkg.pipelineData}`,
+      'pg@8.18.0', 'drizzle-orm@0.45.1', 'zod@4.3.6',
     ],
     devDeps: ['@types/pg@8.16.0'],
   },

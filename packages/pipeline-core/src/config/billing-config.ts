@@ -26,7 +26,6 @@ const DEFAULT_PRO_FEATURES = [
   'Up to 100 pipelines',
   'Unlimited API calls',
   'Priority support',
-  'Advanced analytics',
 ];
 
 const DEFAULT_UNLIMITED_FEATURES = [
@@ -34,7 +33,6 @@ const DEFAULT_UNLIMITED_FEATURES = [
   'Unlimited pipelines',
   'Unlimited API calls',
   'Dedicated support',
-  'Advanced analytics',
   'Custom integrations',
 ];
 

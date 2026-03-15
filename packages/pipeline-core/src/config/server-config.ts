@@ -3,6 +3,8 @@ import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
+const DEFAULT_PLATFORM_URL = CoreConstants.DEFAULT_PLATFORM_URL;
+
 const log = createLogger('ServerConfig');
 
 /**
@@ -24,10 +26,10 @@ export function loadServerConfig(): ServerConfig {
       credentials: process.env.CORS_CREDENTIALS !== 'false',
       origin: process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-        : [process.env.PLATFORM_BASE_URL || 'https://localhost:8443'],
+        : [process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL],
     },
     trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
-    platformUrl: process.env.PLATFORM_BASE_URL || 'https://localhost:8443',
+    platformUrl: process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL,
 
     httpClient: {
       timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10),

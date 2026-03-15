@@ -78,6 +78,7 @@ flowchart TB
 | **Platform** | Auth, orgs, users, JWT, RBAC — central gateway for all requests |
 | **Pipeline** | Pipeline CRUD + AI generation |
 | **Plugin** | Plugin CRUD + Docker builds + AI generation |
+| **Reporting** | Pipeline execution reports + plugin build analytics |
 | **Quota** | Resource limits per org |
 | **Billing** | Subscriptions and plans |
 | **Message** | Org announcements and messaging |
@@ -182,6 +183,9 @@ pipeline-manager deploy --id <pipeline-id> --profile production
 | `list-pipelines` | List pipelines |
 | `get-pipeline --id <id>` | Get pipeline by ID |
 | `deploy --id <id>` | Deploy pipeline to AWS via CDK |
+| `store-credentials -e <email> -p <pass>` | Store service credentials in Secrets Manager |
+| `setup-events` | Deploy EventBridge reporting infrastructure |
+| `bootstrap --account <id> --region <r>` | Bootstrap CDK toolkit stack |
 | `version` | Show version info |
 
 Output: `--format table|json|yaml|csv` | File: `--output <path>` | Flags: `--debug` `--verbose` `--quiet`
@@ -253,18 +257,20 @@ See the full [AWS Deployment Guide](docs/aws-deployment.md).
 pipeline-builder/
 ├── packages/
 │   ├── api-core/            # Auth, logging, HTTP client, response utilities
-│   ├── pipeline-data/       # Drizzle ORM schemas, CRUD service base class
+│   ├── pipeline-data/       # Drizzle ORM schemas, CRUD service, reporting service
 │   ├── pipeline-core/       # AWS CDK constructs, plugin system, metadata
 │   ├── api-server/          # Express factory, SSE, request context
 │   ├── ai-core/             # Multi-LLM support (Anthropic, OpenAI, Google, xAI, Bedrock)
+│   ├── event-ingestion/     # Lambda handler for EventBridge → reporting API
 │   └── pipeline-manager/    # CLI tool
 ├── api/
-│   ├── pipeline/            # Pipeline CRUD + AI generation
+│   ├── pipeline/            # Pipeline CRUD + AI generation + registry
 │   ├── plugin/              # Plugin CRUD + Docker builds + AI generation
+│   ├── reporting/           # Execution reports + build analytics
 │   ├── quota/               # Quota enforcement
 │   ├── billing/             # Billing management
 │   └── message/             # Messaging
-├── platform/                # Auth, orgs, users
+├── platform/                # Auth, orgs, users, audit log
 ├── frontend/                # Next.js dashboard
 ├── deploy/
 │   ├── plugins/             # 125 pre-built plugins
@@ -306,7 +312,7 @@ pnpm build && pnpm test
 
 - [API Reference](docs/api-reference.md) — endpoints, query params, curl examples
 - [Environment Variables](docs/environment-variables.md) — full config reference
-- [AWS Deployment](docs/aws-deployment.md) — EC2 and Fargate guides
+- [AWS Deployment](docs/aws-deployment.md) — EC2 and Fargate guides + reporting setup
 - [Metadata Keys](docs/metadata-keys.md) — 50+ CodePipeline/CodeBuild config keys
 - [Samples](docs/samples.md) — pipeline configs and CDK TypeScript examples
 - [Plugin Catalog](docs/plugins/README.md) — 125 pre-built plugins across 10 categories

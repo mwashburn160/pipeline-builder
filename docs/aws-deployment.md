@@ -223,7 +223,7 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **01-foundation** | VPC, ALB, Route 53, EFS, S3 config bucket, Cloud Map |
 | **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
 | **03-databases** | PostgreSQL, MongoDB, Redis |
-| **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Frontend |
+| **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Frontend |
 | **05-observability** | Prometheus, Loki, Grafana |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
@@ -292,7 +292,7 @@ deploy/aws/fargate/
 │   ├── 01-foundation.yaml # VPC, ALB, EFS, S3, Cloud Map
 │   ├── 02-cluster.yaml    # ECS, IAM, security groups
 │   ├── 03-databases.yaml  # PostgreSQL, MongoDB, Redis
-│   ├── 04-services.yaml   # Nginx + 7 app services
+│   ├── 04-services.yaml   # Nginx + 8 app services (incl. Reporting)
 │   ├── 05-observability.yaml
 │   └── 06-admin.yaml
 ├── config/                # Prometheus, Loki, Grafana, Fluent Bit
@@ -301,6 +301,82 @@ deploy/aws/fargate/
 ├── mongodb-init.js
 └── postgres-init.sql
 ```
+
+---
+
+## Post-Deploy: Reporting & Event Ingestion
+
+After deploying the application, set up pipeline execution reporting to track success rates, stage performance, and build analytics.
+
+### 1. Store Service Credentials
+
+The plugin-lookup Lambda and event-ingestion Lambda use shared credentials stored in Secrets Manager:
+
+```bash
+pipeline-manager store-credentials \
+  --email admin@your-domain.com \
+  --password 'YourAdminPassword' \
+  --region us-east-1
+```
+
+### 2. Deploy EventBridge Infrastructure
+
+Deploys an EventBridge rule, SQS queue, and Lambda that forwards CodePipeline/CodeBuild events to the reporting service:
+
+```bash
+export PLATFORM_BASE_URL=https://pipeline.example.com
+
+pipeline-manager setup-events --region us-east-1
+```
+
+This creates a CloudFormation stack (`pipeline-builder-events`) containing:
+- EventBridge rule matching all CodePipeline and CodeBuild state changes
+- SQS queue with dead-letter queue for failed events
+- Lambda handler (code pulled from npm registry on each `setup-events` run)
+
+### 3. Verify
+
+```bash
+# Check the stack
+aws cloudformation describe-stacks --stack-name pipeline-builder-events \
+  --query 'Stacks[0].StackStatus' --output text
+
+# Check the EventBridge rule
+aws events describe-rule --name pipeline-builder-codepipeline-events
+
+# Check the Lambda
+aws lambda get-function --function-name pipeline-builder-event-ingestion \
+  --query 'Configuration.LastModified'
+```
+
+### How It Works
+
+1. **Deploy** creates a pipeline → `pipeline-manager deploy` registers the pipeline ARN in `pipeline_registry`
+2. **Execute** — CodePipeline runs → EventBridge captures STARTED/SUCCEEDED/FAILED events
+3. **Ingest** — SQS → Lambda → POST to reporting service API → `pipeline_events` table
+4. **Report** — `GET /api/reports/execution/count`, `/success-rate`, `/stage-failures`, etc.
+
+Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
+
+### Report Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/reports/execution/count` | Execution count per pipeline |
+| `GET /api/reports/execution/success-rate` | Pass/fail rate over time |
+| `GET /api/reports/execution/duration` | Average execution duration |
+| `GET /api/reports/execution/stage-failures` | Stage failure heatmap |
+| `GET /api/reports/execution/stage-bottlenecks` | Slowest stages |
+| `GET /api/reports/execution/action-failures` | Action/step failure rate |
+| `GET /api/reports/execution/errors` | Error categorization |
+| `GET /api/reports/plugins/summary` | Plugin inventory summary |
+| `GET /api/reports/plugins/distribution` | Type/compute distribution |
+| `GET /api/reports/plugins/versions` | Version counts per plugin |
+| `GET /api/reports/plugins/build-success-rate` | Docker build success rate |
+| `GET /api/reports/plugins/build-duration` | Build time per plugin |
+| `GET /api/reports/plugins/build-failures` | Build failure reasons |
+
+All endpoints accept `?from=<ISO>&to=<ISO>` for time range (default: last 30 days).
 
 ---
 

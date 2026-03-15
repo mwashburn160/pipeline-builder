@@ -1,8 +1,9 @@
 import {
   createLogger,
   errorMessage,
+  handleAIError,
+  initSSEStream,
   sendBadRequest,
-  sendInternalError,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
@@ -14,36 +15,6 @@ import { Router } from 'express';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';
 
 const logger = createLogger('generate-plugin');
-
-const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
-
-/** Set SSE response headers and flush. */
-function initSSEStream(req: import('express').Request, res: import('express').Response): { aborted: () => boolean } {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setTimeout(SSE_STREAM_TIMEOUT_MS);
-  res.flushHeaders();
-  let _aborted = false;
-  req.on('close', () => { _aborted = true; });
-  return { aborted: () => _aborted };
-}
-
-/** Classify AI generation errors and send the appropriate HTTP response. */
-function handleAIError(res: import('express').Response, message: string, fallbackMessage: string) {
-  if (!res.headersSent) {
-    if (message.includes('not configured') || message.includes('API key')) {
-      return sendInternalError(res, 'AI generation is not configured for the requested provider');
-    }
-    if (message.includes('not available for provider')) {
-      return sendBadRequest(res, message);
-    }
-    return sendInternalError(res, fallbackMessage, { details: message });
-  }
-  res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
-  res.end();
-}
 
 /**
  * Create and register AI plugin generation routes.
@@ -110,7 +81,7 @@ export function createGeneratePluginRoutes(): Router {
         model,
       });
 
-      const sse = initSSEStream(req, res);
+      const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
 
       const result = streamPluginConfig({
         prompt: prompt.trim(),

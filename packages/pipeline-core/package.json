@@ -18,7 +18,7 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.1009.0",
+    "@aws-sdk/client-secrets-manager": "3.997.0",
     "@jest/globals": "30.2.0",
     "@stylistic/eslint-plugin": "^2",
     "@types/aws-lambda": "8.10.160",

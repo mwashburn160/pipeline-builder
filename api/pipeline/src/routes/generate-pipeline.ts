@@ -2,8 +2,9 @@ import {
   createLogger,
   createSafeClient,
   errorMessage,
+  handleAIError,
+  initSSEStream,
   sendBadRequest,
-  sendInternalError,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
@@ -19,21 +20,6 @@ import { getAvailableProviders, generatePipelineConfig, streamPipelineConfig } f
 import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service';
 
 const logger = createLogger('generate-pipeline');
-
-const SSE_STREAM_TIMEOUT_MS = CoreConstants.SSE_STREAM_TIMEOUT_MS;
-
-/** Set SSE response headers and flush. */
-function initSSEStream(req: import('express').Request, res: import('express').Response): { aborted: () => boolean } {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setTimeout(SSE_STREAM_TIMEOUT_MS);
-  res.flushHeaders();
-  let _aborted = false;
-  req.on('close', () => { _aborted = true; });
-  return { aborted: () => _aborted };
-}
 
 /** Stream partial objects from an AI generation result. */
 async function streamPartials(
@@ -52,26 +38,12 @@ async function streamPartials(
   }
 }
 
-/** Handle AI generation errors, sending appropriate response or SSE event. */
-function handleAIError(res: import('express').Response, message: string, fallbackMessage: string): void {
-  if (!res.headersSent) {
-    if (message.includes('not configured') || message.includes('API key')) {
-      return sendInternalError(res, 'AI generation is not configured for the requested provider');
-    }
-    if (message.includes('not available for provider')) {
-      return sendBadRequest(res, message);
-    }
-    return sendInternalError(res, fallbackMessage, { details: message });
-  }
-  res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
-  res.end();
-}
-
+const PLUGIN_SERVICE_TIMEOUT_MS = 30_000;
 const { pluginHost, pluginPort } = Config.get('server').services;
 const pluginClient = createSafeClient({
   host: pluginHost,
   port: pluginPort,
-  timeout: 30_000,
+  timeout: PLUGIN_SERVICE_TIMEOUT_MS,
 });
 
 /**
@@ -208,7 +180,7 @@ export function createGeneratePipelineRoutes(): Router {
 
         const plugins = await getAvailablePlugins(orgId);
 
-        const sse = initSSEStream(req, res);
+        const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
 
         const result = streamPipelineConfig({
           prompt: prompt.trim(),
@@ -282,7 +254,7 @@ export function createGeneratePipelineRoutes(): Router {
           gitProvider: parsed.provider,
         });
 
-        const sse = initSSEStream(req, res);
+        const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
 
         // Phase 1: Analyze repository
         res.write(`data: ${JSON.stringify({ type: 'analyzing' })}\n\n`);

@@ -18,6 +18,7 @@ resources:
   - pipeline.yaml
   - plugin.yaml
   - message.yaml
+  - reporting.yaml
   - quota.yaml
   - billing.yaml
   - frontend.yaml

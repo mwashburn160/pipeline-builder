@@ -1,9 +1,9 @@
-import { sendBadRequest, sendSuccess, ErrorCode, createLogger } from '@mwashburn160/api-core';
+import { sendBadRequest, sendSuccess, ErrorCode } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
 
-const logger = createLogger('bulk-pipeline');
 
 /**
  * Register bulk operation routes for pipelines.
@@ -20,8 +20,8 @@ export function createBulkPipelineRoutes(): Router {
       return sendBadRequest(res, 'Request body must include a non-empty "ids" array', ErrorCode.VALIDATION_ERROR);
     }
 
-    if (ids.length > 100) {
-      return sendBadRequest(res, 'Maximum 100 items per bulk operation', ErrorCode.VALIDATION_ERROR);
+    if (ids.length > CoreConstants.MAX_BULK_ITEMS) {
+      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
     }
 
     ctx.log('INFO', 'Bulk delete pipelines', { count: ids.length });
@@ -41,8 +41,8 @@ export function createBulkPipelineRoutes(): Router {
       return sendBadRequest(res, 'Request body must include a non-empty "ids" array', ErrorCode.VALIDATION_ERROR);
     }
 
-    if (ids.length > 100) {
-      return sendBadRequest(res, 'Maximum 100 items per bulk operation', ErrorCode.VALIDATION_ERROR);
+    if (ids.length > CoreConstants.MAX_BULK_ITEMS) {
+      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
     }
 
     if (!data || typeof data !== 'object') {
@@ -52,7 +52,7 @@ export function createBulkPipelineRoutes(): Router {
     ctx.log('INFO', 'Bulk update pipelines', { count: ids.length });
 
     const updated = await pipelineService.updateMany(
-      { id: ids } as any,
+      { id: ids } as unknown as Record<string, unknown>,
       data,
       orgId,
       userId,

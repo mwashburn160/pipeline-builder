@@ -10,6 +10,7 @@ import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
 import { login } from './commands/login';
 import { refresh } from './commands/refresh';
+import { setupEvents } from './commands/setup-events';
 import { storeCredentials } from './commands/store-credentials';
 import { uploadPlugin } from './commands/upload-plugin';
 import { version } from './commands/version';
@@ -185,6 +186,7 @@ Documentation:
   // Deployment commands
   printDebug('Registering deployment commands');
   storeCredentials(program); // Store service credentials in Secrets Manager
+  setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK
 
