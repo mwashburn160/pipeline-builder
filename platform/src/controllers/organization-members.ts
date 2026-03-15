@@ -238,8 +238,7 @@ export async function updateMemberRole(req: Request, res: Response): Promise<voi
       return sendError(res, 404, 'User not found');
     }
 
-    // Map organization role to user role ('member' -> 'user', 'admin' -> 'admin')
-    user.role = body.role === 'member' ? 'user' : 'admin';
+    user.role = body.role;
     await user.save();
 
     logger.info(`[UPDATE MEMBER ROLE] User ${userId} role updated to ${body.role} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
