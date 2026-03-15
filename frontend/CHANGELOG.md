@@ -1,3 +1,13 @@
+## 1.37.7 (2026-03-15)
+
+### 🩹 Fixes
+
+- redesigned reports dashboard ([61e16ca8](https://github.com/mwashburn160/pipeline-builder/commit/61e16ca8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.6 (2026-03-15)
 
 ### 🩹 Fixes
