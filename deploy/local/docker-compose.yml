@@ -254,7 +254,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.36.6'
+    image: 'ghcr.io/mwashburn160/frontend:1.37.6'
     container_name: frontend
     restart: always
     environment:
@@ -277,7 +277,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.34.6'
+    image: 'ghcr.io/mwashburn160/platform:1.35.6'
     container_name: platform
     restart: always
     environment:
@@ -387,7 +387,7 @@ services:
           memory: 1G
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.33.6'
+    image: 'ghcr.io/mwashburn160/plugin:1.34.6'
     container_name: plugin
     restart: always
     environment:
@@ -432,7 +432,7 @@ services:
           memory: 768M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.33.6'
+    image: 'ghcr.io/mwashburn160/pipeline:1.34.6'
     container_name: pipeline
     restart: always
     environment:
@@ -452,7 +452,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.15.6'
+    image: 'ghcr.io/mwashburn160/message:1.16.6'
     container_name: message
     restart: always
     environment:
@@ -470,7 +470,7 @@ services:
     deploy: *api-deploy
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:0.0.0'
+    image: 'ghcr.io/mwashburn160/reporting:0.1.6'
     container_name: reporting
     restart: always
     environment:
