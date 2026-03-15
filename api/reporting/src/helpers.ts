@@ -1,7 +1,7 @@
 import { CoreConstants } from '@mwashburn160/pipeline-core';
 
 /** Valid time intervals for time-series reports. */
-export const VALID_INTERVALS = ['day', 'week', 'month'] as const;
+export const VALID_INTERVALS: readonly string[] = ['day', 'week', 'month'];
 
 /** Parse from/to query params with configurable default range. */
 export function parseRange(query: Record<string, unknown>): { from: string; to: string } {
