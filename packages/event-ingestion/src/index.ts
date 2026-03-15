@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 
@@ -19,12 +20,20 @@ const SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder
 const CREDENTIALS_SECRET_NAME = `${SECRETS_PATH_PREFIX}/plugin-lookup/credentials`;
 
 /**
- * Mask an AWS account number for safe logging (e.g. "123456789012" → "1234****9012").
- * Preserves first 4 and last 4 characters, replaces the middle with asterisks.
+ * One-way SHA-256 hash of a sensitive identifier.
+ * Must match the same algorithm used in api-core/mask-helpers.ts so that
+ * the hashed ARN from the Lambda matches the hashed ARN in pipeline_registry.
  */
-function maskAccountId(accountId: string): string {
-  if (!accountId || accountId.length <= 8) return '****';
-  return accountId.slice(0, 4) + '*'.repeat(accountId.length - 8) + accountId.slice(-4);
+function hashId(value: string, length = 12): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, length);
+}
+
+/** Replace the account segment of an ARN with its SHA-256 hash. */
+function hashAccountInArn(arn: string): string {
+  const parts = arn.split(':');
+  if (parts.length < 5 || !parts[4]) return arn;
+  parts[4] = hashId(parts[4]);
+  return parts.join(':');
 }
 
 const log = {
@@ -118,11 +127,16 @@ function parseRecord(record: SQSRecord): ParsedEvent {
 
   const detail = { ...event.detail };
   const pipelineName = detail.pipeline as string;
-  const pipelineArn = `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`;
 
-  // Mask account number in detail to prevent leaking into logs and stored data
+  // Hash account in ARN so the real account never reaches the database.
+  // Must use the same hashId algorithm as api-core so registry lookups match.
+  const pipelineArn = hashAccountInArn(
+    `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`,
+  );
+
+  // Hash account in detail too
   if (event.account) {
-    detail.account = maskAccountId(event.account);
+    detail.account = hashId(event.account);
   }
 
   const { eventType, eventSource } = classifyEvent(event['detail-type']);

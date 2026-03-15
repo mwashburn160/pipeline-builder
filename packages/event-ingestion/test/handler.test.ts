@@ -111,7 +111,7 @@ describe('event-ingestion handler', () => {
 
     expect(body.events).toHaveLength(1);
     expect(body.events[0]).toMatchObject({
-      pipelineArn: 'arn:aws:codepipeline:us-east-1:123456789012:acme-webapp-pipeline',
+      pipelineArn: 'arn:aws:codepipeline:us-east-1:2a33349e7e60:acme-webapp-pipeline', // account hashed
       eventSource: 'codepipeline',
       eventType: 'PIPELINE',
       status: 'SUCCEEDED',
@@ -218,16 +218,18 @@ describe('event-ingestion handler', () => {
     expect(body.events[0].completedAt).toBeUndefined();
   });
 
-  it('should mask account number in detail but preserve full ARN', async () => {
+  it('should hash account number in both ARN and detail', async () => {
     const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
     await handler(event);
 
     const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
     const body = JSON.parse(eventsCall![1].body);
 
-    // ARN must be unmasked for registry lookup
-    expect(body.events[0].pipelineArn).toBe('arn:aws:codepipeline:us-east-1:123456789012:acme-webapp-pipeline');
-    // Account in detail should be masked
-    expect(body.events[0].detail.account).toBe('1234****9012');
+    // Account in ARN should be hashed (not the raw 123456789012)
+    expect(body.events[0].pipelineArn).toBe('arn:aws:codepipeline:us-east-1:2a33349e7e60:acme-webapp-pipeline');
+    // Account in detail should also be hashed
+    expect(body.events[0].detail.account).toBe('2a33349e7e60');
+    // Real account number should not appear anywhere in the payload
+    expect(JSON.stringify(body)).not.toContain('123456789012');
   });
 });

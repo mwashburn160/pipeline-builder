@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import path from 'path';
 import { Command } from 'commander';
@@ -151,7 +152,11 @@ export function deploy(program: Command): void {
 
               const pipelineName = pipeline.pipelineName
                 || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
-              const pipelineArn = `arn:aws:codepipeline:${region}:${account}:${pipelineName}`;
+
+              // Hash the account number so the real value never reaches the database.
+              // Must use the same SHA-256 algorithm as event-ingestion and api-core.
+              const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
+              const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
 
               // Upsert pipeline_registry via the API
               await client.post(`${config.api.pipelineUrl}/registry`, {
@@ -159,7 +164,7 @@ export function deploy(program: Command): void {
                 orgId: pipeline.orgId,
                 pipelineArn,
                 pipelineName,
-                accountId: account,
+                accountId: hashedAccount,
                 region,
                 project: pipeline.project,
                 organization: pipeline.organization,

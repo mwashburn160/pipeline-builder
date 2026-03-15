@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, ErrorCode } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, hashAccountInArn, hashId } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
@@ -18,7 +18,11 @@ export function createRegistryRoutes(): Router {
       return sendBadRequest(res, 'pipelineId, pipelineArn, and pipelineName are required', ErrorCode.VALIDATION_ERROR);
     }
 
-    ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineArn });
+    // Ensure account is hashed before storing (defense in depth)
+    const safeArn = hashAccountInArn(pipelineArn);
+    const safeAccountId = accountId ? hashId(accountId) : undefined;
+
+    ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineArn: safeArn });
 
     // Upsert by pipeline_arn (unique constraint)
     const [result] = await db
@@ -26,9 +30,9 @@ export function createRegistryRoutes(): Router {
       .values({
         pipelineId,
         orgId,
-        pipelineArn,
+        pipelineArn: safeArn,
         pipelineName,
-        accountId,
+        accountId: safeAccountId,
         region,
         project,
         organization,
@@ -41,7 +45,7 @@ export function createRegistryRoutes(): Router {
           pipelineId,
           orgId,
           pipelineName,
-          accountId,
+          accountId: safeAccountId,
           region,
           project,
           organization,
@@ -52,7 +56,7 @@ export function createRegistryRoutes(): Router {
       })
       .returning();
 
-    ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: pipelineArn });
+    ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: safeArn });
 
     sendSuccess(res, 200, { registry: result });
   }));

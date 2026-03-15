@@ -47,7 +47,7 @@ describe('auth-utils schemas', () => {
 
     it('should reject short username', () => {
       const result = registerSchema.safeParse({
-        username: 'ab',
+        username: 'a',
         email: 'test@example.com',
         password: 'Password1',
       });

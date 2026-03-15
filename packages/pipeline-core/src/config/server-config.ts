@@ -3,7 +3,8 @@ import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
-const DEFAULT_PLATFORM_URL = CoreConstants.DEFAULT_PLATFORM_URL;
+/** Accessed at module load time — must not depend on lazy-loaded CoreConstants. */
+const DEFAULT_PLATFORM_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
 
 const log = createLogger('ServerConfig');
 
