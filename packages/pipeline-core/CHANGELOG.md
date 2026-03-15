@@ -1,3 +1,19 @@
+## 1.41.0 (2026-03-15)
+
+### 🚀 Features
+
+- added reporting ([a297b1eb](https://github.com/mwashburn160/pipeline-builder/commit/a297b1eb))
+- code review ([a4879f3d](https://github.com/mwashburn160/pipeline-builder/commit/a4879f3d))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.40.0
+- Updated @mwashburn160/api-core to 1.39.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.9 (2026-03-13)
 
 ### 🩹 Fixes
