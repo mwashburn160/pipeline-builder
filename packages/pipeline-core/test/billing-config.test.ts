@@ -96,7 +96,7 @@ describe('loadBillingConfig', () => {
     const [developer, pro, unlimited] = config.plans;
 
     expect(developer.features).toContain('Community support');
-    expect(pro.features).toContain('Priority support');
+    expect(pro.features).toContain('Reporting dashboard');
     expect(unlimited.features).toContain('Custom integrations');
   });
 });
