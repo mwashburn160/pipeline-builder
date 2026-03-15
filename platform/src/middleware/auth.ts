@@ -36,7 +36,7 @@ async function populateRequestUser(req: Request, user: UserLike): Promise<void> 
     organizationName = org?.name;
   }
 
-  (req as Record<string, unknown>).user = {
+  (req as unknown as Record<string, unknown>).user = {
     sub: user._id.toString(),
     username: user.username,
     email: user.email,
