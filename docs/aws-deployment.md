@@ -114,18 +114,6 @@ All in `deploy/aws/ec2/bin/`. On the instance: `/opt/pipeline-builder/deploy/aws
 | `shutdown.sh` | Stop Minikube + remove iptables rules | root |
 | `update-tls-secret.sh` | Certbot hook to update K8s TLS secret | root |
 
-**Restart services:**
-
-```bash
-sudo -u minikube bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
-```
-
-**Stop services:**
-
-```bash
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
-```
-
 ### Security
 
 - IMDSv2 required (token-based metadata)
@@ -145,26 +133,6 @@ sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
 ```bash
 aws cloudformation delete-stack --stack-name pipeline-builder
 aws cloudformation wait stack-delete-complete --stack-name pipeline-builder
-```
-
-### Files
-
-```
-deploy/aws/ec2/
-├── template.yaml          # CloudFormation stack
-├── .env.example           # Reference config
-├── bin/
-│   ├── bootstrap.sh       # EC2 setup + hardening
-│   ├── startup.sh         # Minikube + K8s deploy
-│   ├── shutdown.sh        # Teardown
-│   └── update-tls-secret.sh
-├── k8s/                   # 22 Kubernetes manifests
-│   └── kustomization.yaml # Kustomize entry point
-├── nginx/
-│   ├── nginx-ec2.conf     # Nginx config (TLS + JWT)
-│   ├── jwt.js             # NJS JWT parsing
-│   └── metrics.js         # NJS metrics
-└── config/                # Prometheus, Loki, Promtail, Grafana configs
 ```
 
 ---
@@ -279,7 +247,179 @@ bash bin/teardown.sh --stack-prefix pb --region us-east-1
 
 > Secrets Manager entries are **not** auto-deleted. Remove manually if needed.
 
-### Files
+---
+
+## Post-Deploy Steps
+
+After deploying (EC2 or Fargate), complete these steps to initialize the platform and enable reporting.
+
+### 1. Initialize the Platform
+
+Register the admin user and load pre-built plugins and sample pipelines:
+
+```bash
+cd deploy
+
+# Interactive — prompts for admin credentials
+bash bin/init-platform.sh ec2         # EC2 (resolves URL from CloudFormation)
+bash bin/init-platform.sh local       # Docker Compose
+bash bin/init-platform.sh minikube    # Minikube
+
+# Non-interactive
+export PLATFORM_BASE_URL=https://pipeline.example.com
+export PLATFORM_IDENTIFIER=admin@internal
+export PLATFORM_PASSWORD=SecurePassword123!
+bash bin/init-platform.sh ec2
+```
+
+`init-platform.sh` does: health check → register admin → login → load plugins → load pipelines.
+
+| Script | Purpose |
+|--------|---------|
+| `init-platform.sh` | Register admin + load plugins + pipelines (interactive) |
+| `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
+| `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
+| `test-plugins.sh` | Validate plugin manifests and Dockerfiles |
+
+### 2. Store Service Credentials
+
+The plugin-lookup Lambda and event-ingestion Lambda use shared credentials stored in Secrets Manager. Store them using the CLI:
+
+```bash
+pipeline-manager store-credentials \
+  --email admin@your-domain.com \
+  --password 'YourAdminPassword' \
+  --region us-east-1
+```
+
+### 3. Deploy EventBridge Reporting Infrastructure
+
+Set up pipeline execution reporting to track success rates, stage performance, and build analytics:
+
+```bash
+export PLATFORM_BASE_URL=https://pipeline.example.com
+
+pipeline-manager setup-events --region us-east-1
+```
+
+This creates a CloudFormation stack (`pipeline-builder-events`) containing:
+
+- **EventBridge rule** matching all CodePipeline and CodeBuild state changes
+- **SQS queue** with dead-letter queue for failed events
+- **Lambda handler** that authenticates via Secrets Manager and POSTs events to the reporting API
+
+### 4. Verify Reporting
+
+```bash
+# Check the EventBridge stack
+aws cloudformation describe-stacks --stack-name pipeline-builder-events \
+  --query 'Stacks[0].StackStatus' --output text
+
+# Check the EventBridge rule
+aws events describe-rule --name pipeline-builder-codepipeline-events
+
+# Check the Lambda
+aws lambda get-function --function-name pipeline-builder-event-ingestion \
+  --query 'Configuration.LastModified'
+```
+
+### How Reporting Works
+
+```
+Deploy → pipeline-manager registers hashed ARN in pipeline_registry
+Execute → CodePipeline runs → EventBridge captures state changes
+Ingest  → SQS → Lambda → hashes account → POST /api/reports/events
+Store   → Reporting API resolves org via registry → inserts into pipeline_events
+View    → Dashboard Reports page or GET /api/reports/...
+```
+
+> AWS account numbers are **never stored in plain text**. Both the deploy command and Lambda handler hash account numbers with SHA-256 before sending to the API. The reporting API applies the same hash as defense in depth.
+
+> Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
+
+---
+
+## Report API Endpoints
+
+All endpoints require authentication and org context. Time range defaults to last 30 days.
+
+### Pipeline Execution Reports
+
+| Endpoint | Description | Query Params |
+|----------|-------------|--------------|
+| `GET /api/reports/execution/count` | Execution count per pipeline with status breakdown | — |
+| `GET /api/reports/execution/success-rate` | Pass/fail rate over time | `interval`, `from`, `to` |
+| `GET /api/reports/execution/timeline` | Execution timeline (alias for success-rate) | `interval`, `from`, `to` |
+| `GET /api/reports/execution/duration` | Average/min/max/p95 execution duration | `from`, `to` |
+| `GET /api/reports/execution/stage-failures` | Stage failure heatmap | `from`, `to` |
+| `GET /api/reports/execution/stage-bottlenecks` | Slowest stages per pipeline | `from`, `to` |
+| `GET /api/reports/execution/action-failures` | Action/step failure rate | `from`, `to` |
+| `GET /api/reports/execution/errors` | Error categorization (top N) | `from`, `to`, `limit` |
+
+### Plugin Reports
+
+| Endpoint | Description | Query Params |
+|----------|-------------|--------------|
+| `GET /api/reports/plugins/summary` | Plugin inventory (total/active/public/private) | — |
+| `GET /api/reports/plugins/distribution` | Type and compute distribution | — |
+| `GET /api/reports/plugins/versions` | Version counts per plugin name | — |
+| `GET /api/reports/plugins/build-success-rate` | Docker build success rate over time | `interval`, `from`, `to` |
+| `GET /api/reports/plugins/build-duration` | Build time per plugin | `from`, `to` |
+| `GET /api/reports/plugins/build-failures` | Build failure reasons (top N) | `from`, `to`, `limit` |
+
+**Common query parameters:**
+
+| Param | Values | Default |
+|-------|--------|---------|
+| `interval` | `day`, `week`, `month` | `week` |
+| `from` | ISO 8601 timestamp | 30 days ago |
+| `to` | ISO 8601 timestamp | now |
+| `limit` | integer | `20` |
+
+---
+
+## Access Points
+
+After deployment, access services at:
+
+| Service | Path |
+|---------|------|
+| Application | `/` |
+| Reports Dashboard | `/dashboard/reports` |
+| Grafana | `/grafana/` |
+| PgAdmin | `/pgadmin/` |
+| Mongo Express | `/mongo-express/` |
+| Registry UI | `/registry-express/` |
+
+---
+
+## File Structure
+
+<details>
+<summary>EC2 deployment files</summary>
+
+```
+deploy/aws/ec2/
+├── template.yaml          # CloudFormation stack
+├── .env.example           # Reference config
+├── bin/
+│   ├── bootstrap.sh       # EC2 setup + hardening
+│   ├── startup.sh         # Minikube + K8s deploy
+│   ├── shutdown.sh        # Teardown
+│   └── update-tls-secret.sh
+├── k8s/                   # 22 Kubernetes manifests
+│   └── kustomization.yaml # Kustomize entry point
+├── nginx/
+│   ├── nginx-ec2.conf     # Nginx config (TLS + JWT)
+│   ├── jwt.js             # NJS JWT parsing
+│   └── metrics.js         # NJS metrics
+└── config/                # Prometheus, Loki, Promtail, Grafana configs
+```
+
+</details>
+
+<details>
+<summary>Fargate deployment files</summary>
 
 ```
 deploy/aws/fargate/
@@ -302,150 +442,7 @@ deploy/aws/fargate/
 └── postgres-init.sql
 ```
 
----
-
-## Post-Deploy: Reporting & Event Ingestion
-
-After deploying the application, set up pipeline execution reporting to track success rates, stage performance, and build analytics.
-
-### 1. Store Service Credentials
-
-The plugin-lookup Lambda and event-ingestion Lambda use shared credentials stored in Secrets Manager:
-
-```bash
-pipeline-manager store-credentials \
-  --email admin@your-domain.com \
-  --password 'YourAdminPassword' \
-  --region us-east-1
-```
-
-### 2. Deploy EventBridge Infrastructure
-
-Deploys an EventBridge rule, SQS queue, and Lambda that forwards CodePipeline/CodeBuild events to the reporting service:
-
-```bash
-export PLATFORM_BASE_URL=https://pipeline.example.com
-
-pipeline-manager setup-events --region us-east-1
-```
-
-This creates a CloudFormation stack (`pipeline-builder-events`) containing:
-- EventBridge rule matching all CodePipeline and CodeBuild state changes
-- SQS queue with dead-letter queue for failed events
-- Lambda handler (code pulled from npm registry on each `setup-events` run)
-
-### 3. Verify
-
-```bash
-# Check the stack
-aws cloudformation describe-stacks --stack-name pipeline-builder-events \
-  --query 'Stacks[0].StackStatus' --output text
-
-# Check the EventBridge rule
-aws events describe-rule --name pipeline-builder-codepipeline-events
-
-# Check the Lambda
-aws lambda get-function --function-name pipeline-builder-event-ingestion \
-  --query 'Configuration.LastModified'
-```
-
-### How It Works
-
-1. **Deploy** creates a pipeline → `pipeline-manager deploy` registers the pipeline ARN in `pipeline_registry`
-2. **Execute** — CodePipeline runs → EventBridge captures STARTED/SUCCEEDED/FAILED events
-3. **Ingest** — SQS → Lambda → POST to reporting service API → `pipeline_events` table
-4. **Report** — `GET /api/reports/execution/count`, `/success-rate`, `/stage-failures`, etc.
-
-Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
-
-### Report Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/reports/execution/count` | Execution count per pipeline |
-| `GET /api/reports/execution/success-rate` | Pass/fail rate over time |
-| `GET /api/reports/execution/duration` | Average execution duration |
-| `GET /api/reports/execution/stage-failures` | Stage failure heatmap |
-| `GET /api/reports/execution/stage-bottlenecks` | Slowest stages |
-| `GET /api/reports/execution/action-failures` | Action/step failure rate |
-| `GET /api/reports/execution/errors` | Error categorization |
-| `GET /api/reports/plugins/summary` | Plugin inventory summary |
-| `GET /api/reports/plugins/distribution` | Type/compute distribution |
-| `GET /api/reports/plugins/versions` | Version counts per plugin |
-| `GET /api/reports/plugins/build-success-rate` | Docker build success rate |
-| `GET /api/reports/plugins/build-duration` | Build time per plugin |
-| `GET /api/reports/plugins/build-failures` | Build failure reasons |
-
-All endpoints accept `?from=<ISO>&to=<ISO>` for time range (default: last 30 days).
-
----
-
-## Platform Initialization
-
-After deploying (EC2 or Fargate), initialize the platform with admin user, plugins, and sample pipelines.
-
-### Quick Start
-
-```bash
-cd deploy
-
-# Interactive — prompts for admin credentials
-bash bin/init-platform.sh local       # Docker Compose
-bash bin/init-platform.sh minikube    # Minikube
-bash bin/init-platform.sh ec2         # EC2 (resolves URL from CloudFormation)
-
-# Non-interactive
-export PLATFORM_BASE_URL=https://pipeline.example.com
-export PLATFORM_IDENTIFIER=admin@internal
-export PLATFORM_PASSWORD=SecurePassword123!
-bash bin/init-platform.sh ec2
-```
-
-`init-platform.sh` does: health check → register admin → login → load plugins → load pipelines.
-
-### Scripts
-
-All in `deploy/bin/`.
-
-| Script | Purpose |
-|--------|---------|
-| `init-platform.sh` | Register admin + load plugins + pipelines (interactive) |
-| `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
-| `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
-| `test-plugins.sh` | Validate plugin manifests and Dockerfiles |
-| `generate-plugins.sh` | Verify tool versions in `plugin-versions.yaml` |
-| `verify-plugin-urls.sh` | Check plugin Dockerfile download URLs |
-
-**load-plugins.sh options:**
-
-```bash
-bash bin/load-plugins.sh --category language,security  # specific categories
-bash bin/load-plugins.sh --dry-run                     # validate only
-bash bin/load-plugins.sh --rebuild                     # force rebuild zips
-```
-
-**Environment variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PLATFORM_BASE_URL` | `https://localhost:8443` | Platform URL |
-| `PLATFORM_IDENTIFIER` | *(prompted)* | Admin email |
-| `PLATFORM_PASSWORD` | *(prompted)* | Admin password |
-| `PLATFORM_TOKEN` | *(prompted)* | JWT token (skip login) |
-
----
-
-## Access Points
-
-After deployment, access services at:
-
-| Service | Path |
-|---------|------|
-| Application | `/` |
-| Grafana | `/grafana/` |
-| PgAdmin | `/pgadmin/` |
-| Mongo Express | `/mongo-express/` |
-| Registry UI | `/registry-express/` |
+</details>
 
 ---
 
@@ -468,3 +465,9 @@ Verify nginx is running. Check target group health and port 8080 accessibility.
 
 **Certificate errors:**
 Ensure certbot has Route 53 permissions. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>`
+
+**No reporting data after deploy:**
+1. Verify `pipeline-manager store-credentials` was run
+2. Check Lambda logs: `aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow`
+3. Check SQS DLQ for failed events
+4. Verify pipeline was deployed after `setup-events` (ARN must be registered)

@@ -25,14 +25,16 @@ const DEFAULT_PRO_FEATURES = [
   'Up to 1,000 plugins',
   'Up to 100 pipelines',
   'Unlimited API calls',
-  'Priority support',
+  'Community support',
+  'Reporting dashboard',
 ];
 
 const DEFAULT_UNLIMITED_FEATURES = [
   'Unlimited plugins',
   'Unlimited pipelines',
   'Unlimited API calls',
-  'Dedicated support',
+  'Priority support',
+  'Reporting dashboard',
   'Custom integrations',
 ];
 
