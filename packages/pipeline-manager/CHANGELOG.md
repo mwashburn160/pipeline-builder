@@ -1,3 +1,17 @@
+## 1.36.2 (2026-03-15)
+
+### 🩹 Fixes
+
+- version=1.39.1 ([76d545e2](https://github.com/mwashburn160/pipeline-builder/commit/76d545e2))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.41.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.1 (2026-03-15)
 
 ### 🩹 Fixes
