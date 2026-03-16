@@ -83,11 +83,6 @@
     @apply backdrop-blur-md rounded-2xl p-6 transition-all duration-200;
   }
 
-  .card-interactive:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
-  }
-
   /* ---- Buttons ---- */
   .btn {
     @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium
@@ -345,10 +340,6 @@
     @apply text-lg font-semibold text-gray-900 dark:text-gray-100;
   }
 
-  .section-subtitle {
-    color: var(--pb-text-muted);
-    @apply text-sm;
-  }
 }
 
 @keyframes pb-fade-up {

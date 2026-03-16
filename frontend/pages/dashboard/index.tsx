@@ -60,7 +60,7 @@ const stagger = {
 
 /** Dashboard home page. Git URL hero input, stats overview, recent pipelines, execution timeline, and quota summary. */
 export default function DashboardPage() {
-  const { user, isReady, isAuthenticated, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
   const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);
   const [recentPipelines, setRecentPipelines] = useState<Pipeline[]>([]);
   const [gitUrl, setGitUrl] = useState('');
@@ -377,7 +377,7 @@ export default function DashboardPage() {
         createLoading={createLoading}
         createError={createError}
         createSuccess={createSuccess}
-        canCreatePublic={isAdmin}
+        canCreatePublic={isSysAdmin}
         initialGitUrl={modalGitUrl}
       />
     </DashboardLayout>

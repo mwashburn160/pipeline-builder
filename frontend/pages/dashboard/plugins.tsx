@@ -15,24 +15,8 @@ import { FilterBar } from '@/components/ui/FilterBar';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
+import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import type { Plugin } from '@/types';
-
-// ─── Helpers ────────────────────────────────────────────
-
-/** Maps common filter keys (access, status, default) to API parameter names. */
-function mapCommonParams(params: Record<string, string>, canViewPublic: boolean): Record<string, string> {
-  const p: Record<string, string> = {};
-  if (params.access) p.accessModifier = params.access;
-  else if (!canViewPublic) p.accessModifier = 'private';
-  if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
-  if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
-  return p;
-}
-
-/** Whether the current user can edit/delete a resource based on access modifier. */
-function canModify(isSysAdmin: boolean, accessModifier: string): boolean {
-  return isSysAdmin || accessModifier === 'private';
-}
 
 // ─── Page ───────────────────────────────────────────────
 
