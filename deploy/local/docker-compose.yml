@@ -365,6 +365,7 @@ services:
       - "--insecure-registry=registry:5000"
       - "--max-concurrent-downloads=3"
       - "--max-concurrent-uploads=3"
+      - "--dns=127.0.0.11"
     environment:
       DOCKER_TLS_CERTDIR: ''
     volumes:
