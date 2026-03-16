@@ -73,8 +73,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Team',
     items: [
-      { title: 'Members', href: '/dashboard/members', icon: UsersRound, adminOnly: true },
-      { title: 'Users', href: '/dashboard/users', icon: Users, adminOnly: true },
+      { title: 'Team', href: '/dashboard/team', icon: UsersRound, adminOnly: true },
+      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
       { title: 'Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
     ],

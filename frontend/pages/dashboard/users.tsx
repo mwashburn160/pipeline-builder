@@ -3,13 +3,11 @@ import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 
-/** Shape of a user record as returned by the list users API. */
 interface UserListItem {
   id: string;
   username: string;
@@ -21,9 +19,9 @@ interface UserListItem {
   createdAt?: string;
 }
 
-/** User management page (admin only). Lists, edits roles/passwords, and deletes users with search and role filtering. */
+/** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireAdmin: true });
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,24 +40,23 @@ export default function UsersPage() {
 
   useEffect(() => {
     async function fetchUsers() {
-      if (!isAuthenticated || !isAdmin) return;
+      if (!isAuthenticated || !isSysAdmin) return;
       try {
         setIsLoading(true);
         const params: Record<string, string> = {};
         if (searchQuery) params.search = searchQuery;
         if (roleFilter !== 'all') params.role = roleFilter;
         const response = await api.listUsers(params);
-        const userList = (response.data?.users || []) as UserListItem[];
-        setUsers(userList);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : 'Failed to load users');
+        setUsers((response.data?.users || []) as UserListItem[]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load users');
       } finally {
         setIsLoading(false);
       }
     }
 
-    if (isAuthenticated && isAdmin) fetchUsers();
-  }, [isAuthenticated, isAdmin, searchQuery, roleFilter]);
+    if (isAuthenticated && isSysAdmin) fetchUsers();
+  }, [isAuthenticated, isSysAdmin, searchQuery, roleFilter]);
 
   const handleEditUser = (userItem: UserListItem) => {
     setEditingUser(userItem);
@@ -97,8 +94,8 @@ export default function UsersPage() {
       setEditSuccess('User updated successfully');
       setNewPassword('');
       setTimeout(() => setEditingUser(null), 1500);
-    } catch (error) {
-      setEditError(error instanceof Error ? error.message : 'Failed to update user');
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update user');
     } finally {
       setEditLoading(false);
     }
@@ -111,8 +108,8 @@ export default function UsersPage() {
       await api.deleteUserById(deleteTarget.id);
       setUsers(users.filter(u => u.id !== deleteTarget.id));
       setDeleteTarget(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to delete user');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);
@@ -143,7 +140,6 @@ export default function UsersPage() {
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (u) => u.organizationName || '',
       render: (u) => <>{u.organizationName || 'None'}</>,
-      hidden: !isSysAdmin,
     },
     {
       id: 'status',
@@ -167,14 +163,16 @@ export default function UsersPage() {
         </>
       ),
     },
-  ], [isSysAdmin, user]);
+  ], [user]);
 
   if (!isReady || !user) return <LoadingPage />;
 
-  return (
-    <DashboardLayout title="User Management">
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="users" orgName={user.organizationName} />
+  // Non-system admins should not see this page — redirect handled by useAuthGuard,
+  // but show nothing if they somehow reach here
+  if (!isSysAdmin) return null;
 
+  return (
+    <DashboardLayout title="All Users">
       {error && (
         <div className="alert-error">
           <p>{error}</p>
@@ -182,7 +180,6 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Filters */}
       <div className="filter-bar">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
@@ -220,23 +217,22 @@ export default function UsersPage() {
         />
       )}
 
-      {/* Edit User Modal */}
       {editingUser && (
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md">
             <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User: {editingUser.username}</h2>
 
-            {editError && (
-              <div className="alert-error"><p>{editError}</p></div>
-            )}
-            {editSuccess && (
-              <div className="alert-success"><p>{editSuccess}</p></div>
-            )}
+            {editError && <div className="alert-error"><p>{editError}</p></div>}
+            {editSuccess && <div className="alert-success"><p>{editSuccess}</p></div>}
 
             <div className="space-y-4">
               <div>
                 <label className="label">Email</label>
                 <input type="text" value={editingUser.email} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
+              </div>
+              <div>
+                <label className="label">Organization</label>
+                <input type="text" value={editingUser.organizationName || 'None'} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
               </div>
               <div>
                 <label className="label">Role</label>
@@ -250,8 +246,7 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">New Password (leave blank to keep current)</label>
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="input" disabled={editLoading} />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Minimum 8 characters</p>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" className="input" disabled={editLoading} />
               </div>
             </div>
 

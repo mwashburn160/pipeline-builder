@@ -65,8 +65,13 @@ export function CommandPalette({
 
     if (isAdmin || isSysAdmin) {
       items.push(
-        { id: 'members', label: 'Go to Members', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/members') },
-        { id: 'users', label: 'Go to Users', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/users') },
+        { id: 'team', label: 'Go to Team', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/team') },
+      );
+    }
+
+    if (isSysAdmin) {
+      items.push(
+        { id: 'users', label: 'Go to All Users', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/users') },
       );
     }
 

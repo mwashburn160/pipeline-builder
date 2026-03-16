@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import api from '@/lib/api';
 
@@ -135,7 +136,7 @@ export default function ReportsPage() {
     if (isAuthenticated) fetchAll();
   }, [isAuthenticated, fetchAll]);
 
-  if (!isReady || !user) return null;
+  if (!isReady || !user) return <LoadingPage />;
 
   const totalExec = executions.reduce((s, p) => s + p.total, 0);
   const totalPass = executions.reduce((s, p) => s + p.succeeded, 0);

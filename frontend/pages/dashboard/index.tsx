@@ -1,19 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import { GitBranch, ArrowRight, Upload, Wand2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { pct, fmtNum, barColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType, Pipeline, BuilderProps } from '@/types';
+import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 
 /** Dashboard home page. Git URL hero input, recent pipelines, and quota summary. */
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isAdmin } = useAuthGuard();
-  const router = useRouter();
   const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);
   const [recentPipelines, setRecentPipelines] = useState<Pipeline[]>([]);
   const [gitUrl, setGitUrl] = useState('');
@@ -48,7 +47,7 @@ export default function DashboardPage() {
     }
   }, [isAuthenticated, fetchQuotas, fetchRecentPipelines]);
 
-  if (!isReady || !user) return null;
+  if (!isReady || !user) return <LoadingPage />;
 
   const handleGenerateFromUrl = () => {
     if (!gitUrl.trim()) return;
@@ -78,7 +77,7 @@ export default function DashboardPage() {
     }
   };
 
-  const openModalTab = (tab?: string) => {
+  const openModalTab = () => {
     setModalGitUrl(undefined);
     setCreateError(null);
     setCreateSuccess(null);
@@ -128,14 +127,14 @@ export default function DashboardPage() {
         <div className="mt-3 flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
           <span>or:</span>
           <button
-            onClick={() => openModalTab('upload')}
+            onClick={() => openModalTab()}
             className="hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2"
           >
             <Upload className="w-3.5 h-3.5 inline mr-1" />
             Upload config
           </button>
           <button
-            onClick={() => openModalTab('wizard')}
+            onClick={() => openModalTab()}
             className="hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2"
           >
             <Wand2 className="w-3.5 h-3.5 inline mr-1" />
