@@ -254,7 +254,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.37.13'
+    image: 'ghcr.io/mwashburn160/frontend:1.37.14'
     container_name: frontend
     restart: always
     environment:
@@ -625,21 +625,17 @@ services:
     environment:
       REGISTRY_AUTH: htpasswd
       REGISTRY_HTTP_ADDR: '0.0.0.0:5000'
-      REGISTRY_HTTP_TLS_KEY: /etc/ssl/private/registry.key
-      REGISTRY_HTTP_TLS_CERTIFICATE: /etc/ssl/certs/registry.crt
       REGISTRY_AUTH_HTPASSWD_REALM: registry realm
       REGISTRY_AUTH_HTPASSWD_PATH: /etc/auth/registry.passwd
       REGISTRY_STORAGE_DELETE_ENABLED: 'true'
     volumes:
       - './auth/registry.passwd:/etc/auth/registry.passwd:ro'
-      - './certs/registry.crt:/etc/ssl/certs/registry.crt:ro'
-      - './certs/registry.key:/etc/ssl/private/registry.key:ro'
       - './data/registry-data/:/var/lib/registry/:rw'
     networks:
       - proxy-network
       - backend-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--no-check-certificate", "https://localhost:5000/v2/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/v2/"]
       interval: 30s
       timeout: 10s
       retries: 3
