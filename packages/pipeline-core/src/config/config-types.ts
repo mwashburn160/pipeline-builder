@@ -108,7 +108,9 @@ export interface RegistryConfig {
   readonly token: string;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
-  /** Allow insecure (self-signed TLS) registry connections (env: `DOCKER_REGISTRY_INSECURE`). */
+  /** Use plain HTTP instead of HTTPS (env: `DOCKER_REGISTRY_HTTP`). Defaults to true. */
+  readonly http: boolean;
+  /** Skip TLS certificate verification for self-signed certs (env: `DOCKER_REGISTRY_INSECURE`). Defaults to true. */
   readonly insecure: boolean;
 }
 

@@ -58,18 +58,10 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
-let mockInsecure = true;
-
 jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     DOCKER_BUILDER_NAME: 'plugin-builder',
     DOCKER_BUILD_TIMEOUT_MS: 900000,
-  },
-  Config: {
-    get: (section: string) => {
-      if (section === 'registry') return { insecure: mockInsecure };
-      return {};
-    },
   },
 }));
 
@@ -90,6 +82,8 @@ function makeRegistry(overrides: Partial<RegistryInfo> = {}): RegistryInfo {
     user: 'admin',
     token: 'secret',
     network: '',
+    http: true,
+    insecure: true,
     ...overrides,
   };
 }
@@ -121,8 +115,6 @@ describe('docker-build', () => {
     mockSpawn.mockImplementation(() => createMockChild(0));
     // Default: execFileSync returns successfully
     mockExecFileSync.mockReturnValue(Buffer.from(''));
-    // Reset mock config
-    mockInsecure = true;
   });
 
   describe('input validation', () => {
@@ -317,7 +309,7 @@ describe('docker-build', () => {
       expect(createCall).toBeDefined();
     });
 
-    it('writes buildkitd.toml with insecure=true by default', async () => {
+    it('writes buildkitd.toml with http=true and insecure=true by default', async () => {
       const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
       await buildAndPush(req);
 
@@ -325,19 +317,32 @@ describe('docker-build', () => {
         (c: any) => String(c[0]).includes('buildkitd.toml'),
       );
       expect(tomlCall).toBeDefined();
+      expect(tomlCall![1]).toContain('http = true');
       expect(tomlCall![1]).toContain('insecure = true');
     });
 
-    it('writes buildkitd.toml with insecure=false when registry config insecure=false', async () => {
-      mockInsecure = false;
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
+    it('writes buildkitd.toml with http=false and insecure=false for production registry', async () => {
+      const req = makeRequest({ registry: makeRegistry({ network: 'net1', http: false, insecure: false }) });
       await buildAndPush(req);
 
       const tomlCall = mockWriteFileSync.mock.calls.find(
         (c: any) => String(c[0]).includes('buildkitd.toml'),
       );
       expect(tomlCall).toBeDefined();
+      expect(tomlCall![1]).toContain('http = false');
       expect(tomlCall![1]).toContain('insecure = false');
+    });
+
+    it('writes buildkitd.toml with http=false and insecure=true for self-signed cert', async () => {
+      const req = makeRequest({ registry: makeRegistry({ network: 'net1', http: false, insecure: true }) });
+      await buildAndPush(req);
+
+      const tomlCall = mockWriteFileSync.mock.calls.find(
+        (c: any) => String(c[0]).includes('buildkitd.toml'),
+      );
+      expect(tomlCall).toBeDefined();
+      expect(tomlCall![1]).toContain('http = false');
+      expect(tomlCall![1]).toContain('insecure = true');
     });
 
     it('writes buildkitd.toml with default DNS nameservers', async () => {

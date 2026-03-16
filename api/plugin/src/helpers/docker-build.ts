@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { createLogger, errorMessage, ValidationError } from '@mwashburn160/api-core';
-import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 
 const logger = createLogger('docker-build');
 
@@ -13,9 +13,14 @@ export interface RegistryInfo {
   port: number;
   user: string;
   token: string;
-  /** Docker network name for buildx builder (e.g. 'backend-network' for Compose,
-   *  'host' for Kubernetes dind sidecar). Empty = use default Docker networking. */
+  /** Docker network mode for the buildx builder container.
+   *  'host' for Compose/K8s dind (shares dind's network namespace).
+   *  Empty string = use default Docker networking. */
   network: string;
+  /** Use plain HTTP instead of HTTPS. */
+  http: boolean;
+  /** Skip TLS certificate verification (for self-signed certs). */
+  insecure: boolean;
 }
 
 /** Input for a plugin image build. */
@@ -72,11 +77,10 @@ function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
 /**
  * Build a Docker image and push it to the configured registry.
  *
- * Uses a persistent buildx builder when a compose network is configured.
- * In Kubernetes deployments, the Docker CLI connects to a docker:dind sidecar
- * via DOCKER_HOST (tcp://localhost:2375). The builder is created lazily on
- * first use and reused across builds. It is only recreated when the network
- * changes or the builder is unhealthy.
+ * Uses a persistent buildx builder with the `docker-container` driver when a
+ * network is configured. The builder is created lazily on first use and reused
+ * across builds. It is only recreated when the network changes or the builder
+ * is unhealthy.
  */
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   const { contextDir, dockerfile, imageTag, registry, buildArgs } = req;
@@ -98,7 +102,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
   // --- Ensure persistent buildx builder (only when network is configured) --
   if (registry.network) {
-    ensureBuilder(configDir, contextDir, registryAddr, registry.network);
+    ensureBuilder(configDir, contextDir, registry);
   }
 
   // --- Build + push in one step ------------------------------------------
@@ -204,7 +208,7 @@ function spawnDocker(args: string[], timeoutMs: number): Promise<void> {
   });
 }
 
-function dockerExec(configDir: string, args: string[], stdio: 'pipe' | 'ignore' | 'inherit' = 'pipe'): void {
+function dockerExec(configDir: string, args: string[], stdio: 'pipe' | 'ignore' | 'inherit' = 'ignore'): void {
   execFileSync('docker', ['--config', configDir, ...args], { stdio });
 }
 
@@ -213,7 +217,7 @@ function dockerExec(configDir: string, args: string[], stdio: 'pipe' | 'ignore' 
  */
 function isBuilderHealthy(configDir: string): boolean {
   try {
-    dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME, '--bootstrap'], 'ignore');
+    dockerExec(configDir, ['buildx', 'inspect', BUILDER_NAME, '--bootstrap']);
     return true;
   } catch {
     return false;
@@ -223,17 +227,16 @@ function isBuilderHealthy(configDir: string): boolean {
 /**
  * Ensure a persistent buildx builder exists for the given network.
  * Creates the builder lazily on first call. Recreates it only when:
- *  - The network has changed (e.g. after docker compose down/up)
+ *  - The network has changed (e.g. after container restart)
  *  - The builder is unhealthy or missing
- * In dind deployments, the builder runs inside the sidecar container
- * and shares the pod network namespace.
  */
 function ensureBuilder(
   configDir: string,
   contextDir: string,
-  registryAddr: string,
-  network: string,
+  registry: RegistryInfo,
 ): void {
+  const { network, http, insecure } = registry;
+  const registryAddr = `${registry.host}:${registry.port}`;
   const networkChanged = activeBuilderNetwork !== null && activeBuilderNetwork !== network;
 
   if (!networkChanged && activeBuilderNetwork !== null && isBuilderHealthy(configDir)) {
@@ -253,12 +256,12 @@ function ensureBuilder(
   removeBuilder(configDir);
 
   // Write buildkitd config for registry access + DNS
-  const insecure = Config.get('registry').insecure;
   const dnsServers = (process.env.BUILDKIT_DNS_NAMESERVERS || '8.8.8.8,8.8.4.4')
     .split(',').map(s => s.trim()).filter(Boolean);
   const buildkitdConfig = path.join(contextDir, 'buildkitd.toml');
   const tomlLines = [
     `[registry."${registryAddr}"]`,
+    `  http = ${http}`,
     `  insecure = ${insecure}`,
     '',
     '[dns]',
@@ -285,7 +288,7 @@ function ensureBuilder(
  */
 function removeBuilder(configDir: string): void {
   try {
-    dockerExec(configDir, ['buildx', 'rm', '--force', BUILDER_NAME], 'ignore');
+    dockerExec(configDir, ['buildx', 'rm', '--force', BUILDER_NAME]);
   } catch { /* builder doesn't exist — fine */ }
   try {
     execFileSync('docker', ['rm', '-f', `buildx_buildkit_${BUILDER_NAME}0`], { stdio: 'ignore' });

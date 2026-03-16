@@ -13,6 +13,8 @@ import { getComputeType } from '../core/pipeline-helpers';
  * - `IMAGE_REGISTRY_USER` — Registry username (default: `'admin'`)
  * - `IMAGE_REGISTRY_TOKEN` — Registry auth token (default: `'password'`)
  * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
+ * - `DOCKER_REGISTRY_HTTP` — Use plain HTTP (default: `true`). Set `false` for HTTPS.
+ * - `DOCKER_REGISTRY_INSECURE` — Skip TLS verification (default: `true`). Set `false` for production.
  *
  * @returns Registry configuration
  */
@@ -23,6 +25,7 @@ export function loadRegistryConfig(): RegistryConfig {
     user: process.env.IMAGE_REGISTRY_USER || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_USER is required in production'); })() : 'admin'),
     token: process.env.IMAGE_REGISTRY_TOKEN || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_TOKEN is required in production'); })() : 'password'),
     network: process.env.DOCKER_NETWORK || '',
+    http: process.env.DOCKER_REGISTRY_HTTP !== 'false',
     insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
   };
 }
