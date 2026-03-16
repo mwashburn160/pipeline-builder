@@ -254,7 +254,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.37.15'
+    image: 'ghcr.io/mwashburn160/frontend:1.38.0'
     container_name: frontend
     restart: always
     environment:
