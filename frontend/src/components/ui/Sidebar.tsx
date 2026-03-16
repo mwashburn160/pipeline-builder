@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   LayoutDashboard,
@@ -20,6 +21,7 @@ import {
   Sun,
   Moon,
   LogOut,
+  ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -40,6 +42,7 @@ interface NavItem {
   adminOnly?: boolean;
   systemAdminOnly?: boolean;
   requiredFeature?: string;
+  children?: NavItem[];
 }
 
 interface NavSection {
@@ -65,8 +68,13 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Operations',
     items: [
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
-      { title: 'Pipeline Reports', href: '/dashboard/reports', icon: FileBarChart },
-      { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: FileBarChart },
+      {
+        title: 'Reports', href: '/dashboard/reports', icon: FileBarChart,
+        children: [
+          { title: 'Pipelines', href: '/dashboard/reports', icon: GitBranch },
+          { title: 'Plugins', href: '/dashboard/plugin-reports', icon: Puzzle },
+        ],
+      },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
@@ -123,6 +131,27 @@ export function Sidebar({
   onToggleCollapsed,
 }: SidebarProps) {
   const features = useFeatures();
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => {
+    // Auto-expand parents whose children match the current path
+    const expanded = new Set<string>();
+    for (const section of NAV_SECTIONS) {
+      for (const item of section.items) {
+        if (item.children?.some(c => currentPath.startsWith(c.href))) {
+          expanded.add(item.title);
+        }
+      }
+    }
+    return expanded;
+  });
+
+  const toggleExpand = (title: string) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  };
 
   const isActive = (href: string) =>
     href === '/dashboard'
@@ -195,7 +224,73 @@ export function Sidebar({
               {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
               {visibleItems.map((item) => {
                 const Icon = item.icon;
-                const active = isActive(item.href);
+                const hasChildren = item.children && item.children.length > 0;
+                const isExpanded = expandedItems.has(item.title);
+                const childActive = hasChildren && item.children!.some(c => isActive(c.href));
+                const active = hasChildren ? childActive : isActive(item.href);
+
+                // Parent with children — render as expandable group
+                if (hasChildren && !collapsed) {
+                  const visibleChildren = item.children!.filter(isItemVisible);
+                  if (visibleChildren.length === 0) return null;
+
+                  return (
+                    <div key={item.title}>
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(item.title)}
+                        className={`sidebar-nav-item relative w-full ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'}`}
+                      >
+                        {active && (
+                          <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-500/80 dark:bg-blue-400/80" />
+                        )}
+                        <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+                        <span className="flex-1 text-left">{item.title}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="ml-4 border-l border-gray-200 dark:border-gray-700">
+                          {visibleChildren.map((child) => {
+                            const ChildIcon = child.icon;
+                            const childIsActive = isActive(child.href);
+                            return (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                aria-current={childIsActive ? 'page' : undefined}
+                                className={`sidebar-nav-item relative text-[13px] py-1.5 ${childIsActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'}`}
+                              >
+                                <ChildIcon className="w-4 h-4 flex-shrink-0" />
+                                <span className="flex-1">{child.title}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Collapsed parent with children — show first child on click, tooltip lists all
+                if (hasChildren && collapsed) {
+                  return (
+                    <Tooltip key={item.title} content={item.title} position="right">
+                      <span className="relative block">
+                        <Link
+                          href={item.href}
+                          className={`sidebar-nav-item relative justify-center px-0 mx-1 ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'}`}
+                        >
+                          {active && (
+                            <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-500/80 dark:bg-blue-400/80" />
+                          )}
+                          <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+                        </Link>
+                      </span>
+                    </Tooltip>
+                  );
+                }
+
+                // Regular item (no children)
                 const linkContent = (
                   <Link
                     href={item.href}
