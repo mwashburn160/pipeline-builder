@@ -1,6 +1,21 @@
 # API Reference
 
-All requests require `Authorization: Bearer <JWT>` and `x-org-id: <org-id>` headers.
+REST API for managing pipelines, plugins, and reporting. All services run behind an Nginx gateway that handles TLS termination and JWT validation.
+
+**Related docs:** [Environment Variables](environment-variables.md) | [Plugin Catalog](plugins/README.md) | [AWS Deployment](aws-deployment.md)
+
+---
+
+## Authentication
+
+All requests require two headers:
+
+| Header | Description |
+|--------|-------------|
+| `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
+| `x-org-id` | Organization ID -- scopes the request to a specific tenant |
+
+Tokens expire after 24 hours by default (configurable via `JWT_EXPIRES_IN`). Use the refresh token endpoint to obtain a new access token without re-authenticating.
 
 ---
 
@@ -164,3 +179,61 @@ curl -X POST https://localhost:8443/api/plugins/deploy-generated \
     "dockerfile": "FROM node:20-slim\n..."
   }'
 ```
+
+---
+
+## Response Format
+
+All API responses follow a consistent format:
+
+**Success:**
+```json
+{
+  "success": true,
+  "data": { ... }
+}
+```
+
+**Paginated:**
+```json
+{
+  "success": true,
+  "data": [ ... ],
+  "pagination": {
+    "total": 42,
+    "limit": 10,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+**Error:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Pipeline not found"
+  }
+}
+```
+
+---
+
+## Reporting Endpoints
+
+Pipeline execution and plugin build analytics. Time ranges default to the last 30 days. See [AWS Deployment -- Report API Endpoints](aws-deployment.md#report-api-endpoints) for the full endpoint list with query parameters.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/reports/execution/count` | Execution count per pipeline with status breakdown |
+| `GET` | `/reports/execution/success-rate` | Pass/fail rate over time |
+| `GET` | `/reports/execution/duration` | Avg/min/max/p95 execution duration |
+| `GET` | `/reports/execution/stage-failures` | Stage failure heatmap |
+| `GET` | `/reports/execution/stage-bottlenecks` | Slowest stages per pipeline |
+| `GET` | `/reports/execution/errors` | Error categorization (top N) |
+| `GET` | `/reports/plugins/summary` | Plugin inventory stats |
+| `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
+| `GET` | `/reports/plugins/build-duration` | Build time per plugin |
+| `GET` | `/reports/plugins/build-failures` | Build failure reasons (top N) |

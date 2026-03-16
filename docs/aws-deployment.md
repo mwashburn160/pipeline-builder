@@ -4,6 +4,18 @@ Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (se
 
 Both deploy the full stack: app services, databases, observability (Prometheus, Loki, Grafana), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
 
+**Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
+
+## Table of Contents
+
+- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
+- [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
+- [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
+- [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
+- [Access Points](#access-points) -- Service URLs after deployment
+- [File Structure](#file-structure) -- Deployment file layout
+- [Troubleshooting](#troubleshooting) -- Common issues and fixes
+
 | | EC2 | Fargate |
 |--|-----|---------|
 | Runtime | Minikube on EC2 | ECS Fargate |

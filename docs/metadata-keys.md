@@ -1,50 +1,74 @@
 # Metadata Keys
 
-Strongly-typed keys for configuring CodePipeline and CodeBuild resources. Import from `@mwashburn160/pipeline-core`.
+Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from `@mwashburn160/pipeline-core`.
+
+Metadata keys let you override default behavior at three levels: **pipeline-wide** (via `global`), **per-stage**, or **per-step** (via `metadata` on individual plugin references).
+
+**Related docs:** [Samples](samples.md) | [Plugin Catalog](plugins/README.md) | [API Reference](api-reference.md)
 
 ---
 
-## Pipeline
+## Pipeline Configuration
+
+Control pipeline-level behavior and defaults.
 
 ```typescript
-MetadataKeys.SELF_MUTATION                      // Enable self-mutation
-MetadataKeys.CROSS_ACCOUNT_KEYS                 // Enable cross-account keys
-MetadataKeys.DOCKER_ENABLED_FOR_SELF_MUTATION   // Docker for self-mutation
-MetadataKeys.DOCKER_ENABLED_FOR_SYNTH           // Docker for synth
-MetadataKeys.ENABLE_KEY_ROTATION                // KMS key rotation
-MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL         // Parallel asset publishing
-MetadataKeys.PIPELINE_ROLE                      // Custom pipeline IAM role
-MetadataKeys.PIPELINE_NAME                      // Override pipeline name
-MetadataKeys.PIPELINE_TYPE                      // Pipeline type (V1, V2)
-MetadataKeys.ARTIFACT_BUCKET                    // Custom artifact bucket
-MetadataKeys.CODE_BUILD_DEFAULTS                // CodeBuild defaults for all steps
+MetadataKeys.SELF_MUTATION                      // Enable pipeline self-mutation (auto-update on source change)
+MetadataKeys.CROSS_ACCOUNT_KEYS                 // Enable KMS keys for cross-account artifact access
+MetadataKeys.DOCKER_ENABLED_FOR_SELF_MUTATION   // Allow Docker commands during self-mutation step
+MetadataKeys.DOCKER_ENABLED_FOR_SYNTH           // Allow Docker commands during synth step
+MetadataKeys.ENABLE_KEY_ROTATION                // Enable automatic KMS key rotation
+MetadataKeys.PUBLISH_ASSETS_IN_PARALLEL         // Publish file and Docker image assets in parallel
+MetadataKeys.PIPELINE_ROLE                      // ARN of a custom IAM role for the pipeline itself
+MetadataKeys.PIPELINE_NAME                      // Override the auto-generated pipeline name
+MetadataKeys.PIPELINE_TYPE                      // Pipeline type: V1 (standard) or V2 (improved)
+MetadataKeys.ARTIFACT_BUCKET                    // ARN of a custom S3 bucket for pipeline artifacts
+MetadataKeys.CODE_BUILD_DEFAULTS                // Default CodeBuild settings applied to all steps
 ```
 
-## CodeBuild Step
+## CodeBuild Step Configuration
+
+Customize individual build steps within a pipeline stage.
 
 ```typescript
-MetadataKeys.STEP_ROLE                          // Custom CodeBuild role
-MetadataKeys.ACTION_ROLE                        // Custom action role
-MetadataKeys.BUILD_ENVIRONMENT                  // Build environment config
-MetadataKeys.CACHE                              // Build cache
-MetadataKeys.COMMANDS                           // Build commands
-MetadataKeys.INSTALL_COMMANDS                   // Install commands
-MetadataKeys.TIMEOUT                            // Build timeout
-MetadataKeys.COMPUTE_TYPE                       // SMALL to X2_LARGE
-MetadataKeys.PRIVILEGED                         // Privileged mode (Docker)
-MetadataKeys.BUILD_IMAGE                        // Custom build image
-MetadataKeys.ROLE_POLICY_STATEMENTS             // Additional IAM policies
+MetadataKeys.STEP_ROLE                          // ARN of a custom IAM role for the CodeBuild project
+MetadataKeys.ACTION_ROLE                        // ARN of a custom IAM role for the CodePipeline action
+MetadataKeys.BUILD_ENVIRONMENT                  // Full build environment configuration object
+MetadataKeys.CACHE                              // Build cache config (local or S3)
+MetadataKeys.COMMANDS                           // Override the plugin's default build commands
+MetadataKeys.INSTALL_COMMANDS                   // Override the plugin's default install commands
+MetadataKeys.TIMEOUT                            // Build timeout in minutes (max 480)
+MetadataKeys.COMPUTE_TYPE                       // Instance size: SMALL (3GB), MEDIUM (7GB), LARGE (15GB), X2_LARGE (145GB)
+MetadataKeys.PRIVILEGED                         // Enable privileged mode (required for Docker-in-Docker)
+MetadataKeys.BUILD_IMAGE                        // Custom Docker image for the build environment
+MetadataKeys.ROLE_POLICY_STATEMENTS             // Additional IAM policy statements for the build role
 ```
 
-## Network
+## Network Configuration
+
+Place builds inside a VPC for accessing private resources (databases, internal APIs).
 
 ```typescript
-MetadataKeys.NETWORK_VPC_ID                     // VPC ID
-MetadataKeys.NETWORK_SUBNET_IDS                 // Subnet IDs
-MetadataKeys.NETWORK_SUBNET_TYPE                // PUBLIC, PRIVATE, etc.
-MetadataKeys.NETWORK_SECURITY_GROUP_IDS         // Security group IDs
-MetadataKeys.NETWORK_AVAILABILITY_ZONES         // Availability zones
+MetadataKeys.NETWORK_VPC_ID                     // VPC ID to run builds in
+MetadataKeys.NETWORK_SUBNET_IDS                 // Specific subnet IDs for build containers
+MetadataKeys.NETWORK_SUBNET_TYPE                // Subnet type: PUBLIC, PRIVATE_WITH_EGRESS, PRIVATE_ISOLATED
+MetadataKeys.NETWORK_SECURITY_GROUP_IDS         // Security group IDs to attach to build containers
+MetadataKeys.NETWORK_AVAILABILITY_ZONES         // Restrict builds to specific availability zones
 ```
+
+> **Note:** VPC builds require a NAT Gateway or VPC endpoints for pulling dependencies and reporting status back to CodePipeline.
+
+---
+
+## Scope Levels
+
+Metadata keys can be applied at different scopes. More specific scopes override broader ones.
+
+| Scope | Where to set | Applies to |
+|-------|-------------|------------|
+| **Global** | `BuilderProps.global` | All steps in the pipeline |
+| **Stage** | Stage-level `metadata` | All steps in that stage |
+| **Step** | Step-level `metadata` | That specific build step only |
 
 ---
 
@@ -84,3 +108,5 @@ new PipelineBuilder(stack, 'Pipeline', {
   },
 });
 ```
+
+See the [Samples](samples.md) page for more complete examples including VPC-isolated builds, cross-account deployments, and custom IAM role configurations.

@@ -1,12 +1,16 @@
 # Samples
 
-Ready-to-use pipeline configurations and CDK examples. All located in [`deploy/samples/`](../deploy/samples/).
+Ready-to-use pipeline configurations and CDK examples that demonstrate Pipeline Builder's capabilities. Use these as starting points for your own pipelines or as reference implementations for advanced patterns.
+
+All sample files are located in [`deploy/samples/`](../deploy/samples/).
+
+**Related docs:** [Plugin Catalog](plugins/README.md) | [Metadata Keys](metadata-keys.md) | [API Reference](api-reference.md)
 
 ---
 
 ## Pipeline Samples
 
-Language-specific CI/CD pipelines based on well-known open source repos.
+Language-specific CI/CD pipelines based on well-known open source repos. Each sample demonstrates idiomatic build, test, security, and packaging stages for its language.
 
 **Location:** [`deploy/samples/pipelines/`](../deploy/samples/pipelines/)
 
@@ -83,6 +87,8 @@ From [secrets-management-ts](../deploy/samples/cdk/secrets-management-ts/):
 
 ## Loading Samples
 
+Load all sample pipelines into a running Pipeline Builder instance:
+
 ```bash
 cd deploy
 bash bin/load-pipelines.sh
@@ -90,3 +96,5 @@ bash bin/load-pipelines.sh
 # Custom URL
 PLATFORM_BASE_URL=https://pipeline.example.com bash bin/load-pipelines.sh
 ```
+
+> **Tip:** Samples are also loaded automatically by `init-platform.sh` during [post-deploy setup](aws-deployment.md#post-deploy-steps).

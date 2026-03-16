@@ -1,8 +1,29 @@
 # Environment Variables
 
-All services configured via env vars. Copy the appropriate `.env.example` to `.env` and fill in secrets.
+Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your `.env` file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition).
 
-> Generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` to version control.
+**Quick setup:** Copy `.env.example` to `.env` and fill in the required secrets.
+
+> **Security:** Generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` files to version control.
+
+**Related docs:** [AWS Deployment](aws-deployment.md) | [API Reference](api-reference.md)
+
+---
+
+## Table of Contents
+
+- [Core](#core) -- Server basics (port, logging, URLs)
+- [Authentication](#authentication) -- JWT, OAuth, password policy
+- [Databases](#databases) -- PostgreSQL, MongoDB, Redis
+- [Docker Registry](#docker-registry) -- Image registry for plugin builds
+- [Plugin Builds](#plugin-builds) -- Build concurrency, timeouts, queue config
+- [Quotas & Rate Limiting](#quotas--rate-limiting) -- Per-org resource limits
+- [Email](#email) -- SMTP and SES configuration
+- [Billing](#billing) -- Subscription billing provider
+- [AWS CDK / Lambda](#aws-cdk--lambda) -- Lambda runtime, CodeBuild compute
+- [Admin UIs](#admin-uis) -- Grafana, pgAdmin, Mongo Express credentials
+- [Pagination & Limits](#pagination--limits) -- API response limits
+- [AI Providers](#ai-providers-optional) -- API keys for AI-powered generation
 
 ---
 
@@ -201,3 +222,5 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI API key |
 | `XAI_API_KEY` | xAI API key |
 | `OLLAMA_BASE_URL` | Ollama URL (default: `http://ollama:11434`) |
+
+At least one provider key is required for AI-powered pipeline and plugin generation. See the [AI plugins documentation](plugins/ai.md) for details on supported providers and models.

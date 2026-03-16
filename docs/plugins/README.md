@@ -2,6 +2,18 @@
 
 Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
+**Related docs:** [Samples](../samples.md) | [Metadata Keys](../metadata-keys.md) | [API Reference](../api-reference.md) | [Environment Variables](../environment-variables.md)
+
+## Table of Contents
+
+- [Categories](#categories) -- All 10 plugin categories with links
+- [CI/CD Pipeline Coverage](#cicd-pipeline-coverage) -- Visual diagram of plugin-to-stage mapping
+- [Requirements](#requirements) -- How plugins work with CodePipeline
+- [Secrets Reference](#secrets-reference) -- Required credentials per plugin
+- [How Secrets Work](#how-secrets-work) -- Secrets Manager naming, setup, and IAM
+- [Plugin Structure](#plugin-structure) -- Dockerfile + manifest layout
+- [Version Management](#version-management) -- Centralized version control and update process
+
 ---
 
 ## Categories
