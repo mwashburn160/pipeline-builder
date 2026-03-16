@@ -61,62 +61,65 @@ export default function MessagesPage() {
   return (
     <DashboardLayout
       title="Messages"
+      subtitle="Inbox and conversations with your team"
       titleExtra={unreadCount > 0 ? <MessageBadge count={unreadCount} /> : undefined}
     >
-      <div className="flex bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
+      <div className="page-section">
+        <div className="card flex overflow-hidden" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
 
-        {/* Left panel: conversation list */}
-        <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-gray-200 dark:border-gray-700 flex-col`}>
-          {/* List header */}
-          <div className="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversations</h2>
-            <button
-              onClick={() => setShowCompose(true)}
-              className="p-1.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
-              title={isSysAdmin ? 'New Message' : 'Contact Support'}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Message list */}
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          {/* Left panel: conversation list */}
+          <div className={`${selectedMessage ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 flex-shrink-0 lg:border-r border-gray-200 dark:border-gray-700 flex-col`}>
+            {/* List header */}
+            <div className="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversations</h2>
+              <button
+                onClick={() => setShowCompose(true)}
+                className="p-1.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                title={isSysAdmin ? 'New Message' : 'Contact Support'}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
-          ) : error ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-              <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+
+            {/* Message list */}
+            {loading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : error ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
               <button
                 onClick={fetchMessages}
-                className="mt-2 text-sm text-blue-500 hover:text-blue-600"
+                className="action-link mt-2"
               >
                 Try again
               </button>
-            </div>
-          ) : (
-            <MessageList
-              messages={messages}
-              onSelect={handleSelectMessage}
-              selectedId={selectedMessage?.id}
-              currentOrgId={currentOrgId}
-            />
-          )}
-        </div>
+              </div>
+            ) : (
+              <MessageList
+                messages={messages}
+                onSelect={handleSelectMessage}
+                selectedId={selectedMessage?.id}
+                currentOrgId={currentOrgId}
+              />
+            )}
+          </div>
 
-        {/* Right panel: chat or empty state */}
-        <div className={`${selectedMessage ? 'flex' : 'hidden lg:flex'} flex-1 flex-col min-w-0`}>
-          {selectedMessage ? (
-            <ThreadView
-              rootMessage={selectedMessage}
-              currentOrgId={currentOrgId}
-              onBack={handleBack}
-              onMarkAsRead={markAsRead}
-              onThreadRead={markThreadAsRead}
-            />
-          ) : (
-            <EmptyChat />
-          )}
+          {/* Right panel: chat or empty state */}
+          <div className={`${selectedMessage ? 'flex' : 'hidden lg:flex'} flex-1 flex-col min-w-0`}>
+            {selectedMessage ? (
+              <ThreadView
+                rootMessage={selectedMessage}
+                currentOrgId={currentOrgId}
+                onBack={handleBack}
+                onMarkAsRead={markAsRead}
+                onThreadRead={markThreadAsRead}
+              />
+            ) : (
+              <EmptyChat />
+            )}
+          </div>
         </div>
       </div>
 

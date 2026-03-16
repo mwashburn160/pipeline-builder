@@ -170,13 +170,13 @@ export default function InvitationsPage() {
           <button
             onClick={() => handleResend(inv)}
             disabled={resendLoadingId === inv.id}
-            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors"
+            className="action-link mr-4"
           >
             {resendLoadingId === inv.id ? 'Sending...' : 'Resend'}
           </button>
           <button
             onClick={() => setRevokeTarget(inv)}
-            className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors"
+            className="action-link-danger"
           >
             Revoke
           </button>
@@ -190,6 +190,7 @@ export default function InvitationsPage() {
   return (
     <DashboardLayout
       title="Invitations"
+      subtitle="Pending and sent invites"
       actions={
         <button onClick={() => { setSendModalOpen(true); setSendError(null); }} className="btn btn-primary">
           Send Invitation
@@ -201,7 +202,7 @@ export default function InvitationsPage() {
       {error && (
         <div className="alert-error">
           <p>{error}</p>
-          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">Dismiss</button>
+          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 

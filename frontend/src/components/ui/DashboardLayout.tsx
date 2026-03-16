@@ -22,6 +22,7 @@ interface DashboardLayoutProps {
   maxWidth?: '3xl' | '4xl' | '7xl';
   mainClassName?: string;
   breadcrumbs?: BreadcrumbItem[];
+  subtitle?: React.ReactNode;
 }
 
 const maxWidthClasses = {
@@ -38,6 +39,7 @@ export function DashboardLayout({
   maxWidth = '7xl',
   mainClassName = '',
   breadcrumbs,
+  subtitle,
 }: DashboardLayoutProps) {
   const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
   const { isLoaded: featuresLoaded } = useFeatures();
@@ -134,7 +136,7 @@ export function DashboardLayout({
         {/* Main content area */}
         <div className={`flex-1 flex flex-col min-w-0 ${contentMargin} transition-all duration-200`}>
           {/* Slim top bar */}
-          <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200/60 dark:border-gray-700/60">
+          <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/60 dark:border-gray-700/60 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
             <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <button
@@ -144,12 +146,17 @@ export function DashboardLayout({
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <div>
+                <div className="min-w-0">
                   {breadcrumbs && <Breadcrumb items={breadcrumbs} />}
                   <div className="flex items-center gap-3">
                     <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
                     {titleExtra}
                   </div>
+                  {subtitle && (
+                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {subtitle}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -165,7 +172,7 @@ export function DashboardLayout({
             </div>
           </header>
 
-          <main className={`${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
+          <main className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
             {children}
           </main>
         </div>

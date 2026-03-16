@@ -69,7 +69,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowRaw(!showRaw)}
-            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+            className="action-link text-xs"
           >
             {showRaw ? 'Decoded' : 'Raw'}
           </button>
@@ -78,7 +78,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
       </div>
 
       {showRaw ? (
-        <pre className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+        <pre className="card p-4 text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
           {token}
         </pre>
       ) : decoded ? (
@@ -92,7 +92,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
               Header
             </button>
             {expanded && (
-              <pre className="mt-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400">
+              <pre className="card mt-2 p-3 text-xs font-mono text-gray-600 dark:text-gray-400">
                 {JSON.stringify(decoded.header, null, 2)}
               </pre>
             )}
@@ -100,7 +100,7 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
           <div>
             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Payload</p>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+            <div className="card p-0 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
               {Object.entries(decoded.payload).map(([key, value]) => {
                 const label = FIELD_LABELS[key] || key;
                 const isTime = KNOWN_TIME_FIELDS.has(key);
@@ -178,7 +178,7 @@ export default function TokensPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="API Tokens" maxWidth="4xl">
+    <DashboardLayout title="API Tokens" subtitle="Create and revoke API tokens" maxWidth="4xl">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

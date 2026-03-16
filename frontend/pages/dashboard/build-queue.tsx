@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
+import { Badge } from '@/components/ui/Badge';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
 
@@ -43,12 +44,12 @@ function StatCard({ label, value, icon: Icon, accent, delay }: StatCardProps) {
   );
 }
 
-function queueHealth(status: QueueStatus | null): { label: string; color: string } {
-  if (!status) return { label: 'Loading', color: 'bg-gray-400' };
-  if (status.failed > 0) return { label: 'Failures Detected', color: 'bg-red-500' };
-  if (status.waiting > 5) return { label: 'Backlogged', color: 'bg-yellow-500' };
-  if (status.active > 0) return { label: 'Processing', color: 'bg-blue-500' };
-  return { label: 'Idle', color: 'bg-green-500' };
+function queueHealth(status: QueueStatus | null): { label: string; color: string; badgeColor: 'gray' | 'red' | 'yellow' | 'blue' | 'green' } {
+  if (!status) return { label: 'Loading', color: 'bg-gray-400', badgeColor: 'gray' };
+  if (status.failed > 0) return { label: 'Failures Detected', color: 'bg-red-500', badgeColor: 'red' };
+  if (status.waiting > 5) return { label: 'Backlogged', color: 'bg-yellow-500', badgeColor: 'yellow' };
+  if (status.active > 0) return { label: 'Processing', color: 'bg-blue-500', badgeColor: 'blue' };
+  return { label: 'Idle', color: 'bg-green-500', badgeColor: 'green' };
 }
 
 export default function BuildQueuePage() {
@@ -96,6 +97,7 @@ export default function BuildQueuePage() {
   return (
     <DashboardLayout
       title="Build Queue"
+      subtitle="Queued builds and execution status"
       actions={
         <button onClick={fetchStatus} className="btn-secondary flex items-center gap-2">
           <RefreshCw className="w-4 h-4" />
@@ -117,9 +119,7 @@ export default function BuildQueuePage() {
         className="mb-6 flex items-center gap-3"
       >
         <span className={`inline-block w-3 h-3 rounded-full ${health.color}`} />
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {health.label}
-        </span>
+        <Badge color={health.badgeColor}>{health.label}</Badge>
         {lastUpdated && (
           <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
             Updated {lastUpdated.toLocaleTimeString()}

@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { UserPlus, Users, Shield, ShieldOff, UserMinus, Crown, Search, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ActionBar } from '@/components/ui/ActionBar';
 import api from '@/lib/api';
 import type { OrganizationMember } from '@/types';
 
@@ -206,11 +208,12 @@ export default function TeamPage() {
     },
   ], [user]);
 
-  if (!isReady || !user) return null;
+  if (!isReady || !user) return <LoadingPage />;
 
   return (
     <DashboardLayout
       title="Team"
+      subtitle="Manage team members and roles"
       maxWidth="4xl"
       actions={
         <button onClick={() => { setAddEmail(''); setAddError(null); setAddModalOpen(true); }} className="btn btn-primary text-sm">
@@ -221,24 +224,28 @@ export default function TeamPage() {
       <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
+        <div className="alert-error">
+          <p>{error}</p>
+          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
       <div className="filter-bar">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
-          </div>
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
-            <option value="all">All Roles</option>
-            <option value="user">Users</option>
-            <option value="admin">Admins</option>
-          </select>
-        </div>
+        <ActionBar
+          left={(
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+              <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+            </div>
+          )}
+          right={(
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
+              <option value="all">All Roles</option>
+              <option value="user">Users</option>
+              <option value="admin">Admins</option>
+            </select>
+          )}
+        />
       </div>
 
       <DataTable<OrganizationMember>
@@ -252,8 +259,8 @@ export default function TeamPage() {
 
       {/* Add member modal */}
       {addModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm" onClick={() => setAddModalOpen(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop" onClick={() => setAddModalOpen(false)}>
+          <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Add Member</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter the email address of an existing user to add to your organization.</p>
             <input
@@ -262,7 +269,7 @@ export default function TeamPage() {
               value={addEmail}
               onChange={(e) => setAddEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm mb-3"
+              className="input text-sm mb-3"
               autoFocus
             />
             {addError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{addError}</p>}
@@ -289,8 +296,8 @@ export default function TeamPage() {
 
       {/* Password reset modal */}
       {passwordTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm" onClick={() => setPasswordTarget(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop" onClick={() => setPasswordTarget(null)}>
+          <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Reset Password: {passwordTarget.username}</h3>
             {passwordError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{passwordError}</p>}
             {passwordSuccess && <p className="text-sm text-green-600 dark:text-green-400 mb-3">{passwordSuccess}</p>}
@@ -302,7 +309,7 @@ export default function TeamPage() {
                 onChange={(e) => setNewPassword(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handlePasswordReset()}
                 placeholder="Minimum 8 characters"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm"
+                className="input text-sm"
                 autoFocus
                 disabled={passwordLoading}
               />

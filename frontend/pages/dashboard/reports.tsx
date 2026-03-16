@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Badge } from '@/components/ui/Badge';
 import api from '@/lib/api';
 
 // ─── Types ──────────────────────────────────────────────
@@ -88,7 +89,7 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">{children}</h3>;
+  return <h3 className="section-title text-sm tracking-tight mb-3">{children}</h3>;
 }
 
 // ─── Page ───────────────────────────────────────────────
@@ -96,7 +97,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 export default function ReportsPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
 
-  const [interval, setInterval_] = useState<'day' | 'week' | 'month'>('week');
+  const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [loading, setLoading] = useState(true);
 
   const [executions, setExecutions] = useState<ExecutionCount[]>([]);
@@ -112,7 +113,7 @@ export default function ReportsPage() {
     try {
       const [execRes, timelineRes, durationRes, stageRes, errorRes, pluginSumRes, pluginVerRes] = await Promise.allSettled([
         api.getExecutionCount(),
-        api.getExecutionTimeline({ interval }),
+        api.getExecutionTimeline({ interval: timeInterval }),
         api.getPipelineDuration(),
         api.getStageFailures(),
         api.getExecutionErrors({ limit: 10 }),
@@ -130,7 +131,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [interval]);
+  }, [timeInterval]);
 
   useEffect(() => {
     if (isAuthenticated) fetchAll();
@@ -146,13 +147,14 @@ export default function ReportsPage() {
   return (
     <DashboardLayout
       title="Reports"
+      subtitle="Operational and usage insights"
       maxWidth="7xl"
       actions={
         <div className="flex items-center gap-2">
           <select
-            value={interval}
-            onChange={(e) => setInterval_(e.target.value as 'day' | 'week' | 'month')}
-            className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+            value={timeInterval}
+            onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')}
+            className="filter-select"
           >
             <option value="day">Daily</option>
             <option value="week">Weekly</option>
@@ -164,7 +166,7 @@ export default function ReportsPage() {
         </div>
       }
     >
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="space-y-6">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
         {/* ── Summary row ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -203,10 +205,10 @@ export default function ReportsPage() {
                   </div>
                 );
               })}
-              <div className="flex items-center gap-4 mt-2 text-xs text-gray-400 dark:text-gray-500">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Pass</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Fail</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Canceled</span>
+              <div className="flex items-center gap-2 mt-2">
+                <Badge color="green">Pass</Badge>
+                <Badge color="red">Fail</Badge>
+                <Badge color="yellow">Canceled</Badge>
               </div>
             </div>
           ) : (

@@ -89,8 +89,8 @@ export default function LogsPage() {
       if (debouncedSearch) params.search = debouncedSearch;
       const response = await api.getLogs(params);
       setEntries(response.data?.entries || []);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load logs');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load logs');
     } finally {
       setIsLoading(false);
     }
@@ -142,6 +142,7 @@ export default function LogsPage() {
   return (
     <DashboardLayout
       title="Service Logs"
+      subtitle="System and pipeline logs"
       actions={
         <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary text-sm py-1.5 flex items-center gap-1.5">
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -154,7 +155,7 @@ export default function LogsPage() {
       {error && (
         <div className="alert-error">
           <p>{error}</p>
-          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">Dismiss</button>
+          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 

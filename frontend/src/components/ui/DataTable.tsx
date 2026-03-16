@@ -182,11 +182,18 @@ export function DataTable<T>({
 
             {showColumnMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowColumnMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1">
+                <div className="fixed inset-0 z-10" onClick={() => setShowColumnMenu(false)} onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }} role="presentation" />
+                <div
+                  className="absolute right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1"
+                  role="menu"
+                  aria-label="Toggle column visibility"
+                  onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }}
+                >
                   {toggleableColumns.map((col) => (
                     <label
                       key={col.id}
+                      role="menuitemcheckbox"
+                      aria-checked={!hiddenColumns.has(col.id)}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                     >
                       <input
@@ -255,6 +262,7 @@ export function DataTable<T>({
               return animated ? (
                 <motion.tr
                   key={key}
+                  className="data-table-row"
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay }}
@@ -266,7 +274,7 @@ export function DataTable<T>({
                   ))}
                 </motion.tr>
               ) : (
-                <tr key={key}>
+                <tr key={key} className="data-table-row">
                   {visibleColumns.map((col) => (
                     <td key={col.id} className={col.cellClassName}>
                       {col.render(item, i)}

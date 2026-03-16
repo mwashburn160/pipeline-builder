@@ -12,12 +12,13 @@ export default function GrafanaPage() {
   return (
     <DashboardLayout
       title="Grafana"
+      subtitle="Observability dashboards"
       actions={
         <a
           href="/grafana/"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+          className="action-link-muted inline-flex items-center gap-1.5"
         >
           Open in new tab
           <ExternalLink className="w-4 h-4" />

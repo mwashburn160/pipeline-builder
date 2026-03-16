@@ -10,6 +10,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { ActionBar } from '@/components/ui/ActionBar';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
@@ -84,6 +85,8 @@ export default function PluginsPage() {
       if (debouncedName.trim()) params.name = debouncedName.trim();
       if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
       if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
+      if (filters.pluginType !== 'all') params.pluginType = filters.pluginType;
+      if (filters.computeType !== 'all') params.computeType = filters.computeType;
       params.limit = String(pagination.limit);
       params.offset = String(pagination.offset);
       const response = await api.listPlugins(params);
@@ -92,17 +95,17 @@ export default function PluginsPage() {
       if (pg) {
         setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load plugins');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load plugins');
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, canViewPublic, pagination.limit, pagination.offset]);
+  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, filters.pluginType, filters.computeType, canViewPublic, pagination.limit, pagination.offset]);
 
   // Reset to first page when filters change
   useEffect(() => {
     setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-  }, [debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default]);
+  }, [debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, filters.pluginType, filters.computeType]);
 
   useEffect(() => {
     if (isAuthenticated) fetchPlugins();
@@ -129,13 +132,9 @@ export default function PluginsPage() {
 
   const clearFilters = () => setFilters(initialFilters);
 
-  // Server-side handles CommonFilter + PluginFilter; client-side only for pluginType/computeType
-  const filteredPlugins = plugins.filter(plugin => {
-    if (!canViewPublic && plugin.accessModifier === 'public') return false;
-    if (filters.pluginType !== 'all' && plugin.pluginType !== filters.pluginType) return false;
-    if (filters.computeType !== 'all' && plugin.computeType !== filters.computeType) return false;
-    return true;
-  });
+  const filteredPlugins = canViewPublic
+    ? plugins
+    : plugins.filter(plugin => plugin.accessModifier !== 'public');
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -146,8 +145,8 @@ export default function PluginsPage() {
         setDeleteTarget(null);
         await fetchPlugins();
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to delete plugin');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete plugin');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);
@@ -214,12 +213,12 @@ export default function PluginsPage() {
       render: (plugin) => (
         <div className="flex items-center space-x-3">
           {isSysAdmin || plugin.accessModifier === 'private' ? (
-            <button onClick={() => setEditPlugin(plugin)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
+            <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
           {canDelete(plugin) && (
-            <button onClick={() => setDeleteTarget(plugin)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
+            <button onClick={() => setDeleteTarget(plugin)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
@@ -231,6 +230,7 @@ export default function PluginsPage() {
   return (
     <DashboardLayout
       title="Plugins"
+      subtitle="Manage build and deploy plugins"
       actions={
         isAdmin ? (
           <button onClick={() => setShowCreateModal(true)} className="btn btn-secondary">
@@ -240,122 +240,128 @@ export default function PluginsPage() {
         ) : undefined
       }
     >
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
+      <div className="page-section">
+        <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-        </div>
-      )}
-
-      {/* Filter Bar — single search + collapsible advanced filters */}
-      <div className="filter-bar">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search plugins..." className="filter-input pl-10" />
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-              showAdvanced || advancedFilterCount > 0
-                ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Filters
-            {advancedFilterCount > 0 && (
-              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
-                {advancedFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {showAdvanced && (
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex flex-wrap items-center gap-3">
-              <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
-                <option value="all">All Types</option>
-                <option value="CodeBuildStep">CodeBuildStep</option>
-                <option value="ShellStep">ShellStep</option>
-                <option value="ManualApprovalStep">ManualApprovalStep</option>
-              </select>
-              <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
-                <option value="all">All Compute</option>
-                <option value="SMALL">SMALL</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LARGE">LARGE</option>
-                <option value="X2_LARGE">X2_LARGE</option>
-              </select>
-              <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
-                <option value="all">All Default</option>
-                <option value="default">Default</option>
-                <option value="non-default">Non-Default</option>
-              </select>
-              {canViewPublic && (
-                <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
-                  <option value="all">All Access</option>
-                  <option value="public">Public</option>
-                  <option value="private">Private</option>
-                </select>
-              )}
-              <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
-              <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-              <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
-              {advancedFilterCount > 0 && (
-                <button type="button" onClick={clearFilters} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-                  <X className="w-3.5 h-3.5 inline mr-1" />
-                  Clear all
-                </button>
-              )}
-            </div>
+        {error && (
+          <div className="alert-error">
+            <p>{error}</p>
           </div>
         )}
 
-        {!isLoading && hasActiveFilters && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {pagination.total} plugins</p>
+        {/* Filter Bar — single search + collapsible advanced filters */}
+        <div className="filter-bar">
+          <ActionBar
+            left={(
+              <div className="relative min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search plugins..." className="filter-input pl-10" />
+              </div>
+            )}
+            right={(
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  showAdvanced || advancedFilterCount > 0
+                    ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                Filters
+                {advancedFilterCount > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
+                    {advancedFilterCount}
+                  </span>
+                )}
+              </button>
+            )}
+          />
+
+          {showAdvanced && (
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-3">
+                <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
+                  <option value="all">All Types</option>
+                  <option value="CodeBuildStep">CodeBuildStep</option>
+                  <option value="ShellStep">ShellStep</option>
+                  <option value="ManualApprovalStep">ManualApprovalStep</option>
+                </select>
+                <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
+                  <option value="all">All Compute</option>
+                  <option value="SMALL">SMALL</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="LARGE">LARGE</option>
+                  <option value="X2_LARGE">X2_LARGE</option>
+                </select>
+                <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
+                  <option value="all">All Default</option>
+                  <option value="default">Default</option>
+                  <option value="non-default">Non-Default</option>
+                </select>
+                {canViewPublic && (
+                  <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
+                    <option value="all">All Access</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                )}
+                <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
+                <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+                <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+                {advancedFilterCount > 0 && (
+                  <button type="button" onClick={clearFilters} className="action-link-muted">
+                    <X className="w-3.5 h-3.5 inline mr-1" />
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && hasActiveFilters && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {pagination.total} plugins</p>
+          )}
+        </div>
+
+        {!isLoading && filteredPlugins.length === 0 && hasActiveFilters && plugins.length > 0 ? (
+          <EmptyState
+            icon={Search}
+            title="No plugins match your filters"
+            description="Try adjusting your search or filter criteria."
+            action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
+          />
+        ) : (
+          <>
+            <DataTable
+              data={filteredPlugins}
+              columns={pluginColumns}
+              isLoading={isLoading}
+              emptyState={{
+                icon: Puzzle,
+                title: 'No plugins yet',
+                description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
+                action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
+              }}
+              getRowKey={(p) => p.id}
+              defaultSortColumn="name"
+            />
+            {!isLoading && pagination.total > 0 && (
+              <Pagination
+                pagination={pagination}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            )}
+          </>
         )}
       </div>
-
-      {!isLoading && filteredPlugins.length === 0 && hasActiveFilters && plugins.length > 0 ? (
-        <EmptyState
-          icon={Search}
-          title="No plugins match your filters"
-          description="Try adjusting your search or filter criteria."
-          action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
-        />
-      ) : (
-        <>
-          <DataTable
-            data={filteredPlugins}
-            columns={pluginColumns}
-            isLoading={isLoading}
-            emptyState={{
-              icon: Puzzle,
-              title: 'No plugins yet',
-              description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
-              action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
-            }}
-            getRowKey={(p) => p.id}
-            defaultSortColumn="name"
-          />
-          {!isLoading && pagination.total > 0 && (
-            <Pagination
-              pagination={pagination}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
-            />
-          )}
-        </>
-      )}
 
       {showCreateModal && (
         <CreatePluginModal

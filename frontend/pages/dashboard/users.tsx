@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ActionBar } from '@/components/ui/ActionBar';
 import api from '@/lib/api';
 
 interface UserListItem {
@@ -38,13 +40,15 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
   useEffect(() => {
     async function fetchUsers() {
       if (!isAuthenticated || !isSysAdmin) return;
       try {
         setIsLoading(true);
         const params: Record<string, string> = {};
-        if (searchQuery) params.search = searchQuery;
+        if (debouncedSearch) params.search = debouncedSearch;
         if (roleFilter !== 'all') params.role = roleFilter;
         const response = await api.listUsers(params);
         setUsers((response.data?.users || []) as UserListItem[]);
@@ -56,7 +60,7 @@ export default function UsersPage() {
     }
 
     if (isAuthenticated && isSysAdmin) fetchUsers();
-  }, [isAuthenticated, isSysAdmin, searchQuery, roleFilter]);
+  }, [isAuthenticated, isSysAdmin, debouncedSearch, roleFilter]);
 
   const handleEditUser = (userItem: UserListItem) => {
     setEditingUser(userItem);
@@ -156,9 +160,9 @@ export default function UsersPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (userItem) => (
         <>
-          <button onClick={() => handleEditUser(userItem)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4 transition-colors">Edit</button>
-          {userItem.id !== user!.id && (
-            <button onClick={() => setDeleteTarget(userItem)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
+          <button onClick={() => handleEditUser(userItem)} className="action-link mr-4">Edit</button>
+          {userItem.id !== user?.id && (
+            <button onClick={() => setDeleteTarget(userItem)} className="action-link-danger">Delete</button>
           )}
         </>
       ),
@@ -172,26 +176,30 @@ export default function UsersPage() {
   if (!isSysAdmin) return null;
 
   return (
-    <DashboardLayout title="All Users">
+    <DashboardLayout title="All Users" subtitle="System-wide user administration">
       {error && (
         <div className="alert-error">
           <p>{error}</p>
-          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">Dismiss</button>
+          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
       <div className="filter-bar">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
-          </div>
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
-            <option value="all">All Roles</option>
-            <option value="user">Users</option>
-            <option value="admin">Admins</option>
-          </select>
-        </div>
+        <ActionBar
+          left={(
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+              <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+            </div>
+          )}
+          right={(
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
+              <option value="all">All Roles</option>
+              <option value="user">Users</option>
+              <option value="admin">Admins</option>
+            </select>
+          )}
+        />
       </div>
 
       <DataTable
@@ -236,11 +244,11 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading || editingUser.id === user!.id}>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading || editingUser.id === user?.id}>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
-                {editingUser.id === user!.id && (
+                {editingUser.id === user?.id && (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
                 )}
               </div>

@@ -22,6 +22,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
@@ -140,7 +141,7 @@ export function Sidebar({
       <div className={`border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'px-2 py-5' : 'px-4 py-5'}`}>
         <Link
           href="/"
-          className="text-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+          className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors tracking-tight"
         >
           {collapsed ? (
             <Tooltip content="Pipeline Builder" position="right">
@@ -154,6 +155,35 @@ export function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
+        {!collapsed && (
+          <div className="px-3">
+            <div className="mb-4 rounded-2xl border border-blue-200/60 dark:border-blue-800/50 bg-blue-50/70 dark:bg-blue-900/20 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-blue-600/80 dark:text-blue-300/80">
+                Quick Actions
+              </p>
+              <div className="mt-2 space-y-2">
+                <Link
+                  href="/dashboard/pipelines"
+                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  Create Pipeline
+                </Link>
+                <Link
+                  href="/dashboard/plugins"
+                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-white">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  Add Plugin
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter(isItemVisible);
           if (visibleItems.length === 0) return null;
@@ -167,11 +197,13 @@ export function Sidebar({
                 const active = isActive(item.href);
                 const linkContent = (
                   <Link
-                    key={item.href}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className={`sidebar-nav-item ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''}`}
+                    className={`sidebar-nav-item relative ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''}`}
                   >
+                    {active && (
+                      <span className="absolute left-1 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-blue-500/80 dark:bg-blue-400/80" />
+                    )}
                     <Icon className="w-[18px] h-[18px] flex-shrink-0" />
                     {!collapsed && <span className="flex-1">{item.title}</span>}
                     {!collapsed && item.title === 'Messages' && unreadCount > 0 && (

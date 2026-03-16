@@ -163,11 +163,11 @@ export default function BillingPage() {
   if (!isReady || loading || !features.isEnabled('billing')) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="Billing">
-      <div className="space-y-8">
+    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
+      <div className="page-section space-y-8">
         {/* Current Subscription Status */}
         {subscription && (
-          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-6">
+          <div className="card">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Current Subscription</h2>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
@@ -222,7 +222,7 @@ export default function BillingPage() {
 
         {/* Billing Interval Toggle */}
         <div className="flex justify-center">
-          <div className="inline-flex items-center bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-1">
+          <div className="card inline-flex items-center p-1">
             <button
               onClick={() => setInterval('monthly')}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -257,10 +257,10 @@ export default function BillingPage() {
             return (
               <div
                 key={plan.id}
-                className={`relative rounded-xl border-2 p-6 transition-all ${
+                className={`card relative p-6 transition-all ${
                   isCurrent
-                    ? `${colors.border} ${colors.bg} shadow-lg`
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:shadow-md'
+                    ? `border-2 ${colors.border} ${colors.bg} shadow-lg`
+                    : 'hover:shadow-md'
                 }`}
               >
                 {isCurrent && (

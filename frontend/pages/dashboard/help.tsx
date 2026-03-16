@@ -10,7 +10,7 @@ export default function HelpPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="Help">
+    <DashboardLayout title="Help" subtitle="Guides, references, and docs">
       <div className="space-y-3 max-w-4xl">
         {HELP_TOPICS.map((topic, i) => (
           <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={i === 0} />

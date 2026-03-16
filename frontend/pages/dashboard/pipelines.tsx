@@ -10,6 +10,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { ActionBar } from '@/components/ui/ActionBar';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
@@ -92,8 +93,8 @@ export default function PipelinesPage() {
       if (pg) {
         setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load pipelines');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load pipelines');
     } finally {
       setIsLoading(false);
     }
@@ -152,11 +153,11 @@ export default function PipelinesPage() {
         await fetchPipelines();
         setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
       }
-    } catch (error) {
+    } catch (err) {
       let errorMessage = 'Failed to create pipeline';
-      if (error instanceof Error) errorMessage = error.message;
-      if (error && typeof error === 'object' && 'code' in error) {
-        const apiErr = error as { message?: string; code?: string };
+      if (err instanceof Error) errorMessage = err.message;
+      if (err && typeof err === 'object' && 'code' in err) {
+        const apiErr = err as { message?: string; code?: string };
         errorMessage = apiErr.message || errorMessage;
         if (apiErr.code) errorMessage += ` (${apiErr.code})`;
       }
@@ -175,8 +176,8 @@ export default function PipelinesPage() {
         setDeleteTarget(null);
         await fetchPipelines();
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to delete pipeline');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete pipeline');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);
@@ -245,12 +246,12 @@ export default function PipelinesPage() {
       render: (pipeline) => (
         <div className="flex items-center space-x-3">
           {isSysAdmin || pipeline.accessModifier === 'private' ? (
-            <button onClick={() => setEditPipeline(pipeline)} className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-medium transition-colors">Edit</button>
+            <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
           {canDelete(pipeline) && (
-            <button onClick={() => setDeleteTarget(pipeline)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 font-medium transition-colors">Delete</button>
+            <button onClick={() => setDeleteTarget(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
@@ -262,6 +263,7 @@ export default function PipelinesPage() {
   return (
     <DashboardLayout
       title="Pipelines"
+      subtitle="Create, edit, and monitor pipeline configurations"
       actions={
         <button
           onClick={() => { setShowCreateModal(true); setCreateError(null); setCreateSuccess(null); }}
@@ -272,110 +274,116 @@ export default function PipelinesPage() {
         </button>
       }
     >
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
+      <div className="page-section">
+        <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-        </div>
-      )}
-
-      {/* Filter Bar — single search + collapsible advanced filters */}
-      <div className="filter-bar">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-            <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search pipelines..." className="filter-input pl-10" />
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-              showAdvanced || advancedFilterCount > 0
-                ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-            }`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Filters
-            {advancedFilterCount > 0 && (
-              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
-                {advancedFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {showAdvanced && (
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex flex-wrap items-center gap-3">
-              <input type="text" value={filters.project} onChange={(e) => updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
-              <input type="text" value={filters.organization} onChange={(e) => updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
-              <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PipelineFilters['status'])} className="filter-select">
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-              <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PipelineFilters['default'])} className="filter-select">
-                <option value="all">All Default</option>
-                <option value="default">Default</option>
-                <option value="non-default">Non-Default</option>
-              </select>
-              {canViewPublic && (
-                <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PipelineFilters['access'])} className="filter-select">
-                  <option value="all">All Access</option>
-                  <option value="public">Public</option>
-                  <option value="private">Private</option>
-                </select>
-              )}
-              <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-              <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
-              {advancedFilterCount > 0 && (
-                <button type="button" onClick={clearFilters} className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-                  <X className="w-3.5 h-3.5 inline mr-1" />
-                  Clear all
-                </button>
-              )}
-            </div>
+        {error && (
+          <div className="alert-error">
+            <p>{error}</p>
           </div>
         )}
 
-        {!isLoading && hasActiveFilters && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPipelines.length} of {pagination.total} pipelines</p>
+        {/* Filter Bar — single search + collapsible advanced filters */}
+        <div className="filter-bar">
+          <ActionBar
+            left={(
+              <div className="relative min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search pipelines..." className="filter-input pl-10" />
+              </div>
+            )}
+            right={(
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  showAdvanced || advancedFilterCount > 0
+                    ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                Filters
+                {advancedFilterCount > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
+                    {advancedFilterCount}
+                  </span>
+                )}
+              </button>
+            )}
+          />
+
+          {showAdvanced && (
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-3">
+                <input type="text" value={filters.project} onChange={(e) => updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
+                <input type="text" value={filters.organization} onChange={(e) => updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
+                <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PipelineFilters['status'])} className="filter-select">
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PipelineFilters['default'])} className="filter-select">
+                  <option value="all">All Default</option>
+                  <option value="default">Default</option>
+                  <option value="non-default">Non-Default</option>
+                </select>
+                {canViewPublic && (
+                  <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PipelineFilters['access'])} className="filter-select">
+                    <option value="all">All Access</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                )}
+                <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+                <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+                {advancedFilterCount > 0 && (
+                  <button type="button" onClick={clearFilters} className="action-link-muted">
+                    <X className="w-3.5 h-3.5 inline mr-1" />
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && hasActiveFilters && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPipelines.length} of {pagination.total} pipelines</p>
+          )}
+        </div>
+
+        {!isLoading && filteredPipelines.length === 0 && hasActiveFilters && pipelines.length > 0 ? (
+          <EmptyState
+            icon={Search}
+            title="No pipelines match your filters"
+            description="Try adjusting your search or filter criteria."
+            action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
+          />
+        ) : (
+          <>
+            <DataTable
+              data={filteredPipelines}
+              columns={pipelineColumns}
+              isLoading={isLoading}
+              emptyState={{
+                icon: GitBranch,
+                title: 'No pipelines yet',
+                description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
+                action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
+              }}
+              getRowKey={(p) => p.id}
+              defaultSortColumn="name"
+            />
+            {!isLoading && pagination.total > 0 && (
+              <Pagination
+                pagination={pagination}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            )}
+          </>
         )}
       </div>
-
-      {!isLoading && filteredPipelines.length === 0 && hasActiveFilters && pipelines.length > 0 ? (
-        <EmptyState
-          icon={Search}
-          title="No pipelines match your filters"
-          description="Try adjusting your search or filter criteria."
-          action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
-        />
-      ) : (
-        <>
-          <DataTable
-            data={filteredPipelines}
-            columns={pipelineColumns}
-            isLoading={isLoading}
-            emptyState={{
-              icon: GitBranch,
-              title: 'No pipelines yet',
-              description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
-              action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
-            }}
-            getRowKey={(p) => p.id}
-            defaultSortColumn="name"
-          />
-          {!isLoading && pagination.total > 0 && (
-            <Pagination
-              pagination={pagination}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
-            />
-          )}
-        </>
-      )}
 
       <CreatePipelineModal
         isOpen={showCreateModal}

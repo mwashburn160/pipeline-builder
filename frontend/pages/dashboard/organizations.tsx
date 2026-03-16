@@ -26,8 +26,8 @@ export default function OrganizationsPage() {
         const response = await api.listOrganizations();
         const orgList = response.data?.organizations || [];
         setOrganizations(orgList);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : 'Failed to load organizations');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load organizations');
       } finally {
         setIsLoading(false);
       }
@@ -45,8 +45,8 @@ export default function OrganizationsPage() {
       await api.deleteOrganization(deleteTarget.id);
       setOrganizations(organizations.filter(o => o.id !== deleteTarget.id));
       setDeleteTarget(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to delete organization');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete organization');
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);
@@ -91,7 +91,7 @@ export default function OrganizationsPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (org) => (
         org.id !== 'system' ? (
-          <button onClick={() => setDeleteTarget(org)} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 transition-colors">Delete</button>
+          <button onClick={() => setDeleteTarget(org)} className="action-link-danger">Delete</button>
         ) : (
           <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
         )
@@ -104,12 +104,13 @@ export default function OrganizationsPage() {
   return (
     <DashboardLayout
       title="Organizations"
+      subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
     >
       {error && (
         <div className="alert-error">
           <p>{error}</p>
-          <button onClick={() => setError(null)} className="mt-2 text-sm text-red-600 dark:text-red-400 underline">Dismiss</button>
+          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
@@ -123,7 +124,7 @@ export default function OrganizationsPage() {
       />
 
       {/* Warning */}
-      <div className="mt-6 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 p-4 border border-yellow-200/60 dark:border-yellow-800/60">
+      <div className="card mt-6 border-yellow-200/60 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-900/20">
         <div className="flex">
           <AlertTriangle className="h-5 w-5 text-yellow-400 dark:text-yellow-500 flex-shrink-0" />
           <div className="ml-3">

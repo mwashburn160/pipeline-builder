@@ -358,6 +358,7 @@ export default function QuotasPage() {
   return (
     <DashboardLayout
       title={isSysAdmin ? 'Organization Quotas' : 'Quotas'}
+      subtitle="Usage limits and consumption"
       titleExtra={titleExtra}
       actions={headerActions}
       mainClassName="!p-0"
