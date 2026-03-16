@@ -148,8 +148,3 @@ spec:
         - name: tls-certs
           secret:
             secretName: nginx-tls-secret
-            items:
-              - key: tls.crt
-                path: nginx.crt
-              - key: tls.key
-                path: nginx.key
