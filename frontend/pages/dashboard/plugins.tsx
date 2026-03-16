@@ -15,14 +15,33 @@ import { FilterBar } from '@/components/ui/FilterBar';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
-import { Plugin } from '@/types';
+import type { Plugin } from '@/types';
 
-/** Plugin management dashboard page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
+// ─── Helpers ────────────────────────────────────────────
+
+/** Maps common filter keys (access, status, default) to API parameter names. */
+function mapCommonParams(params: Record<string, string>, canViewPublic: boolean): Record<string, string> {
+  const p: Record<string, string> = {};
+  if (params.access) p.accessModifier = params.access;
+  else if (!canViewPublic) p.accessModifier = 'private';
+  if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
+  if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
+  return p;
+}
+
+/** Whether the current user can edit/delete a resource based on access modifier. */
+function canModify(isSysAdmin: boolean, accessModifier: string): boolean {
+  return isSysAdmin || accessModifier === 'private';
+}
+
+// ─── Page ───────────────────────────────────────────────
+
+/** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
-
   const canViewPublic = isSysAdmin;
-  const canUploadPublic = isSysAdmin;
+
+  // ── Data ──
 
   const list = useListPage<Plugin>({
     fields: [
@@ -30,7 +49,6 @@ export default function PluginsPage() {
       { key: 'id', type: 'text', defaultValue: '' },
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'version', type: 'text', defaultValue: '' },
-      { key: 'imageTag', type: 'text', defaultValue: '' },
       { key: 'pluginType', type: 'select', defaultValue: 'all' },
       { key: 'computeType', type: 'select', defaultValue: 'all' },
       { key: 'access', type: 'select', defaultValue: 'all' },
@@ -38,29 +56,22 @@ export default function PluginsPage() {
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
-      const p: Record<string, string> = {};
+      const p: Record<string, string> = {
+        ...mapCommonParams(params, canViewPublic),
+        limit: params.limit,
+        offset: params.offset,
+      };
       if (params.name) p.name = params.name;
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.version) p.version = params.version;
-      if (params.imageTag) p.imageTag = params.imageTag;
       if (params.pluginType) p.pluginType = params.pluginType;
       if (params.computeType) p.computeType = params.computeType;
-      if (params.access) p.accessModifier = params.access;
-      else if (!canViewPublic) p.accessModifier = 'private';
-      if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
-      if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
-      p.limit = params.limit;
-      p.offset = params.offset;
       const response = await api.listPlugins(p);
       return { items: response.data?.plugins || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
   });
-
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
 
   const del = useDelete<Plugin>(
     (p) => api.deletePlugin(p.id),
@@ -72,7 +83,13 @@ export default function PluginsPage() {
     ? list.data
     : list.data.filter(p => p.accessModifier !== 'public');
 
-  const canDelete = (plugin: Plugin) => isSysAdmin || plugin.accessModifier === 'private';
+  // ── Modals ──
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
+
+  // ── Columns ──
 
   const pluginColumns: Column<Plugin>[] = useMemo(() => [
     {
@@ -85,9 +102,7 @@ export default function PluginsPage() {
             {p.name}
             {!p.isActive && <Badge color="red" className="ml-2">Inactive</Badge>}
           </div>
-          {p.description && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>
-          )}
+          {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
         </div>
       ),
     },
@@ -131,18 +146,20 @@ export default function PluginsPage() {
       cellClassName: 'text-sm',
       render: (plugin) => (
         <div className="flex items-center space-x-3">
-          {isSysAdmin || plugin.accessModifier === 'private' ? (
+          {canModify(isSysAdmin, plugin.accessModifier) ? (
             <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
-          {canDelete(plugin) && (
+          {canModify(isSysAdmin, plugin.accessModifier) && (
             <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
     },
   ], [isSysAdmin]);
+
+  // ── Render ──
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -162,9 +179,7 @@ export default function PluginsPage() {
       <div className="page-section">
         <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
 
-        {list.error && (
-          <div className="alert-error"><p>{list.error}</p></div>
-        )}
+        {list.error && <div className="alert-error"><p>{list.error}</p></div>}
 
         <FilterBar
           searchValue={list.filters.name}
@@ -237,41 +252,22 @@ export default function PluginsPage() {
               defaultSortColumn="name"
             />
             {!list.isLoading && list.pagination.total > 0 && (
-              <Pagination
-                pagination={list.pagination}
-                onPageChange={list.handlePageChange}
-                onPageSizeChange={list.handlePageSizeChange}
-              />
+              <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
             )}
           </>
         )}
       </div>
 
       {showCreateModal && (
-        <CreatePluginModal
-          canUploadPublic={canUploadPublic}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={list.refresh}
-        />
+        <CreatePluginModal canUploadPublic={isSysAdmin} onClose={() => setShowCreateModal(false)} onCreated={list.refresh} />
       )}
 
       {del.target && (
-        <DeleteConfirmModal
-          title="Delete Plugin"
-          itemName={del.target.name}
-          loading={del.loading}
-          onConfirm={del.confirm}
-          onCancel={del.close}
-        />
+        <DeleteConfirmModal title="Delete Plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
       {editPlugin && (
-        <EditPluginModal
-          plugin={editPlugin}
-          isSysAdmin={isSysAdmin}
-          onClose={() => setEditPlugin(null)}
-          onSaved={list.refresh}
-        />
+        <EditPluginModal plugin={editPlugin} isSysAdmin={isSysAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
       )}
     </DashboardLayout>
   );

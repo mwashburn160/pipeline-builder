@@ -3,6 +3,7 @@ import { Plus, GitBranch, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
+import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -15,14 +16,33 @@ import { FilterBar } from '@/components/ui/FilterBar';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
-import { Pipeline, BuilderProps } from '@/types';
+import type { Pipeline, BuilderProps } from '@/types';
 
-/** Pipeline management dashboard page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
+// ─── Helpers ────────────────────────────────────────────
+
+/** Maps common filter keys (access, status, default) to API parameter names. */
+function mapCommonParams(params: Record<string, string>, canViewPublic: boolean): Record<string, string> {
+  const p: Record<string, string> = {};
+  if (params.access) p.accessModifier = params.access;
+  else if (!canViewPublic) p.accessModifier = 'private';
+  if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
+  if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
+  return p;
+}
+
+/** Whether the current user can edit/delete a resource based on access modifier. */
+function canModify(isSysAdmin: boolean, accessModifier: string): boolean {
+  return isSysAdmin || accessModifier === 'private';
+}
+
+// ─── Page ───────────────────────────────────────────────
+
+/** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
-
   const canViewPublic = isSysAdmin;
-  const canCreatePublic = isSysAdmin;
+
+  // ── Data ──
 
   const list = useListPage<Pipeline>({
     fields: [
@@ -36,30 +56,21 @@ export default function PipelinesPage() {
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
-      const p: Record<string, string> = {};
+      const p: Record<string, string> = {
+        ...mapCommonParams(params, canViewPublic),
+        limit: params.limit,
+        offset: params.offset,
+      };
       if (params.name) p.pipelineName = params.name;
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.project) p.project = params.project;
       if (params.organization) p.organization = params.organization;
-      if (params.access) p.accessModifier = params.access;
-      else if (!canViewPublic) p.accessModifier = 'private';
-      if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
-      if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
-      p.limit = params.limit;
-      p.offset = params.offset;
       const response = await api.listPipelines(p);
       return { items: response.data?.pipelines || [], pagination: response.data?.pagination };
     },
     enabled: isAuthenticated,
   });
-
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
-  const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
 
   const del = useDelete<Pipeline>(
     (p) => api.deletePipeline(p.id),
@@ -71,12 +82,17 @@ export default function PipelinesPage() {
     ? list.data
     : list.data.filter(p => p.accessModifier !== 'public');
 
+  // ── Create ──
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const createForm = useFormState();
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
+
   const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
-    setCreateLoading(true);
-    setCreateError(null);
     setCreateSuccess(null);
-    try {
-      const response = await api.createPipeline({
+    const result = await createForm.run(() =>
+      api.createPipeline({
         project: props.project,
         organization: props.organization,
         pipelineName: props.pipelineName,
@@ -84,27 +100,20 @@ export default function PipelinesPage() {
         keywords,
         props,
         accessModifier,
-      });
-      if (response.success) {
-        setCreateSuccess('Pipeline created successfully!');
-        list.refresh();
-        setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
-      }
-    } catch (err) {
-      let errorMessage = 'Failed to create pipeline';
-      if (err instanceof Error) errorMessage = err.message;
-      if (err && typeof err === 'object' && 'code' in err) {
-        const apiErr = err as { message?: string; code?: string };
-        errorMessage = apiErr.message || errorMessage;
-        if (apiErr.code) errorMessage += ` (${apiErr.code})`;
-      }
-      setCreateError(errorMessage);
-    } finally {
-      setCreateLoading(false);
+      }),
+    );
+    if (result?.success) {
+      setCreateSuccess('Pipeline created successfully!');
+      list.refresh();
+      setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
     }
   };
 
-  const canDelete = (pipeline: Pipeline) => isSysAdmin || pipeline.accessModifier === 'private';
+  // ── Filters ──
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // ── Columns ──
 
   const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
     {
@@ -114,9 +123,7 @@ export default function PipelinesPage() {
       render: (p) => (
         <div>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.pipelineName}</div>
-          {p.description && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>
-          )}
+          {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
         </div>
       ),
     },
@@ -165,18 +172,20 @@ export default function PipelinesPage() {
       cellClassName: 'text-sm',
       render: (pipeline) => (
         <div className="flex items-center space-x-3">
-          {isSysAdmin || pipeline.accessModifier === 'private' ? (
+          {canModify(isSysAdmin, pipeline.accessModifier) ? (
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
-          {canDelete(pipeline) && (
+          {canModify(isSysAdmin, pipeline.accessModifier) && (
             <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
     },
   ], [isSysAdmin]);
+
+  // ── Render ──
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -185,10 +194,7 @@ export default function PipelinesPage() {
       title="Pipelines"
       subtitle="Create, edit, and monitor pipeline configurations"
       actions={
-        <button
-          onClick={() => { setShowCreateModal(true); setCreateError(null); setCreateSuccess(null); }}
-          className="btn btn-primary"
-        >
+        <button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }} className="btn btn-primary">
           <Plus className="w-4 h-4 mr-2" />
           Create Pipeline
         </button>
@@ -197,9 +203,7 @@ export default function PipelinesPage() {
       <div className="page-section">
         <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
-        {list.error && (
-          <div className="alert-error"><p>{list.error}</p></div>
-        )}
+        {list.error && <div className="alert-error"><p>{list.error}</p></div>}
 
         <FilterBar
           searchValue={list.filters.name}
@@ -260,11 +264,7 @@ export default function PipelinesPage() {
               defaultSortColumn="name"
             />
             {!list.isLoading && list.pagination.total > 0 && (
-              <Pagination
-                pagination={list.pagination}
-                onPageChange={list.handlePageChange}
-                onPageSizeChange={list.handlePageSizeChange}
-              />
+              <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
             )}
           </>
         )}
@@ -274,29 +274,18 @@ export default function PipelinesPage() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreatePipeline}
-        createLoading={createLoading}
-        createError={createError}
+        createLoading={createForm.loading}
+        createError={createForm.error}
         createSuccess={createSuccess}
-        canCreatePublic={canCreatePublic}
+        canCreatePublic={isSysAdmin}
       />
 
       {del.target && (
-        <DeleteConfirmModal
-          title="Delete Pipeline"
-          itemName={del.target.pipelineName || 'Unnamed Pipeline'}
-          loading={del.loading}
-          onConfirm={del.confirm}
-          onCancel={del.close}
-        />
+        <DeleteConfirmModal title="Delete Pipeline" itemName={del.target.pipelineName || 'Unnamed Pipeline'} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
       {editPipeline && (
-        <EditPipelineModal
-          pipeline={editPipeline}
-          isSysAdmin={isSysAdmin}
-          onClose={() => setEditPipeline(null)}
-          onSaved={list.refresh}
-        />
+        <EditPipelineModal pipeline={editPipeline} isSysAdmin={isSysAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
       )}
     </DashboardLayout>
   );
