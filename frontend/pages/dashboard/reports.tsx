@@ -55,22 +55,6 @@ interface ErrorEntry {
   last_seen: string;
 }
 
-interface PluginSummary {
-  total: number;
-  active: number;
-  inactive: number;
-  public: number;
-  private: number;
-  unique_names: number;
-}
-
-interface PluginVersion {
-  name: string;
-  version_count: number;
-  latest_version: string;
-  has_default: boolean;
-}
-
 // ─── Helpers ────────────────────────────────────────────
 
 function fmtMs(ms: number): string {
@@ -94,7 +78,8 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ─── Page ───────────────────────────────────────────────
 
-export default function ReportsPage() {
+/** Pipeline reports page. Execution counts, timeline, duration stats, stage failures, and error patterns. */
+export default function PipelineReportsPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
 
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
@@ -105,20 +90,16 @@ export default function ReportsPage() {
   const [durations, setDurations] = useState<DurationStat[]>([]);
   const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
   const [errors, setErrors] = useState<ErrorEntry[]>([]);
-  const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [pluginVersions, setPluginVersions] = useState<PluginVersion[]>([]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [execRes, timelineRes, durationRes, stageRes, errorRes, pluginSumRes, pluginVerRes] = await Promise.allSettled([
+      const [execRes, timelineRes, durationRes, stageRes, errorRes] = await Promise.allSettled([
         api.getExecutionCount(),
         api.getExecutionTimeline({ interval: timeInterval }),
         api.getPipelineDuration(),
         api.getStageFailures(),
         api.getExecutionErrors({ limit: 10 }),
-        api.getPluginSummary(),
-        api.getPluginVersions(),
       ]);
 
       if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
@@ -126,8 +107,6 @@ export default function ReportsPage() {
       if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
       if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
       if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
-      if (pluginSumRes.status === 'fulfilled') setPluginSummary(pluginSumRes.value.data?.summary || null);
-      if (pluginVerRes.status === 'fulfilled') setPluginVersions(pluginVerRes.value.data?.plugins || []);
     } finally {
       setLoading(false);
     }
@@ -146,8 +125,8 @@ export default function ReportsPage() {
 
   return (
     <DashboardLayout
-      title="Reports"
-      subtitle="Operational and usage insights"
+      title="Pipeline Reports"
+      subtitle="Execution analytics, duration stats, and failure insights"
       maxWidth="7xl"
       actions={
         <div className="flex items-center gap-2">
@@ -174,7 +153,7 @@ export default function ReportsPage() {
             { label: 'Executions', value: totalExec },
             { label: 'Success Rate', value: successRate === '—' ? '—' : `${successRate}%` },
             { label: 'Failures', value: totalFail },
-            { label: 'Plugins', value: pluginSummary ? `${pluginSummary.active}/${pluginSummary.total}` : '—' },
+            { label: 'Pipelines', value: executions.length },
           ].map((s) => (
             <div key={s.label} className="card py-4 text-center">
               <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{s.value}</p>
@@ -216,7 +195,7 @@ export default function ReportsPage() {
           )}
         </div>
 
-        {/* ── Pipelines + Duration ── */}
+        {/* ── Executions + Duration ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="card">
             <SectionHeading>Pipeline Executions</SectionHeading>
@@ -315,52 +294,6 @@ export default function ReportsPage() {
               <ReportEmpty text="No errors recorded" />
             )}
           </div>
-        </div>
-
-        {/* ── Plugin Inventory ── */}
-        <div className="card">
-          <SectionHeading>Plugin Inventory</SectionHeading>
-          {pluginSummary && (
-            <div className="flex flex-wrap gap-6 mb-4 text-center">
-              {[
-                { label: 'Total', value: pluginSummary.total },
-                { label: 'Active', value: pluginSummary.active },
-                { label: 'Public', value: pluginSummary.public },
-                { label: 'Private', value: pluginSummary.private },
-              ].map((item) => (
-                <div key={item.label}>
-                  <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{item.value}</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">{item.label}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {pluginVersions.length > 0 ? (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                  <th className="pb-2 font-medium">Plugin</th>
-                  <th className="pb-2 font-medium text-right">Versions</th>
-                  <th className="pb-2 font-medium text-right">Latest</th>
-                  <th className="pb-2 font-medium text-center">Default</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {pluginVersions.slice(0, 15).map((v) => (
-                  <tr key={v.name}>
-                    <td className="py-1.5 text-gray-900 dark:text-gray-100">{v.name}</td>
-                    <td className="py-1.5 text-right tabular-nums">{v.version_count}</td>
-                    <td className="py-1.5 text-right font-mono text-xs">{v.latest_version}</td>
-                    <td className="py-1.5 text-center">
-                      <span className={`inline-block w-2 h-2 rounded-full ${v.has_default ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <ReportEmpty text="No plugin data yet" />
-          )}
         </div>
 
       </motion.div>

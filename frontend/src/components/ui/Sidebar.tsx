@@ -65,7 +65,8 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Operations',
     items: [
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
-      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
+      { title: 'Pipeline Reports', href: '/dashboard/reports', icon: FileBarChart },
+      { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: FileBarChart },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
