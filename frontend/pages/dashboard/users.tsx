@@ -2,6 +2,8 @@ import { useEffect, useState, useMemo } from 'react';
 import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useFormState } from '@/hooks/useFormState';
+import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -33,12 +35,16 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
   const [newPassword, setNewPassword] = useState('');
-  const [editLoading, setEditLoading] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+  const editForm = useFormState();
 
-  const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const del = useDelete<UserListItem>(
+    async (u) => {
+      await api.deleteUserById(u.id);
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+    },
+    undefined,
+    (err) => setError(err instanceof Error ? err.message : 'Failed to delete user'),
+  );
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -66,57 +72,35 @@ export default function UsersPage() {
     setEditingUser(userItem);
     setEditRole(userItem.role);
     setNewPassword('');
-    setEditError(null);
-    setEditSuccess(null);
+    editForm.reset();
   };
 
   const handleSaveUser = async () => {
     if (!editingUser) return;
-    setEditLoading(true);
-    setEditError(null);
-    setEditSuccess(null);
 
-    try {
-      const updates: { role?: string; password?: string } = {};
-      if (editRole !== editingUser.role) updates.role = editRole;
-      if (newPassword && newPassword.length >= 8) {
-        updates.password = newPassword;
-      } else if (newPassword && newPassword.length < 8) {
-        setEditError('Password must be at least 8 characters');
-        setEditLoading(false);
-        return;
-      }
+    const updates: { role?: string; password?: string } = {};
+    if (editRole !== editingUser.role) updates.role = editRole;
+    if (newPassword && newPassword.length >= 8) {
+      updates.password = newPassword;
+    } else if (newPassword && newPassword.length < 8) {
+      editForm.setError('Password must be at least 8 characters');
+      return;
+    }
 
-      if (Object.keys(updates).length === 0) {
-        setEditError('No changes to save');
-        setEditLoading(false);
-        return;
-      }
+    if (Object.keys(updates).length === 0) {
+      editForm.setError('No changes to save');
+      return;
+    }
 
-      await api.updateUserById(editingUser.id, updates);
-      setUsers(users.map(u => u.id === editingUser.id ? { ...u, role: editRole } : u));
-      setEditSuccess('User updated successfully');
+    const result = await editForm.run(
+      () => api.updateUserById(editingUser.id, updates),
+      { successMessage: 'User updated successfully' },
+    );
+
+    if (result !== null) {
+      setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, role: editRole } : u));
       setNewPassword('');
       setTimeout(() => setEditingUser(null), 1500);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update user');
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleDeleteUser = async () => {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    try {
-      await api.deleteUserById(deleteTarget.id);
-      setUsers(users.filter(u => u.id !== deleteTarget.id));
-      setDeleteTarget(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete user');
-      setDeleteTarget(null);
-    } finally {
-      setDeleteLoading(false);
     }
   };
 
@@ -162,7 +146,7 @@ export default function UsersPage() {
         <>
           <button onClick={() => handleEditUser(userItem)} className="action-link mr-4">Edit</button>
           {userItem.id !== user?.id && (
-            <button onClick={() => setDeleteTarget(userItem)} className="action-link-danger">Delete</button>
+            <button onClick={() => del.open(userItem)} className="action-link-danger">Delete</button>
           )}
         </>
       ),
@@ -170,9 +154,6 @@ export default function UsersPage() {
   ], [user]);
 
   if (!isReady || !user) return <LoadingPage />;
-
-  // Non-system admins should not see this page — redirect handled by useAuthGuard,
-  // but show nothing if they somehow reach here
   if (!isSysAdmin) return null;
 
   return (
@@ -186,19 +167,19 @@ export default function UsersPage() {
 
       <div className="filter-bar">
         <ActionBar
-          left={(
+          left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
               <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
             </div>
-          )}
-          right={(
+          }
+          right={
             <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
               <option value="all">All Roles</option>
               <option value="user">Users</option>
               <option value="admin">Admins</option>
             </select>
-          )}
+          }
         />
       </div>
 
@@ -215,13 +196,13 @@ export default function UsersPage() {
         defaultSortColumn="user"
       />
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete User"
-          itemName={deleteTarget.username}
-          loading={deleteLoading}
-          onConfirm={handleDeleteUser}
-          onCancel={() => setDeleteTarget(null)}
+          itemName={del.target.username}
+          loading={del.loading}
+          onConfirm={del.confirm}
+          onCancel={del.close}
         />
       )}
 
@@ -230,8 +211,8 @@ export default function UsersPage() {
           <div className="modal-panel max-w-md">
             <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User: {editingUser.username}</h2>
 
-            {editError && <div className="alert-error"><p>{editError}</p></div>}
-            {editSuccess && <div className="alert-success"><p>{editSuccess}</p></div>}
+            {editForm.error && <div className="alert-error"><p>{editForm.error}</p></div>}
+            {editForm.success && <div className="alert-success"><p>{editForm.success}</p></div>}
 
             <div className="space-y-4">
               <div>
@@ -244,7 +225,7 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editLoading || editingUser.id === user?.id}>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editForm.loading || editingUser.id === user?.id}>
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
@@ -254,14 +235,14 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">New Password (leave blank to keep current)</label>
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" className="input" disabled={editLoading} />
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" className="input" disabled={editForm.loading} />
               </div>
             </div>
 
             <div className="mt-6 flex justify-end space-x-3">
-              <button onClick={() => setEditingUser(null)} disabled={editLoading} className="btn btn-secondary">Cancel</button>
-              <button onClick={handleSaveUser} disabled={editLoading} className="btn btn-primary">
-                {editLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+              <button onClick={() => setEditingUser(null)} disabled={editForm.loading} className="btn btn-secondary">Cancel</button>
+              <button onClick={handleSaveUser} disabled={editForm.loading} className="btn btn-primary">
+                {editForm.loading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
                 Save Changes
               </button>
             </div>

@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { UserPlus, Users, Shield, ShieldOff, UserMinus, Crown, Search, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFormState } from '@/hooks/useFormState';
+import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -23,8 +25,7 @@ export default function TeamPage() {
   // Add member
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addEmail, setAddEmail] = useState('');
-  const [addError, setAddError] = useState<string | null>(null);
-  const [addLoading, setAddLoading] = useState(false);
+  const addForm = useFormState();
 
   // Role change
   const [roleChangeTarget, setRoleChangeTarget] = useState<OrganizationMember | null>(null);
@@ -33,12 +34,17 @@ export default function TeamPage() {
   // Password reset
   const [passwordTarget, setPasswordTarget] = useState<OrganizationMember | null>(null);
   const [newPassword, setNewPassword] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const passwordForm = useFormState();
 
-  // Remove
-  const [removeTarget, setRemoveTarget] = useState<OrganizationMember | null>(null);
+  // Remove member
+  const removeMember = useDelete<OrganizationMember>(
+    async (m) => {
+      await api.removeMemberFromOrganization(user!.organizationId!, m.id);
+      setMembers(prev => prev.filter(x => x.id !== m.id));
+    },
+    undefined,
+    () => setError('Failed to remove member'),
+  );
 
   const orgId = user?.organizationId;
 
@@ -72,17 +78,13 @@ export default function TeamPage() {
 
   const handleAddMember = async () => {
     if (!orgId || !addEmail.trim()) return;
-    setAddLoading(true);
-    setAddError(null);
-    try {
-      await api.addMemberToOrganization(orgId, { email: addEmail.trim().toLowerCase() });
+    const result = await addForm.run(
+      () => api.addMemberToOrganization(orgId, { email: addEmail.trim().toLowerCase() }),
+    );
+    if (result !== null) {
       setAddEmail('');
       setAddModalOpen(false);
       fetchMembers();
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add member');
-    } finally {
-      setAddLoading(false);
     }
   };
 
@@ -101,34 +103,19 @@ export default function TeamPage() {
     }
   };
 
-  const handleRemoveMember = async () => {
-    if (!orgId || !removeTarget) return;
-    try {
-      await api.removeMemberFromOrganization(orgId, removeTarget.id);
-      setMembers(prev => prev.filter(m => m.id !== removeTarget.id));
-      setRemoveTarget(null);
-    } catch {
-      setError('Failed to remove member');
-    }
-  };
-
   const handlePasswordReset = async () => {
     if (!passwordTarget) return;
     if (!newPassword || newPassword.length < 8) {
-      setPasswordError('Password must be at least 8 characters');
+      passwordForm.setError('Password must be at least 8 characters');
       return;
     }
-    setPasswordLoading(true);
-    setPasswordError(null);
-    try {
-      await api.updateUserById(passwordTarget.id, { password: newPassword });
-      setPasswordSuccess('Password updated successfully');
+    const result = await passwordForm.run(
+      () => api.updateUserById(passwordTarget.id, { password: newPassword }),
+      { successMessage: 'Password updated successfully' },
+    );
+    if (result !== null) {
       setNewPassword('');
-      setTimeout(() => { setPasswordTarget(null); setPasswordSuccess(null); }, 1500);
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Failed to reset password');
-    } finally {
-      setPasswordLoading(false);
+      setTimeout(() => { setPasswordTarget(null); passwordForm.reset(); }, 1500);
     }
   };
 
@@ -189,14 +176,14 @@ export default function TeamPage() {
               {m.role === 'admin' ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
             </button>
             <button
-              onClick={() => { setPasswordTarget(m); setNewPassword(''); setPasswordError(null); setPasswordSuccess(null); }}
+              onClick={() => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); }}
               className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:text-amber-400 dark:hover:bg-amber-900/20 transition-colors"
               title="Reset password"
             >
               <KeyRound className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setRemoveTarget(m)}
+              onClick={() => removeMember.open(m)}
               className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
               title="Remove from organization"
             >
@@ -216,7 +203,7 @@ export default function TeamPage() {
       subtitle="Manage team members and roles"
       maxWidth="4xl"
       actions={
-        <button onClick={() => { setAddEmail(''); setAddError(null); setAddModalOpen(true); }} className="btn btn-primary text-sm">
+        <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary text-sm">
           <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
         </button>
       }
@@ -232,19 +219,19 @@ export default function TeamPage() {
 
       <div className="filter-bar">
         <ActionBar
-          left={(
+          left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
               <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
             </div>
-          )}
-          right={(
+          }
+          right={
             <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
               <option value="all">All Roles</option>
               <option value="user">Users</option>
               <option value="admin">Admins</option>
             </select>
-          )}
+          }
         />
       </div>
 
@@ -272,11 +259,11 @@ export default function TeamPage() {
               className="input text-sm mb-3"
               autoFocus
             />
-            {addError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{addError}</p>}
+            {addForm.error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{addForm.error}</p>}
             <div className="flex justify-end gap-2">
               <button onClick={() => setAddModalOpen(false)} className="btn btn-secondary text-sm">Cancel</button>
-              <button onClick={handleAddMember} disabled={addLoading || !addEmail.trim()} className="btn btn-primary text-sm">
-                {addLoading ? 'Adding...' : 'Add Member'}
+              <button onClick={handleAddMember} disabled={addForm.loading || !addEmail.trim()} className="btn btn-primary text-sm">
+                {addForm.loading ? 'Adding...' : 'Add Member'}
               </button>
             </div>
           </div>
@@ -299,8 +286,8 @@ export default function TeamPage() {
         <div className="modal-backdrop" onClick={() => setPasswordTarget(null)}>
           <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Reset Password: {passwordTarget.username}</h3>
-            {passwordError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{passwordError}</p>}
-            {passwordSuccess && <p className="text-sm text-green-600 dark:text-green-400 mb-3">{passwordSuccess}</p>}
+            {passwordForm.error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{passwordForm.error}</p>}
+            {passwordForm.success && <p className="text-sm text-green-600 dark:text-green-400 mb-3">{passwordForm.success}</p>}
             <div>
               <label className="label">New Password</label>
               <input
@@ -311,13 +298,13 @@ export default function TeamPage() {
                 placeholder="Minimum 8 characters"
                 className="input text-sm"
                 autoFocus
-                disabled={passwordLoading}
+                disabled={passwordForm.loading}
               />
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary text-sm" disabled={passwordLoading}>Cancel</button>
-              <button onClick={handlePasswordReset} disabled={passwordLoading || !newPassword} className="btn btn-primary text-sm">
-                {passwordLoading ? 'Updating...' : 'Reset Password'}
+              <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary text-sm" disabled={passwordForm.loading}>Cancel</button>
+              <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary text-sm">
+                {passwordForm.loading ? 'Updating...' : 'Reset Password'}
               </button>
             </div>
           </div>
@@ -325,13 +312,13 @@ export default function TeamPage() {
       )}
 
       {/* Remove confirmation */}
-      {removeTarget && (
+      {removeMember.target && (
         <DeleteConfirmModal
           title="Remove Member"
-          itemName={removeTarget.username}
-          loading={false}
-          onConfirm={handleRemoveMember}
-          onCancel={() => setRemoveTarget(null)}
+          itemName={removeMember.target.username}
+          loading={removeMember.loading}
+          onConfirm={removeMember.confirm}
+          onCancel={removeMember.close}
         />
       )}
     </DashboardLayout>

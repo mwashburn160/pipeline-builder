@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Plus, Search, GitBranch, SlidersHorizontal, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, GitBranch, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useDebounce } from '@/hooks/useDebounce';
+import { useListPage } from '@/hooks/useListPage';
+import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -9,47 +10,49 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
-import { ActionBar } from '@/components/ui/ActionBar';
+import { Pagination } from '@/components/ui/Pagination';
+import { FilterBar } from '@/components/ui/FilterBar';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import api from '@/lib/api';
 import { Pipeline, BuilderProps } from '@/types';
 
-/** Filter criteria for the pipeline list, including text search and dropdown selections. */
-interface PipelineFilters {
-  name: string;
-  id: string;
-  orgId: string;
-  project: string;
-  organization: string;
-  access: 'all' | 'public' | 'private';
-  status: 'all' | 'active' | 'inactive';
-  default: 'all' | 'default' | 'non-default';
-}
-
-const initialFilters: PipelineFilters = {
-  name: '', id: '', orgId: '', project: '', organization: '',
-  access: 'all', status: 'all', default: 'all',
-};
-
 /** Pipeline management dashboard page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const [filters, setFilters] = useState<PipelineFilters>(initialFilters);
-  const updateFilter = <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) =>
-    setFilters(prev => ({ ...prev, [key]: value }));
+  const canViewPublic = isSysAdmin;
+  const canCreatePublic = isSysAdmin;
 
-  // Debounce text inputs to avoid API calls on every keystroke
-  const debouncedName = useDebounce(filters.name, 300);
-  const debouncedId = useDebounce(filters.id, 300);
-  const debouncedOrgId = useDebounce(filters.orgId, 300);
-  const debouncedProject = useDebounce(filters.project, 300);
-  const debouncedOrganization = useDebounce(filters.organization, 300);
+  const list = useListPage<Pipeline>({
+    fields: [
+      { key: 'name', type: 'text', defaultValue: '', primary: true },
+      { key: 'id', type: 'text', defaultValue: '' },
+      { key: 'orgId', type: 'text', defaultValue: '' },
+      { key: 'project', type: 'text', defaultValue: '' },
+      { key: 'organization', type: 'text', defaultValue: '' },
+      { key: 'access', type: 'select', defaultValue: 'all' },
+      { key: 'status', type: 'select', defaultValue: 'all' },
+      { key: 'default', type: 'select', defaultValue: 'all' },
+    ],
+    fetcher: async (params) => {
+      const p: Record<string, string> = {};
+      if (params.name) p.pipelineName = params.name;
+      if (params.id) p.id = params.id;
+      if (params.orgId) p.orgId = params.orgId;
+      if (params.project) p.project = params.project;
+      if (params.organization) p.organization = params.organization;
+      if (params.access) p.accessModifier = params.access;
+      else if (!canViewPublic) p.accessModifier = 'private';
+      if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
+      if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
+      p.limit = params.limit;
+      p.offset = params.offset;
+      const response = await api.listPipelines(p);
+      return { items: response.data?.pipelines || [], pagination: response.data?.pagination };
+    },
+    enabled: isAuthenticated,
+  });
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -57,82 +60,16 @@ export default function PipelinesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Pipeline | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [pagination, setPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
 
-  const canViewPublic = isSysAdmin;
-  const canCreatePublic = isSysAdmin;
-
-  const fetchPipelines = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      setIsLoading(true);
-      const params: Record<string, string> = {};
-      if (debouncedId.trim()) params.id = debouncedId.trim();
-      if (debouncedOrgId.trim()) params.orgId = debouncedOrgId.trim();
-      if (filters.access !== 'all') {
-        params.accessModifier = filters.access;
-      } else if (!canViewPublic) {
-        params.accessModifier = 'private';
-      }
-      if (filters.status !== 'all') {
-        params.isActive = filters.status === 'active' ? 'true' : 'false';
-      }
-      if (filters.default !== 'all') {
-        params.isDefault = filters.default === 'default' ? 'true' : 'false';
-      }
-      if (debouncedProject.trim()) params.project = debouncedProject.trim();
-      if (debouncedOrganization.trim()) params.organization = debouncedOrganization.trim();
-      if (debouncedName.trim()) params.pipelineName = debouncedName.trim();
-      params.limit = String(pagination.limit);
-      params.offset = String(pagination.offset);
-      const response = await api.listPipelines(params);
-      setPipelines(response.data?.pipelines || []);
-      const pg = response.data?.pagination;
-      if (pg) {
-        setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load pipelines');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default, canViewPublic, pagination.limit, pagination.offset]);
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-  }, [debouncedId, debouncedOrgId, debouncedProject, debouncedOrganization, debouncedName, filters.access, filters.status, filters.default]);
-
-  useEffect(() => {
-    if (isAuthenticated) fetchPipelines();
-  }, [isAuthenticated, fetchPipelines]);
-
-  const handlePageChange = (offset: number) => {
-    setPagination(prev => ({ ...prev, offset }));
-  };
-
-  const handlePageSizeChange = (limit: number) => {
-    setPagination(prev => ({ ...prev, limit, offset: 0 }));
-  };
-
-  const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
-    if (['access', 'status', 'default'].includes(key)) return value !== 'all';
-    return value !== '';
-  });
-
-  const advancedFilterCount = Object.entries(filters).filter(([key, value]) => {
-    if (key === 'name') return false; // name is in the primary search bar
-    if (['access', 'status', 'default'].includes(key)) return value !== 'all';
-    return value !== '';
-  }).length;
-
-  const clearFilters = () => setFilters(initialFilters);
+  const del = useDelete<Pipeline>(
+    (p) => api.deletePipeline(p.id),
+    list.refresh,
+    (err) => list.setError(err instanceof Error ? err.message : 'Failed to delete pipeline'),
+  );
 
   const filteredPipelines = canViewPublic
-    ? pipelines
-    : pipelines.filter(p => p.accessModifier !== 'public');
+    ? list.data
+    : list.data.filter(p => p.accessModifier !== 'public');
 
   const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateLoading(true);
@@ -146,11 +83,11 @@ export default function PipelinesPage() {
         description,
         keywords,
         props,
-        accessModifier
+        accessModifier,
       });
       if (response.success) {
         setCreateSuccess('Pipeline created successfully!');
-        await fetchPipelines();
+        list.refresh();
         setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
       }
     } catch (err) {
@@ -164,23 +101,6 @@ export default function PipelinesPage() {
       setCreateError(errorMessage);
     } finally {
       setCreateLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    try {
-      const response = await api.deletePipeline(deleteTarget.id);
-      if (response.success) {
-        setDeleteTarget(null);
-        await fetchPipelines();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete pipeline');
-      setDeleteTarget(null);
-    } finally {
-      setDeleteLoading(false);
     }
   };
 
@@ -251,7 +171,7 @@ export default function PipelinesPage() {
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
           {canDelete(pipeline) && (
-            <button onClick={() => setDeleteTarget(pipeline)} className="action-link-danger">Delete</button>
+            <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
@@ -277,94 +197,59 @@ export default function PipelinesPage() {
       <div className="page-section">
         <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
-        {error && (
-          <div className="alert-error">
-            <p>{error}</p>
-          </div>
+        {list.error && (
+          <div className="alert-error"><p>{list.error}</p></div>
         )}
 
-        {/* Filter Bar — single search + collapsible advanced filters */}
-        <div className="filter-bar">
-          <ActionBar
-            left={(
-              <div className="relative min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-                <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search pipelines..." className="filter-input pl-10" />
-              </div>
-            )}
-            right={(
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  showAdvanced || advancedFilterCount > 0
-                    ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                Filters
-                {advancedFilterCount > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
-                    {advancedFilterCount}
-                  </span>
-                )}
-              </button>
-            )}
-          />
-
-          {showAdvanced && (
-            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex flex-wrap items-center gap-3">
-                <input type="text" value={filters.project} onChange={(e) => updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
-                <input type="text" value={filters.organization} onChange={(e) => updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
-                <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PipelineFilters['status'])} className="filter-select">
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
+        <FilterBar
+          searchValue={list.filters.name}
+          onSearchChange={(v) => list.updateFilter('name', v)}
+          searchPlaceholder="Search pipelines..."
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
+          advancedFilterCount={list.advancedFilterCount}
+          onClearAll={list.clearFilters}
+          summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPipelines.length} of ${list.pagination.total} pipelines` : undefined}
+          advancedContent={
+            <>
+              <input type="text" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
+              <input type="text" value={list.filters.organization} onChange={(e) => list.updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
+              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select">
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+                <option value="all">All Default</option>
+                <option value="default">Default</option>
+                <option value="non-default">Non-Default</option>
+              </select>
+              {canViewPublic && (
+                <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
+                  <option value="all">All Access</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
                 </select>
-                <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PipelineFilters['default'])} className="filter-select">
-                  <option value="all">All Default</option>
-                  <option value="default">Default</option>
-                  <option value="non-default">Non-Default</option>
-                </select>
-                {canViewPublic && (
-                  <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PipelineFilters['access'])} className="filter-select">
-                    <option value="all">All Access</option>
-                    <option value="public">Public</option>
-                    <option value="private">Private</option>
-                  </select>
-                )}
-                <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-                <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
-                {advancedFilterCount > 0 && (
-                  <button type="button" onClick={clearFilters} className="action-link-muted">
-                    <X className="w-3.5 h-3.5 inline mr-1" />
-                    Clear all
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+              )}
+              <input type="text" value={list.filters.id} onChange={(e) => list.updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+              <input type="text" value={list.filters.orgId} onChange={(e) => list.updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+            </>
+          }
+        />
 
-          {!isLoading && hasActiveFilters && (
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPipelines.length} of {pagination.total} pipelines</p>
-          )}
-        </div>
-
-        {!isLoading && filteredPipelines.length === 0 && hasActiveFilters && pipelines.length > 0 ? (
+        {!list.isLoading && filteredPipelines.length === 0 && list.hasActiveFilters && list.data.length > 0 ? (
           <EmptyState
             icon={Search}
             title="No pipelines match your filters"
             description="Try adjusting your search or filter criteria."
-            action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
+            action={<button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>}
           />
         ) : (
           <>
             <DataTable
               data={filteredPipelines}
               columns={pipelineColumns}
-              isLoading={isLoading}
+              isLoading={list.isLoading}
               emptyState={{
                 icon: GitBranch,
                 title: 'No pipelines yet',
@@ -374,11 +259,11 @@ export default function PipelinesPage() {
               getRowKey={(p) => p.id}
               defaultSortColumn="name"
             />
-            {!isLoading && pagination.total > 0 && (
+            {!list.isLoading && list.pagination.total > 0 && (
               <Pagination
-                pagination={pagination}
-                onPageChange={handlePageChange}
-                onPageSizeChange={handlePageSizeChange}
+                pagination={list.pagination}
+                onPageChange={list.handlePageChange}
+                onPageSizeChange={list.handlePageSizeChange}
               />
             )}
           </>
@@ -395,13 +280,13 @@ export default function PipelinesPage() {
         canCreatePublic={canCreatePublic}
       />
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete Pipeline"
-          itemName={deleteTarget.pipelineName || 'Unnamed Pipeline'}
-          loading={deleteLoading}
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
+          itemName={del.target.pipelineName || 'Unnamed Pipeline'}
+          loading={del.loading}
+          onConfirm={del.confirm}
+          onCancel={del.close}
         />
       )}
 
@@ -410,7 +295,7 @@ export default function PipelinesPage() {
           pipeline={editPipeline}
           isSysAdmin={isSysAdmin}
           onClose={() => setEditPipeline(null)}
-          onSaved={fetchPipelines}
+          onSaved={list.refresh}
         />
       )}
     </DashboardLayout>

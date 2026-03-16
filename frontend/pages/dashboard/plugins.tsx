@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, Puzzle, Plus, SlidersHorizontal, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Search, Puzzle, Plus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useDebounce } from '@/hooks/useDebounce';
+import { useListPage } from '@/hooks/useListPage';
+import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -9,149 +10,67 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
-import { ActionBar } from '@/components/ui/ActionBar';
+import { Pagination } from '@/components/ui/Pagination';
+import { FilterBar } from '@/components/ui/FilterBar';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import api from '@/lib/api';
 import { Plugin } from '@/types';
 
-/** Filter criteria for the plugin list, including text search and dropdown selections. */
-interface PluginFilters {
-  name: string;
-  id: string;
-  orgId: string;
-  version: string;
-  imageTag: string;
-  pluginType: string;
-  computeType: string;
-  access: 'all' | 'public' | 'private';
-  status: 'all' | 'active' | 'inactive';
-  default: 'all' | 'default' | 'non-default';
-}
-
-const initialFilters: PluginFilters = {
-  name: '', id: '', orgId: '', version: '', imageTag: '',
-  pluginType: 'all', computeType: 'all',
-  access: 'all', status: 'all', default: 'all',
-};
-
 /** Plugin management dashboard page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
-  const [plugins, setPlugins] = useState<Plugin[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [filters, setFilters] = useState<PluginFilters>(initialFilters);
-  const updateFilter = <K extends keyof PluginFilters>(key: K, value: PluginFilters[K]) =>
-    setFilters(prev => ({ ...prev, [key]: value }));
-
-  // Debounce text inputs to avoid API calls on every keystroke
-  const debouncedName = useDebounce(filters.name, 300);
-  const debouncedId = useDebounce(filters.id, 300);
-  const debouncedOrgId = useDebounce(filters.orgId, 300);
-  const debouncedVersion = useDebounce(filters.version, 300);
-  const debouncedImageTag = useDebounce(filters.imageTag, 300);
-
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [pagination, setPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
 
   const canViewPublic = isSysAdmin;
   const canUploadPublic = isSysAdmin;
 
-  const fetchPlugins = useCallback(async () => {
-    if (!isAuthenticated) return;
-    try {
-      setIsLoading(true);
-      const params: Record<string, string> = {};
-      if (debouncedId.trim()) params.id = debouncedId.trim();
-      if (debouncedOrgId.trim()) params.orgId = debouncedOrgId.trim();
-      if (filters.access !== 'all') {
-        params.accessModifier = filters.access;
-      } else if (!canViewPublic) {
-        params.accessModifier = 'private';
-      }
-      if (filters.status !== 'all') {
-        params.isActive = filters.status === 'active' ? 'true' : 'false';
-      }
-      if (filters.default !== 'all') {
-        params.isDefault = filters.default === 'default' ? 'true' : 'false';
-      }
-      if (debouncedName.trim()) params.name = debouncedName.trim();
-      if (debouncedVersion.trim()) params.version = debouncedVersion.trim();
-      if (debouncedImageTag.trim()) params.imageTag = debouncedImageTag.trim();
-      if (filters.pluginType !== 'all') params.pluginType = filters.pluginType;
-      if (filters.computeType !== 'all') params.computeType = filters.computeType;
-      params.limit = String(pagination.limit);
-      params.offset = String(pagination.offset);
-      const response = await api.listPlugins(params);
-      setPlugins(response.data?.plugins || []);
-      const pg = response.data?.pagination;
-      if (pg) {
-        setPagination(prev => ({ ...prev, total: pg.total, offset: pg.offset }));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load plugins');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isAuthenticated, debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, filters.pluginType, filters.computeType, canViewPublic, pagination.limit, pagination.offset]);
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-  }, [debouncedId, debouncedOrgId, debouncedName, debouncedVersion, debouncedImageTag, filters.access, filters.status, filters.default, filters.pluginType, filters.computeType]);
-
-  useEffect(() => {
-    if (isAuthenticated) fetchPlugins();
-  }, [isAuthenticated, fetchPlugins]);
-
-  const handlePageChange = (offset: number) => {
-    setPagination(prev => ({ ...prev, offset }));
-  };
-
-  const handlePageSizeChange = (limit: number) => {
-    setPagination(prev => ({ ...prev, limit, offset: 0 }));
-  };
-
-  const hasActiveFilters = Object.entries(filters).some(([key, value]) => {
-    if (['access', 'status', 'default', 'pluginType', 'computeType'].includes(key)) return value !== 'all';
-    return value !== '';
+  const list = useListPage<Plugin>({
+    fields: [
+      { key: 'name', type: 'text', defaultValue: '', primary: true },
+      { key: 'id', type: 'text', defaultValue: '' },
+      { key: 'orgId', type: 'text', defaultValue: '' },
+      { key: 'version', type: 'text', defaultValue: '' },
+      { key: 'imageTag', type: 'text', defaultValue: '' },
+      { key: 'pluginType', type: 'select', defaultValue: 'all' },
+      { key: 'computeType', type: 'select', defaultValue: 'all' },
+      { key: 'access', type: 'select', defaultValue: 'all' },
+      { key: 'status', type: 'select', defaultValue: 'all' },
+      { key: 'default', type: 'select', defaultValue: 'all' },
+    ],
+    fetcher: async (params) => {
+      const p: Record<string, string> = {};
+      if (params.name) p.name = params.name;
+      if (params.id) p.id = params.id;
+      if (params.orgId) p.orgId = params.orgId;
+      if (params.version) p.version = params.version;
+      if (params.imageTag) p.imageTag = params.imageTag;
+      if (params.pluginType) p.pluginType = params.pluginType;
+      if (params.computeType) p.computeType = params.computeType;
+      if (params.access) p.accessModifier = params.access;
+      else if (!canViewPublic) p.accessModifier = 'private';
+      if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
+      if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
+      p.limit = params.limit;
+      p.offset = params.offset;
+      const response = await api.listPlugins(p);
+      return { items: response.data?.plugins || [], pagination: response.data?.pagination };
+    },
+    enabled: isAuthenticated,
   });
 
-  const advancedFilterCount = Object.entries(filters).filter(([key, value]) => {
-    if (key === 'name') return false; // name is in the primary search bar
-    if (['access', 'status', 'default', 'pluginType', 'computeType'].includes(key)) return value !== 'all';
-    return value !== '';
-  }).length;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
 
-  const clearFilters = () => setFilters(initialFilters);
+  const del = useDelete<Plugin>(
+    (p) => api.deletePlugin(p.id),
+    list.refresh,
+    (err) => list.setError(err instanceof Error ? err.message : 'Failed to delete plugin'),
+  );
 
   const filteredPlugins = canViewPublic
-    ? plugins
-    : plugins.filter(plugin => plugin.accessModifier !== 'public');
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    try {
-      const response = await api.deletePlugin(deleteTarget.id);
-      if (response.success) {
-        setDeleteTarget(null);
-        await fetchPlugins();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete plugin');
-      setDeleteTarget(null);
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
+    ? list.data
+    : list.data.filter(p => p.accessModifier !== 'public');
 
   const canDelete = (plugin: Plugin) => isSysAdmin || plugin.accessModifier === 'private';
 
@@ -218,7 +137,7 @@ export default function PluginsPage() {
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
           {canDelete(plugin) && (
-            <button onClick={() => setDeleteTarget(plugin)} className="action-link-danger">Delete</button>
+            <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
@@ -243,106 +162,71 @@ export default function PluginsPage() {
       <div className="page-section">
         <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
 
-        {error && (
-          <div className="alert-error">
-            <p>{error}</p>
-          </div>
+        {list.error && (
+          <div className="alert-error"><p>{list.error}</p></div>
         )}
 
-        {/* Filter Bar — single search + collapsible advanced filters */}
-        <div className="filter-bar">
-          <ActionBar
-            left={(
-              <div className="relative min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-                <input type="text" value={filters.name} onChange={(e) => updateFilter('name', e.target.value)} placeholder="Search plugins..." className="filter-input pl-10" />
-              </div>
-            )}
-            right={(
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  showAdvanced || advancedFilterCount > 0
-                    ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
-                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                <SlidersHorizontal className="w-4 h-4" />
-                Filters
-                {advancedFilterCount > 0 && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-blue-600 text-white">
-                    {advancedFilterCount}
-                  </span>
-                )}
-              </button>
-            )}
-          />
+        <FilterBar
+          searchValue={list.filters.name}
+          onSearchChange={(v) => list.updateFilter('name', v)}
+          searchPlaceholder="Search plugins..."
+          showAdvanced={showAdvanced}
+          onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
+          advancedFilterCount={list.advancedFilterCount}
+          onClearAll={list.clearFilters}
+          summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
+          advancedContent={
+            <>
+              <select value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)} className="filter-select">
+                <option value="all">All Types</option>
+                <option value="CodeBuildStep">CodeBuildStep</option>
+                <option value="ShellStep">ShellStep</option>
+                <option value="ManualApprovalStep">ManualApprovalStep</option>
+              </select>
+              <select value={list.filters.computeType} onChange={(e) => list.updateFilter('computeType', e.target.value)} className="filter-select">
+                <option value="all">All Compute</option>
+                <option value="SMALL">SMALL</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="LARGE">LARGE</option>
+                <option value="X2_LARGE">X2_LARGE</option>
+              </select>
+              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select">
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+                <option value="all">All Default</option>
+                <option value="default">Default</option>
+                <option value="non-default">Non-Default</option>
+              </select>
+              {canViewPublic && (
+                <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
+                  <option value="all">All Access</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              )}
+              <input type="text" value={list.filters.version} onChange={(e) => list.updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
+              <input type="text" value={list.filters.id} onChange={(e) => list.updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
+              <input type="text" value={list.filters.orgId} onChange={(e) => list.updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
+            </>
+          }
+        />
 
-          {showAdvanced && (
-            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex flex-wrap items-center gap-3">
-                <select value={filters.pluginType} onChange={(e) => updateFilter('pluginType', e.target.value)} className="filter-select">
-                  <option value="all">All Types</option>
-                  <option value="CodeBuildStep">CodeBuildStep</option>
-                  <option value="ShellStep">ShellStep</option>
-                  <option value="ManualApprovalStep">ManualApprovalStep</option>
-                </select>
-                <select value={filters.computeType} onChange={(e) => updateFilter('computeType', e.target.value)} className="filter-select">
-                  <option value="all">All Compute</option>
-                  <option value="SMALL">SMALL</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="LARGE">LARGE</option>
-                  <option value="X2_LARGE">X2_LARGE</option>
-                </select>
-                <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value as PluginFilters['status'])} className="filter-select">
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-                <select value={filters.default} onChange={(e) => updateFilter('default', e.target.value as PluginFilters['default'])} className="filter-select">
-                  <option value="all">All Default</option>
-                  <option value="default">Default</option>
-                  <option value="non-default">Non-Default</option>
-                </select>
-                {canViewPublic && (
-                  <select value={filters.access} onChange={(e) => updateFilter('access', e.target.value as PluginFilters['access'])} className="filter-select">
-                    <option value="all">All Access</option>
-                    <option value="public">Public</option>
-                    <option value="private">Private</option>
-                  </select>
-                )}
-                <input type="text" value={filters.version} onChange={(e) => updateFilter('version', e.target.value)} placeholder="Version..." className="filter-input max-w-[120px]" />
-                <input type="text" value={filters.id} onChange={(e) => updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-                <input type="text" value={filters.orgId} onChange={(e) => updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
-                {advancedFilterCount > 0 && (
-                  <button type="button" onClick={clearFilters} className="action-link-muted">
-                    <X className="w-3.5 h-3.5 inline mr-1" />
-                    Clear all
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!isLoading && hasActiveFilters && (
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Showing {filteredPlugins.length} of {pagination.total} plugins</p>
-          )}
-        </div>
-
-        {!isLoading && filteredPlugins.length === 0 && hasActiveFilters && plugins.length > 0 ? (
+        {!list.isLoading && filteredPlugins.length === 0 && list.hasActiveFilters && list.data.length > 0 ? (
           <EmptyState
             icon={Search}
             title="No plugins match your filters"
             description="Try adjusting your search or filter criteria."
-            action={<button onClick={clearFilters} className="btn btn-secondary">Clear filters</button>}
+            action={<button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>}
           />
         ) : (
           <>
             <DataTable
               data={filteredPlugins}
               columns={pluginColumns}
-              isLoading={isLoading}
+              isLoading={list.isLoading}
               emptyState={{
                 icon: Puzzle,
                 title: 'No plugins yet',
@@ -352,11 +236,11 @@ export default function PluginsPage() {
               getRowKey={(p) => p.id}
               defaultSortColumn="name"
             />
-            {!isLoading && pagination.total > 0 && (
+            {!list.isLoading && list.pagination.total > 0 && (
               <Pagination
-                pagination={pagination}
-                onPageChange={handlePageChange}
-                onPageSizeChange={handlePageSizeChange}
+                pagination={list.pagination}
+                onPageChange={list.handlePageChange}
+                onPageSizeChange={list.handlePageSizeChange}
               />
             )}
           </>
@@ -367,17 +251,17 @@ export default function PluginsPage() {
         <CreatePluginModal
           canUploadPublic={canUploadPublic}
           onClose={() => setShowCreateModal(false)}
-          onCreated={fetchPlugins}
+          onCreated={list.refresh}
         />
       )}
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete Plugin"
-          itemName={deleteTarget.name}
-          loading={deleteLoading}
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
+          itemName={del.target.name}
+          loading={del.loading}
+          onConfirm={del.confirm}
+          onCancel={del.close}
         />
       )}
 
@@ -386,7 +270,7 @@ export default function PluginsPage() {
           plugin={editPlugin}
           isSysAdmin={isSysAdmin}
           onClose={() => setEditPlugin(null)}
-          onSaved={fetchPlugins}
+          onSaved={list.refresh}
         />
       )}
     </DashboardLayout>
