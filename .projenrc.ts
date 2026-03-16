@@ -23,7 +23,7 @@ const ws = 'workspace:*';
 const pkg = {
   apiCore:        '1.39.5',
   pipelineData:   '1.40.5',
-  pipelineCore:   ws,
+  pipelineCore:   '1.41.7',
   apiServer:      ws,
   aiCore:         '1.13.5',
   eventIngestion: '1.1.5',
