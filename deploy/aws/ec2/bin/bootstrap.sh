@@ -175,8 +175,16 @@ else
   echo "  User 'minikube' already exists"
 fi
 
-# Create data directory and give minikube user access to the deployment directory
-mkdir -p "$DEPLOY_DIR/data"
+# Symlink data directory to dedicated EBS volume (mounted by UserData)
+DATA_MOUNT="/mnt/pipeline-data"
+if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+  echo "  Using dedicated data volume at $DATA_MOUNT"
+  chown minikube:minikube "$DATA_MOUNT"
+  ln -sfn "$DATA_MOUNT" "$DEPLOY_DIR/data"
+else
+  echo "  WARNING: No data volume mounted at $DATA_MOUNT — using root volume"
+  mkdir -p "$DEPLOY_DIR/data"
+fi
 chown -R minikube:minikube "$DEPLOY_DIR"
 
 # Allow minikube user to read TLS certs

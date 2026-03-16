@@ -55,10 +55,20 @@ Parameters:
 
   EbsVolumeSize:
     Type: Number
-    Default: 120
-    MinValue: 30
-    MaxValue: 500
-    Description: Root EBS volume size in GiB (gp3, encrypted). 120 GiB recommended for 125+ plugins.
+    Default: 60
+    MinValue: 20
+    MaxValue: 200
+    Description: Root EBS volume size in GiB (gp3, encrypted). OS, Docker, and minikube only.
+
+  DataVolumeSize:
+    Type: Number
+    Default: 200
+    MinValue: 50
+    MaxValue: 1000
+    Description: >
+      Dedicated data EBS volume size in GiB (gp3, encrypted).
+      Stores databases, container registry, Docker build cache, and plugin artifacts.
+      200 GiB recommended for 125+ plugins.
 
   GitRepo:
     Type: String
@@ -263,6 +273,28 @@ Resources:
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
 
+            # Wait for data volume to attach
+            echo "Waiting for data volume /dev/xvdf..."
+            while [ ! -b /dev/xvdf ]; do sleep 1; done
+            echo "Data volume attached"
+
+            # Format if new (no existing filesystem)
+            if ! blkid /dev/xvdf >/dev/null 2>&1; then
+              echo "Formatting data volume as ext4..."
+              mkfs.ext4 -m 1 -L pipeline-data /dev/xvdf
+            fi
+
+            # Mount data volume
+            mkdir -p /mnt/pipeline-data
+            mount /dev/xvdf /mnt/pipeline-data
+
+            # Persist mount across reboots
+            DATA_UUID=$(blkid -s UUID -o value /dev/xvdf)
+            if ! grep -q "$DATA_UUID" /etc/fstab; then
+              echo "UUID=$DATA_UUID /mnt/pipeline-data ext4 defaults,nofail 0 2" >> /etc/fstab
+            fi
+            echo "Data volume mounted at /mnt/pipeline-data"
+
             # Install git
             dnf install -y git
 
@@ -281,6 +313,30 @@ Resources:
             - HasDomain
             - !Sub "pipeline-builder-${DomainName}"
             - "pipeline-builder"
+
+  # ---------------------------------------------------------------------------
+  # Dedicated Data EBS Volume
+  # ---------------------------------------------------------------------------
+  DataVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !If
+            - HasDomain
+            - !Sub "pipeline-builder-data-${DomainName}"
+            - "pipeline-builder-data"
+
+  DataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/xvdf
+      InstanceId: !Ref EC2Instance
+      VolumeId: !Ref DataVolume
 
   # ---------------------------------------------------------------------------
   # Route53 DNS Record (only when DomainName is provided)
@@ -318,6 +374,10 @@ Outputs:
   InstanceId:
     Description: EC2 Instance ID
     Value: !Ref EC2Instance
+
+  DataVolumeId:
+    Description: Dedicated data EBS volume ID
+    Value: !Ref DataVolume
 
   BootstrapLog:
     Description: Command to check bootstrap progress
