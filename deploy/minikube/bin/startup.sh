@@ -345,33 +345,67 @@ echo "=== Services ==="
 kubectl get svc -n "$NAMESPACE"
 
 echo ""
+echo "=== Waiting for nginx gateway (up to 3 min) ==="
+kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  WARNING: nginx not ready yet"
+
+echo ""
 echo "=== Starting port-forward (background) ==="
 # Kill any existing port-forwards for this namespace
 pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
 sleep 1
 
+# Helper: start a port-forward and verify it's working
+start_port_forward() {
+  local name="$1" svc="$2" ports="$3"
+  kubectl port-forward "svc/$svc" $ports -n "$NAMESPACE" >/dev/null 2>&1 &
+  local pid=$!
+  sleep 1
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "  $name: port-forward started (PID $pid)"
+  else
+    echo "  WARNING: $name port-forward failed — retrying..."
+    kubectl port-forward "svc/$svc" $ports -n "$NAMESPACE" >/dev/null 2>&1 &
+    pid=$!
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "  $name: port-forward started on retry (PID $pid)"
+    else
+      echo "  ERROR: $name port-forward failed"
+    fi
+  fi
+  eval "PF_${name}=$pid"
+}
+
 # API Gateway (nginx) — forwards localhost:8443 → nginx:8443 and localhost:8080 → nginx:8080
-kubectl port-forward svc/nginx 8443:8443 8080:8080 -n "$NAMESPACE" >/dev/null 2>&1 &
-PF_NGINX=$!
+start_port_forward NGINX nginx "8443:8443 8080:8080"
 
 # Grafana
-kubectl port-forward svc/grafana 3200:3000 -n "$NAMESPACE" >/dev/null 2>&1 &
-PF_GRAFANA=$!
+start_port_forward GRAFANA grafana "3200:3000"
 
 # Mongo Express
-kubectl port-forward svc/mongo-express 8081:8081 -n "$NAMESPACE" >/dev/null 2>&1 &
-PF_MONGO_EXPRESS=$!
+start_port_forward MONGO_EXPRESS mongo-express "8081:8081"
 
 # pgAdmin
-kubectl port-forward svc/pgadmin 5480:80 -n "$NAMESPACE" >/dev/null 2>&1 &
-PF_PGADMIN=$!
+start_port_forward PGADMIN pgadmin "5480:80"
 
 # Registry UI
-kubectl port-forward svc/registry-express 5580:80 -n "$NAMESPACE" >/dev/null 2>&1 &
-PF_REGISTRY_UI=$!
+start_port_forward REGISTRY_UI registry-express "5580:80"
 
-sleep 2
-echo "  Port-forward PIDs: nginx=$PF_NGINX grafana=$PF_GRAFANA mongo-express=$PF_MONGO_EXPRESS pgadmin=$PF_PGADMIN registry-ui=$PF_REGISTRY_UI"
+# Verify gateway is reachable
+echo ""
+echo "  Verifying gateway..."
+RETRIES=0
+while [ $RETRIES -lt 5 ]; do
+  if curl -sk -o /dev/null -w '' https://localhost:8443/health 2>/dev/null; then
+    echo "  Gateway is reachable at https://localhost:8443"
+    break
+  fi
+  RETRIES=$((RETRIES + 1))
+  sleep 2
+done
+if [ $RETRIES -eq 5 ]; then
+  echo "  WARNING: Gateway not reachable at https://localhost:8443 — check port-forward"
+fi
 
 echo ""
 echo "=== Access URLs ==="

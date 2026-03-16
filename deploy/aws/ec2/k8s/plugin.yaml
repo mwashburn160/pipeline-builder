@@ -197,6 +197,10 @@ spec:
               value: "5000"
             - name: DOCKER_NETWORK
               value: "host"
+            - name: DOCKER_REGISTRY_HTTP
+              value: "false"
+            - name: DOCKER_REGISTRY_INSECURE
+              value: "true"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT
