@@ -59,9 +59,9 @@ function formatDate(iso: string): string {
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isSysAdmin } = useAuthGuard();
+  const { user, isReady, isAdmin } = useAuthGuard();
   const features = useFeatures();
-  const canChangePlan = isSysAdmin;
+  const canChangePlan = isAdmin;
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -321,7 +321,7 @@ export default function BillingPage() {
 
         {!canChangePlan && (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
-            Contact a system administrator to change your plan.
+            Contact an organization admin to change your plan.
           </p>
         )}
       </div>

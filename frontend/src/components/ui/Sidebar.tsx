@@ -9,6 +9,7 @@ import {
   Container,
   FileBarChart,
   Users,
+  UsersRound,
   Building2,
   BarChart3,
   CreditCard,
@@ -77,6 +78,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Team',
     items: [
+      { title: 'Members', href: '/dashboard/members', icon: UsersRound, adminOnly: true },
       { title: 'Users', href: '/dashboard/users', icon: Users, adminOnly: true },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
       { title: 'Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },

@@ -1,6 +1,6 @@
 import {
   requireAuth,
-  requireSystemAdmin,
+  requireAdmin,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -75,7 +75,7 @@ export function createSubscriptionRoutes(): Router {
   router.post(
     '/subscriptions',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    requireAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -150,7 +150,7 @@ export function createSubscriptionRoutes(): Router {
   router.put(
     '/subscriptions/:id',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    requireAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -232,7 +232,7 @@ export function createSubscriptionRoutes(): Router {
   router.post(
     '/subscriptions/:id/cancel',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    requireAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
@@ -284,7 +284,7 @@ export function createSubscriptionRoutes(): Router {
   router.post(
     '/subscriptions/:id/reactivate',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    requireAdmin as RequestHandler,
     async (req: Request, res: Response) => {
       const orgId = req.user?.organizationId;
       if (!orgId) {
