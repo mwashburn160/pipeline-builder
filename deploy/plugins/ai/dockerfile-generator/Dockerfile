@@ -28,9 +28,11 @@ RUN ARCH=$(dpkg --print-architecture) && curl -fsSL -L "https://ollama.com/downl
 # OLLAMA_MODEL: Which model to use for generation (must be pulled at runtime)
 # OLLAMA_HOST: Ollama server URL (default: local)
 # OLLAMA_NUM_CTX: Context window size for the model
+# OLLAMA_NO_GPU: Force CPU-only mode (works on non-GPU instances)
 ENV OLLAMA_MODEL=codellama:7b
 ENV OLLAMA_HOST=http://localhost:11434
 ENV OLLAMA_NUM_CTX=8192
+ENV OLLAMA_NO_GPU=1
 
 # Working directory for pipeline source
 WORKDIR /app
