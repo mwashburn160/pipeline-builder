@@ -9,8 +9,8 @@ import { printError, printInfo, printKeyValue, printSection, printSuccess } from
 
 const { bold, cyan, dim, magenta } = pico;
 
-/** Default secret name used by the plugin-lookup Lambda. */
-const DEFAULT_SECRET_NAME = 'pipeline-builder/plugin-lookup/credentials';
+/** Default secret name following the standard {prefix}/{orgId}/{secretName} pattern. */
+const DEFAULT_SECRET_NAME = 'pipeline-builder/system/credentials';
 
 /**
  * Registers the `store-credentials` command with the CLI program.

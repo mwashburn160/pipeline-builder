@@ -56,7 +56,7 @@ export interface PluginLookupProps {
  * ```
  *
  * The Lambda resolves the secret by name at runtime:
- * `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials` (default: `pipeline-builder/plugin-lookup/credentials`)
+ * `{SECRETS_PATH_PREFIX}/system/credentials` (default: `pipeline-builder/system/credentials`)
  *
  * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
@@ -135,7 +135,7 @@ export class PluginLookup extends Construct {
    * Creates the Lambda function that serves as the event handler for the custom resource provider.
    *
    * Service credentials are stored in a pre-existing Secrets Manager secret at
-   * `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials`. The Lambda resolves the
+   * `{SECRETS_PATH_PREFIX}/system/credentials`. The Lambda resolves the
    * secret by name at runtime using the same `CoreConstants.SECRETS_PATH_PREFIX`.
    *
    * Create the secret before deploying with:
@@ -162,9 +162,9 @@ export class PluginLookup extends Construct {
     });
 
     // Grant the Lambda permission to read the credentials secret by name.
-    // The secret name follows the standard format: {prefix}/plugin-lookup/credentials
+    // The secret name follows the standard format: {prefix}/system/credentials
     // The wildcard suffix handles the 6-char random ID that Secrets Manager appends.
-    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/plugin-lookup/credentials`;
+    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/system/credentials`;
     fn.addToRolePolicy(new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],

@@ -44,8 +44,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Standard secret name derived from the shared prefix. */
-const CREDENTIALS_SECRET_NAME = `${CoreConstants.SECRETS_PATH_PREFIX}/plugin-lookup/credentials`;
+/** Service credentials secret following the standard {prefix}/{orgId}/{secretName} pattern. */
+const CREDENTIALS_SECRET_NAME = `${CoreConstants.SECRETS_PATH_PREFIX}/system/credentials`;
 
 /** Cached credentials to avoid repeated Secrets Manager calls within a single invocation. */
 let cachedCredentials: { email: string; password: string } | null = null;
@@ -57,7 +57,7 @@ export function _resetCredentialsCache(): void { cachedCredentials = null; }
  * Fetch service credentials from AWS Secrets Manager using the standard secret name.
  * Caches the result for the lifetime of the Lambda execution context.
  *
- * The secret is expected at: `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials`
+ * The secret is expected at: `{SECRETS_PATH_PREFIX}/system/credentials`
  * Create it with: `pipeline-manager store-credentials`
  */
 async function getCredentials(): Promise<{ email: string; password: string }> {
@@ -231,7 +231,7 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
  * Lambda handler for CloudFormation Custom Resource that performs plugin lookup.
  *
  * Authenticates using service credentials stored in AWS Secrets Manager
- * at `{SECRETS_PATH_PREFIX}/plugin-lookup/credentials` (resolved by name).
+ * at `{SECRETS_PATH_PREFIX}/system/credentials` (resolved by name).
  * Create the secret with: `pipeline-manager store-credentials`
  *
  * Request Types:

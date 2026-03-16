@@ -10,14 +10,14 @@ import type { SQSEvent, SQSRecord } from 'aws-lambda';
  * via PLATFORM_BASE_URL.
  *
  * Authentication uses service credentials from Secrets Manager
- * at `pipeline-builder/plugin-lookup/credentials` (same secret as plugin-lookup).
+ * at `pipeline-builder/system/credentials` (same secret as plugin-lookup).
  *
  * Environment variables:
  * - PLATFORM_BASE_URL — Base URL of the platform (e.g. https://app.example.com)
  */
 
 const SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
-const CREDENTIALS_SECRET_NAME = `${SECRETS_PATH_PREFIX}/plugin-lookup/credentials`;
+const CREDENTIALS_SECRET_NAME = `${SECRETS_PATH_PREFIX}/system/credentials`;
 
 /**
  * One-way SHA-256 hash of a sensitive identifier.

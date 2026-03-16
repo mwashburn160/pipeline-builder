@@ -34,21 +34,6 @@ Language-specific CI/CD pipelines based on well-known open source repos. Each sa
 
 ---
 
-## CDK Samples (JSON)
-
-Advanced infrastructure patterns.
-
-**Location:** [`deploy/samples/cdk/`](../deploy/samples/cdk/)
-
-| Sample | Pattern | Key Features |
-|--------|---------|--------------|
-| [vpc-private-network](../deploy/samples/cdk/vpc-private-network/) | VPC-isolated builds | Pipeline-level `defaults.network`, step-level subnet override |
-| [cross-account-deployment](../deploy/samples/cdk/cross-account-deployment/) | Multi-account | Cross-account KMS, IAM roles, ManualApprovalStep gate |
-| [s3-source-enterprise](../deploy/samples/cdk/s3-source-enterprise/) | S3 artifact trigger | S3 poll source, VPC lookup by tags, CloudFormation change sets |
-| [codestar-multi-region](../deploy/samples/cdk/codestar-multi-region/) | Multi-region deploy | 3-region deployment, security group lookup, cross-region stack reuse |
-
----
-
 ## CDK TypeScript Examples
 
 Self-contained stack classes showing `PipelineBuilder` usage.
