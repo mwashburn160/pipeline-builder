@@ -1,3 +1,13 @@
+## 1.36.10 (2026-03-16)
+
+### 🩹 Fixes
+
+- {prefix}/{orgId}/{secretName} pattern ([de111249](https://github.com/mwashburn160/pipeline-builder/commit/de111249))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.9 (2026-03-16)
 
 ### 🩹 Fixes
