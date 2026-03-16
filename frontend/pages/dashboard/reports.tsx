@@ -69,6 +69,21 @@ interface ErrorEntry {
   last_seen: string;
 }
 
+interface SuccessRateEntry {
+  period: string;
+  succeeded: number;
+  failed: number;
+  canceled: number;
+  success_pct: number;
+}
+
+interface ActionFailure {
+  action_name: string;
+  failures: number;
+  total: number;
+  failure_pct: number;
+}
+
 // ─── Page ───────────────────────────────────────────────
 
 /** Pipeline reports page. Execution analytics, duration stats, bottlenecks, and failure insights. */
@@ -86,6 +101,8 @@ export default function PipelineReportsPage() {
   const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
   const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
   const [errors, setErrors] = useState<ErrorEntry[]>([]);
+  const [successRateTrend, setSuccessRateTrend] = useState<SuccessRateEntry[]>([]);
+  const [actionFailures, setActionFailures] = useState<ActionFailure[]>([]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -94,13 +111,15 @@ export default function PipelineReportsPage() {
     if (dateTo) dateParams.to = dateTo;
 
     try {
-      const [execRes, timelineRes, durationRes, stageRes, bottleneckRes, errorRes] = await Promise.allSettled([
+      const [execRes, timelineRes, durationRes, stageRes, bottleneckRes, errorRes, successRateRes, actionRes] = await Promise.allSettled([
         api.getExecutionCount(),
         api.getExecutionTimeline({ interval: timeInterval, ...dateParams }),
         api.getPipelineDuration(dateParams),
         api.getStageFailures(dateParams),
         api.getStageBottlenecks(dateParams),
         api.getExecutionErrors({ limit: 10, ...dateParams }),
+        api.getSuccessRate({ interval: timeInterval, ...dateParams }),
+        api.getActionFailures(dateParams),
       ]);
 
       if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
@@ -109,6 +128,8 @@ export default function PipelineReportsPage() {
       if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
       if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
       if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
+      if (successRateRes.status === 'fulfilled') setSuccessRateTrend(successRateRes.value.data?.timeline || []);
+      if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
     } finally {
       setLoading(false);
     }
@@ -220,6 +241,30 @@ export default function PipelineReportsPage() {
                 <ReportEmpty text="No execution data for this period" />
               )}
             </div>
+
+            {/* ── Success Rate Trend ── */}
+            {successRateTrend.length > 0 && (
+              <div className="card">
+                <SectionHeading>Success Rate Trend</SectionHeading>
+                <div className="space-y-1.5">
+                  {successRateTrend.map((entry) => {
+                    const pct = Math.round(entry.success_pct);
+                    const color = pct >= 90 ? 'bg-green-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-red-500';
+                    return (
+                      <div key={entry.period} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
+                        <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                          <div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} title={`${pct}%`} />
+                        </div>
+                        <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-green-600 dark:text-green-400' : pct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {pct}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ── Executions + Duration ── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -338,6 +383,28 @@ export default function PipelineReportsPage() {
                 )}
               </div>
             </div>
+
+            {/* ── Action Failures ── */}
+            {actionFailures.length > 0 && (
+              <div className="card">
+                <SectionHeading>Action Failures</SectionHeading>
+                <div className="space-y-2.5">
+                  {actionFailures.slice(0, 8).map((a) => (
+                    <div key={a.action_name}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-700 dark:text-gray-300 truncate font-mono text-xs">{a.action_name}</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">
+                          {a.failures}/{a.total} ({a.failure_pct}%)
+                        </span>
+                      </div>
+                      <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── Top Errors ── */}
             <div className="card">

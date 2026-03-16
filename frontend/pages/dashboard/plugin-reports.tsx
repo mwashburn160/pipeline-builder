@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import {
   fmtMs, fmtDate, ReportEmpty, SectionHeading,
   StatCardSkeleton, SectionCardSkeleton, TwoColumnSkeleton,
-  AutoRefresh, ExportCSVButton,
+  DateRangePicker, AutoRefresh, ExportCSVButton,
 } from '@/components/reports/ReportHelpers';
 import api from '@/lib/api';
 
@@ -65,6 +65,9 @@ export default function PluginReportsPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
 
   const [loading, setLoading] = useState(true);
+  const [buildInterval, setBuildInterval] = useState<'day' | 'week' | 'month'>('week');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [pluginVersions, setPluginVersions] = useState<PluginVersion[]>([]);
   const [buildTimeline, setBuildTimeline] = useState<BuildSuccessEntry[]>([]);
@@ -74,13 +77,17 @@ export default function PluginReportsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    const dateParams: Record<string, string> = {};
+    if (dateFrom) dateParams.from = dateFrom;
+    if (dateTo) dateParams.to = dateTo;
+
     try {
       const [sumRes, verRes, timelineRes, durRes, failRes, distRes] = await Promise.allSettled([
         api.getPluginSummary(),
         api.getPluginVersions(),
-        api.getBuildSuccessRate(),
-        api.getBuildDuration(),
-        api.getBuildFailures({ limit: 10 }),
+        api.getBuildSuccessRate({ interval: buildInterval, ...dateParams }),
+        api.getBuildDuration(dateParams),
+        api.getBuildFailures({ limit: 10, ...dateParams }),
         api.getPluginDistribution(),
       ]);
 
@@ -93,7 +100,7 @@ export default function PluginReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [buildInterval, dateFrom, dateTo]);
 
   useEffect(() => {
     if (isAuthenticated) fetchAll();
@@ -123,7 +130,19 @@ export default function PluginReportsPage() {
       subtitle="Inventory, build analytics, and version tracking"
       maxWidth="7xl"
       actions={
-        <AutoRefresh onRefresh={fetchAll} loading={loading} />
+        <div className="flex items-center gap-3">
+          <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
+          <select
+            value={buildInterval}
+            onChange={(e) => setBuildInterval(e.target.value as 'day' | 'week' | 'month')}
+            className="filter-select"
+          >
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+            <option value="month">Monthly</option>
+          </select>
+          <AutoRefresh onRefresh={fetchAll} loading={loading} />
+        </div>
       }
     >
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
