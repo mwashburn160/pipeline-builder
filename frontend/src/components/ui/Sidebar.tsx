@@ -20,32 +20,27 @@ import {
   Sun,
   Moon,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
 import { useFeatures } from '@/hooks/useFeatures';
+import { Tooltip } from './Tooltip';
 
 // ---------------------------------------------------------------------------
 // Navigation data
 // ---------------------------------------------------------------------------
 
-/** A single navigation link in the sidebar. */
 interface NavItem {
-  /** Display label for the link */
   title: string;
-  /** Route path the link navigates to */
   href: string;
-  /** Lucide icon rendered beside the label */
   icon: LucideIcon;
-  /** Only visible to organization admins and above */
   adminOnly?: boolean;
-  /** Only visible to system admins */
   systemAdminOnly?: boolean;
-  /** Feature that must be enabled for this item to be visible */
   requiredFeature?: string;
 }
 
-/** A labeled group of navigation items. */
 interface NavSection {
   label: string;
   items: NavItem[];
@@ -100,27 +95,19 @@ const NAV_SECTIONS: NavSection[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-/** Props for the Sidebar component. */
 interface SidebarProps {
-  /** Whether the current user is a system-level admin */
   isSysAdmin: boolean;
-  /** Whether the current user is an organization admin or above */
   isAdmin: boolean;
-  /** The currently authenticated user */
   user: User;
-  /** Number of unread messages shown as a badge on the Messages link */
   unreadCount: number;
-  /** Current router pathname used to highlight the active nav item */
   currentPath: string;
-  /** Whether dark mode is currently active */
   isDark: boolean;
-  /** Callback to toggle dark mode */
   onToggleDark: () => void;
-  /** Callback to log the user out */
   onLogout: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
-/** Navigation sidebar with role-based link visibility, dark mode toggle, and user info footer. */
 export function Sidebar({
   isSysAdmin,
   isAdmin,
@@ -130,6 +117,8 @@ export function Sidebar({
   isDark,
   onToggleDark,
   onLogout,
+  collapsed = false,
+  onToggleCollapsed,
 }: SidebarProps) {
   const features = useFeatures();
 
@@ -146,14 +135,20 @@ export function Sidebar({
   };
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>
       {/* Brand */}
-      <div className="px-4 py-5 border-b border-gray-200 dark:border-gray-700">
+      <div className={`border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'px-2 py-5' : 'px-4 py-5'}`}>
         <Link
           href="/"
           className="text-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
         >
-          Pipeline Builder
+          {collapsed ? (
+            <Tooltip content="Pipeline Builder" position="right">
+              <span className="flex justify-center">PB</span>
+            </Tooltip>
+          ) : (
+            'Pipeline Builder'
+          )}
         </Link>
       </div>
 
@@ -165,24 +160,37 @@ export function Sidebar({
 
           return (
             <div key={section.label}>
-              <p className="sidebar-section-label">{section.label}</p>
+              {!collapsed && <p className="sidebar-section-label">{section.label}</p>}
+              {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
               {visibleItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
-                return (
+                const linkContent = (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`sidebar-nav-item ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'}`}
+                    aria-current={active ? 'page' : undefined}
+                    className={`sidebar-nav-item ${active ? 'sidebar-nav-item-active' : 'sidebar-nav-item-default'} ${collapsed ? 'justify-center px-0 mx-1' : ''}`}
                   >
                     <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-                    <span className="flex-1">{item.title}</span>
-                    {item.title === 'Messages' && unreadCount > 0 && (
+                    {!collapsed && <span className="flex-1">{item.title}</span>}
+                    {!collapsed && item.title === 'Messages' && unreadCount > 0 && (
                       <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold text-white bg-red-500 rounded-full">
                         {unreadCount > 99 ? '99+' : unreadCount}
                       </span>
                     )}
+                    {collapsed && item.title === 'Messages' && unreadCount > 0 && (
+                      <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full" />
+                    )}
                   </Link>
+                );
+
+                return collapsed ? (
+                  <Tooltip key={item.href} content={item.title} position="right">
+                    <span className="relative block">{linkContent}</span>
+                  </Tooltip>
+                ) : (
+                  <span key={item.href}>{linkContent}</span>
                 );
               })}
             </div>
@@ -192,36 +200,75 @@ export function Sidebar({
 
       {/* Footer */}
       <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-3">
+        {/* Collapse toggle (desktop only) */}
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            {!collapsed && <span className="text-xs">Collapse</span>}
+          </button>
+        )}
+
         {/* User info */}
-        <div className="px-1">
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-            {user.username}
-          </p>
-          {user.organizationName && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {user.organizationName}
+        {!collapsed && (
+          <div className="px-1">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {user.username}
             </p>
-          )}
-        </div>
+            {user.organizationName && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                {user.organizationName}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onToggleDark}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            aria-label="Toggle dark mode"
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            <span className="text-xs">{isDark ? 'Light' : 'Dark'}</span>
-          </button>
-          <button
-            onClick={onLogout}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
-            aria-label="Log out"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="text-xs">Log out</span>
-          </button>
+        <div className={`flex items-center ${collapsed ? 'flex-col' : ''} gap-2`}>
+          {collapsed ? (
+            <>
+              <Tooltip content={isDark ? 'Light mode' : 'Dark mode'} position="right">
+                <button
+                  onClick={onToggleDark}
+                  className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  aria-label="Toggle dark mode"
+                >
+                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </button>
+              </Tooltip>
+              <Tooltip content="Log out" position="right">
+                <button
+                  onClick={onLogout}
+                  className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
+                  aria-label="Log out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </Tooltip>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onToggleDark}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Toggle dark mode"
+              >
+                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <span className="text-xs">{isDark ? 'Light' : 'Dark'}</span>
+              </button>
+              <button
+                onClick={onLogout}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
+                aria-label="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-xs">Log out</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

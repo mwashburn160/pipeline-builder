@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ToastProvider } from '@/components/ui/Toast';
 import '@/styles/globals.css';
 
 /** Next.js page type extended with an optional per-page layout function. */
@@ -27,6 +28,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
     <ErrorBoundary>
       <AuthProvider>
       <FeaturesProvider>
+      <ToastProvider>
         <AnimatePresence mode="wait">
           <motion.div
             key={router.pathname}
@@ -38,6 +40,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
             {getLayout(<Component {...pageProps} />)}
           </motion.div>
         </AnimatePresence>
+      </ToastProvider>
       </FeaturesProvider>
       </AuthProvider>
     </ErrorBoundary>

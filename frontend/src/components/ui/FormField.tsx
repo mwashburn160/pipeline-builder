@@ -1,29 +1,38 @@
-import type { ReactNode } from 'react';
+import { type ReactNode } from 'react';
+import { AlertCircle, CheckCircle } from 'lucide-react';
 
-/** Props for the FormField component. */
 interface FormFieldProps {
-  /** Label text displayed above the input */
   label: string;
-  /** Optional id linking the label to its form control via htmlFor */
   id?: string;
-  /** Validation error message shown below the input in red */
   error?: string;
-  /** Helper text shown below the input when there is no error */
   hint?: string;
-  /** Additional CSS classes for the wrapper div */
   className?: string;
-  /** The form control (input, select, textarea, etc.) */
   children: ReactNode;
+  required?: boolean;
+  success?: string;
 }
 
-/** Form field wrapper that renders a label, the input control, and an error or hint message. */
-export function FormField({ label, id, error, hint, className, children }: FormFieldProps) {
+export function FormField({ label, id, error, hint, className, children, required, success }: FormFieldProps) {
   return (
     <div className={className}>
-      <label className="label" htmlFor={id}>{label}</label>
+      <label className="label" htmlFor={id}>
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
       {children}
-      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      {hint && !error && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{hint}</p>}
+      {error && (
+        <p className="mt-1 text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+          {error}
+        </p>
+      )}
+      {success && !error && (
+        <p className="mt-1 text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+          <CheckCircle className="w-3 h-3 flex-shrink-0" />
+          {success}
+        </p>
+      )}
+      {hint && !error && !success && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{hint}</p>}
     </div>
   );
 }

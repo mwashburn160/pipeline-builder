@@ -5,8 +5,8 @@ import { Types } from 'mongoose';
 import { config } from '../config';
 import { requireAuthUserId, requireAdminContext } from '../helpers/controller-helper';
 import { User, Organization } from '../models';
-import { issueTokens } from '../utils/token';
 import { parsePagination } from '../utils/pagination';
+import { issueTokens } from '../utils/token';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation';
 
 const logger = createLogger('UserController');

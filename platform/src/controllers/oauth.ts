@@ -45,20 +45,27 @@ function createGoogleProvider(): OAuthProvider {
     enabled,
     buildAuthorizeUrl(state: string) {
       const params = new URLSearchParams({
-        client_id: clientId, redirect_uri: callbackUrl,
-        response_type: 'code', scope: 'openid email profile',
-        access_type: 'offline', prompt: 'select_account', state,
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        response_type: 'code',
+        scope: 'openid email profile',
+        access_type: 'offline',
+        prompt: 'select_account',
+        state,
       });
       return `${authorizeUrl}?${params}`;
     },
     async exchangeCode(code: string) {
       const params = new URLSearchParams({
-        client_id: clientId, client_secret: clientSecret,
-        code, redirect_uri: callbackUrl, grant_type: 'authorization_code',
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+        grant_type: 'authorization_code',
       });
       const res = await fetch(tokenUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
         body: params.toString(),
       });
       const data = await res.json() as Record<string, unknown>;
@@ -84,15 +91,17 @@ function createGitHubProvider(): OAuthProvider {
     enabled,
     buildAuthorizeUrl(state: string) {
       const params = new URLSearchParams({
-        client_id: clientId, redirect_uri: callbackUrl,
-        scope: 'read:user user:email', state,
+        client_id: clientId,
+        redirect_uri: callbackUrl,
+        scope: 'read:user user:email',
+        state,
       });
       return `${authorizeUrl}?${params}`;
     },
     async exchangeCode(code: string) {
       const res = await fetch(tokenUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: callbackUrl }),
       });
       const data = await res.json() as Record<string, unknown>;
@@ -159,7 +168,11 @@ async function findOrCreateUser(providerName: ProviderName, userInfo: OAuthUserI
   while (await User.exists({ username })) { username = `${baseUsername}${suffix++}`; }
 
   const newUser = new User({
-    username, email: userInfo.email.toLowerCase(), isEmailVerified: true, role: 'user', tokenVersion: 0,
+    username,
+    email: userInfo.email.toLowerCase(),
+    isEmailVerified: true,
+    role: 'user',
+    tokenVersion: 0,
     oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
   });
   await newUser.save();

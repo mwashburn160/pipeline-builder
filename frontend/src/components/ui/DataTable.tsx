@@ -1,69 +1,52 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, Columns3 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LoadingSpinner } from './Loading';
+import { SkeletonTableRow } from './Skeleton';
 import { EmptyState } from './EmptyState';
 
 /** Definition for a single table column. */
 export interface Column<T> {
-  /** Unique identifier for the column */
   id: string;
-  /** Header label displayed in the table head */
   header: string;
-  /** Additional CSS classes for the header cell */
   headerClassName?: string;
-  /** Additional CSS classes for each body cell in this column */
   cellClassName?: string;
-  /** Render function that produces the cell content for a given row */
   render: (item: T, index: number) => ReactNode;
-  /** Accessor for the sortable value; when provided, the column becomes sortable */
   sortValue?: (item: T) => string | number | boolean | Date | null | undefined;
-  /** When true, the column is excluded from rendering */
   hidden?: boolean;
+  /** When true, the column cannot be toggled off by the user */
+  locked?: boolean;
 }
 
 /** Props for the DataTable component. */
 export interface DataTableProps<T> {
-  /** Array of items to render as rows */
   data: T[];
-  /** Column definitions controlling headers, rendering, and sorting */
   columns: Column<T>[];
-  /** When true, a loading spinner is shown instead of the table */
   isLoading: boolean;
-  /** Configuration for the empty state displayed when data is empty */
   emptyState: {
     icon: LucideIcon;
     title: string;
     description: string;
     action?: ReactNode;
   };
-  /** Function to derive a unique React key for each row */
   getRowKey?: (item: T, index: number) => string;
-  /** Whether rows animate in with a staggered fade; defaults to true */
   animated?: boolean;
-  /** Delay increment (seconds) between each row's entrance animation */
   animationDelay?: number;
-  /** Maximum total animation delay (seconds) to cap staggering on large lists */
   maxAnimationDelay?: number;
-  /** Column ID to sort by on initial render */
   defaultSortColumn?: string;
-  /** Initial sort direction; defaults to 'asc' */
   defaultSortDirection?: 'asc' | 'desc';
+  /** Show the column visibility toggle button */
+  showColumnToggle?: boolean;
+  /** Number of skeleton rows to show while loading */
+  skeletonRows?: number;
 }
 
-/** Internal state tracking the currently sorted column and direction. */
 interface SortState {
   columnId: string | null;
   direction: 'asc' | 'desc';
 }
 
-/**
- * Compares two values for sorting. Handles nulls, strings, dates, booleans, and numbers.
- * @param a - First value
- * @param b - Second value
- * @returns Negative if a < b, positive if a > b, zero if equal
- */
 function compare(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
   if (a == null) return 1;
@@ -81,7 +64,7 @@ function compare(a: unknown, b: unknown): number {
   return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
 }
 
-/** Sortable data table with loading state, empty state, and optional row entrance animations. */
+/** Sortable data table with loading skeletons, empty state, column visibility, and row animations. */
 export function DataTable<T>({
   data,
   columns,
@@ -93,16 +76,38 @@ export function DataTable<T>({
   maxAnimationDelay,
   defaultSortColumn,
   defaultSortDirection = 'asc',
+  showColumnToggle = false,
+  skeletonRows = 5,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>({
     columnId: defaultSortColumn ?? null,
     direction: defaultSortDirection,
   });
 
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+
   const visibleColumns = useMemo(
-    () => columns.filter((c) => !c.hidden),
+    () => columns.filter((c) => !c.hidden && !hiddenColumns.has(c.id)),
+    [columns, hiddenColumns],
+  );
+
+  const toggleableColumns = useMemo(
+    () => columns.filter((c) => !c.hidden && !c.locked),
     [columns],
   );
+
+  const toggleColumn = (columnId: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnId)) {
+        next.delete(columnId);
+      } else {
+        next.add(columnId);
+      }
+      return next;
+    });
+  };
 
   const sortedData = useMemo(() => {
     if (!sort.columnId) return data;
@@ -122,7 +127,28 @@ export function DataTable<T>({
     }));
   };
 
+  // Skeleton loading state
   if (isLoading) {
+    if (skeletonRows > 0) {
+      return (
+        <div className="data-table">
+          <table className="min-w-full">
+            <thead>
+              <tr>
+                {visibleColumns.map((col) => (
+                  <th key={col.id} className={col.headerClassName}>{col.header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {Array.from({ length: skeletonRows }).map((_, i) => (
+                <SkeletonTableRow key={i} columns={visibleColumns.length} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-center py-12">
         <LoadingSpinner size="lg" />
@@ -135,78 +161,123 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="data-table">
-      <table className="min-w-full">
-        <thead>
-          <tr>
-            {visibleColumns.map((col) => {
-              const sortable = !!col.sortValue;
-              const sorted = sort.columnId === col.id;
+    <div className="relative">
+      {/* Column visibility toggle */}
+      {showColumnToggle && toggleableColumns.length > 0 && (
+        <div className="flex justify-end mb-2">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColumnMenu((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <Columns3 className="w-3.5 h-3.5" />
+              Columns
+              {hiddenColumns.size > 0 && (
+                <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-600 text-white">
+                  {hiddenColumns.size}
+                </span>
+              )}
+            </button>
 
-              return (
-                <th
-                  key={col.id}
-                  className={col.headerClassName}
-                  aria-sort={sorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
-                >
-                  {sortable ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-                      onClick={() => handleSort(col.id)}
+            {showColumnMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowColumnMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1">
+                  {toggleableColumns.map((col) => (
+                    <label
+                      key={col.id}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                     >
+                      <input
+                        type="checkbox"
+                        checked={!hiddenColumns.has(col.id)}
+                        onChange={() => toggleColumn(col.id)}
+                        className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                      />
                       {col.header}
-                      {sorted ? (
-                        sort.direction === 'asc' ? (
-                          <ArrowUp className="w-3 h-3" />
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="data-table">
+        <table className="min-w-full">
+          <thead>
+            <tr>
+              {visibleColumns.map((col) => {
+                const sortable = !!col.sortValue;
+                const sorted = sort.columnId === col.id;
+
+                return (
+                  <th
+                    key={col.id}
+                    className={col.headerClassName}
+                    aria-sort={sorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                        onClick={() => handleSort(col.id)}
+                      >
+                        {col.header}
+                        {sorted ? (
+                          sort.direction === 'asc' ? (
+                            <ArrowUp className="w-3 h-3" />
+                          ) : (
+                            <ArrowDown className="w-3 h-3" />
+                          )
                         ) : (
-                          <ArrowDown className="w-3 h-3" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
-                      )}
-                    </button>
-                  ) : (
-                    col.header
-                  )}
-                </th>
+                          <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        )}
+                      </button>
+                    ) : (
+                      col.header
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedData.map((item, i) => {
+              const delay = maxAnimationDelay
+                ? Math.min(i * animationDelay, maxAnimationDelay)
+                : i * animationDelay;
+
+              const key = getRowKey ? getRowKey(item, i) : String(i);
+
+              return animated ? (
+                <motion.tr
+                  key={key}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay }}
+                >
+                  {visibleColumns.map((col) => (
+                    <td key={col.id} className={col.cellClassName}>
+                      {col.render(item, i)}
+                    </td>
+                  ))}
+                </motion.tr>
+              ) : (
+                <tr key={key}>
+                  {visibleColumns.map((col) => (
+                    <td key={col.id} className={col.cellClassName}>
+                      {col.render(item, i)}
+                    </td>
+                  ))}
+                </tr>
               );
             })}
-          </tr>
-        </thead>
-        <tbody>
-          {sortedData.map((item, i) => {
-            const delay = maxAnimationDelay
-              ? Math.min(i * animationDelay, maxAnimationDelay)
-              : i * animationDelay;
-
-            const key = getRowKey ? getRowKey(item, i) : String(i);
-
-            return animated ? (
-              <motion.tr
-                key={key}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay }}
-              >
-                {visibleColumns.map((col) => (
-                  <td key={col.id} className={col.cellClassName}>
-                    {col.render(item, i)}
-                  </td>
-                ))}
-              </motion.tr>
-            ) : (
-              <tr key={key}>
-                {visibleColumns.map((col) => (
-                  <td key={col.id} className={col.cellClassName}>
-                    {col.render(item, i)}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

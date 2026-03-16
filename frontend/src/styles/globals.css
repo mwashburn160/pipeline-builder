@@ -186,4 +186,11 @@
     @apply text-[11px] font-semibold uppercase tracking-wider
            text-gray-400 dark:text-gray-500 px-4 mb-1 mt-5;
   }
+
+  /* ---- Button ghost variant ---- */
+  .btn-ghost {
+    @apply bg-transparent text-gray-600 dark:text-gray-400
+           hover:bg-gray-100 dark:hover:bg-gray-800
+           focus:ring-gray-500;
+  }
 }

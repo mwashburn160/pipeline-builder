@@ -27,6 +27,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
   },
   requireAuth: mockRequireAuth,
+  requireAdmin: (_req: any, _res: any, next: () => void) => next(),
   isSystemAdmin: mockIsSystemAdmin,
   requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
   createLogger: () => ({

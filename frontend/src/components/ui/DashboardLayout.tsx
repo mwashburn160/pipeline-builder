@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { Menu, X } from 'lucide-react';
@@ -8,23 +8,20 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
+import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
+import { CommandPalette } from './CommandPalette';
 import { LoadingPage } from './Loading';
 import api from '@/lib/api';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 
-/** Props for the DashboardLayout component. */
 interface DashboardLayoutProps {
-  /** Page title shown in the top bar and browser tab */
   title: string;
   children: React.ReactNode;
-  /** Extra content rendered inline next to the title */
   titleExtra?: React.ReactNode;
-  /** Action buttons rendered on the right side of the top bar */
   actions?: React.ReactNode;
-  /** Tailwind max-width breakpoint for the main content area */
   maxWidth?: '3xl' | '4xl' | '7xl';
-  /** Additional CSS classes applied to the main content container */
   mainClassName?: string;
+  breadcrumbs?: BreadcrumbItem[];
 }
 
 const maxWidthClasses = {
@@ -33,10 +30,6 @@ const maxWidthClasses = {
   '7xl': 'max-w-7xl',
 };
 
-/**
- * Top-level dashboard page layout with responsive sidebar, top bar, and content area.
- * Handles auth guarding, dark mode, unread message polling, and mobile sidebar toggle.
- */
 export function DashboardLayout({
   title,
   children,
@@ -44,13 +37,15 @@ export function DashboardLayout({
   actions,
   maxWidth = '7xl',
   mainClassName = '',
+  breadcrumbs,
 }: DashboardLayoutProps) {
   const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
   const { isLoaded: featuresLoaded } = useFeatures();
   const { isDark, toggle } = useDarkMode();
-  const { mobileOpen, toggleMobile, closeMobile } = useSidebarState();
+  const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
+  const cmdkRef = useRef<() => void>(null);
 
   const fetchUnreadCount = useCallback(async () => {
     if (document.visibilityState !== 'visible') return;
@@ -70,6 +65,9 @@ export function DashboardLayout({
 
   if (!isReady || !user || !featuresLoaded) return <LoadingPage />;
 
+  const sidebarWidth = collapsed ? 'lg:w-16' : 'lg:w-64';
+  const contentMargin = collapsed ? 'lg:ml-16' : 'lg:ml-64';
+
   return (
     <>
       <Head>
@@ -77,7 +75,7 @@ export function DashboardLayout({
       </Head>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex">
         {/* Desktop sidebar */}
-        <div className="hidden lg:flex lg:w-64 lg:flex-shrink-0 lg:fixed lg:inset-y-0">
+        <div className={`hidden lg:flex ${sidebarWidth} lg:flex-shrink-0 lg:fixed lg:inset-y-0 transition-all duration-200`}>
           <Sidebar
             isSysAdmin={isSysAdmin}
             isAdmin={isAdmin}
@@ -87,6 +85,8 @@ export function DashboardLayout({
             isDark={isDark}
             onToggleDark={toggle}
             onLogout={logout}
+            collapsed={collapsed}
+            onToggleCollapsed={toggleCollapsed}
           />
         </div>
 
@@ -132,7 +132,7 @@ export function DashboardLayout({
         </AnimatePresence>
 
         {/* Main content area */}
-        <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
+        <div className={`flex-1 flex flex-col min-w-0 ${contentMargin} transition-all duration-200`}>
           {/* Slim top bar */}
           <header className="sticky top-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200/60 dark:border-gray-700/60">
             <div className="px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
@@ -144,14 +144,24 @@ export function DashboardLayout({
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
-                {titleExtra}
-              </div>
-              {actions && (
-                <div className="flex items-center gap-3">
-                  {actions}
+                <div>
+                  {breadcrumbs && <Breadcrumb items={breadcrumbs} />}
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{title}</h1>
+                    {titleExtra}
+                  </div>
                 </div>
-              )}
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Cmd+K hint */}
+                <button
+                  onClick={() => cmdkRef.current?.()}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 transition-colors"
+                >
+                  <kbd className="font-medium">⌘K</kbd>
+                </button>
+                {actions}
+              </div>
             </div>
           </header>
 
@@ -159,6 +169,15 @@ export function DashboardLayout({
             {children}
           </main>
         </div>
+
+        {/* Command Palette */}
+        <CommandPalette
+          isSysAdmin={isSysAdmin}
+          isAdmin={isAdmin}
+          isDark={isDark}
+          onToggleDark={toggle}
+          onOpenRef={cmdkRef}
+        />
       </div>
     </>
   );
