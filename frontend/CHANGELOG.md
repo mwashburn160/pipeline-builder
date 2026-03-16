@@ -1,3 +1,14 @@
+## 1.37.15 (2026-03-16)
+
+### 🩹 Fixes
+
+- frontend code review cleanup and dashboard redesign ([11098930](https://github.com/mwashburn160/pipeline-builder/commit/11098930))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6 (1M context)
+- mark
+
 ## 1.37.14 (2026-03-16)
 
 ### 🩹 Fixes
