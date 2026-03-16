@@ -1,3 +1,10 @@
+## 1.16.7 (2026-03-16)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.41.7
+- Updated @mwashburn160/api-server to 1.38.7
+
 ## 1.16.6 (2026-03-15)
 
 ### 🩹 Fixes
