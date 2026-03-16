@@ -8,22 +8,8 @@ import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
+import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
 import type { LogEntry } from '@/types';
-
-const TIME_RANGES = [
-  { label: 'Last 15m', ms: 15 * 60 * 1000 },
-  { label: 'Last 1h', ms: 60 * 60 * 1000 },
-  { label: 'Last 6h', ms: 6 * 60 * 60 * 1000 },
-  { label: 'Last 24h', ms: 24 * 60 * 60 * 1000 },
-  { label: 'Last 7d', ms: 7 * 24 * 60 * 60 * 1000 },
-];
-
-const LEVEL_COLORS: Record<string, 'green' | 'yellow' | 'red' | 'gray' | 'blue'> = {
-  info: 'blue',
-  warn: 'yellow',
-  error: 'red',
-  debug: 'gray',
-};
 
 /**
  * Formats a timestamp string as a locale-aware date/time string.
@@ -60,7 +46,7 @@ export default function LogsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [serviceFilter, setServiceFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
-  const [timeRange, setTimeRange] = useState(TIME_RANGES[1].ms); // Default: 1h
+  const [timeRange, setTimeRange] = useState(LOG_TIME_RANGES[1].ms); // Default: 1h
   const [limit, setLimit] = useState(100);
 
   const [services, setServices] = useState<string[]>([]);
@@ -126,7 +112,7 @@ export default function LogsPage() {
       sortValue: (entry) => (entry.parsed?.level as string) || entry.labels?.level || '',
       render: (entry) => {
         const level = (entry.parsed?.level as string) || entry.labels?.level || '';
-        return level ? <Badge color={LEVEL_COLORS[level] || 'gray'}>{level}</Badge> : null;
+        return level ? <Badge color={LOG_LEVEL_COLORS[level] || 'gray'}>{level}</Badge> : null;
       },
     },
     {
@@ -175,7 +161,7 @@ export default function LogsPage() {
             {levels.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
           <select value={timeRange} onChange={(e) => setTimeRange(Number(e.target.value))} className="filter-select">
-            {TIME_RANGES.map(r => <option key={r.ms} value={r.ms}>{r.label}</option>)}
+            {LOG_TIME_RANGES.map(r => <option key={r.ms} value={r.ms}>{r.label}</option>)}
           </select>
           <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="filter-select">
             <option value={50}>50 lines</option>

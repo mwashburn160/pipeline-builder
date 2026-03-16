@@ -40,3 +40,20 @@ export const MESSAGE_SSE_BASE_RETRY_DELAY_MS = 2000;
 
 /** Threshold for distinguishing seconds vs milliseconds epoch timestamps. */
 export const EPOCH_MS_THRESHOLD = 1e12;
+
+/** Time range options for log filtering. */
+export const LOG_TIME_RANGES = [
+  { label: 'Last 15m', ms: 15 * 60 * 1000 },
+  { label: 'Last 1h', ms: 60 * 60 * 1000 },
+  { label: 'Last 6h', ms: 6 * 60 * 60 * 1000 },
+  { label: 'Last 24h', ms: 24 * 60 * 60 * 1000 },
+  { label: 'Last 7d', ms: 7 * 24 * 60 * 60 * 1000 },
+] as const;
+
+/** Badge color mapping for log severity levels. */
+export const LOG_LEVEL_COLORS: Record<string, 'green' | 'yellow' | 'red' | 'gray' | 'blue'> = {
+  info: 'blue',
+  warn: 'yellow',
+  error: 'red',
+  debug: 'gray',
+};

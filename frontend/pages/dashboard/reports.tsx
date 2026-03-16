@@ -84,7 +84,7 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function EmptyState({ text }: { text: string }) {
+function ReportEmpty({ text }: { text: string }) {
   return <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">{text}</p>;
 }
 
@@ -212,7 +212,7 @@ export default function ReportsPage() {
               </div>
             </div>
           ) : (
-            <EmptyState text="No execution data yet" />
+            <ReportEmpty text="No execution data yet" />
           )}
         </div>
 
@@ -242,7 +242,7 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             ) : (
-              <EmptyState text="No execution data yet" />
+              <ReportEmpty text="No execution data yet" />
             )}
           </div>
 
@@ -270,7 +270,7 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             ) : (
-              <EmptyState text="No duration data yet" />
+              <ReportEmpty text="No duration data yet" />
             )}
           </div>
         </div>
@@ -294,7 +294,7 @@ export default function ReportsPage() {
                 ))}
               </div>
             ) : (
-              <EmptyState text="No stage failures" />
+              <ReportEmpty text="No stage failures" />
             )}
           </div>
 
@@ -312,7 +312,7 @@ export default function ReportsPage() {
                 ))}
               </div>
             ) : (
-              <EmptyState text="No errors recorded" />
+              <ReportEmpty text="No errors recorded" />
             )}
           </div>
         </div>
@@ -359,7 +359,7 @@ export default function ReportsPage() {
               </tbody>
             </table>
           ) : (
-            <EmptyState text="No plugin data yet" />
+            <ReportEmpty text="No plugin data yet" />
           )}
         </div>
 
