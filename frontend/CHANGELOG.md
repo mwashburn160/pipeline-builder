@@ -1,3 +1,16 @@
+## 1.38.0 (2026-03-16)
+
+### 🚀 Features
+
+- close reporting gaps — success rate trend, action failures, plugin date range ([bb97bc73](https://github.com/mwashburn160/pipeline-builder/commit/bb97bc73))
+- enhance report pages with date range, auto-refresh, skeletons, CSV export ([d41e5c4a](https://github.com/mwashburn160/pipeline-builder/commit/d41e5c4a))
+- split reports into pipeline reports and plugin reports ([9542278b](https://github.com/mwashburn160/pipeline-builder/commit/9542278b))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6 (1M context)
+- mark
+
 ## 1.37.15 (2026-03-16)
 
 ### 🩹 Fixes
