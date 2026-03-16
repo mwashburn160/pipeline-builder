@@ -1,3 +1,13 @@
+## 1.37.14 (2026-03-16)
+
+### 🩹 Fixes
+
+- dashboard cleanup ([371ce148](https://github.com/mwashburn160/pipeline-builder/commit/371ce148))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.13 (2026-03-16)
 
 ### 🩹 Fixes
