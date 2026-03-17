@@ -16,12 +16,16 @@ jest.mock('../src/services/pipeline-service', () => ({
   },
 }));
 
+const mockValidatePipeline = jest.fn().mockResolvedValue({ blocked: false, violations: [] });
+
 jest.mock('@mwashburn160/api-core', () => ({
   extractDbError: jest.fn(() => ({})),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
+    COMPLIANCE_VIOLATION: 'COMPLIANCE_VIOLATION',
+    COMPLIANCE_SERVICE_UNAVAILABLE: 'COMPLIANCE_SERVICE_UNAVAILABLE',
   },
   createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
   resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
@@ -35,6 +39,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     res.status(400).json({ success: false, statusCode: 400, message: msg, code });
   }),
+  sendError: jest.fn((res: any, statusCode: number, msg: string, code?: string, details?: any) => {
+    res.status(statusCode).json({ success: false, statusCode, message: msg, code, ...details });
+  }),
   sendInternalError: jest.fn((res: any, msg: string, details?: any) => {
     res.status(500).json({ success: false, statusCode: 500, message: msg, ...details });
   }),
@@ -46,6 +53,9 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
   PipelineCreateSchema: {},
   incrementQuota: jest.fn(),
+  createComplianceClient: jest.fn(() => ({
+    validatePipeline: mockValidatePipeline,
+  })),
 }));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
