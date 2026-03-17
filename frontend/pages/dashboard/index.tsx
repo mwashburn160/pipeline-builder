@@ -238,9 +238,8 @@ export default function DashboardPage() {
               {recentPipelines.length > 0 ? (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {recentPipelines.map((p) => (
-                    <Link
+                    <div
                       key={p.id}
-                      href={`/dashboard/pipelines/${p.id}`}
                       className="flex items-center justify-between py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
                     >
                       <div className="min-w-0 flex-1">
@@ -261,7 +260,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </div>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               ) : (
