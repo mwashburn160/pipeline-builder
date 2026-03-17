@@ -311,6 +311,7 @@ pnpm build && pnpm test
 ## Docs
 
 - [API Reference](docs/api-reference.md) — endpoints, query params, curl examples
+- [Compliance](docs/compliance.md) — per-org rule enforcement, rule engine, validation endpoints
 - [Environment Variables](docs/environment-variables.md) — full config reference
 - [AWS Deployment](docs/aws-deployment.md) — EC2 and Fargate guides + reporting setup
 - [Metadata Keys](docs/metadata-keys.md) — 50+ CodePipeline/CodeBuild config keys
