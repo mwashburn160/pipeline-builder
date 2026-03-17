@@ -1,4 +1,3 @@
-import { Router } from 'express';
 import {
   sendSuccess,
   sendBadRequest,
@@ -8,10 +7,11 @@ import {
 import { withRoute } from '@mwashburn160/api-server';
 import { type RuleTarget, schema, db } from '@mwashburn160/pipeline-core';
 import { eq, and } from 'drizzle-orm';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { Router } from 'express';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
 import { logComplianceCheck } from '../helpers/audit-logger';
 import { notifyComplianceBlock } from '../helpers/compliance-notifier';
+import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
 

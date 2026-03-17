@@ -1,3 +1,4 @@
+import { createCacheService } from '@mwashburn160/api-core';
 import {
   CrudService,
   buildComplianceRuleConditions,
@@ -6,7 +7,6 @@ import {
   type ComplianceRuleFilter,
   type RuleTarget,
 } from '@mwashburn160/pipeline-core';
-import { createCacheService } from '@mwashburn160/api-core';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';

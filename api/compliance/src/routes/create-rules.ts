@@ -1,9 +1,9 @@
-import { Router } from 'express';
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import { Router } from 'express';
 import { z } from 'zod';
-import { complianceRuleService } from '../services/compliance-rule-service';
 import { validateRegexPattern } from '../engine/rule-operators';
+import { complianceRuleService } from '../services/compliance-rule-service';
 
 const ConditionSchema = z.object({
   field: z.string().min(1),

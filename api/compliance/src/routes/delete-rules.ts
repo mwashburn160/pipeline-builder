@@ -1,6 +1,6 @@
-import { Router } from 'express';
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import { Router } from 'express';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 export function createDeleteRuleRoutes(): Router {

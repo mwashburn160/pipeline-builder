@@ -6,10 +6,10 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
 } from '@mwashburn160/api-server';
-import { createReadRuleRoutes } from './routes/read-rules';
 import { createCreateRuleRoutes } from './routes/create-rules';
-import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createDeleteRuleRoutes } from './routes/delete-rules';
+import { createReadRuleRoutes } from './routes/read-rules';
+import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');

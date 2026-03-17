@@ -179,7 +179,9 @@ describe('evaluateRules', () => {
     const rules = [
       makeRule({ id: 'rule-a', name: 'rule-a', priority: 10, field: 'x', operator: 'eq', value: 'fail-this' }),
       makeRule({
-        id: 'rule-b', name: 'rule-b', priority: 5,
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 5,
         conditions: [
           { dependsOnRule: 'rule-a' },
           { field: 'y', operator: 'eq', value: 'something' },
@@ -197,7 +199,9 @@ describe('evaluateRules', () => {
     const rules = [
       makeRule({ id: 'rule-a', name: 'rule-a', priority: 10, field: 'x', operator: 'eq', value: 'match' }),
       makeRule({
-        id: 'rule-b', name: 'rule-b', priority: 5,
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 5,
         conditions: [
           { dependsOnRule: 'rule-a' },
           { field: 'y', operator: 'eq', value: 'expected' },

@@ -1,8 +1,8 @@
-import { Router } from 'express';
 import { sendSuccess, sendEntityNotFound, getParam, parsePaginationParams } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db } from '@mwashburn160/pipeline-core';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { Router } from 'express';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 export function createReadRuleRoutes(): Router {

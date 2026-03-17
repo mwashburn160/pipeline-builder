@@ -39,7 +39,7 @@ export async function notifyComplianceBlock(
       priority: 'high',
     }, {
       headers: {
-        Authorization: authHeader,
+        'Authorization': authHeader,
         'x-org-id': 'system',
         'x-internal-service': 'true',
       },
