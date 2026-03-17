@@ -1,5 +1,5 @@
-import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';

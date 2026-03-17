@@ -36,7 +36,7 @@ import { JobPermission, JobStep } from 'projen/lib/github/workflows-model';
 import { TypeScriptProject } from 'projen/lib/typescript';
 
 /** Projects that are built as Docker images and pushed to registry */
-const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'quota', 'message', 'pipeline', 'plugin'] as const;
+const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin'] as const;
 
 /** Projects that are published as npm packages */
 const LIBRARY_PROJECTS = ['ai-core', 'api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'event-ingestion', 'pipeline-manager'] as const;

@@ -1,7 +1,7 @@
-import { type ServiceConfig } from '../types/common';
-import { createLogger } from '../utils/logger';
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
 import { InternalHttpClient } from './http-client';
+import { type ServiceConfig } from '../types/common';
+import { createLogger } from '../utils/logger';
 
 const logger = createLogger('compliance-events');
 

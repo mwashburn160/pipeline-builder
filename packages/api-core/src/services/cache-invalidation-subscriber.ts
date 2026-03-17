@@ -6,9 +6,9 @@
  * the database without requiring manual invalidation in every route handler.
  */
 
-import { createLogger } from '../utils/logger';
-import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
 import { type CacheService } from './cache-service';
+import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
+import { createLogger } from '../utils/logger';
 
 const logger = createLogger('cache-invalidation');
 
