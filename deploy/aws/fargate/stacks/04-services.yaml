@@ -53,7 +53,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.38.0
+    Default: ghcr.io/mwashburn160/frontend:1.39.1
     Description: Docker image for the Frontend service
 
   AppSecretsName:
