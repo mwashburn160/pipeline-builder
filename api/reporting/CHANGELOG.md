@@ -1,3 +1,20 @@
+## 0.2.0 (2026-03-17)
+
+### 🚀 Features
+
+- add compliance ([9641b6e8](https://github.com/mwashburn160/pipeline-builder/commit/9641b6e8))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.42.0
+- Updated @mwashburn160/pipeline-data to 1.41.0
+- Updated @mwashburn160/api-server to 1.39.0
+- Updated @mwashburn160/api-core to 1.40.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.12 (2026-03-16)
 
 ### 🩹 Fixes

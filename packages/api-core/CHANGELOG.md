@@ -1,3 +1,16 @@
+## 1.40.0 (2026-03-17)
+
+### 🚀 Features
+
+- add compliance ([9641b6e8](https://github.com/mwashburn160/pipeline-builder/commit/9641b6e8))
+- add caching layer with in-memory and Redis support ([e0a0a8b1](https://github.com/mwashburn160/pipeline-builder/commit/e0a0a8b1))
+- add compliance service with per-org rule enforcement ([3709f3a5](https://github.com/mwashburn160/pipeline-builder/commit/3709f3a5))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6 (1M context)
+- mark
+
 ## 1.39.11 (2026-03-16)
 
 ### 🩹 Fixes
