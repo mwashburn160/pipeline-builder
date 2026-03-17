@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import type { ComplianceRule, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { useComplianceRules } from '@/hooks/useComplianceRules';
@@ -21,11 +21,11 @@ export default function RuleList({ onEdit, onCreateNew }: RuleListProps) {
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
   const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
 
-  const filteredRules = rules.filter((rule) => {
+  const filteredRules = useMemo(() => rules.filter((rule) => {
     if (targetFilter && rule.target !== targetFilter) return false;
     if (severityFilter && rule.severity !== severityFilter) return false;
     return true;
-  });
+  }), [rules, targetFilter, severityFilter]);
 
   if (loading) {
     return (

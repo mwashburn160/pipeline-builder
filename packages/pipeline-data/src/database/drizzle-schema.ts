@@ -593,6 +593,8 @@ export const complianceRuleHistory = pgTable('compliance_rule_history', {
     .on(table.ruleId, table.changedAt),
   orgChangedAtIdx: index('compliance_rule_history_org_changed_idx')
     .on(table.orgId, table.changedAt),
+  ruleIdIdx: index('compliance_rule_history_rule_id_idx')
+    .on(table.ruleId),
 }));
 
 /**
@@ -646,6 +648,7 @@ export const complianceExemption = pgTable('compliance_exemptions', {
     .on(table.orgId, table.ruleId, table.entityId),
   orgStatusIdx: index('compliance_exemption_org_status_idx').on(table.orgId, table.status),
   expiresAtIdx: index('compliance_exemption_expires_at_idx').on(table.expiresAt),
+  entityIdIdx: index('compliance_exemption_entity_id_idx').on(table.entityId),
 }));
 
 /**
@@ -761,6 +764,8 @@ export const complianceNotificationLog = pgTable('compliance_notification_log', 
     .on(table.orgId, table.createdAt),
   statusRetryIdx: index('compliance_notification_status_retry_idx')
     .on(table.status, table.nextRetryAt),
+  relatedAuditIdx: index('compliance_notification_related_audit_idx')
+    .on(table.relatedAuditId),
 }));
 
 /**

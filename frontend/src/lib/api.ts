@@ -1,4 +1,5 @@
 import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
+import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
@@ -1144,30 +1145,30 @@ class ApiClient {
 
   /** List compliance rules with optional filters */
   async getComplianceRules(params?: { target?: string; severity?: string; policyId?: string; scope?: string; tag?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
-    return this.request<ApiResponse<{ rules: unknown[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/rules${buildQuery(params)}`);
+    return this.request<ApiResponse<{ rules: ComplianceRule[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/rules${buildQuery(params)}`);
   }
 
   /** Get a single compliance rule by ID */
   async getComplianceRule(id: string) {
-    return this.request<ApiResponse<{ rule: unknown }>>(`/api/compliance/rules/${id}`);
+    return this.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`);
   }
 
   /** Get rule change history */
   async getComplianceRuleHistory(id: string) {
-    return this.request<ApiResponse<{ history: unknown[] }>>(`/api/compliance/rules/${id}/history`);
+    return this.request<ApiResponse<{ history: ComplianceRuleHistoryEntry[] }>>(`/api/compliance/rules/${id}/history`);
   }
 
   /** Create a compliance rule */
-  async createComplianceRule(data: Record<string, unknown>) {
-    return this.request<ApiResponse<{ rule: unknown }>>('/api/compliance/rules', {
+  async createComplianceRule(data: ComplianceRuleCreate) {
+    return this.request<ApiResponse<{ rule: ComplianceRule }>>('/api/compliance/rules', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   /** Update a compliance rule */
-  async updateComplianceRule(id: string, data: Record<string, unknown>) {
-    return this.request<ApiResponse<{ rule: unknown }>>(`/api/compliance/rules/${id}`, {
+  async updateComplianceRule(id: string, data: ComplianceRuleUpdate) {
+    return this.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -1182,7 +1183,7 @@ class ApiClient {
 
   /** Validate plugin attributes against compliance rules (dry-run) */
   async dryRunPluginCompliance(attributes: Record<string, unknown>) {
-    return this.request<ApiResponse<unknown>>('/api/compliance/validate/plugin/dry-run', {
+    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/plugin/dry-run', {
       method: 'POST',
       body: JSON.stringify({ attributes }),
     });
@@ -1190,7 +1191,7 @@ class ApiClient {
 
   /** Validate pipeline attributes against compliance rules (dry-run) */
   async dryRunPipelineCompliance(attributes: Record<string, unknown>) {
-    return this.request<ApiResponse<unknown>>('/api/compliance/validate/pipeline/dry-run', {
+    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline/dry-run', {
       method: 'POST',
       body: JSON.stringify({ attributes }),
     });

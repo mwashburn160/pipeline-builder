@@ -35,7 +35,7 @@ router.get(
       return sendSuccess(res, 200, { quota });
     } catch (error) {
       logger.error('Quota query failed', { error: errorMessage(error), orgId });
-      return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
+      return sendError(res, 500, 'Failed to fetch quotas', ErrorCode.INTERNAL_ERROR);
     }
   },
 );
@@ -60,7 +60,7 @@ router.get(
       return sendSuccess(res, 200, { organizations, total: organizations.length });
     } catch (error) {
       logger.error('Failed to list all organizations', { error: errorMessage(error) });
-      return sendError(res, 500, 'Failed to list organizations', ErrorCode.DATABASE_ERROR, errorMessage(error));
+      return sendError(res, 500, 'Failed to list organizations', ErrorCode.DATABASE_ERROR);
     }
   },
 );
@@ -79,7 +79,7 @@ router.get(
       return sendSuccess(res, 200, { quota });
     } catch (error) {
       logger.error('Quota query failed', { error: errorMessage(error), orgId: targetOrgId });
-      return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
+      return sendError(res, 500, 'Failed to fetch quotas', ErrorCode.INTERNAL_ERROR);
     }
   },
 );
@@ -101,7 +101,7 @@ router.get(
       return sendSuccess(res, 200, { quotaType, status });
     } catch (error) {
       logger.error('Quota status query failed', { error: errorMessage(error), targetOrgId });
-      return sendError(res, 500, errorMessage(error), ErrorCode.INTERNAL_ERROR);
+      return sendError(res, 500, 'Failed to fetch quota status', ErrorCode.INTERNAL_ERROR);
     }
   },
 );

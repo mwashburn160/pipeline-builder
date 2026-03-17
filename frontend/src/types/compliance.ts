@@ -126,6 +126,7 @@ export interface ComplianceScan {
   id: string;
   orgId: string;
   target: string;
+  filter?: Record<string, unknown>;
   status: ScanStatus;
   triggeredBy: string;
   userId: string;

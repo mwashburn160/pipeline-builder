@@ -5,9 +5,17 @@ import { z } from 'zod';
 import { validateRegexPattern } from '../engine/rule-operators';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
+const VALID_OPERATORS = [
+  'eq', 'neq', 'contains', 'notContains', 'regex',
+  'gt', 'gte', 'lt', 'lte', 'in', 'notIn',
+  'exists', 'notExists', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
+] as const;
+
+const OperatorEnum = z.enum(VALID_OPERATORS);
+
 const ConditionSchema = z.object({
-  field: z.string().min(1),
-  operator: z.string().min(1),
+  field: z.string().min(1).max(100),
+  operator: OperatorEnum,
   value: z.unknown().optional(),
   dependsOnRule: z.string().uuid().optional(),
 });
@@ -25,7 +33,7 @@ const ComplianceRuleCreateSchema = z.object({
   scope: z.enum(['org', 'global', 'published']).default('org'),
   suppressNotification: z.boolean().default(false),
   field: z.string().max(100).optional(),
-  operator: z.string().max(20).optional(),
+  operator: OperatorEnum.optional(),
   value: z.unknown().optional(),
   conditions: z.array(ConditionSchema).optional(),
   conditionMode: z.enum(['all', 'any']).default('all'),

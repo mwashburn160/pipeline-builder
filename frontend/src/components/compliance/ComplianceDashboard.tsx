@@ -100,18 +100,18 @@ export default function ComplianceDashboard() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, color }: { icon: typeof Shield; label: string; value: number; color: string }) {
-  const colorClasses: Record<string, string> = {
-    blue: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20',
-    green: 'text-green-600 bg-green-50 dark:bg-green-900/20',
-    yellow: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20',
-    red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
-  };
+const STAT_COLOR_CLASSES: Record<string, string> = {
+  blue: 'text-blue-600 bg-blue-50 dark:bg-blue-900/20',
+  green: 'text-green-600 bg-green-50 dark:bg-green-900/20',
+  yellow: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20',
+  red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
+};
 
+function StatCard({ icon: Icon, label, value, color }: { icon: typeof Shield; label: string; value: number; color: string }) {
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
       <div className="flex items-center gap-3">
-        <div className={`rounded-lg p-2 ${colorClasses[color]}`}>
+        <div className={`rounded-lg p-2 ${STAT_COLOR_CLASSES[color]}`}>
           <Icon className="h-5 w-5" />
         </div>
         <div>
@@ -123,13 +123,14 @@ function StatCard({ icon: Icon, label, value, color }: { icon: typeof Shield; la
   );
 }
 
+const RESULT_BADGE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+  pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
+  warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
+  block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
+};
+
 function ResultBadge({ result }: { result: string }) {
-  const config: Record<string, { bg: string; text: string; label: string }> = {
-    pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
-    warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
-    block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
-  };
-  const c = config[result] || config.pass;
+  const c = RESULT_BADGE_CONFIG[result] || RESULT_BADGE_CONFIG.pass;
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>
       {c.label}

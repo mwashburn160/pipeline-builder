@@ -40,7 +40,7 @@ router.put(
     } catch (error) {
       if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota update failed', { error: errorMessage(error), targetOrgId });
-      return sendError(res, 500, 'Failed to update quota', ErrorCode.DATABASE_ERROR, errorMessage(error));
+      return sendError(res, 500, 'Failed to update quota', ErrorCode.DATABASE_ERROR);
     }
   },
 );
@@ -68,7 +68,7 @@ router.post(
     } catch (error) {
       if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota reset failed', { error: errorMessage(error), targetOrgId });
-      return sendError(res, 500, 'Failed to reset quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
+      return sendError(res, 500, 'Failed to reset quota usage', ErrorCode.DATABASE_ERROR);
     }
   },
 );
@@ -111,7 +111,7 @@ router.post(
     } catch (error) {
       if (error instanceof OrgNotFoundError) return sendError(res, 404, 'Organization not found.', ErrorCode.ORG_NOT_FOUND);
       logger.error('Quota increment failed', { error: errorMessage(error), targetOrgId });
-      return sendError(res, 500, 'Failed to increment quota usage', ErrorCode.DATABASE_ERROR, errorMessage(error));
+      return sendError(res, 500, 'Failed to increment quota usage', ErrorCode.DATABASE_ERROR);
     }
   },
 );

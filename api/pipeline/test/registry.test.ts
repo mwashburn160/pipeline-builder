@@ -12,7 +12,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   hashAccountInArn: (arn: string) => arn, // pass-through in tests
-  hashId: (value: string) => value,       // pass-through in tests
+  hashId: (value: string) => value, // pass-through in tests
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({
@@ -33,8 +33,8 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   },
 }));
 
-import { createRegistryRoutes } from '../src/routes/registry';
 import { sendSuccess, sendBadRequest } from '@mwashburn160/api-core';
+import { createRegistryRoutes } from '../src/routes/registry';
 
 describe('POST /pipelines/registry', () => {
   let router: any;

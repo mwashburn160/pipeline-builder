@@ -8,12 +8,13 @@ import {
   type RuleTarget,
   type RuleScope,
 } from '@mwashburn160/pipeline-core';
-import { SQL, eq, and, inArray, isNull } from 'drizzle-orm';
+import { SQL, eq, and, inArray, isNull, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
-/** Cache for active rules per org+target. TTL 60s — rules change infrequently. */
-const rulesCache = createCacheService('compliance:rules:', 60);
+/** Cache for active rules per org+target. Rules change infrequently. */
+const RULES_CACHE_TTL = parseInt(process.env.COMPLIANCE_RULES_CACHE_TTL_SECONDS || '60', 10);
+const rulesCache = createCacheService('compliance:rules:', RULES_CACHE_TTL);
 
 export type ComplianceRule = typeof schema.complianceRule.$inferSelect;
 export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
@@ -126,6 +127,33 @@ export class ComplianceRuleService extends CrudService<
       ));
 
     await Promise.all(subscribers.map(s => this.invalidateRulesCache(s.orgId)));
+  }
+
+  /** Fetch paginated rule change history for a specific rule. */
+  async findRuleHistory(
+    ruleId: string,
+    orgId: string,
+    options: { limit: number; offset: number },
+  ): Promise<{ history: unknown[]; total: number }> {
+    const conditions = and(
+      eq(schema.complianceRuleHistory.ruleId, ruleId),
+      eq(schema.complianceRuleHistory.orgId, orgId),
+    );
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.complianceRuleHistory)
+      .where(conditions) as unknown as [{ count: number }];
+
+    const history = await db
+      .select()
+      .from(schema.complianceRuleHistory)
+      .where(conditions)
+      .orderBy(desc(schema.complianceRuleHistory.changedAt))
+      .limit(options.limit)
+      .offset(options.offset);
+
+    return { history, total: countResult?.count ?? 0 };
   }
 
   /** Fetch all rules belonging to a policy. */

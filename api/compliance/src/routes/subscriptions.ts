@@ -1,10 +1,15 @@
-import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db, buildPublishedRuleCatalogConditions } from '@mwashburn160/pipeline-core';
 import { and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
-import { subscriptionService } from '../services/subscription-service';
+import { z } from 'zod';
 import { complianceRuleService, type ComplianceRule } from '../services/compliance-rule-service';
+import { subscriptionService } from '../services/subscription-service';
+
+const SubscribeSchema = z.object({
+  ruleId: z.string().uuid(),
+});
 
 /**
  * Routes for browsing the published rules catalog.
@@ -98,10 +103,11 @@ export function createSubscriptionRoutes(): Router {
 
   // POST / — subscribe to a published rule
   router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const { ruleId } = req.body || {};
-    if (!ruleId || typeof ruleId !== 'string') {
-      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, SubscribeSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+    const { ruleId } = validation.value;
 
     try {
       const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);

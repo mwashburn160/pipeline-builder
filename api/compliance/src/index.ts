@@ -9,9 +9,9 @@ import {
 import { createCreateRuleRoutes } from './routes/create-rules';
 import { createDeleteRuleRoutes } from './routes/delete-rules';
 import { createReadRuleRoutes } from './routes/read-rules';
+import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
 import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createValidateRoutes } from './routes/validate';
-import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();

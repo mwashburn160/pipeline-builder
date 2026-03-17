@@ -3,17 +3,39 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
+  validateBody,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { type RuleTarget, schema, db } from '@mwashburn160/pipeline-core';
 import { eq, and } from 'drizzle-orm';
 import { Router } from 'express';
+import { z } from 'zod';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
 import { logComplianceCheck } from '../helpers/audit-logger';
 import { notifyComplianceBlock } from '../helpers/compliance-notifier';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
+
+/** Max nesting depth for attributes to prevent DoS via deeply nested payloads. */
+const MAX_ATTRIBUTE_KEYS = 100;
+
+const ValidateSchema = z.object({
+  attributes: z.record(z.string(), z.unknown()).refine(
+    (obj) => Object.keys(obj).length <= MAX_ATTRIBUTE_KEYS,
+    { message: `attributes must have at most ${MAX_ATTRIBUTE_KEYS} keys` },
+  ),
+  entityId: z.string().uuid().optional(),
+  entityName: z.string().max(255).optional(),
+  action: z.string().max(50).optional(),
+});
+
+const DryRunSchema = z.object({
+  attributes: z.record(z.string(), z.unknown()).refine(
+    (obj) => Object.keys(obj).length <= MAX_ATTRIBUTE_KEYS,
+    { message: `attributes must have at most ${MAX_ATTRIBUTE_KEYS} keys` },
+  ),
+});
 
 /**
  * Fetch active, approved, non-expired exemptions for an entity.
@@ -82,10 +104,11 @@ export function createValidateRoutes(): Router {
 
   // POST /validate/plugin — validate plugin attributes (blocking check)
   router.post('/plugin', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const { attributes, entityId, entityName, action } = req.body;
-    if (!attributes || typeof attributes !== 'object') {
-      return sendBadRequest(res, 'Request body must include an "attributes" object', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, ValidateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+    const { attributes, entityId, entityName, action } = validation.value;
 
     const result = await validateEntity(
       orgId, userId, 'plugin',
@@ -102,10 +125,11 @@ export function createValidateRoutes(): Router {
 
   // POST /validate/pipeline — validate pipeline attributes (blocking check)
   router.post('/pipeline', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const { attributes, entityId, entityName, action } = req.body;
-    if (!attributes || typeof attributes !== 'object') {
-      return sendBadRequest(res, 'Request body must include an "attributes" object', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, ValidateSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+    const { attributes, entityId, entityName, action } = validation.value;
 
     const result = await validateEntity(
       orgId, userId, 'pipeline',
@@ -122,26 +146,26 @@ export function createValidateRoutes(): Router {
 
   // POST /validate/plugin/dry-run — pre-flight check (no audit, no notification)
   router.post('/plugin/dry-run', withRoute(async ({ req, res, orgId, userId }) => {
-    const { attributes } = req.body;
-    if (!attributes || typeof attributes !== 'object') {
-      return sendBadRequest(res, 'Request body must include an "attributes" object', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, DryRunSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
     const result = await validateEntity(
-      orgId, userId, 'plugin', 'dry-run', undefined, undefined, attributes, '', true,
+      orgId, userId, 'plugin', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
     );
     return sendSuccess(res, 200, result);
   }));
 
   // POST /validate/pipeline/dry-run — pre-flight check (no audit, no notification)
   router.post('/pipeline/dry-run', withRoute(async ({ req, res, orgId, userId }) => {
-    const { attributes } = req.body;
-    if (!attributes || typeof attributes !== 'object') {
-      return sendBadRequest(res, 'Request body must include an "attributes" object', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, DryRunSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
     const result = await validateEntity(
-      orgId, userId, 'pipeline', 'dry-run', undefined, undefined, attributes, '', true,
+      orgId, userId, 'pipeline', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
     );
     return sendSuccess(res, 200, result);
   }));

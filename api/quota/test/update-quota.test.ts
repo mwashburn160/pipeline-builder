@@ -210,7 +210,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to update quota', 'DATABASE_ERROR', 'DB error');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to update quota', 'DATABASE_ERROR');
   });
 });
 
@@ -282,7 +282,7 @@ describe('POST /quotas/:orgId/reset', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to reset quota usage', 'DATABASE_ERROR', 'DB error');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to reset quota usage', 'DATABASE_ERROR');
   });
 });
 
@@ -394,7 +394,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to increment quota usage', 'DATABASE_ERROR', 'DB error');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to increment quota usage', 'DATABASE_ERROR');
   });
 
   it('bypasses quota limit for system org', async () => {

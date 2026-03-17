@@ -34,8 +34,8 @@ jest.mock('@mwashburn160/pipeline-data', () => ({
   },
 }));
 
-import { createPluginReportRoutes } from '../src/routes/plugin-reports';
 import { sendSuccess, sendBadRequest } from '@mwashburn160/api-core';
+import { createPluginReportRoutes } from '../src/routes/plugin-reports';
 
 describe('Plugin Report Routes', () => {
   let router: any;

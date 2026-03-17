@@ -156,7 +156,7 @@ describe('GET /quotas (own org)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB down', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to fetch quotas', 'INTERNAL_ERROR');
   });
 });
 
@@ -202,7 +202,7 @@ describe('GET /quotas/all (system admin)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to list organizations', 'DATABASE_ERROR', 'DB error');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to list organizations', 'DATABASE_ERROR');
   });
 });
 
@@ -296,6 +296,6 @@ describe('GET /quotas/:orgId/:quotaType', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to fetch quota status', 'INTERNAL_ERROR');
   });
 });

@@ -1,3 +1,4 @@
+import { entityEvents } from '@mwashburn160/api-core';
 import {
   CrudService,
   buildPipelineConditions,
@@ -5,7 +6,6 @@ import {
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
-import { entityEvents } from '@mwashburn160/api-core';
 import { SQL, eq, and, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -60,24 +60,36 @@ export class PipelineService extends CrudService<
 
   protected async onAfterCreate(entity: Pipeline): Promise<void> {
     entityEvents.emit({
-      eventType: 'created', target: 'pipeline', entityId: entity.id,
-      orgId: entity.orgId, userId: entity.createdBy, timestamp: new Date(),
+      eventType: 'created',
+      target: 'pipeline',
+      entityId: entity.id,
+      orgId: entity.orgId,
+      userId: entity.createdBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }
 
   protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
     entityEvents.emit({
-      eventType: 'updated', target: 'pipeline', entityId: id,
-      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      eventType: 'updated',
+      target: 'pipeline',
+      entityId: id,
+      orgId: entity.orgId,
+      userId: entity.updatedBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }
 
   protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
     entityEvents.emit({
-      eventType: 'deleted', target: 'pipeline', entityId: id,
-      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      eventType: 'deleted',
+      target: 'pipeline',
+      entityId: id,
+      orgId: entity.orgId,
+      userId: entity.updatedBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }
