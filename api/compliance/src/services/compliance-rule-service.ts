@@ -6,9 +6,13 @@ import {
   type ComplianceRuleFilter,
   type RuleTarget,
 } from '@mwashburn160/pipeline-core';
+import { createCacheService } from '@mwashburn160/api-core';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+
+/** Cache for active rules per org+target. TTL 60s — rules change infrequently. */
+const rulesCache = createCacheService('compliance:rules:', 60);
 
 export type ComplianceRule = typeof schema.complianceRule.$inferSelect;
 export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
@@ -53,10 +57,22 @@ export class ComplianceRuleService extends CrudService<
 
   /**
    * Fetch active rules for an org+target, ordered by priority DESC.
-   * Includes system-org global rules.
+   * Includes system-org global rules. Results are cached for 60s per org+target.
    */
   async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
-    return this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
+    const cacheKey = `${orgId}:${target}`;
+    return rulesCache.getOrSet(cacheKey, () =>
+      this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId),
+    );
+  }
+
+  /** Invalidate cached rules for an org (called after rule mutations). */
+  private async invalidateRulesCache(orgId: string): Promise<void> {
+    await rulesCache.invalidatePattern(`${orgId}:*`);
+    // Also invalidate system org cache since global rules affect all orgs
+    if (orgId !== 'system') {
+      await rulesCache.invalidatePattern('system:*');
+    }
   }
 
   /** Fetch all rules belonging to a policy. */
@@ -89,6 +105,7 @@ export class ComplianceRuleService extends CrudService<
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(() => { /* non-fatal */ });
+    this.invalidateRulesCache(created.orgId).catch(() => { /* non-fatal */ });
     return created;
   }
 
@@ -102,6 +119,7 @@ export class ComplianceRuleService extends CrudService<
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
       this.recordHistory(id, orgId, 'updated', existing, userId).catch(() => { /* non-fatal */ });
+      this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
     }
     return updated;
   }
@@ -111,6 +129,7 @@ export class ComplianceRuleService extends CrudService<
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
       this.recordHistory(id, orgId, 'deleted', existing, userId).catch(() => { /* non-fatal */ });
+      this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
     }
     return deleted;
   }
