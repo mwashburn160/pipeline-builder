@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   GitBranch,
   Puzzle,
+  Shield,
   MessageSquare,
   ScrollText,
   Activity,
@@ -68,6 +69,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Operations',
     items: [
       { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
+      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       {
         title: 'Reports', href: '/dashboard/reports', icon: FileBarChart,
         children: [
