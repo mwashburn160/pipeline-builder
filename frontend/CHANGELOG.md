@@ -1,3 +1,14 @@
+## 1.39.0 (2026-03-17)
+
+### 🚀 Features
+
+- nest pipeline and plugin reports under expandable Reports parent in sidebar ([1218e587](https://github.com/mwashburn160/pipeline-builder/commit/1218e587))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6 (1M context)
+- mark
+
 ## 1.38.0 (2026-03-16)
 
 ### 🚀 Features
