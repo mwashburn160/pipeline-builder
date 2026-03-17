@@ -1,5 +1,4 @@
 export {
-  FeatureManager,
   ALL_SERVICE_FEATURES,
   type Feature,
   type ServiceFeature,

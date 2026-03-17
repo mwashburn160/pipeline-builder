@@ -6,8 +6,9 @@ import {
   db,
   type ComplianceRuleFilter,
   type RuleTarget,
+  type RuleScope,
 } from '@mwashburn160/pipeline-core';
-import { SQL } from 'drizzle-orm';
+import { SQL, eq, and, inArray, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -57,22 +58,74 @@ export class ComplianceRuleService extends CrudService<
 
   /**
    * Fetch active rules for an org+target, ordered by priority DESC.
-   * Includes system-org global rules. Results are cached for 60s per org+target.
+   * Includes system-org global rules and subscribed published rules.
+   * Results are cached for 60s per org+target.
    */
   async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
     const cacheKey = `${orgId}:${target}`;
-    return rulesCache.getOrSet(cacheKey, () =>
-      this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId),
-    );
+    return rulesCache.getOrSet(cacheKey, async () => {
+      // 1. Org rules + mandatory global rules
+      const orgAndGlobalRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
+
+      // 2. Get subscribed published rule IDs
+      const subscriptions = await db
+        .select({ ruleId: schema.complianceRuleSubscription.ruleId })
+        .from(schema.complianceRuleSubscription)
+        .where(and(
+          eq(schema.complianceRuleSubscription.orgId, orgId),
+          eq(schema.complianceRuleSubscription.isActive, true),
+        ));
+
+      if (subscriptions.length === 0) return orgAndGlobalRules;
+
+      // 3. Fetch the actual published rules
+      const subscribedRuleIds = subscriptions.map(s => s.ruleId);
+      const publishedRules = await db
+        .select()
+        .from(schema.complianceRule)
+        .where(and(
+          inArray(schema.complianceRule.id, subscribedRuleIds),
+          eq(schema.complianceRule.target, target),
+          eq(schema.complianceRule.isActive, true),
+          eq(schema.complianceRule.scope, 'published' as RuleScope),
+        ));
+
+      // 4. Merge, deduplicate by ID
+      const seenIds = new Set(orgAndGlobalRules.map(r => r.id));
+      const merged = [...orgAndGlobalRules];
+      for (const rule of publishedRules) {
+        if (!seenIds.has(rule.id)) {
+          merged.push(rule as ComplianceRule);
+          seenIds.add(rule.id);
+        }
+      }
+      return merged;
+    });
   }
 
-  /** Invalidate cached rules for an org (called after rule mutations). */
-  private async invalidateRulesCache(orgId: string): Promise<void> {
+  /** Invalidate cached rules for an org (called after rule mutations or subscription changes). */
+  async invalidateRulesCache(orgId: string): Promise<void> {
     await rulesCache.invalidatePattern(`${orgId}:*`);
     // Also invalidate system org cache since global rules affect all orgs
     if (orgId !== 'system') {
       await rulesCache.invalidatePattern('system:*');
     }
+  }
+
+  /**
+   * Invalidate cached rules for all orgs subscribed to a published rule.
+   * Called after a published rule is mutated so subscribers pick up the change.
+   */
+  private async invalidateSubscriberCaches(ruleId: string): Promise<void> {
+    const subscribers = await db
+      .select({ orgId: schema.complianceRuleSubscription.orgId })
+      .from(schema.complianceRuleSubscription)
+      .where(and(
+        eq(schema.complianceRuleSubscription.ruleId, ruleId),
+        eq(schema.complianceRuleSubscription.isActive, true),
+      ));
+
+    await Promise.all(subscribers.map(s => this.invalidateRulesCache(s.orgId)));
   }
 
   /** Fetch all rules belonging to a policy. */
@@ -106,6 +159,9 @@ export class ComplianceRuleService extends CrudService<
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(() => { /* non-fatal */ });
     this.invalidateRulesCache(created.orgId).catch(() => { /* non-fatal */ });
+    if (created.scope === 'published') {
+      this.invalidateSubscriberCaches(created.id).catch(() => { /* non-fatal */ });
+    }
     return created;
   }
 
@@ -120,6 +176,9 @@ export class ComplianceRuleService extends CrudService<
     if (updated && existing) {
       this.recordHistory(id, orgId, 'updated', existing, userId).catch(() => { /* non-fatal */ });
       this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
+      if (existing.scope === 'published') {
+        this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
+      }
     }
     return updated;
   }
@@ -130,6 +189,9 @@ export class ComplianceRuleService extends CrudService<
     if (deleted && existing) {
       this.recordHistory(id, orgId, 'deleted', existing, userId).catch(() => { /* non-fatal */ });
       this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
+      if (existing.scope === 'published') {
+        this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
+      }
     }
     return deleted;
   }

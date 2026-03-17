@@ -11,6 +11,7 @@ import { createDeleteRuleRoutes } from './routes/delete-rules';
 import { createReadRuleRoutes } from './routes/read-rules';
 import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createValidateRoutes } from './routes/validate';
+import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
@@ -27,6 +28,12 @@ app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), 
 app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createCreateRuleRoutes());
 app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createUpdateRuleRoutes());
 app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createDeleteRuleRoutes());
+
+// Published rules catalog (auth + org, rate limited)
+app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'apiCalls'), createPublishedRulesCatalogRoutes());
+
+// Subscription management (auth + org)
+app.use('/compliance/subscriptions', ...createAuthenticatedWithOrgRoute(), createSubscriptionRoutes());
 
 logger.info('All /compliance routes registered');
 

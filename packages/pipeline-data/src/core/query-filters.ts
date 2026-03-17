@@ -197,8 +197,19 @@ export interface ComplianceRuleFilter extends CommonFilter {
   readonly target?: 'plugin' | 'pipeline';
   readonly field?: string;
   readonly severity?: 'warning' | 'error' | 'critical';
-  readonly scope?: 'org' | 'global';
+  readonly scope?: 'org' | 'global' | 'published';
   readonly tag?: string;
+}
+
+/**
+ * Filter for compliance rule subscriptions.
+ */
+export interface ComplianceRuleSubscriptionFilter {
+  readonly orgId?: string;
+  readonly ruleId?: string;
+  readonly isActive?: boolean;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 /**

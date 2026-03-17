@@ -1,0 +1,145 @@
+import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams } from '@mwashburn160/api-core';
+import { withRoute } from '@mwashburn160/api-server';
+import { schema, db, buildPublishedRuleCatalogConditions } from '@mwashburn160/pipeline-core';
+import { and, desc, sql, inArray, isNull } from 'drizzle-orm';
+import { Router } from 'express';
+import { subscriptionService } from '../services/subscription-service';
+import { complianceRuleService, type ComplianceRule } from '../services/compliance-rule-service';
+
+/**
+ * Routes for browsing the published rules catalog.
+ * Any authenticated org can browse.
+ */
+export function createPublishedRulesCatalogRoutes(): Router {
+  const router = Router();
+
+  // GET / — browse available published rules with subscription status
+  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query);
+    const filter = {
+      name: req.query.name as string | undefined,
+      target: req.query.target as 'plugin' | 'pipeline' | undefined,
+      severity: req.query.severity as 'warning' | 'error' | 'critical' | undefined,
+      tag: req.query.tag as string | undefined,
+    };
+
+    const conditions = buildPublishedRuleCatalogConditions(filter);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.complianceRule)
+      .where(whereClause) as unknown as [{ count: number }];
+
+    const rules = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(whereClause)
+      .orderBy(desc(schema.complianceRule.priority))
+      .limit(limit)
+      .offset(offset);
+
+    // Attach subscription status for calling org
+    const subscribedIds = new Set(await subscriptionService.getSubscribedRuleIds(orgId));
+    const catalog = rules.map(rule => ({
+      ...rule,
+      subscribed: subscribedIds.has(rule.id),
+    }));
+
+    ctx.log('COMPLETED', 'Listed published rules catalog', { count: catalog.length });
+    return sendSuccess(res, 200, {
+      rules: catalog,
+      pagination: { total: countResult?.count ?? 0, limit, offset, hasMore: offset + rules.length < (countResult?.count ?? 0) },
+    });
+  }));
+
+  return router;
+}
+
+/**
+ * Routes for managing rule subscriptions.
+ * Any authenticated org can subscribe/unsubscribe from published rules.
+ */
+export function createSubscriptionRoutes(): Router {
+  const router = Router();
+
+  // GET / — list this org's active subscriptions with rule details
+  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { limit, offset } = parsePaginationParams(req.query);
+    const subscriptions = await subscriptionService.findByOrg(orgId);
+    const total = subscriptions.length;
+    const paginatedSubs = subscriptions.slice(offset, offset + limit);
+
+    // Fetch rule details for paginated subscriptions
+    const ruleIds = paginatedSubs.map(s => s.ruleId);
+    let rules: ComplianceRule[] = [];
+    if (ruleIds.length > 0) {
+      rules = await db
+        .select()
+        .from(schema.complianceRule)
+        .where(and(
+          inArray(schema.complianceRule.id, ruleIds),
+          isNull(schema.complianceRule.deletedAt),
+        )) as unknown as ComplianceRule[];
+    }
+
+    const rulesById = new Map(rules.map(r => [r.id, r]));
+    const result = paginatedSubs.map(sub => ({
+      ...sub,
+      rule: rulesById.get(sub.ruleId) || null,
+    }));
+
+    ctx.log('COMPLETED', 'Listed rule subscriptions', { count: result.length });
+    return sendSuccess(res, 200, {
+      subscriptions: result,
+      pagination: { total, limit, offset, hasMore: offset + paginatedSubs.length < total },
+    });
+  }));
+
+  // POST / — subscribe to a published rule
+  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const { ruleId } = req.body || {};
+    if (!ruleId || typeof ruleId !== 'string') {
+      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    }
+
+    try {
+      const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
+      // Invalidate rules cache so the subscribed rule is picked up in evaluations
+      await complianceRuleService.invalidateRulesCache(orgId);
+
+      ctx.log('COMPLETED', 'Subscribed to published rule', { ruleId });
+      return sendSuccess(res, 201, { subscription });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found') || message.includes('published') || message.includes('inactive')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
+  // DELETE /:ruleId — unsubscribe from a published rule
+  router.delete('/:ruleId', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const ruleId = getParam(req.params, 'ruleId');
+    if (!ruleId) {
+      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    }
+
+    try {
+      await subscriptionService.unsubscribe(orgId, ruleId, userId);
+      await complianceRuleService.invalidateRulesCache(orgId);
+
+      ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
+      return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
+  return router;
+}

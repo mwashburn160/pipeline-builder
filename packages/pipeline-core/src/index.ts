@@ -44,6 +44,8 @@ export {
   buildComplianceExemptionConditions,
   buildComplianceAuditConditions,
   buildComplianceScanConditions,
+  buildPublishedRuleCatalogConditions,
+  buildComplianceRuleSubscriptionConditions,
 
   // Query filter types
   type PluginFilter,
@@ -54,6 +56,7 @@ export {
   type ComplianceExemptionFilter,
   type ComplianceAuditFilter,
   type ComplianceScanFilter,
+  type ComplianceRuleSubscriptionFilter,
 
   // Plugin types
   type PluginSecret,

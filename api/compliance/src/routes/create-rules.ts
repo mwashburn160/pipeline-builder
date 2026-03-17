@@ -22,7 +22,7 @@ const ComplianceRuleCreateSchema = z.object({
   tags: z.array(z.string()).default([]),
   effectiveFrom: z.string().datetime().optional(),
   effectiveUntil: z.string().datetime().optional(),
-  scope: z.enum(['org', 'global']).default('org'),
+  scope: z.enum(['org', 'global', 'published']).default('org'),
   suppressNotification: z.boolean().default(false),
   field: z.string().max(100).optional(),
   operator: z.string().max(20).optional(),
@@ -42,9 +42,9 @@ export function createCreateRuleRoutes(): Router {
 
     const body = validation.value;
 
-    // Global rules can only be created by system org
-    if (body.scope === 'global' && orgId !== 'system') {
-      return sendError(res, 403, 'Only system org can create global rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Global and published rules can only be created by system org
+    if ((body.scope === 'global' || body.scope === 'published') && orgId !== 'system') {
+      return sendError(res, 403, 'Only system org can create global or published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     // Validate regex patterns

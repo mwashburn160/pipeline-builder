@@ -45,11 +45,3 @@ export function hashAccountInArn(arn: string): string {
   parts[4] = hashId(parts[4]);
   return parts.join(':');
 }
-
-/**
- * @deprecated Use {@link hashAccountInArn} instead. Masking is lossy;
- * hashing is deterministic and enables lookups without storing the real account.
- */
-export function maskAccountInArn(arn: string): string {
-  return hashAccountInArn(arn);
-}

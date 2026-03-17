@@ -15,6 +15,7 @@ import {
   ComplianceExemptionFilter,
   ComplianceAuditFilter,
   ComplianceScanFilter,
+  ComplianceRuleSubscriptionFilter,
 } from '../core/query-filters';
 import {
   schema,
@@ -285,6 +286,70 @@ export function buildComplianceRuleConditions(
     conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
   } else {
     conditions.push(eq(schema.complianceRule.isActive, true));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for browsing the published rules catalog.
+ * Only returns system-org published rules.
+ */
+export function buildPublishedRuleCatalogConditions(
+  filter: Partial<ComplianceRuleFilter>,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  conditions.push(eq(schema.complianceRule.orgId, SYSTEM_ORG_ID));
+  conditions.push(eq(schema.complianceRule.scope, 'published' as RuleScope));
+
+  if (filter.name !== undefined) {
+    conditions.push(ilike(schema.complianceRule.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
+  }
+
+  if (filter.target !== undefined) {
+    conditions.push(eq(schema.complianceRule.target, filter.target as RuleTarget));
+  }
+
+  if (filter.severity !== undefined) {
+    conditions.push(eq(schema.complianceRule.severity, filter.severity as RuleSeverity));
+  }
+
+  if (filter.tag !== undefined) {
+    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.tag));
+    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.complianceRule.tags}) AS t WHERE lower(t) LIKE ${'%' + escaped + '%'})`);
+  }
+
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    conditions.push(eq(schema.complianceRule.isActive, true));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for compliance rule subscription queries.
+ */
+export function buildComplianceRuleSubscriptionConditions(
+  filter: Partial<ComplianceRuleSubscriptionFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    conditions.push(eq(schema.complianceRuleSubscription.orgId, orgId));
+  }
+
+  if (filter.ruleId !== undefined) {
+    conditions.push(eq(schema.complianceRuleSubscription.ruleId, filter.ruleId));
+  }
+
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(schema.complianceRuleSubscription.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    conditions.push(eq(schema.complianceRuleSubscription.isActive, true));
   }
 
   return conditions;

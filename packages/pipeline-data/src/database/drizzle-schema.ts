@@ -470,9 +470,9 @@ export type RuleOperator =
 export type RuleConditionMode = 'all' | 'any';
 
 /**
- * Rule scope — org-level or global (system org only).
+ * Rule scope — org-level, global (system org only, mandatory), or published (system org only, opt-in).
  */
-export type RuleScope = 'org' | 'global';
+export type RuleScope = 'org' | 'global' | 'published';
 
 /**
  * A single condition in a cross-field rule.
@@ -646,6 +646,26 @@ export const complianceExemption = pgTable('compliance_exemptions', {
     .on(table.orgId, table.ruleId, table.entityId),
   orgStatusIdx: index('compliance_exemption_org_status_idx').on(table.orgId, table.status),
   expiresAtIdx: index('compliance_exemption_expires_at_idx').on(table.expiresAt),
+}));
+
+/**
+ * Tracks which orgs have opted into system-org published compliance rules.
+ *
+ * @table compliance_rule_subscriptions
+ */
+export const complianceRuleSubscription = pgTable('compliance_rule_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  ruleId: uuid('rule_id').notNull().references(() => complianceRule.id, { onDelete: 'cascade' }),
+  subscribedBy: text('subscribed_by').notNull(),
+  subscribedAt: timestamp('subscribed_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+  unsubscribedBy: text('unsubscribed_by'),
+}, (table) => ({
+  orgRuleUnique: uniqueIndex('compliance_rule_sub_org_rule_unique').on(table.orgId, table.ruleId),
+  orgActiveIdx: index('compliance_rule_sub_org_active_idx').on(table.orgId, table.isActive),
+  ruleIdx: index('compliance_rule_sub_rule_idx').on(table.ruleId),
 }));
 
 /**
@@ -826,6 +846,7 @@ export const schema = {
   complianceRuleHistory,
   complianceAuditLog,
   complianceExemption,
+  complianceRuleSubscription,
   complianceScan,
   complianceScanSchedule,
   complianceNotificationPreference,
@@ -875,6 +896,9 @@ export type ComplianceAuditLogInsert = typeof complianceAuditLog.$inferInsert;
 
 export type ComplianceExemption = typeof complianceExemption.$inferSelect;
 export type ComplianceExemptionInsert = typeof complianceExemption.$inferInsert;
+
+export type ComplianceRuleSubscription = typeof complianceRuleSubscription.$inferSelect;
+export type ComplianceRuleSubscriptionInsert = typeof complianceRuleSubscription.$inferInsert;
 
 export type ComplianceScan = typeof complianceScan.$inferSelect;
 export type ComplianceScanInsert = typeof complianceScan.$inferInsert;

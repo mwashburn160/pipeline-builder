@@ -9,7 +9,7 @@ export type RuleOperator =
   | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'notIn'
   | 'exists' | 'notExists' | 'countGt' | 'countLt' | 'lengthGt' | 'lengthLt';
 export type RuleConditionMode = 'all' | 'any';
-export type RuleScope = 'org' | 'global';
+export type RuleScope = 'org' | 'global' | 'published';
 export type ExemptionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ComplianceRoleType = 'compliance-viewer' | 'compliance-editor' | 'compliance-admin';
@@ -174,4 +174,19 @@ export interface ComplianceRuleUpdate {
   conditions?: RuleCondition[];
   conditionMode?: RuleConditionMode;
   isActive?: boolean;
+}
+
+export interface ComplianceRuleSubscription {
+  id: string;
+  orgId: string;
+  ruleId: string;
+  subscribedBy: string;
+  subscribedAt: string;
+  isActive: boolean;
+  unsubscribedAt?: string;
+  unsubscribedBy?: string;
+}
+
+export interface PublishedRuleCatalogEntry extends ComplianceRule {
+  subscribed: boolean;
 }

@@ -247,7 +247,7 @@ export function startWorker(
         attemptsMade: job.attemptsMade,
         ...dbDetails,
       });
-      sseManager.send(requestId, 'ERROR', `Build failed: ${error.message}`, {
+      sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
         jobId: job.id,
         attemptsMade: job.attemptsMade,
         maxAttempts: job.opts.attempts,

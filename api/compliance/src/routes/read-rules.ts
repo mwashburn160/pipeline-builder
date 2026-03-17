@@ -16,7 +16,7 @@ export function createReadRuleRoutes(): Router {
       policyId: req.query.policyId as string | undefined,
       target: req.query.target as 'plugin' | 'pipeline' | undefined,
       severity: req.query.severity as 'warning' | 'error' | 'critical' | undefined,
-      scope: req.query.scope as 'org' | 'global' | undefined,
+      scope: req.query.scope as 'org' | 'global' | 'published' | undefined,
       tag: req.query.tag as string | undefined,
     };
 
