@@ -127,7 +127,9 @@ Conditions can also reference other rules via `dependsOnRule`.
 | `org` | Any org | Owning org only |
 | `published` | System org | Orgs that subscribe (opt-in) |
 
-The system org **publishes** recommended rules but does not enforce them. Each sub-organization decides which published rules to adopt by subscribing. Subscribed rules can be exempted per-entity, giving orgs full control over their compliance posture.
+**Org rules:** Any organization can create its own rules with `scope: "org"` (the default). These are private to that org — fully owned, editable, and deletable by the org. No other org can see or be affected by them.
+
+**Published rules:** Only the system org can create rules with `scope: "published"`. These appear in the published catalog for sub-orgs to browse and subscribe to. Subscriptions start inactive — the sub-org explicitly activates the ones they want enforced. Subscribed rules can be exempted per-entity, giving orgs full control over their compliance posture.
 
 ---
 
@@ -155,7 +157,9 @@ Warnings are logged and returned but do not block. Blocked responses include vio
 
 ## Examples
 
-### Create a rule
+### Create an org-scoped rule
+
+Any org can create its own rules. Scope defaults to `"org"` (private to the creating org):
 
 ```bash
 curl -X POST https://localhost:8443/api/compliance/rules \

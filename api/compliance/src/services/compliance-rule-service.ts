@@ -8,7 +8,7 @@ import {
   type RuleTarget,
   type RuleScope,
 } from '@mwashburn160/pipeline-core';
-import { SQL, eq, and, inArray, isNull, desc, sql } from 'drizzle-orm';
+import { SQL, eq, and, inArray, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
