@@ -478,9 +478,9 @@ export type RuleScope = 'org' | 'global';
  * A single condition in a cross-field rule.
  */
 export interface RuleCondition {
-  field: string;
-  operator: RuleOperator;
-  value: unknown;
+  field?: string;
+  operator?: RuleOperator;
+  value?: unknown;
   dependsOnRule?: string; // rule ID — only evaluate if referenced rule passed
 }
 

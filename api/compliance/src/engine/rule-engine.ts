@@ -132,10 +132,10 @@ function evaluateCrossFieldRule(
   const mode = rule.conditionMode || 'all';
 
   const results = conditions
-    .filter((c) => !c.dependsOnRule) // Skip dependent conditions for now
+    .filter((c) => !c.dependsOnRule && c.field && c.operator) // Skip dependency-only conditions
     .map((condition) => {
-      const fieldValue = getFieldValue(entity, condition.field);
-      const passed = evaluateOperator(condition.operator, fieldValue, condition.value);
+      const fieldValue = getFieldValue(entity, condition.field!);
+      const passed = evaluateOperator(condition.operator!, fieldValue, condition.value);
       return { condition, fieldValue, passed };
     });
 

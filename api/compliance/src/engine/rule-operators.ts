@@ -25,7 +25,21 @@ function safeRegexTest(pattern: string, value: string): boolean {
 
 /**
  * Get a nested value from an object using dot-notation path.
- * Supports computed field prefixes: $count(), $length(), $keys(), $lines()
+ *
+ * Supports computed field prefixes for derived values:
+ * - `$count(field)` — array length or object key count
+ * - `$length(field)` — string character length
+ * - `$keys(field)` — object keys as string array
+ * - `$lines(field)` — line count of a string field
+ *
+ * @param entity - The entity object to extract from
+ * @param fieldPath - Dot-notation path (e.g., "props.stages") or computed prefix (e.g., "$count(secrets)")
+ * @returns The resolved value, or undefined if the path doesn't exist
+ *
+ * @example
+ * getFieldValue({ a: { b: 1 } }, 'a.b')        // → 1
+ * getFieldValue({ arr: [1,2,3] }, '$count(arr)') // → 3
+ * getFieldValue({ s: 'hello' }, '$length(s)')    // → 5
  */
 export function getFieldValue(entity: Record<string, unknown>, fieldPath: string): unknown {
   // Handle computed fields
@@ -71,8 +85,16 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
 /**
  * Evaluate a single operator against field and rule values.
  *
- * Returns true if the condition is SATISFIED (no violation).
- * Returns false if the condition is VIOLATED.
+ * @param operator - The comparison operator to apply
+ * @param fieldValue - The actual value from the entity
+ * @param ruleValue - The expected value from the rule definition
+ * @returns `true` if the condition is SATISFIED (no violation), `false` if VIOLATED
+ *
+ * @example
+ * evaluateOperator('eq', 'CodeBuildStep', 'CodeBuildStep')  // → true
+ * evaluateOperator('gt', 100, 50)                           // → true
+ * evaluateOperator('in', 'SMALL', ['SMALL', 'MEDIUM'])      // → true
+ * evaluateOperator('regex', 'hello-world', '^hello')        // → true
  */
 export function evaluateOperator(
   operator: RuleOperator,
@@ -144,15 +166,22 @@ export function evaluateOperator(
 
 /**
  * Validate that a regex pattern is safe to use.
- * Returns an error message if unsafe, null if safe.
+ *
+ * Checks for:
+ * - Maximum length (200 chars)
+ * - Nested quantifiers that could cause ReDoS (e.g., `(a+)+`)
+ * - Valid regex syntax
+ *
+ * @param pattern - The regex pattern string to validate
+ * @returns Error message if unsafe, `null` if safe
  */
 export function validateRegexPattern(pattern: string): string | null {
   if (pattern.length > MAX_REGEX_LENGTH) {
     return `Regex pattern exceeds maximum length of ${MAX_REGEX_LENGTH} characters`;
   }
 
-  // Reject known dangerous patterns (nested quantifiers)
-  if (/(\+|\*|\{[^}]+\})\s*(\+|\*|\{[^}]+\})/.test(pattern)) {
+  // Reject known dangerous patterns (nested quantifiers like (a+)+, (a*)*b, etc.)
+  if (/(\+|\*|\{[^}]+\})\s*\)?\s*(\+|\*|\{[^}]+\})/.test(pattern)) {
     return 'Regex pattern contains nested quantifiers which may cause performance issues';
   }
 
