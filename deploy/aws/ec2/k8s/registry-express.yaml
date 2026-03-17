@@ -12,7 +12,7 @@ spec:
   type: NodePort
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 8080
       nodePort: 30580
       protocol: TCP
       name: http
@@ -43,7 +43,7 @@ spec:
         - name: registry-express
           image: joxit/docker-registry-ui:2
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
           env:
             - name: REGISTRY_TITLE
@@ -69,10 +69,18 @@ spec:
             requests:
               cpu: "75m"
               memory: 192Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
@@ -80,7 +88,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 5
