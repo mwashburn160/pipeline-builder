@@ -224,7 +224,7 @@ export abstract class CrudService<
       })
       .returning() as unknown as TEntity[];
 
-    this.onAfterCreate(created, userId).catch(() => {});
+    this.onAfterCreate(created, userId).catch(() => { /* fire-and-forget */ });
 
     return created;
   }
@@ -251,7 +251,7 @@ export abstract class CrudService<
       .returning() as unknown as TEntity[];
 
     if (updated) {
-      this.onAfterUpdate(id, updated, userId).catch(() => {});
+      this.onAfterUpdate(id, updated, userId).catch(() => { /* fire-and-forget */ });
     }
 
     return updated || null;
@@ -276,7 +276,7 @@ export abstract class CrudService<
       .returning() as unknown as TEntity[];
 
     if (deleted) {
-      this.onAfterDelete(id, deleted, userId).catch(() => {});
+      this.onAfterDelete(id, deleted, userId).catch(() => { /* fire-and-forget */ });
     }
 
     return deleted || null;
@@ -403,7 +403,7 @@ export abstract class CrudService<
     });
 
     for (const entity of results) {
-      this.onAfterCreate(entity, userId).catch(() => {});
+      this.onAfterCreate(entity, userId).catch(() => { /* fire-and-forget */ });
     }
 
     return results;

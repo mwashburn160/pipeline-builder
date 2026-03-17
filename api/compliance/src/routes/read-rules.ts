@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sendSuccess, sendEntityNotFound, getParam, parsePaginationParams } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db } from '@mwashburn160/pipeline-core';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 export function createReadRuleRoutes(): Router {
@@ -42,18 +42,35 @@ export function createReadRuleRoutes(): Router {
     return sendSuccess(res, 200, { rule });
   }));
 
-  // GET /:id/history — rule change history
-  router.get('/:id/history', withRoute(async ({ req, res }) => {
+  // GET /:id/history — rule change history (org-scoped, paginated)
+  router.get('/:id/history', withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Rule');
+
+    const { limit, offset } = parsePaginationParams(req.query);
+
+    const conditions = and(
+      eq(schema.complianceRuleHistory.ruleId, id),
+      eq(schema.complianceRuleHistory.orgId, orgId),
+    );
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.complianceRuleHistory)
+      .where(conditions) as unknown as [{ count: number }];
 
     const history = await db
       .select()
       .from(schema.complianceRuleHistory)
-      .where(eq(schema.complianceRuleHistory.ruleId, id))
-      .orderBy(desc(schema.complianceRuleHistory.changedAt));
+      .where(conditions)
+      .orderBy(desc(schema.complianceRuleHistory.changedAt))
+      .limit(limit)
+      .offset(offset);
 
-    return sendSuccess(res, 200, { history });
+    return sendSuccess(res, 200, {
+      history,
+      pagination: { total: countResult?.count ?? 0, limit, offset, hasMore: offset + history.length < (countResult?.count ?? 0) },
+    });
   }));
 
   return router;

@@ -88,7 +88,7 @@ export class ComplianceRuleService extends CrudService<
 
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
     const created = await super.create(data, userId);
-    await this.recordHistory(created.id, created.orgId, 'created', null, userId);
+    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(() => { /* non-fatal */ });
     return created;
   }
 
@@ -101,7 +101,7 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
-      await this.recordHistory(id, orgId, 'updated', existing, userId);
+      this.recordHistory(id, orgId, 'updated', existing, userId).catch(() => { /* non-fatal */ });
     }
     return updated;
   }
@@ -110,7 +110,7 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
-      await this.recordHistory(id, orgId, 'deleted', existing, userId);
+      this.recordHistory(id, orgId, 'deleted', existing, userId).catch(() => { /* non-fatal */ });
     }
     return deleted;
   }

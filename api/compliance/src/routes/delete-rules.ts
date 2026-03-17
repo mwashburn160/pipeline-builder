@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sendSuccess, sendEntityNotFound, getParam } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
@@ -8,7 +8,7 @@ export function createDeleteRuleRoutes(): Router {
 
   router.delete('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
-    if (!id) return sendEntityNotFound(res, 'Rule');
+    if (!id) return sendBadRequest(res, 'Rule ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     const deleted = await complianceRuleService.delete(id, orgId, userId || 'system');
     if (!deleted) return sendEntityNotFound(res, 'Rule');

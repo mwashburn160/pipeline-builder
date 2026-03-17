@@ -531,7 +531,7 @@ export const complianceRule = pgTable('compliance_rules', {
   // Rule identity
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
-  policyId: uuid('policy_id'), // FK → compliance_policies, ON DELETE SET NULL
+  policyId: uuid('policy_id').references(() => compliancePolicy.id, { onDelete: 'set null' }),
   priority: integer('priority').default(0).notNull(),
   target: varchar('target', { length: 20 }).$type<RuleTarget>().notNull(),
   severity: varchar('severity', { length: 10 }).$type<RuleSeverity>().default('error').notNull(),
@@ -582,7 +582,7 @@ export const complianceRule = pgTable('compliance_rules', {
  */
 export const complianceRuleHistory = pgTable('compliance_rule_history', {
   id: uuid('id').primaryKey().defaultRandom(),
-  ruleId: uuid('rule_id').notNull(), // FK → compliance_rules
+  ruleId: uuid('rule_id').notNull().references(() => complianceRule.id, { onDelete: 'cascade' }),
   orgId: varchar('org_id', { length: 255 }).notNull(),
   changeType: varchar('change_type', { length: 20 }).notNull(), // created | updated | deleted | restored
   previousState: jsonb('previous_state'), // full rule snapshot before change
@@ -628,7 +628,7 @@ export const complianceAuditLog = pgTable('compliance_audit_log', {
 export const complianceExemption = pgTable('compliance_exemptions', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
-  ruleId: uuid('rule_id').notNull(), // FK → compliance_rules, ON DELETE CASCADE
+  ruleId: uuid('rule_id').notNull().references(() => complianceRule.id, { onDelete: 'cascade' }),
   entityType: varchar('entity_type', { length: 20 }).$type<RuleTarget>().notNull(),
   entityId: uuid('entity_id').notNull(),
   entityName: varchar('entity_name', { length: 255 }),
