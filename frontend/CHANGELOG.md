@@ -1,3 +1,14 @@
+## 1.39.1 (2026-03-17)
+
+### 🩹 Fixes
+
+- remove dead pipeline detail link from dashboard recent pipelines ([03cde264](https://github.com/mwashburn160/pipeline-builder/commit/03cde264))
+
+### ❤️ Thank You
+
+- Claude Opus 4.6 (1M context)
+- mark
+
 ## 1.39.0 (2026-03-17)
 
 ### 🚀 Features
