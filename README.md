@@ -56,7 +56,10 @@ flowchart TB
     end
 
     subgraph Backend["Backend Services"]
-        PLUGIN["Plugin"] & PIPELINE["Pipeline"] & SUPPORT["Quota + Billing + Messages"]
+        PLUGIN["Plugin"] & PIPELINE["Pipeline"]
+        COMPLIANCE["Compliance"]
+        REPORTING["Reporting"]
+        SUPPORT["Quota + Billing + Messages"]
     end
 
     CORE["pipeline-core<br/>CDK Synth"]
@@ -64,13 +67,17 @@ flowchart TB
 
     CLI & DASH & API -->|JWT| Platform
     CDK --> CORE
-    Platform --> PLUGIN & PIPELINE & SUPPORT
+    Platform --> PLUGIN & PIPELINE & COMPLIANCE & REPORTING & SUPPORT
+    PLUGIN & PIPELINE -->|validate| COMPLIANCE
     PLUGIN & PIPELINE --> CORE
     CORE --> AWS
+    AWS -->|EventBridge| REPORTING
 
     style Platform fill:#4A90D9,color:#fff
     style CORE fill:#F5A623,color:#fff
     style AWS fill:#2ECC71,color:#fff
+    style COMPLIANCE fill:#E74C3C,color:#fff
+    style REPORTING fill:#9B59B6,color:#fff
 ```
 
 | Service | Purpose |
@@ -78,10 +85,95 @@ flowchart TB
 | **Platform** | Auth, orgs, users, JWT, RBAC — central gateway for all requests |
 | **Pipeline** | Pipeline CRUD + AI generation |
 | **Plugin** | Plugin CRUD + Docker builds + AI generation |
+| **Compliance** | Per-org rule enforcement, policy management, audit trail |
 | **Reporting** | Pipeline execution reports + plugin build analytics |
 | **Quota** | Resource limits per org |
 | **Billing** | Subscriptions and plans |
 | **Message** | Org announcements and messaging |
+
+---
+
+## Compliance
+
+Per-organization rule enforcement that restricts available plugins, sets standards, and enforces policies across all pipeline and plugin operations.
+
+**What it does:**
+- Validates plugin uploads and pipeline creates against configurable rules
+- Blocks non-compliant operations with detailed violation reports
+- Supports 18 operators including regex, numeric ranges, set membership, and computed fields (`$count`, `$length`, `$lines`)
+- Cross-field rules for conditional checks (e.g., "if pluginType=CodeBuildStep then timeout must be < 900")
+- Rule prioritization, effective date scheduling, and org/global scoping
+
+**Benefits:**
+- Enforce security standards org-wide (no public plugins, required secrets, banned commands)
+- Prevent cost overruns (restrict compute types, limit timeouts)
+- Maintain naming conventions and configuration standards
+- Pre-flight validation lets developers check compliance before uploading
+- Full audit trail of every compliance check (pass, warn, block)
+
+```bash
+# Create a rule that blocks plugins without required secrets
+curl -X POST https://localhost:8443/api/compliance/rules \
+  -H "Authorization: Bearer $TOKEN" -H "x-org-id: my-org" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"require-secrets","target":"plugin","severity":"error",
+       "field":"$count(secrets)","operator":"gte","value":1}'
+
+# Pre-flight check before uploading
+curl -X POST https://localhost:8443/api/compliance/validate/plugin/dry-run \
+  -H "Authorization: Bearer $TOKEN" -H "x-org-id: my-org" \
+  -H "Content-Type: application/json" \
+  -d '{"attributes":{"name":"my-plugin","secrets":[]}}'
+# → { "blocked": true, "violations": [{ "ruleName": "require-secrets", ... }] }
+```
+
+See the full [Compliance Guide](docs/compliance.md).
+
+---
+
+## Reporting
+
+Real-time pipeline execution analytics and plugin build metrics — powered by EventBridge event ingestion and time-series aggregation.
+
+**What it does:**
+- Tracks every CodePipeline execution, stage transition, and action outcome
+- Records plugin Docker build success/failure rates and durations
+- Aggregates metrics over configurable time intervals (hourly, daily, weekly)
+- Identifies stage bottlenecks, error patterns, and failure hotspots
+
+**Benefits:**
+- Visibility into pipeline health and deployment frequency (DORA metrics)
+- Identify slow stages and optimize build times
+- Track plugin build reliability across versions
+- Spot recurring errors before they become incidents
+- Per-org isolation — each organization sees only their own data
+
+**Available reports:**
+
+| Report | Endpoint | Data |
+|--------|----------|------|
+| Execution count | `GET /reports/execution/count` | Total, succeeded, failed, canceled |
+| Success rate | `GET /reports/execution/success-rate` | Time-series pass/fail percentages |
+| Average duration | `GET /reports/execution/duration` | Avg, min, max, p95 in ms |
+| Stage failures | `GET /reports/execution/stage-failures` | Per-stage failure counts and rates |
+| Stage bottlenecks | `GET /reports/execution/bottlenecks` | Per-stage avg/max duration |
+| Error patterns | `GET /reports/execution/errors` | Grouped error messages with counts |
+| Plugin summary | `GET /reports/plugins/summary` | Total, active, public/private breakdown |
+| Build success rate | `GET /reports/plugins/build-success-rate` | Time-series build outcomes |
+| Build duration | `GET /reports/plugins/build-duration` | Per-plugin avg/max build times |
+| Build errors | `GET /reports/plugins/build-errors` | Per-plugin failure counts |
+
+```bash
+# Get pipeline success rate for the last 7 days
+curl "https://localhost:8443/api/reports/execution/success-rate?interval=daily&from=2026-03-10" \
+  -H "Authorization: Bearer $TOKEN" -H "x-org-id: my-org"
+
+# Find the slowest pipeline stages
+curl "https://localhost:8443/api/reports/execution/bottlenecks" \
+  -H "Authorization: Bearer $TOKEN" -H "x-org-id: my-org"
+```
+
+Reporting requires EventBridge event ingestion. See the [AWS Deployment Guide](docs/aws-deployment.md) for setup.
 
 ---
 
@@ -200,7 +292,7 @@ Output: `--format table|json|yaml|csv` | File: `--output <path>` | Flags: `--deb
 
 ## Dashboard
 
-Next.js frontend at `https://localhost:8443` with pages for pipelines, plugins, organizations, users, billing, messages, quotas, settings, tokens, and logs. AI Builder tabs available in pipeline and plugin creation flows.
+Next.js frontend at `https://localhost:8443` with pages for pipelines, plugins, compliance, reporting, organizations, users, billing, messages, quotas, settings, tokens, and logs. AI Builder tabs available in pipeline and plugin creation flows. Compliance dashboard provides rule management, violation feeds, and audit trail visibility.
 
 ---
 
@@ -266,6 +358,7 @@ pipeline-builder/
 ├── api/
 │   ├── pipeline/            # Pipeline CRUD + AI generation + registry
 │   ├── plugin/              # Plugin CRUD + Docker builds + AI generation
+│   ├── compliance/          # Per-org rule enforcement + audit trail
 │   ├── reporting/           # Execution reports + build analytics
 │   ├── quota/               # Quota enforcement
 │   ├── billing/             # Billing management
