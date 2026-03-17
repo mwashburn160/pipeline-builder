@@ -1,5 +1,5 @@
 import { SYSTEM_ORG_ID } from '@mwashburn160/api-core';
-import { eq, ilike, isNull, or, and, gte, lte, sql, SQL } from 'drizzle-orm';
+import { eq, ilike, isNull, or, gte, lte, sql, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   escapeLikeWildcards,
