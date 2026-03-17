@@ -1,104 +1,107 @@
 # Compliance Service
 
-Per-organization rule enforcement for plugins and pipelines. The compliance service validates entity attributes against configurable rules, blocking operations that violate policies and notifying org admins of violations.
+Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policies, and notifies org admins.
 
-**Related docs:** [API Reference](api-reference.md) | [Environment Variables](environment-variables.md) | [Plugin Catalog](plugins/README.md)
+**Design:** Fail-closed — if the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503).
 
 ---
 
-## Architecture
-
-The compliance service is a standalone microservice that integrates with plugin and pipeline services via internal HTTP calls. It follows the same patterns as other services (CrudService, Express routes, Drizzle ORM).
+## How It Works
 
 ```
 Plugin/Pipeline Service                  Compliance Service
         │                                       │
         │  POST /compliance/validate/plugin      │
-        ├──────────────────────────────────────►│
-        │                                       ├── Fetch org rules
+        ├──────────────────────────────────────►  │
+        │                                       ├── Fetch org rules + subscribed rules
         │  { blocked: true, violations: [...] } │ ├── Evaluate rule engine
         │◄──────────────────────────────────────┤ ├── Write audit log
         │                                       │ └── Notify org admins
         │  403 COMPLIANCE_VIOLATION              │
-        │                                       │
 ```
 
-**Design:** Fail-closed. If the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503).
+**Each organization owns its compliance.** The system org does not enforce rules on sub-organizations. Instead, the system org publishes recommended rules that sub-orgs can browse, subscribe to, and customize.
+
+When validating an entity, the engine merges two rule sets:
+1. **Org rules** — rules the org created for itself
+2. **Subscribed published rules** — rules the org opted into from the published catalog
+
+Results are cached per org+target (configurable TTL, default 60s). Caches are invalidated automatically on rule mutations and subscription changes.
 
 ---
 
-## Endpoints
+## API Endpoints
 
-### Rules
+### Rules CRUD
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/compliance/rules` | List rules (filterable, paginated) |
 | `GET` | `/compliance/rules/:id` | Get rule by ID |
 | `GET` | `/compliance/rules/:id/history` | Rule change history |
-| `POST` | `/compliance/rules` | Create rule (admin only) |
+| `POST` | `/compliance/rules` | Create rule |
 | `PUT` | `/compliance/rules/:id` | Update rule |
 | `DELETE` | `/compliance/rules/:id` | Soft-delete rule |
+
+### Published Catalog & Subscriptions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/published-rules` | Browse published rules (includes `subscribed` flag) |
+| `GET` | `/compliance/subscriptions` | List org's active subscriptions |
+| `POST` | `/compliance/subscriptions` | Subscribe to a published rule |
+| `DELETE` | `/compliance/subscriptions/:ruleId` | Unsubscribe |
 
 ### Validation
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/compliance/validate/plugin` | Validate plugin attributes (blocking check) |
-| `POST` | `/compliance/validate/pipeline` | Validate pipeline attributes (blocking check) |
-| `POST` | `/compliance/validate/plugin/dry-run` | Pre-flight check (no audit, no notification) |
-| `POST` | `/compliance/validate/pipeline/dry-run` | Pre-flight check (no audit, no notification) |
+| `POST` | `/compliance/validate/plugin` | Validate plugin attributes (blocking) |
+| `POST` | `/compliance/validate/pipeline` | Validate pipeline attributes (blocking) |
+| `POST` | `/compliance/validate/plugin/dry-run` | Pre-flight check (no audit/notification) |
+| `POST` | `/compliance/validate/pipeline/dry-run` | Pre-flight check (no audit/notification) |
 
 ---
 
-## Rules
-
-A compliance rule defines a check against a specific field on a plugin or pipeline entity.
-
-### Rule Fields
+## Rule Schema
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Unique rule name within the org |
-| `target` | `plugin` \| `pipeline` | Entity type this rule applies to |
-| `severity` | `warning` \| `error` \| `critical` | Warning allows operation; error/critical blocks |
-| `field` | string | Entity attribute to check (dot-notation for nested) |
-| `operator` | string | Comparison operator (see below) |
-| `value` | any | Expected value for comparison |
-| `priority` | number | Higher priority rules evaluated first (0-10000) |
-| `scope` | `org` \| `global` | Org rules apply to owning org; global rules (system org only) apply to all orgs |
-| `tags` | string[] | Categorization tags (e.g., `["security", "performance"]`) |
-| `effectiveFrom` | ISO date | Rule not enforced before this date |
-| `effectiveUntil` | ISO date | Rule auto-expires after this date |
-| `suppressNotification` | boolean | Skip notifications for this rule's violations |
+| `name` | string | Unique name within the org |
+| `target` | `plugin` \| `pipeline` | Entity type |
+| `severity` | `warning` \| `error` \| `critical` | `warning` = non-blocking; `error`/`critical` = blocking |
+| `field` | string | Attribute to check (supports dot-notation and `$count()`, `$length()`) |
+| `operator` | enum | One of the operators below |
+| `value` | any | Expected value |
+| `priority` | 0–10000 | Higher = evaluated first |
+| `scope` | `org` \| `published` | See [Scopes](#scopes) |
+| `tags` | string[] | Categorization (e.g. `["security"]`) |
+| `conditions` | array | Multi-field rules (see [Conditions](#cross-field-conditions)) |
+| `conditionMode` | `all` \| `any` | How conditions combine |
 
 ### Operators
 
-| Operator | Description | Value Type |
-|----------|-------------|------------|
-| `eq` / `neq` | Equals / not equals | string, number, boolean |
-| `gt` / `gte` / `lt` / `lte` | Numeric comparison | number |
-| `contains` / `notContains` | String or array contains | string |
-| `in` / `notIn` | Value in set | array |
-| `regex` | Regex pattern match (max 200 chars) | string |
-| `exists` / `notExists` | Field presence check | (none) |
-| `countGt` / `countLt` | Array/object count comparison | number |
-| `lengthGt` / `lengthLt` | String length comparison | number |
+| Operator | Description |
+|----------|-------------|
+| `eq` / `neq` | Equals / not equals |
+| `gt` / `gte` / `lt` / `lte` | Numeric comparison |
+| `contains` / `notContains` | String or array contains |
+| `in` / `notIn` | Value in set |
+| `regex` | Pattern match (max 200 chars) |
+| `exists` / `notExists` | Field presence |
+| `countGt` / `countLt` | Array/object count |
+| `lengthGt` / `lengthLt` | String length |
 
 ### Computed Fields
 
-Use `$` prefix functions for derived values:
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `$count(field)` | Array length or object key count | `$count(secrets)` > 3 |
-| `$length(field)` | String character length | `$length(dockerfile)` > 5000 |
-| `$keys(field)` | Object keys as array | `$keys(env)` contains "AWS_SECRET" |
-| `$lines(field)` | Line count of string | `$lines(dockerfile)` > 100 |
+| Function | Example |
+|----------|---------|
+| `$count(field)` | `$count(stages)` — array length |
+| `$length(field)` | `$length(name)` — string length |
+| `$keys(field)` | `$keys(env)` — object keys as array |
+| `$lines(field)` | `$lines(dockerfile)` — line count |
 
 ### Cross-Field Conditions
-
-Rules can have multiple conditions evaluated together:
 
 ```json
 {
@@ -113,154 +116,110 @@ Rules can have multiple conditions evaluated together:
 }
 ```
 
-This rule blocks CodeBuildStep plugins with timeout > 900s. Both conditions must be true (`all` mode) for the rule to pass.
+Conditions can also reference other rules via `dependsOnRule`.
 
-### Dependent Rules
+---
 
-Conditions can reference other rules:
+## Scopes
+
+| Scope | Created By | Enforcement |
+|-------|-----------|-------------|
+| `org` | Any org | Owning org only |
+| `published` | System org | Orgs that subscribe (opt-in) |
+
+The system org **publishes** recommended rules but does not enforce them. Each sub-organization decides which published rules to adopt by subscribing. Subscribed rules can be exempted per-entity, giving orgs full control over their compliance posture.
+
+---
+
+## Enforcement
+
+| Trigger | Behavior |
+|---------|----------|
+| Plugin upload (`POST /api/plugin/upload`) | Blocked (403) if `error` or `critical` violations |
+| Pipeline create (`POST /api/pipeline`) | Blocked (403) if `error` or `critical` violations |
+
+Warnings are logged and returned but do not block. Blocked responses include violation details:
 
 ```json
 {
-  "conditions": [
-    { "dependsOnRule": "rule-id-123" },
-    { "field": "computeType", "operator": "eq", "value": "LARGE" }
-  ]
+  "success": false,
+  "status": 403,
+  "code": "COMPLIANCE_VIOLATION",
+  "details": {
+    "violations": [{ "ruleName": "block-latest-image-tag", "severity": "error", "field": "imageTag" }]
+  }
 }
 ```
-
-This rule only evaluates if `rule-id-123` passed.
 
 ---
 
 ## Examples
 
-### Create a rule that blocks public plugins
+### Create a rule
 
 ```bash
 curl -X POST https://localhost:8443/api/compliance/rules \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -H "x-org-id: my-org" \
   -d '{
     "name": "no-public-plugins",
     "target": "plugin",
     "severity": "critical",
     "field": "accessModifier",
     "operator": "neq",
-    "value": "public",
-    "description": "Plugins must not be public"
+    "value": "public"
   }'
 ```
 
-### Create a rule that warns on large compute types
-
-```bash
-curl -X POST https://localhost:8443/api/compliance/rules \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "x-org-id: my-org" \
-  -d '{
-    "name": "warn-large-compute",
-    "target": "plugin",
-    "severity": "warning",
-    "field": "computeType",
-    "operator": "eq",
-    "value": "LARGE",
-    "tags": ["cost"]
-  }'
-```
-
-### Pre-flight validation (dry-run)
+### Dry-run validation
 
 ```bash
 curl -X POST https://localhost:8443/api/compliance/validate/plugin/dry-run \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -H "x-org-id: my-org" \
   -d '{
-    "attributes": {
-      "name": "my-plugin",
-      "pluginType": "CodeBuildStep",
-      "computeType": "LARGE",
-      "accessModifier": "public"
-    }
+    "attributes": { "name": "my-plugin", "accessModifier": "public", "imageTag": "latest" }
   }'
 ```
 
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "passed": false,
-    "blocked": true,
-    "violations": [
-      {
-        "ruleId": "...",
-        "ruleName": "no-public-plugins",
-        "field": "accessModifier",
-        "operator": "neq",
-        "expectedValue": "public",
-        "actualValue": "public",
-        "severity": "critical",
-        "message": "Field \"accessModifier\" failed neq check"
-      }
-    ],
-    "warnings": [],
-    "rulesEvaluated": 2,
-    "rulesSkipped": 0,
-    "exemptionsApplied": []
-  }
-}
+### Subscribe to a published rule
+
+```bash
+curl -X POST https://localhost:8443/api/compliance/subscriptions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "ruleId": "<published-rule-id>" }'
 ```
 
 ---
 
-## Enforcement
+## Sample Rules
 
-Compliance checks are enforced at two points:
+10 sample rules are included in `deploy/rules/`, each with a `rule.json` and `README.md`:
 
-| Trigger | Endpoint Modified | Behavior |
-|---------|-------------------|----------|
-| Plugin upload | `POST /api/plugin/upload` | Blocked with 403 if violations with severity `error` or `critical` |
-| Pipeline create | `POST /api/pipeline` | Blocked with 403 if violations with severity `error` or `critical` |
+| Rule | Target | Severity |
+|------|--------|----------|
+| `require-plugin-description` | plugin | warning |
+| `block-latest-image-tag` | plugin | error |
+| `require-pipeline-naming-convention` | pipeline | warning |
+| `max-pipeline-stages` | pipeline | warning |
+| `require-plugin-version-semver` | plugin | error |
+| `require-plugin-keywords` | plugin | warning |
+| `enforce-pipeline-timeout` | pipeline | error |
+| `recommended-compute-type` | pipeline | warning |
+| `block-privileged-plugins` | plugin | critical |
+| `restrict-public-access` | plugin | error |
 
-Warnings are logged but do not block the operation.
+All sample rules are `published` scope — sub-organizations browse the catalog and subscribe to the ones they want to enforce.
 
-### Error Response
+Load them during init or standalone:
 
-When a compliance violation blocks an operation:
-
-```json
-{
-  "success": false,
-  "status": 403,
-  "error": "Plugin upload blocked by compliance rules",
-  "code": "COMPLIANCE_VIOLATION",
-  "details": {
-    "violations": [
-      {
-        "ruleId": "...",
-        "ruleName": "no-public-plugins",
-        "severity": "critical",
-        "message": "..."
-      }
-    ]
-  }
-}
+```bash
+./deploy/bin/init-platform.sh                              # prompted during init
+PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance-rules.sh  # standalone
 ```
 
----
-
-## Entity Event Integration
-
-The compliance service receives entity lifecycle events (create/update/delete) from plugin and pipeline services via the `EntityEventEmitter` system. This enables:
-
-- **Drift detection:** when rules change, existing entities can be re-evaluated
-- **Audit enrichment:** every entity mutation is logged with compliance context
-- **Cache invalidation:** compliance status cached on entities is refreshed
-
-Events are fire-and-forget — entity mutations are never blocked by event processing failures.
+Add your own by creating `deploy/rules/<name>/rule.json` + `README.md`.
 
 ---
 
@@ -268,18 +227,19 @@ Events are fire-and-forget — entity mutations are never blocked by event proce
 
 | Table | Purpose |
 |-------|---------|
-| `compliance_policies` | Named rule groups (e.g., "SOC2", "Security Baseline") |
-| `compliance_rules` | Individual rule definitions |
-| `compliance_rule_history` | Change tracking for rules (versioning/rollback) |
-| `compliance_audit_log` | Every compliance check result (pass/warn/block) |
-| `compliance_exemptions` | Per-entity exemptions from specific rules |
+| `compliance_rules` | Rule definitions |
+| `compliance_rule_subscriptions` | Org subscriptions to published rules |
+| `compliance_rule_history` | Rule change audit trail |
+| `compliance_policies` | Named rule groups (SOC2, Security Baseline) |
+| `compliance_audit_log` | Every check result (pass/warn/block) |
+| `compliance_exemptions` | Per-entity exemptions from rules |
 | `compliance_scans` | Bulk scan tracking |
-| `compliance_scan_schedules` | Cron-based recurring scans |
-| `compliance_notification_preferences` | Per-org notification settings |
+| `compliance_scan_schedules` | Recurring scan schedules |
+| `compliance_notification_preferences` | Per-org notification config |
 | `compliance_notification_log` | Notification delivery history |
-| `compliance_roles` | Compliance-specific RBAC (viewer/editor/admin) |
-| `compliance_reports` | Generated compliance reports |
-| `compliance_report_schedules` | Recurring report generation |
+| `compliance_roles` | Compliance RBAC (viewer/editor/admin) |
+| `compliance_reports` | Generated reports |
+| `compliance_report_schedules` | Recurring report schedules |
 
 ---
 
@@ -287,26 +247,23 @@ Events are fire-and-forget — entity mutations are never blocked by event proce
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname for compliance service (used by plugin/pipeline services) |
-| `COMPLIANCE_SERVICE_PORT` | `3000` | Port for compliance service |
-| `MESSAGE_SERVICE_HOST` | `message` | Message service for notifications |
-| `MESSAGE_SERVICE_PORT` | `3000` | Message service port |
-| `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service (for bulk scans) |
-| `PIPELINE_SERVICE_HOST` | `pipeline` | Pipeline service (for bulk scans) |
-| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `90` | Days to retain audit log entries |
-| `COMPLIANCE_RATE_LIMIT` | `100` | Max validation requests per minute per org |
+| `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname (used by plugin/pipeline services) |
+| `COMPLIANCE_SERVICE_PORT` | `3000` | Port |
+| `COMPLIANCE_RULES_CACHE_TTL_SECONDS` | `60` | Active rules cache TTL |
+| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `90` | Audit log retention |
+| `COMPLIANCE_RATE_LIMIT` | `100` | Max validations per minute per org |
+| `MESSAGE_SERVICE_HOST` | `message` | Message service (notifications) |
+| `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service (bulk scans) |
+| `PIPELINE_SERVICE_HOST` | `pipeline` | Pipeline service (bulk scans) |
 
 ---
 
 ## Deployment
 
-The compliance service is deployed alongside other services in all environments:
-
 | Environment | Configuration |
 |-------------|---------------|
 | Local | `deploy/local/docker-compose.yml` — `compliance` service |
 | Minikube | `deploy/minikube/k8s/compliance.yaml` |
-| EC2 | Uses same K8s manifest via minikube |
-| Fargate | Add ECS service + Cloud Map registration |
+| EC2 | Same K8s manifest via minikube |
 
-Nginx routes are configured in all four nginx configs to proxy `/api/compliance` to the compliance service.
+Nginx proxies `/api/compliance` to the compliance service in all environments.

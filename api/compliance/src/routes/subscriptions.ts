@@ -11,6 +11,10 @@ const SubscribeSchema = z.object({
   ruleId: z.string().uuid(),
 });
 
+const SetActiveSchema = z.object({
+  isActive: z.boolean(),
+});
+
 /**
  * Routes for browsing the published rules catalog.
  * Any authenticated org can browse.
@@ -101,6 +105,41 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
+  // POST /auto-subscribe — subscribe org to all published rules (inactive)
+  // Called internally by platform service during org onboarding.
+  router.post('/auto-subscribe', withRoute(async ({ res, ctx, orgId, userId }) => {
+    const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
+    ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
+    return sendSuccess(res, 200, { subscribed: count });
+  }));
+
+  // PATCH /:ruleId — activate or deactivate a subscribed rule
+  router.patch('/:ruleId', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const ruleId = getParam(req.params, 'ruleId');
+    if (!ruleId) {
+      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    }
+
+    const validation = validateBody(req, SetActiveSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    try {
+      const subscription = await subscriptionService.setActive(orgId, ruleId, validation.value.isActive, userId);
+      await complianceRuleService.invalidateRulesCache(orgId);
+
+      ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
+      return sendSuccess(res, 200, { subscription });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
   // POST / — subscribe to a published rule
   router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
@@ -111,14 +150,13 @@ export function createSubscriptionRoutes(): Router {
 
     try {
       const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
-      // Invalidate rules cache so the subscribed rule is picked up in evaluations
-      await complianceRuleService.invalidateRulesCache(orgId);
+      // No cache invalidation needed — subscriptions start inactive
 
-      ctx.log('COMPLETED', 'Subscribed to published rule', { ruleId });
+      ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
       return sendSuccess(res, 201, { subscription });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('not found') || message.includes('published') || message.includes('inactive')) {
+      if (message.includes('not found') || message.includes('published')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
       throw err;

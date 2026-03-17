@@ -1,5 +1,5 @@
 import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
-import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate } from '@/types/compliance';
+import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
@@ -1199,7 +1199,44 @@ class ApiClient {
 
   /** Get compliance audit log */
   async getComplianceAuditLog(params?: { target?: string; result?: string; scanId?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) {
-    return this.request<ApiResponse<{ entries: unknown[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`);
+    return this.request<ApiResponse<{ entries: ComplianceAuditEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`);
+  }
+
+  // ============================================
+  // Published Rules & Subscriptions
+  // ============================================
+
+  /** Browse published rules catalog */
+  async getPublishedRules(params?: { target?: string; severity?: string; tag?: string; limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{ rules: PublishedRuleCatalogEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/published-rules${buildQuery(params)}`);
+  }
+
+  /** List org's subscriptions (active + inactive) */
+  async getComplianceSubscriptions(params?: { limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{ subscriptions: (ComplianceRuleSubscription & { rule: ComplianceRule | null })[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/subscriptions${buildQuery(params)}`);
+  }
+
+  /** Subscribe to a published rule (starts inactive) */
+  async subscribeToRule(ruleId: string) {
+    return this.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>('/api/compliance/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId }),
+    });
+  }
+
+  /** Activate or deactivate a subscribed rule */
+  async setSubscriptionActive(ruleId: string, isActive: boolean) {
+    return this.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+  }
+
+  /** Unsubscribe from a published rule */
+  async unsubscribeFromRule(ruleId: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/compliance/subscriptions/${ruleId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

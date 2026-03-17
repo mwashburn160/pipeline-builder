@@ -205,6 +205,13 @@ export const config = {
     serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10), // 5s
   },
 
+  compliance: {
+    enabled: (process.env.COMPLIANCE_ENABLED || 'true').toLowerCase() !== 'false',
+    serviceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
+    servicePort: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
+    serviceTimeout: parseInt(process.env.COMPLIANCE_SERVICE_TIMEOUT || '5000', 10), // 5s
+  },
+
   loki: {
     url: process.env.LOKI_URL || 'http://loki:3100',
     timeout: parseInt(process.env.LOKI_TIMEOUT || '10000', 10), // 10s

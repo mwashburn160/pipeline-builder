@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, SYSTEM_ORG_ID, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -30,7 +30,7 @@ const ComplianceRuleCreateSchema = z.object({
   tags: z.array(z.string()).default([]),
   effectiveFrom: z.string().datetime().optional(),
   effectiveUntil: z.string().datetime().optional(),
-  scope: z.enum(['org', 'global', 'published']).default('org'),
+  scope: z.enum(['org', 'published']).default('org'),
   suppressNotification: z.boolean().default(false),
   field: z.string().max(100).optional(),
   operator: OperatorEnum.optional(),
@@ -50,9 +50,9 @@ export function createCreateRuleRoutes(): Router {
 
     const body = validation.value;
 
-    // Global and published rules can only be created by system org
-    if ((body.scope === 'global' || body.scope === 'published') && orgId !== 'system') {
-      return sendError(res, 403, 'Only system org can create global or published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Published rules can only be created by system org
+    if (body.scope === 'published' && orgId !== SYSTEM_ORG_ID) {
+      return sendError(res, 403, 'Only system org can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     // Validate regex patterns
@@ -66,9 +66,9 @@ export function createCreateRuleRoutes(): Router {
       orgId,
       effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : undefined,
       effectiveUntil: body.effectiveUntil ? new Date(body.effectiveUntil) : undefined,
-      createdBy: userId || 'system',
-      updatedBy: userId || 'system',
-    } as any, userId || 'system');
+      createdBy: userId,
+      updatedBy: userId,
+    } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
 
     ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
     return sendSuccess(res, 201, { rule });

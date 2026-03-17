@@ -59,14 +59,14 @@ export class ComplianceRuleService extends CrudService<
 
   /**
    * Fetch active rules for an org+target, ordered by priority DESC.
-   * Includes system-org global rules and subscribed published rules.
-   * Results are cached for 60s per org+target.
+   * Includes the org's own rules and any subscribed published rules.
+   * Results are cached per org+target (configurable TTL).
    */
   async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
     const cacheKey = `${orgId}:${target}`;
     return rulesCache.getOrSet(cacheKey, async () => {
-      // 1. Org rules + mandatory global rules
-      const orgAndGlobalRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
+      // 1. Org's own rules
+      const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
 
       // 2. Get subscribed published rule IDs
       const subscriptions = await db
@@ -77,7 +77,7 @@ export class ComplianceRuleService extends CrudService<
           eq(schema.complianceRuleSubscription.isActive, true),
         ));
 
-      if (subscriptions.length === 0) return orgAndGlobalRules;
+      if (subscriptions.length === 0) return orgRules;
 
       // 3. Fetch the actual published rules
       const subscribedRuleIds = subscriptions.map(s => s.ruleId);
@@ -92,8 +92,8 @@ export class ComplianceRuleService extends CrudService<
         ));
 
       // 4. Merge, deduplicate by ID
-      const seenIds = new Set(orgAndGlobalRules.map(r => r.id));
-      const merged = [...orgAndGlobalRules];
+      const seenIds = new Set(orgRules.map(r => r.id));
+      const merged = [...orgRules];
       for (const rule of publishedRules) {
         if (!seenIds.has(rule.id)) {
           merged.push(rule as ComplianceRule);
@@ -107,10 +107,6 @@ export class ComplianceRuleService extends CrudService<
   /** Invalidate cached rules for an org (called after rule mutations or subscription changes). */
   async invalidateRulesCache(orgId: string): Promise<void> {
     await rulesCache.invalidatePattern(`${orgId}:*`);
-    // Also invalidate system org cache since global rules affect all orgs
-    if (orgId !== 'system') {
-      await rulesCache.invalidatePattern('system:*');
-    }
   }
 
   /**

@@ -28,7 +28,7 @@ export function useComplianceRules(): UseComplianceRulesReturn {
     try {
       const res = await api.getComplianceRules(params);
       if (res.success && res.data) {
-        setRules(res.data.rules as ComplianceRule[]);
+        setRules(res.data.rules);
         setTotal(res.data.pagination?.total ?? res.data.rules.length);
       }
     } catch (err) {
@@ -40,9 +40,9 @@ export function useComplianceRules(): UseComplianceRulesReturn {
 
   const createRule = useCallback(async (data: ComplianceRuleCreate): Promise<ComplianceRule | null> => {
     try {
-      const res = await api.createComplianceRule(data as unknown as Record<string, unknown>);
+      const res = await api.createComplianceRule(data);
       if (res.success && res.data) {
-        const rule = (res.data as { rule: ComplianceRule }).rule;
+        const rule = res.data.rule;
         setRules((prev) => [rule, ...prev]);
         return rule;
       }
@@ -55,9 +55,9 @@ export function useComplianceRules(): UseComplianceRulesReturn {
 
   const updateRule = useCallback(async (id: string, data: ComplianceRuleUpdate): Promise<ComplianceRule | null> => {
     try {
-      const res = await api.updateComplianceRule(id, data as unknown as Record<string, unknown>);
+      const res = await api.updateComplianceRule(id, data);
       if (res.success && res.data) {
-        const rule = (res.data as { rule: ComplianceRule }).rule;
+        const rule = res.data.rule;
         setRules((prev) => prev.map((r) => (r.id === id ? rule : r)));
         return rule;
       }

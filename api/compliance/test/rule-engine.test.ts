@@ -121,12 +121,12 @@ describe('evaluateRules', () => {
     expect(result.exemptionsApplied).toContain('exempt-1');
   });
 
-  it('does not exempt global rules', () => {
-    const rules = [makeRule({ id: 'rule-1', scope: 'global', field: 'x', operator: 'eq', value: 'y' })];
+  it('exempts published rules when exemption exists', () => {
+    const rules = [makeRule({ id: 'rule-1', scope: 'published', field: 'x', operator: 'eq', value: 'y' })];
     const exemptions: ActiveExemption[] = [{ id: 'exempt-1', ruleId: 'rule-1' }];
     const result = evaluateRules(rules, { x: 'z' }, exemptions);
-    expect(result.blocked).toBe(true);
-    expect(result.exemptionsApplied).toHaveLength(0);
+    expect(result.blocked).toBe(false);
+    expect(result.exemptionsApplied).toContain('exempt-1');
   });
 
   // ============================================

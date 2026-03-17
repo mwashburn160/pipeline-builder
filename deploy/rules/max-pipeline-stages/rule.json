@@ -1,0 +1,12 @@
+{
+  "name": "max-pipeline-stages",
+  "description": "Pipelines should not exceed 20 stages to maintain readability and reduce blast radius",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "$count(stages)",
+  "operator": "lte",
+  "value": 20,
+  "priority": 15,
+  "scope": "published",
+  "tags": ["complexity", "quality", "maintainability"]
+}

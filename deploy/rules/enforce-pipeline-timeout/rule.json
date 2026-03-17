@@ -1,0 +1,12 @@
+{
+  "name": "enforce-pipeline-timeout",
+  "description": "Pipeline timeout must not exceed 120 minutes to prevent runaway builds",
+  "target": "pipeline",
+  "severity": "error",
+  "field": "timeoutInMinutes",
+  "operator": "lte",
+  "value": 120,
+  "priority": 70,
+  "scope": "published",
+  "tags": ["cost", "reliability", "timeout"]
+}

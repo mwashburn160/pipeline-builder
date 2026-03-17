@@ -9,7 +9,7 @@ export type RuleOperator =
   | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'notIn'
   | 'exists' | 'notExists' | 'countGt' | 'countLt' | 'lengthGt' | 'lengthLt';
 export type RuleConditionMode = 'all' | 'any';
-export type RuleScope = 'org' | 'global' | 'published';
+export type RuleScope = 'org' | 'published';
 export type ExemptionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ComplianceRoleType = 'compliance-viewer' | 'compliance-editor' | 'compliance-admin';

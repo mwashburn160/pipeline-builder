@@ -1,4 +1,4 @@
-import { resolveUserFeatures, ALL_FEATURE_FLAGS, type FeatureFlag } from '../types/feature-flags';
+import type { FeatureFlag } from '../types/feature-flags';
 import type { QuotaTier } from '../types/quota-tiers';
 
 /** Service-level features controlled by environment variables. */

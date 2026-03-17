@@ -31,6 +31,26 @@ async function createBillingSubscription(orgId: string, planId: string): Promise
   }
 }
 
+/** Auto-subscribe a new org to all published compliance rules (inactive, fire-and-forget). */
+async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
+  try {
+    const client = createSafeClient({
+      host: config.compliance.serviceHost,
+      port: config.compliance.servicePort,
+      timeout: config.compliance.serviceTimeout,
+    });
+
+    await client.post('/compliance/subscriptions/auto-subscribe', {}, {
+      headers: { 'x-org-id': orgId },
+    });
+
+    logger.info('Auto-subscribed org to published compliance rules', { orgId });
+  } catch (error) {
+    // Fail-open: don't block registration if compliance is unavailable
+    logger.warn('Failed to auto-subscribe to published rules (non-blocking)', { orgId, error });
+  }
+}
+
 /** Maps internal registration error codes to HTTP status and user-facing message. */
 const registerErrorMap: Record<string, { status: number; message: string }> = {
   MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
@@ -103,14 +123,23 @@ export async function register(req: Request, res: Response): Promise<void> {
       };
     });
 
-    // Create billing subscription after successful registration (fire-and-forget)
-    if (result && config.billing.enabled) {
-      const selectedPlan = (result as Record<string, string>).planId || 'developer';
+    // Post-registration hooks (fire-and-forget)
+    if (result) {
       const orgId = (result as Record<string, string>).organizationId;
-      void createBillingSubscription(orgId, selectedPlan);
-    }
+      const isSystem = orgId === SYSTEM_ORG_ID;
 
-    if (result) audit(req, 'user.register', { targetType: 'user', targetId: (result as Record<string, string>).sub });
+      if (config.billing.enabled) {
+        const selectedPlan = (result as Record<string, string>).planId || 'developer';
+        void createBillingSubscription(orgId, selectedPlan);
+      }
+
+      // Auto-subscribe sub-orgs to published compliance rules (inactive by default)
+      if (config.compliance.enabled && !isSystem) {
+        void autoSubscribeToPublishedRules(orgId);
+      }
+
+      audit(req, 'user.register', { targetType: 'user', targetId: (result as Record<string, string>).sub });
+    }
     sendSuccess(res, 201, { user: result });
   } catch (error) {
     handleControllerError(res, error, 'Registration failed', registerErrorMap);

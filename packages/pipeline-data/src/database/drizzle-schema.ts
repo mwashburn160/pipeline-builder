@@ -470,9 +470,9 @@ export type RuleOperator =
 export type RuleConditionMode = 'all' | 'any';
 
 /**
- * Rule scope — org-level, global (system org only, mandatory), or published (system org only, opt-in).
+ * Rule scope — org-level or published (system org only, opt-in via subscription).
  */
-export type RuleScope = 'org' | 'global' | 'published';
+export type RuleScope = 'org' | 'published';
 
 /**
  * A single condition in a cross-field rule.

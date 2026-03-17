@@ -1,0 +1,11 @@
+{
+  "name": "require-plugin-description",
+  "description": "Every plugin must have a non-empty description to help users understand its purpose",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "description",
+  "operator": "exists",
+  "priority": 10,
+  "scope": "published",
+  "tags": ["quality", "documentation"]
+}

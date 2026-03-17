@@ -1,0 +1,12 @@
+{
+  "name": "require-plugin-keywords",
+  "description": "Plugins must include at least one keyword for catalog discoverability",
+  "target": "plugin",
+  "severity": "warning",
+  "field": "$count(keywords)",
+  "operator": "gt",
+  "value": 0,
+  "priority": 8,
+  "scope": "published",
+  "tags": ["quality", "discoverability", "catalog"]
+}

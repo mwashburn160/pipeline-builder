@@ -134,7 +134,7 @@ export default function RuleList({ onEdit, onCreateNew }: RuleListProps) {
                       {rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-')}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-medium ${rule.scope === 'global' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                      <span className={`text-xs font-medium ${rule.scope === 'published' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`}>
                         {rule.scope}
                       </span>
                     </td>

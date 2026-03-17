@@ -126,5 +126,15 @@ else
   echo "  Skipping pipeline loading."
 fi
 
+# Load compliance rules
+echo ""
+printf "Load sample compliance rules? [y/N] "
+read -r LOAD_RULES
+if [ "$LOAD_RULES" = "y" ] || [ "$LOAD_RULES" = "Y" ]; then
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance-rules.sh"
+else
+  echo "  Skipping compliance rule loading."
+fi
+
 echo ""
 echo "=== Initialization complete ==="

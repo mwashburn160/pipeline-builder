@@ -1,0 +1,12 @@
+{
+  "name": "restrict-public-access",
+  "description": "Plugins must default to private access — public plugins require explicit review",
+  "target": "plugin",
+  "severity": "error",
+  "field": "accessModifier",
+  "operator": "neq",
+  "value": "public",
+  "priority": 80,
+  "scope": "published",
+  "tags": ["security", "access-control", "governance"]
+}

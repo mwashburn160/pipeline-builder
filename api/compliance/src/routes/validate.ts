@@ -145,7 +145,7 @@ export function createValidateRoutes(): Router {
   }));
 
   // POST /validate/plugin/dry-run — pre-flight check (no audit, no notification)
-  router.post('/plugin/dry-run', withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/plugin/dry-run', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, DryRunSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -154,11 +154,12 @@ export function createValidateRoutes(): Router {
     const result = await validateEntity(
       orgId, userId, 'plugin', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
     );
+    ctx.log('COMPLETED', 'Plugin compliance dry-run', { blocked: result.blocked, violations: result.violations.length });
     return sendSuccess(res, 200, result);
   }));
 
   // POST /validate/pipeline/dry-run — pre-flight check (no audit, no notification)
-  router.post('/pipeline/dry-run', withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/pipeline/dry-run', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, DryRunSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -167,6 +168,7 @@ export function createValidateRoutes(): Router {
     const result = await validateEntity(
       orgId, userId, 'pipeline', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
     );
+    ctx.log('COMPLETED', 'Pipeline compliance dry-run', { blocked: result.blocked, violations: result.violations.length });
     return sendSuccess(res, 200, result);
   }));
 

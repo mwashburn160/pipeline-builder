@@ -1,0 +1,12 @@
+{
+  "name": "recommended-compute-type",
+  "description": "Recommends standard (small) compute for cost efficiency — orgs can subscribe to opt in",
+  "target": "pipeline",
+  "severity": "warning",
+  "field": "computeType",
+  "operator": "eq",
+  "value": "BUILD_GENERAL1_SMALL",
+  "priority": 5,
+  "scope": "published",
+  "tags": ["cost", "compute", "optimization"]
+}

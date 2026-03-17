@@ -1,0 +1,12 @@
+{
+  "name": "require-plugin-version-semver",
+  "description": "Plugin versions must follow semantic versioning format (MAJOR.MINOR.PATCH)",
+  "target": "plugin",
+  "severity": "error",
+  "field": "version",
+  "operator": "regex",
+  "value": "^\\d+\\.\\d+\\.\\d+$",
+  "priority": 50,
+  "scope": "published",
+  "tags": ["versioning", "quality", "semver"]
+}

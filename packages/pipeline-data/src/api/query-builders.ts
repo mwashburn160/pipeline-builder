@@ -231,7 +231,7 @@ export function buildCompliancePolicyConditions(
 
 /**
  * Build SQL conditions for compliance rule queries.
- * Includes org rules + system-org global rules when orgId is provided.
+ * Returns only the requesting org's own rules (org-scoped).
  */
 export function buildComplianceRuleConditions(
   filter: Partial<ComplianceRuleFilter>,
@@ -240,16 +240,7 @@ export function buildComplianceRuleConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    // Include org's own rules + system org global rules
-    conditions.push(
-      or(
-        eq(schema.complianceRule.orgId, orgId),
-        and(
-          eq(schema.complianceRule.orgId, SYSTEM_ORG_ID),
-          eq(schema.complianceRule.scope, 'global' as RuleScope),
-        ),
-      )!,
-    );
+    conditions.push(eq(schema.complianceRule.orgId, orgId));
   }
 
   if (filter.id !== undefined) {

@@ -207,14 +207,12 @@ export function evaluateRules(
       }
     }
 
-    // Check exemptions (global rules cannot be exempted)
-    if (rule.scope !== 'global') {
-      const exemption = exemptions.find((e) => e.ruleId === rule.id);
-      if (exemption) {
-        exemptionsApplied.push(exemption.id);
-        rulesSkipped++;
-        continue;
-      }
+    // Check exemptions
+    const exemption = exemptions.find((e) => e.ruleId === rule.id);
+    if (exemption) {
+      exemptionsApplied.push(exemption.id);
+      rulesSkipped++;
+      continue;
     }
 
     rulesEvaluated++;

@@ -57,7 +57,7 @@ export function createUpdateRuleRoutes(): Router {
       updateData.effectiveUntil = body.effectiveUntil ? new Date(body.effectiveUntil) : null;
     }
 
-    const updated = await complianceRuleService.update(id, updateData, orgId, userId || 'system');
+    const updated = await complianceRuleService.update(id, updateData, orgId, userId);
     if (!updated) return sendEntityNotFound(res, 'Rule');
 
     ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });

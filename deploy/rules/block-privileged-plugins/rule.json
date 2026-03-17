@@ -1,0 +1,12 @@
+{
+  "name": "block-privileged-plugins",
+  "description": "Plugins must not request privileged Docker mode — prevents container escape attacks",
+  "target": "plugin",
+  "severity": "critical",
+  "field": "privileged",
+  "operator": "neq",
+  "value": true,
+  "priority": 100,
+  "scope": "published",
+  "tags": ["security", "docker", "hardening"]
+}

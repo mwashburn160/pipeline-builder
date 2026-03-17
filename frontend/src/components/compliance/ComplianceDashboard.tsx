@@ -16,7 +16,7 @@ export default function ComplianceDashboard() {
     // Fetch recent audit entries for the stats
     api.getComplianceAuditLog({ limit: 50 }).then((res) => {
       if (res.success && res.data) {
-        const entries = res.data.entries as ComplianceAuditEntry[];
+        const entries = res.data.entries;
         setRecentAudit(entries.slice(0, 10));
         setStats({
           rules: 0, // Will be set by RuleList

@@ -1,0 +1,12 @@
+{
+  "name": "block-latest-image-tag",
+  "description": "Docker images must not use the 'latest' tag — pin to a specific version for reproducible builds",
+  "target": "plugin",
+  "severity": "error",
+  "field": "imageTag",
+  "operator": "neq",
+  "value": "latest",
+  "priority": 90,
+  "scope": "published",
+  "tags": ["security", "docker", "reproducibility"]
+}
