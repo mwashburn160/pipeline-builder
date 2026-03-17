@@ -39,14 +39,33 @@ export {
   buildPipelineConditions,
   buildMessageConditions,
   validateMessageFilter,
+  buildCompliancePolicyConditions,
+  buildComplianceRuleConditions,
+  buildComplianceExemptionConditions,
+  buildComplianceAuditConditions,
+  buildComplianceScanConditions,
 
   // Query filter types
   type PluginFilter,
   type PipelineFilter,
   type MessageFilter,
+  type CompliancePolicyFilter,
+  type ComplianceRuleFilter,
+  type ComplianceExemptionFilter,
+  type ComplianceAuditFilter,
+  type ComplianceScanFilter,
 
   // Plugin types
   type PluginSecret,
+
+  // Compliance types
+  type RuleSeverity,
+  type RuleTarget,
+  type RuleOperator,
+  type RuleConditionMode,
+  type RuleScope,
+  type RuleCondition,
+  type ComplianceRoleType,
 
   // CRUD service
   CrudService,

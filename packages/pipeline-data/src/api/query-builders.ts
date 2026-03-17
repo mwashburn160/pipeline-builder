@@ -1,13 +1,29 @@
 import { SYSTEM_ORG_ID } from '@mwashburn160/api-core';
-import { eq, ilike, isNull, or, sql, SQL } from 'drizzle-orm';
+import { eq, ilike, isNull, or, and, gte, lte, sql, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   escapeLikeWildcards,
   normalizeStringFilter,
   parseBooleanFilter,
 } from './access-control-builder';
-import { MessageFilter, PipelineFilter, PluginFilter } from '../core/query-filters';
-import { schema, type MessagePriority, type MessageType } from '../database/drizzle-schema';
+import {
+  MessageFilter,
+  PipelineFilter,
+  PluginFilter,
+  CompliancePolicyFilter,
+  ComplianceRuleFilter,
+  ComplianceExemptionFilter,
+  ComplianceAuditFilter,
+  ComplianceScanFilter,
+} from '../core/query-filters';
+import {
+  schema,
+  type MessagePriority,
+  type MessageType,
+  type RuleTarget,
+  type RuleSeverity,
+  type RuleScope,
+} from '../database/drizzle-schema';
 
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
@@ -167,6 +183,208 @@ export function buildMessageConditions(
   if (filter.id !== undefined) {
     const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
     conditions.push(eq(schema.message.id, id));
+  }
+
+  return conditions;
+}
+
+// ========================================
+// Compliance Query Builders
+// ========================================
+
+/**
+ * Build SQL conditions for compliance policy queries.
+ * Org-scoped: always filters by orgId.
+ */
+export function buildCompliancePolicyConditions(
+  filter: Partial<CompliancePolicyFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    conditions.push(eq(schema.compliancePolicy.orgId, orgId));
+  }
+
+  if (filter.id !== undefined) {
+    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
+    conditions.push(eq(schema.compliancePolicy.id, id));
+  }
+
+  if (filter.name !== undefined) {
+    conditions.push(ilike(schema.compliancePolicy.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
+  }
+
+  if (filter.isTemplate !== undefined) {
+    conditions.push(eq(schema.compliancePolicy.isTemplate, parseBooleanFilter(filter.isTemplate)));
+  }
+
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(schema.compliancePolicy.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    conditions.push(eq(schema.compliancePolicy.isActive, true));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for compliance rule queries.
+ * Includes org rules + system-org global rules when orgId is provided.
+ */
+export function buildComplianceRuleConditions(
+  filter: Partial<ComplianceRuleFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    // Include org's own rules + system org global rules
+    conditions.push(
+      or(
+        eq(schema.complianceRule.orgId, orgId),
+        and(
+          eq(schema.complianceRule.orgId, SYSTEM_ORG_ID),
+          eq(schema.complianceRule.scope, 'global' as RuleScope),
+        ),
+      )!,
+    );
+  }
+
+  if (filter.id !== undefined) {
+    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
+    conditions.push(eq(schema.complianceRule.id, id));
+  }
+
+  if (filter.name !== undefined) {
+    conditions.push(ilike(schema.complianceRule.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
+  }
+
+  if (filter.policyId !== undefined) {
+    conditions.push(eq(schema.complianceRule.policyId, filter.policyId));
+  }
+
+  if (filter.target !== undefined) {
+    conditions.push(eq(schema.complianceRule.target, filter.target as RuleTarget));
+  }
+
+  if (filter.severity !== undefined) {
+    conditions.push(eq(schema.complianceRule.severity, filter.severity as RuleSeverity));
+  }
+
+  if (filter.scope !== undefined) {
+    conditions.push(eq(schema.complianceRule.scope, filter.scope as RuleScope));
+  }
+
+  if (filter.tag !== undefined) {
+    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.tag));
+    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.complianceRule.tags}) AS t WHERE lower(t) LIKE ${'%' + escaped + '%'})`);
+  }
+
+  if (filter.isActive !== undefined) {
+    conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
+  } else {
+    conditions.push(eq(schema.complianceRule.isActive, true));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for compliance exemption queries.
+ */
+export function buildComplianceExemptionConditions(
+  filter: Partial<ComplianceExemptionFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    conditions.push(eq(schema.complianceExemption.orgId, orgId));
+  }
+
+  if (filter.ruleId !== undefined) {
+    conditions.push(eq(schema.complianceExemption.ruleId, filter.ruleId));
+  }
+
+  if (filter.entityType !== undefined) {
+    conditions.push(eq(schema.complianceExemption.entityType, filter.entityType as RuleTarget));
+  }
+
+  if (filter.entityId !== undefined) {
+    conditions.push(eq(schema.complianceExemption.entityId, filter.entityId));
+  }
+
+  if (filter.status !== undefined) {
+    conditions.push(eq(schema.complianceExemption.status, filter.status));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for compliance audit log queries.
+ */
+export function buildComplianceAuditConditions(
+  filter: Partial<ComplianceAuditFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    conditions.push(eq(schema.complianceAuditLog.orgId, orgId));
+  }
+
+  if (filter.target !== undefined) {
+    conditions.push(eq(schema.complianceAuditLog.target, filter.target as RuleTarget));
+  }
+
+  if (filter.action !== undefined) {
+    conditions.push(eq(schema.complianceAuditLog.action, filter.action));
+  }
+
+  if (filter.result !== undefined) {
+    conditions.push(eq(schema.complianceAuditLog.result, filter.result));
+  }
+
+  if (filter.scanId !== undefined) {
+    conditions.push(eq(schema.complianceAuditLog.scanId, filter.scanId));
+  }
+
+  if (filter.dateFrom !== undefined) {
+    conditions.push(gte(schema.complianceAuditLog.createdAt, new Date(filter.dateFrom)));
+  }
+
+  if (filter.dateTo !== undefined) {
+    conditions.push(lte(schema.complianceAuditLog.createdAt, new Date(filter.dateTo)));
+  }
+
+  return conditions;
+}
+
+/**
+ * Build SQL conditions for compliance scan queries.
+ */
+export function buildComplianceScanConditions(
+  filter: Partial<ComplianceScanFilter>,
+  orgId?: string,
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (orgId) {
+    conditions.push(eq(schema.complianceScan.orgId, orgId));
+  }
+
+  if (filter.target !== undefined) {
+    conditions.push(eq(schema.complianceScan.target, filter.target));
+  }
+
+  if (filter.status !== undefined) {
+    conditions.push(eq(schema.complianceScan.status, filter.status));
+  }
+
+  if (filter.triggeredBy !== undefined) {
+    conditions.push(eq(schema.complianceScan.triggeredBy, filter.triggeredBy));
   }
 
   return conditions;

@@ -88,6 +88,18 @@ export abstract class CrudService<
   /** Get the unique constraint columns for onConflictDoUpdate */
   protected abstract get conflictTarget(): AnyColumn[];
 
+  // Lifecycle hooks — override in subclasses to react to mutations
+  // These are fire-and-forget: errors are logged but never block the caller.
+
+  /** Called after a new entity is created */
+  protected async onAfterCreate(_entity: TEntity, _userId: string): Promise<void> {}
+
+  /** Called after an entity is updated */
+  protected async onAfterUpdate(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
+
+  /** Called after an entity is soft-deleted */
+  protected async onAfterDelete(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
+
   /**
    * Find entities matching filter criteria
    *
@@ -212,6 +224,8 @@ export abstract class CrudService<
       })
       .returning() as unknown as TEntity[];
 
+    this.onAfterCreate(created, userId).catch(() => {});
+
     return created;
   }
 
@@ -236,6 +250,10 @@ export abstract class CrudService<
       .where(and(...conditions))
       .returning() as unknown as TEntity[];
 
+    if (updated) {
+      this.onAfterUpdate(id, updated, userId).catch(() => {});
+    }
+
     return updated || null;
   }
 
@@ -256,6 +274,10 @@ export abstract class CrudService<
       } as any)
       .where(and(...conditions))
       .returning() as unknown as TEntity[];
+
+    if (deleted) {
+      this.onAfterDelete(id, deleted, userId).catch(() => {});
+    }
 
     return deleted || null;
   }
@@ -356,10 +378,10 @@ export abstract class CrudService<
   async bulkCreate(items: TInsert[], userId: string): Promise<TEntity[]> {
     if (items.length === 0) return [];
 
-    return db.transaction(async (tx) => {
-      const results: TEntity[] = [];
+    const results = await db.transaction(async (tx) => {
+      const created: TEntity[] = [];
       for (const data of items) {
-        const [created] = await tx
+        const [row] = await tx
           .insert(this.schema)
           .values({
             ...data,
@@ -375,10 +397,16 @@ export abstract class CrudService<
             } as any,
           })
           .returning() as unknown as TEntity[];
-        results.push(created);
+        created.push(row);
       }
-      return results;
+      return created;
     });
+
+    for (const entity of results) {
+      this.onAfterCreate(entity, userId).catch(() => {});
+    }
+
+    return results;
   }
 
   /**

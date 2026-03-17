@@ -111,6 +111,8 @@ services:
         condition: service_healthy
       billing:
         condition: service_healthy
+      compliance:
+        condition: service_healthy
       grafana:
         condition: service_healthy
     healthcheck:
@@ -393,6 +395,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: plugin
+      COMPLIANCE_SERVICE_HOST: compliance
+      COMPLIANCE_SERVICE_PORT: '3000'
       DOCKER_HOST: tcp://docker-dind:2375
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
@@ -440,6 +444,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: pipeline
+      COMPLIANCE_SERVICE_HOST: compliance
+      COMPLIANCE_SERVICE_PORT: '3000'
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
     networks:
       - backend-network
@@ -482,6 +488,29 @@ services:
       - backend-network
     depends_on:
       postgres:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy
+
+  compliance:
+    image: 'ghcr.io/mwashburn160/compliance:0.1.0'
+    container_name: compliance
+    restart: always
+    environment:
+      <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: compliance
+      MESSAGE_SERVICE_HOST: message
+      MESSAGE_SERVICE_PORT: '3000'
+      PLUGIN_SERVICE_HOST: plugin
+      PLUGIN_SERVICE_PORT: '3000'
+      PIPELINE_SERVICE_HOST: pipeline
+      PIPELINE_SERVICE_PORT: '3000'
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      quota:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy: *api-deploy

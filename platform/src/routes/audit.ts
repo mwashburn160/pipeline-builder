@@ -2,7 +2,7 @@ import { sendError, sendSuccess, createLogger } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import { requireAdminContext } from '../helpers/controller-helper';
 import { requireAuth } from '../middleware';
-import AuditEvent from '../models/audit-event';
+import { auditService, type AuditFilter } from '../services/audit-service';
 import { parsePagination } from '../utils/pagination';
 
 const logger = createLogger('audit-routes');
@@ -18,33 +18,24 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
   try {
     const { action, targetType, targetId, page, limit } = req.query;
-    const { page: pageNum, limit: limitNum, skip } = parsePagination(page, limit);
+    const { page: pageNum, limit: limitNum } = parsePagination(page, limit);
 
-    const filter: Record<string, unknown> = {};
+    const filter: AuditFilter = {};
 
     // Org admins can only see their org's events
     if (admin.isOrgAdmin) {
       filter.orgId = req.user!.organizationId;
     } else if (req.query.orgId) {
-      filter.orgId = req.query.orgId;
+      filter.orgId = req.query.orgId as string;
     }
 
-    if (action) filter.action = { $regex: action, $options: 'i' };
-    if (targetType) filter.targetType = targetType;
-    if (targetId) filter.targetId = targetId;
+    if (action) filter.action = action as string;
+    if (targetType) filter.targetType = targetType as string;
+    if (targetId) filter.targetId = targetId as string;
 
-    const [events, total] = await Promise.all([
-      AuditEvent.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
-      AuditEvent.countDocuments(filter),
-    ]);
+    const result = await auditService.findEvents(filter, pageNum, limitNum);
 
-    sendSuccess(res, 200, {
-      events,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
-    });
+    sendSuccess(res, 200, result);
   } catch (error) {
     logger.error('[AUDIT] List error', error);
     sendError(res, 500, 'Failed to list audit events');

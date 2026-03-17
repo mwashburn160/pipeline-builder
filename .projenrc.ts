@@ -19,14 +19,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
-// const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.39.10',
-  pipelineData:   '1.40.10',
-  pipelineCore:   '1.41.12',
-  apiServer:      '1.38.11',
-  aiCore:         '1.13.10',
-  eventIngestion: '1.1.11',
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // -- Root project --
@@ -438,6 +438,14 @@ const services: Array<{
     deps: [
       `@mwashburn160/pipeline-data@${pkg.pipelineData}`,
       'pg@8.18.0', 'drizzle-orm@0.45.1', 'zod@4.3.6',
+    ],
+    devDeps: ['@types/pg@8.16.0'],
+  },
+  {
+    name: 'compliance',
+    deps: [
+      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6',
+      'cron-parser@5.0.6', 'bullmq@5.34.8',
     ],
     devDeps: ['@types/pg@8.16.0'],
   },

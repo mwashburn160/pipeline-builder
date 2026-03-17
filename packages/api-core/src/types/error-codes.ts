@@ -16,6 +16,7 @@ export enum ErrorCode {
   // Authorization errors (403)
   INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
   ORG_MISMATCH = 'ORG_MISMATCH',
+  COMPLIANCE_VIOLATION = 'COMPLIANCE_VIOLATION',
 
   // Not found errors (404)
   NOT_FOUND = 'NOT_FOUND',
@@ -32,10 +33,14 @@ export enum ErrorCode {
   // Conflict errors (409)
   CONFLICT = 'CONFLICT',
   DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
+  SCAN_CONFLICT = 'SCAN_CONFLICT',
 
   // Server errors (500)
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   DATABASE_ERROR = 'DATABASE_ERROR',
+
+  // Service unavailable (503)
+  COMPLIANCE_SERVICE_UNAVAILABLE = 'COMPLIANCE_SERVICE_UNAVAILABLE',
 }
 
 /**
@@ -48,6 +53,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TOKEN_MISSING]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.ORG_MISMATCH]: 403,
+  [ErrorCode.COMPLIANCE_VIOLATION]: 403,
   [ErrorCode.NOT_FOUND]: 404,
   [ErrorCode.ORG_NOT_FOUND]: 404,
   [ErrorCode.VALIDATION_ERROR]: 400,
@@ -56,8 +62,10 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.RATE_LIMIT_EXCEEDED]: 429,
   [ErrorCode.CONFLICT]: 409,
   [ErrorCode.DUPLICATE_ENTRY]: 409,
+  [ErrorCode.SCAN_CONFLICT]: 409,
   [ErrorCode.INTERNAL_ERROR]: 500,
   [ErrorCode.DATABASE_ERROR]: 500,
+  [ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE]: 503,
 };
 
 /**

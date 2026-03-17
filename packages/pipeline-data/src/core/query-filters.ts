@@ -176,6 +176,71 @@ export interface MessageFilter extends CommonFilter {
   readonly priority?: 'normal' | 'high' | 'urgent';
 }
 
+// ========================================
+// Compliance Filters
+// ========================================
+
+/**
+ * Filter for compliance policies.
+ */
+export interface CompliancePolicyFilter extends CommonFilter {
+  readonly name?: string;
+  readonly isTemplate?: boolean;
+}
+
+/**
+ * Filter for compliance rules.
+ */
+export interface ComplianceRuleFilter extends CommonFilter {
+  readonly name?: string;
+  readonly policyId?: string;
+  readonly target?: 'plugin' | 'pipeline';
+  readonly field?: string;
+  readonly severity?: 'warning' | 'error' | 'critical';
+  readonly scope?: 'org' | 'global';
+  readonly tag?: string;
+}
+
+/**
+ * Filter for compliance exemptions.
+ */
+export interface ComplianceExemptionFilter {
+  readonly orgId?: string;
+  readonly ruleId?: string;
+  readonly entityType?: 'plugin' | 'pipeline';
+  readonly entityId?: string;
+  readonly status?: 'pending' | 'approved' | 'rejected' | 'expired';
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/**
+ * Filter for compliance audit log entries.
+ */
+export interface ComplianceAuditFilter {
+  readonly orgId?: string;
+  readonly target?: 'plugin' | 'pipeline';
+  readonly action?: string;
+  readonly result?: 'pass' | 'warn' | 'block';
+  readonly scanId?: string;
+  readonly dateFrom?: string;
+  readonly dateTo?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/**
+ * Filter for compliance scans.
+ */
+export interface ComplianceScanFilter {
+  readonly orgId?: string;
+  readonly target?: 'plugin' | 'pipeline' | 'all';
+  readonly status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  readonly triggeredBy?: 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run';
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
 /**
  * Validates message filter properties.
  * Returns a result object with `valid` flag and `errors` array.

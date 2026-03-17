@@ -1,4 +1,8 @@
+export { auditService } from './audit-service';
+export type { AuditFilter, AuditCreateInput, PaginatedAuditResult } from './audit-service';
 export { ServiceError, BaseServiceClient } from './base-service';
+export { organizationService } from './organization-service';
+export { userService } from './user-service';
 export type { ServiceRequestOptions } from './base-service';
 export { pluginService, PluginServiceError } from './plugin-service';
 export type { Plugin, PluginFilter, PluginListResponse, PluginUploadData, PluginUploadResponse } from './plugin-service';

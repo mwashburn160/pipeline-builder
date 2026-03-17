@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, requireSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, requireSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import { requireAuth, checkQuota, requireOrgId, withRoute } from '@mwashburn160/api-server';
 import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
@@ -87,8 +87,53 @@ export function createUploadPluginRoutes(
           version: plugin.manifest.version,
         });
 
-        // -- Queue build job (returns immediately) ----------------------------
+        // -- Compliance check (fail-closed) -----------------------------------
         const m = plugin.manifest;
+        try {
+          const complianceClient = createComplianceClient();
+          const complianceResult = await complianceClient.validatePlugin(orgId, {
+            name: m.name,
+            version: m.version,
+            pluginType: m.pluginType,
+            computeType: m.computeType,
+            timeout: m.timeout,
+            failureBehavior: m.failureBehavior,
+            env: m.env,
+            buildArgs: m.buildArgs,
+            installCommands: m.installCommands,
+            commands: m.commands,
+            accessModifier,
+            secrets: m.secrets,
+            imageTag: plugin.imageTag,
+            metadata: m.metadata,
+            keywords: m.keywords,
+          }, req.headers.authorization || '', undefined, m.name, 'upload');
+
+          if (complianceResult.blocked) {
+            ctx.log('WARN', 'Plugin upload blocked by compliance', {
+              pluginName: m.name,
+              violations: complianceResult.violations.length,
+            });
+            return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+              violations: complianceResult.violations,
+            });
+          }
+
+          if (complianceResult.warnings.length > 0) {
+            ctx.log('WARN', 'Compliance warnings on plugin upload', {
+              pluginName: m.name,
+              warnings: complianceResult.warnings.length,
+            });
+          }
+        } catch (err) {
+          // Fail-closed: if compliance service is unreachable, reject the upload
+          ctx.log('ERROR', 'Compliance service unavailable', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return sendError(res, 503, 'Compliance service unavailable — plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+        }
+
+        // -- Queue build job (returns immediately) ----------------------------
         const jobData = createBuildJobData({
           requestId: ctx.requestId,
           orgId,

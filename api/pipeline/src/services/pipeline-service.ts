@@ -5,6 +5,7 @@ import {
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
+import { entityEvents } from '@mwashburn160/api-core';
 import { SQL, eq, and, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -53,6 +54,32 @@ export class PipelineService extends CrudService<
 
   protected get conflictTarget(): AnyColumn[] {
     return [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId];
+  }
+
+  // Lifecycle hooks — emit entity events for compliance integration
+
+  protected async onAfterCreate(entity: Pipeline): Promise<void> {
+    entityEvents.emit({
+      eventType: 'created', target: 'pipeline', entityId: entity.id,
+      orgId: entity.orgId, userId: entity.createdBy, timestamp: new Date(),
+      attributes: entity as unknown as Record<string, unknown>,
+    });
+  }
+
+  protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
+    entityEvents.emit({
+      eventType: 'updated', target: 'pipeline', entityId: id,
+      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      attributes: entity as unknown as Record<string, unknown>,
+    });
+  }
+
+  protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
+    entityEvents.emit({
+      eventType: 'deleted', target: 'pipeline', entityId: id,
+      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      attributes: entity as unknown as Record<string, unknown>,
+    });
   }
 
   /** Atomically create a pipeline as the default for a project (clears existing defaults). */

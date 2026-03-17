@@ -16,3 +16,4 @@ packages:
   - api/pipeline
   - api/message
   - api/reporting
+  - api/compliance

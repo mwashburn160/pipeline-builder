@@ -1,4 +1,4 @@
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota } from '@mwashburn160/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota, createComplianceClient } from '@mwashburn160/api-core';
 import { createProtectedRoute, withRoute } from '@mwashburn160/api-server';
 import type { QuotaService } from '@mwashburn160/api-core';
 import { AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
@@ -45,6 +45,32 @@ export function createCreatePipelineRoutes(
         const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
 
         ctx.log('INFO', 'Pipeline creation request received', { project, organization });
+
+        // -- Compliance check (fail-closed) -----------------------------------
+        try {
+          const complianceClient = createComplianceClient();
+          const complianceResult = await complianceClient.validatePipeline(orgId, {
+            project,
+            organization,
+            pipelineName,
+            props: body.props,
+            accessModifier,
+          }, req.headers.authorization || '', undefined, pipelineName, 'create');
+
+          if (complianceResult.blocked) {
+            ctx.log('WARN', 'Pipeline creation blocked by compliance', {
+              project, violations: complianceResult.violations.length,
+            });
+            return sendError(res, 403, 'Pipeline creation blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+              violations: complianceResult.violations,
+            });
+          }
+        } catch (err) {
+          ctx.log('ERROR', 'Compliance service unavailable', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+        }
 
         const result = await pipelineService.createAsDefault(
           {
