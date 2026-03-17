@@ -1,8 +1,8 @@
-import { sendBadRequest, sendSuccess, ErrorCode } from '@mwashburn160/api-core';
+import { sendBadRequest, sendSuccess, ErrorCode, errorMessage, resolveAccessModifier } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import { CoreConstants } from '@mwashburn160/pipeline-core';
+import { CoreConstants, AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
-import { pipelineService } from '../services/pipeline-service';
+import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
 
 
 /**
@@ -11,6 +11,70 @@ import { pipelineService } from '../services/pipeline-service';
  */
 export function createBulkPipelineRoutes(): Router {
   const router: Router = Router();
+
+  /** POST /pipelines/bulk/create — Create multiple pipelines in one request */
+  router.post('/bulk/create', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const { pipelines } = req.body;
+
+    if (!Array.isArray(pipelines) || pipelines.length === 0) {
+      return sendBadRequest(res, 'Request body must include a non-empty "pipelines" array', ErrorCode.VALIDATION_ERROR);
+    }
+
+    if (pipelines.length > CoreConstants.MAX_BULK_ITEMS) {
+      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_BULK_ITEMS} items per bulk operation`, ErrorCode.VALIDATION_ERROR);
+    }
+
+    ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length });
+
+    const results: { created: number; failed: number; errors: Array<{ index: number; error: string }> } = {
+      created: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    for (let i = 0; i < pipelines.length; i++) {
+      const body = pipelines[i];
+      try {
+        const accessModifier = resolveAccessModifier(req, body.accessModifier);
+        const project = replaceNonAlphanumeric(body.project || '', '_').toLowerCase();
+        const organization = replaceNonAlphanumeric(body.organization || '', '_').toLowerCase();
+
+        if (!project.replace(/_/g, '') || !organization.replace(/_/g, '')) {
+          results.failed++;
+          results.errors.push({ index: i, error: 'Project and organization must contain alphanumeric characters' });
+          continue;
+        }
+
+        const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
+
+        await pipelineService.createAsDefault(
+          {
+            orgId,
+            project,
+            organization,
+            pipelineName,
+            description: body.description ?? '',
+            keywords: body.keywords ?? [],
+            props: body.props as unknown as PipelineInsert['props'],
+            accessModifier: accessModifier as AccessModifier,
+            createdBy: userId || 'system',
+          },
+          userId || 'system',
+          project,
+          organization,
+        );
+
+        results.created++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push({ index: i, error: errorMessage(err) });
+      }
+    }
+
+    ctx.log('COMPLETED', 'Bulk create complete', { created: results.created, failed: results.failed });
+
+    sendSuccess(res, 201, results);
+  }));
 
   /** POST /pipelines/bulk/delete — Soft-delete multiple pipelines by ID */
   router.post('/bulk/delete', withRoute(async ({ req, res, ctx, orgId, userId }) => {

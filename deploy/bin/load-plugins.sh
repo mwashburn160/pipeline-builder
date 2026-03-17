@@ -3,47 +3,54 @@ set -eu
 
 # Load all plugins from deploy/plugins into the platform.
 #
+# By default uses parallel uploads (4 concurrent) with no delay for speed.
+# Use --serial for legacy one-at-a-time mode with delays.
+#
 # Usage:
-#   ./load-plugins.sh                                        # defaults to https://localhost:8443
+#   ./load-plugins.sh                                        # parallel mode (default)
+#   ./load-plugins.sh --serial                               # legacy serial mode with delays
+#   ./load-plugins.sh --parallel 8                           # 8 concurrent uploads
 #   PLATFORM_BASE_URL=https://host ./load-plugins.sh         # custom platform URL
 #   ./load-plugins.sh --dry-run                              # validate only, no upload
 #   ./load-plugins.sh --category language                    # upload only language plugins
 #   ./load-plugins.sh --category security,quality            # upload multiple categories
 #   ./load-plugins.sh --rebuild                              # force rebuild all plugin.zip
-#   UPLOAD_DELAY=2 ./load-plugins.sh                         # 2s delay between uploads
-#   UPLOAD_RETRIES=5 UPLOAD_RETRY_DELAY=60 ./load-plugins.sh # retry 503s up to 5 times
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
-UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 UPLOAD_TIMEOUT=900
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
+PARALLEL_JOBS=${PARALLEL_JOBS:-4}
+SERIAL_MODE=false
 DRY_RUN=false
 REBUILD=false
 CATEGORY_FILTER=""
-SUCCEEDED=0
-FAILED=0
-SKIPPED=0
 TOTAL=0
-PROCESSED=0
+
+# Counters file for parallel mode (temp file for cross-process communication)
+COUNTER_DIR=""
 
 # ---- Argument parsing ----
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dry-run)  DRY_RUN=true; shift ;;
-    --rebuild)  REBUILD=true; shift ;;
-    --category) CATEGORY_FILTER="$2"; shift 2 ;;
-    --timeout)  UPLOAD_TIMEOUT="$2"; shift 2 ;;
+    --dry-run)   DRY_RUN=true; shift ;;
+    --rebuild)   REBUILD=true; shift ;;
+    --serial)    SERIAL_MODE=true; shift ;;
+    --parallel)  PARALLEL_JOBS="$2"; shift 2 ;;
+    --category)  CATEGORY_FILTER="$2"; shift 2 ;;
+    --timeout)   UPLOAD_TIMEOUT="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
       echo "  --dry-run              Validate manifests and rebuild zips, but skip upload"
       echo "  --rebuild              Force rebuild all plugin.zip files"
+      echo "  --serial               Upload one at a time with delays (legacy mode)"
+      echo "  --parallel N           Number of concurrent uploads (default: 4)"
       echo "  --category CATEGORIES  Comma-separated categories to upload (e.g., language,security)"
       echo "  --timeout SECONDS      Upload timeout in seconds (default: 900)"
       echo ""
@@ -52,6 +59,7 @@ while [ $# -gt 0 ]; do
       echo "  PLATFORM_BASE_URL      Platform API URL (default: https://localhost:8443)"
       echo "  UPLOAD_RETRIES         Max retries on 503/connection failure (default: 3)"
       echo "  UPLOAD_RETRY_DELAY     Seconds to wait between retries (default: 30)"
+      echo "  PARALLEL_JOBS          Concurrent uploads (default: 4)"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -117,20 +125,23 @@ maybe_rebuild_zip() {
   echo "    $reason"
 }
 
-upload_plugin() {
+# Upload a single plugin — used by both serial and parallel modes
+upload_one_plugin() {
   plugin_dir="$1"
   plugin_name="$(basename "$plugin_dir")"
   category="$(basename "$(dirname "$plugin_dir")")"
+  label="${category}/${plugin_name}"
 
-  PROCESSED=$((PROCESSED + 1))
-  echo "  [$PROCESSED/$TOTAL] ${category}/${plugin_name}"
-
-  validate_manifest "$plugin_dir/manifest.yaml" "$plugin_dir" || { FAILED=$((FAILED + 1)); return; }
+  validate_manifest "$plugin_dir/manifest.yaml" "$plugin_dir" || {
+    echo "  FAIL $label (invalid manifest)"
+    [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/failed"
+    return
+  }
   maybe_rebuild_zip "$plugin_dir"
 
   if [ "$DRY_RUN" = true ]; then
-    echo "    OK (dry-run)"
-    SUCCEEDED=$((SUCCEEDED + 1))
+    echo "  OK   $label (dry-run)"
+    [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/succeeded"
     return
   fi
 
@@ -146,18 +157,17 @@ upload_plugin() {
 
     _result="$(classify_status "$status")"
 
-    # Retry on transient errors: 429 (rate limit), 502/503/504 (server), 000 (connection failure)
     if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-      echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
+      echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
       sleep "$UPLOAD_RETRY_DELAY"
       _attempt=$((_attempt + 1))
       continue
     fi
 
     case "$_result" in
-      ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
-      exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
-      fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
+      ok)     echo "  OK   $label (HTTP ${status})"; [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/succeeded" ;;
+      exists) echo "  SKIP $label (exists)";         [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/skipped" ;;
+      fail)   echo "  FAIL $label (HTTP ${status})"; [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/failed" ;;
     esac
     break
   done
@@ -215,6 +225,7 @@ count_eligible() {
 
 echo "=== Plugin Loader ==="
 echo "  URL:        $PLATFORM_BASE_URL"
+echo "  Mode:       $([ "$SERIAL_MODE" = true ] && echo "serial" || echo "parallel (${PARALLEL_JOBS} workers)")"
 echo "  Dry-run:    $DRY_RUN"
 echo "  Rebuild:    $REBUILD"
 echo "  Categories: ${CATEGORY_FILTER:-all}"
@@ -242,27 +253,126 @@ START_TIME=$(date +%s)
 echo ""
 echo "=== Processing $TOTAL plugin(s) ==="
 
+# Build list of eligible plugin directories
+PLUGIN_LIST=""
 for category in $CATEGORIES; do
   category_dir="${PLUGINS_DIR}/${category}"
-  if [ ! -d "$category_dir" ]; then
-    echo "  WARNING: Category not found: ${category}"
-    continue
-  fi
-
-  echo ""
-  echo "--- ${category} ---"
-
+  [ -d "$category_dir" ] || continue
   for plugin_dir in "${category_dir}"/*/; do
     is_eligible_plugin "$plugin_dir" || continue
-
-    upload_plugin "$plugin_dir"
-
-    remaining=$((TOTAL - PROCESSED))
-    if [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$remaining" -gt 0 ]; then
-      sleep "$UPLOAD_DELAY"
-    fi
+    PLUGIN_LIST="${PLUGIN_LIST}${plugin_dir}\n"
   done
 done
+
+if [ "$SERIAL_MODE" = true ]; then
+  # Legacy serial mode with delays
+  UPLOAD_DELAY=${UPLOAD_DELAY:-5}
+  SUCCEEDED=0; FAILED=0; SKIPPED=0; PROCESSED=0
+
+  for category in $CATEGORIES; do
+    category_dir="${PLUGINS_DIR}/${category}"
+    [ -d "$category_dir" ] || continue
+    echo ""
+    echo "--- ${category} ---"
+    for plugin_dir in "${category_dir}"/*/; do
+      is_eligible_plugin "$plugin_dir" || continue
+      PROCESSED=$((PROCESSED + 1))
+      echo "  [$PROCESSED/$TOTAL] $(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
+      # Inline upload for serial (uses global counters directly)
+      COUNTER_DIR=""
+      upload_one_plugin "$plugin_dir"
+      remaining=$((TOTAL - PROCESSED))
+      [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
+    done
+  done
+else
+  # Parallel mode — no delays, concurrent uploads
+  COUNTER_DIR=$(mktemp -d)
+  touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
+
+  export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
+  export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
+
+  printf '%b' "$PLUGIN_LIST" | xargs -I{} -P "$PARALLEL_JOBS" bash -c '
+    . "'"$SCRIPT_DIR"'/common.sh"
+    COUNTER_DIR="'"$COUNTER_DIR"'"
+    DRY_RUN="'"$DRY_RUN"'"
+    REBUILD="'"$REBUILD"'"
+    UPLOAD_TIMEOUT="'"$UPLOAD_TIMEOUT"'"
+    UPLOAD_RETRIES="'"$UPLOAD_RETRIES"'"
+    UPLOAD_RETRY_DELAY="'"$UPLOAD_RETRY_DELAY"'"
+
+    plugin_dir="{}"
+    [ -d "$plugin_dir" ] || exit 0
+
+    plugin_name="$(basename "$plugin_dir")"
+    category="$(basename "$(dirname "$plugin_dir")")"
+    label="${category}/${plugin_name}"
+
+    # Validate
+    errors=""
+    manifest="$plugin_dir/manifest.yaml"
+    _pt=$(get_manifest_field pluginType "$manifest")
+    for field in name description version pluginType computeType; do
+      grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}Missing ${field} "
+    done
+    if [ -n "$errors" ]; then
+      echo "  FAIL $label ($errors)"
+      echo "1" >> "$COUNTER_DIR/failed"
+      exit 0
+    fi
+
+    # Rebuild zip if needed
+    zip_file="${plugin_dir}/plugin.zip"
+    zip_files="manifest.yaml"
+    [ -f "$plugin_dir/Dockerfile" ] && zip_files="Dockerfile manifest.yaml"
+    needs_rebuild=false
+    [ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
+    [ "$manifest" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+    [ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+    if [ "$needs_rebuild" = true ]; then
+      (cd "$plugin_dir" && zip -q plugin.zip $zip_files)
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+      echo "  OK   $label (dry-run)"
+      echo "1" >> "$COUNTER_DIR/succeeded"
+      exit 0
+    fi
+
+    _attempt=1
+    while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
+      status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+        -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
+        -H "Authorization: Bearer ${JWT_TOKEN}" \
+        -H "x-org-id: system" \
+        -F "plugin=@${plugin_dir}/plugin.zip" \
+        -F "accessModifier=public" \
+        --insecure 2>/dev/null || echo "000")
+
+      _result="$(classify_status "$status")"
+
+      if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+        echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
+        sleep "$UPLOAD_RETRY_DELAY"
+        _attempt=$((_attempt + 1))
+        continue
+      fi
+
+      case "$_result" in
+        ok)     echo "  OK   $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/succeeded" ;;
+        exists) echo "  SKIP $label (exists)";         echo "1" >> "$COUNTER_DIR/skipped" ;;
+        fail)   echo "  FAIL $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/failed" ;;
+      esac
+      break
+    done
+  '
+
+  SUCCEEDED=$(wc -l < "$COUNTER_DIR/succeeded" | tr -d ' ')
+  SKIPPED=$(wc -l < "$COUNTER_DIR/skipped" | tr -d ' ')
+  FAILED=$(wc -l < "$COUNTER_DIR/failed" | tr -d ' ')
+  rm -rf "$COUNTER_DIR"
+fi
 
 DURATION=$(( $(date +%s) - START_TIME ))
 print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
