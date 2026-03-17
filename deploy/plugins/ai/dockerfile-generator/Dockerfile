@@ -28,14 +28,17 @@ RUN ARCH=$(dpkg --print-architecture) && curl -fsSL -L "https://ollama.com/downl
 # OLLAMA_MODEL: Which model to use for generation (must be pulled at runtime)
 # OLLAMA_HOST: Ollama server URL (default: local)
 # OLLAMA_NUM_CTX: Context window size for the model
-# OLLAMA_NO_GPU: Force CPU-only mode (works on non-GPU instances)
 ENV OLLAMA_MODEL=codellama:7b
 ENV OLLAMA_HOST=http://localhost:11434
 ENV OLLAMA_NUM_CTX=8192
-ENV OLLAMA_NO_GPU=1
+
+# GPU auto-detection script — sets OLLAMA_NO_GPU=1 if no NVIDIA GPU found
+COPY detect-gpu.sh /usr/local/bin/detect-gpu.sh
+RUN chmod +x /usr/local/bin/detect-gpu.sh
 
 # Working directory for pipeline source
 WORKDIR /app
 
-# Default entrypoint — overridden by CodeBuildStep commands
+# Auto-detect GPU on container start, then exec into the command
+ENTRYPOINT ["/usr/local/bin/detect-gpu.sh"]
 CMD ["bash"]
