@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PIPELINES_DIR="$DEPLOY_DIR/samples/pipelines"
 UPLOAD_DELAY=${UPLOAD_DELAY:-3}
+UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
+UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
 DRY_RUN=false
 SUCCEEDED=0
 FAILED=0
@@ -60,19 +62,34 @@ upload_pipeline() {
   BODY=$(jq ".accessModifier = \"public\"" "${pipeline_dir}/pipeline.json") || {
     echo "    FAIL (invalid JSON)"; FAILED=$((FAILED + 1)); return
   }
-  status=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
-    -s -o /dev/null -w "%{http_code}" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "Content-Type: application/json" \
-    -H "x-org-id: system" \
-    -d "$BODY" \
-    --insecure 2>/dev/null || echo "000")
 
-  case "$(classify_status "$status")" in
-    ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
-    exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
-    fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
-  esac
+  _attempt=1
+  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
+    status=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
+      -s -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -H "x-org-id: system" \
+      -d "$BODY" \
+      --insecure 2>/dev/null || echo "000")
+
+    _result="$(classify_status "$status")"
+
+    # Retry on transient errors: 429 (rate limit), 502/503/504 (server), 000 (connection failure)
+    if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+      echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
+      sleep "$UPLOAD_RETRY_DELAY"
+      _attempt=$((_attempt + 1))
+      continue
+    fi
+
+    case "$_result" in
+      ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
+      exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
+      fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
+    esac
+    break
+  done
 }
 
 # ---- Main ----

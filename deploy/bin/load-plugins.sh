@@ -146,8 +146,8 @@ upload_plugin() {
 
     _result="$(classify_status "$status")"
 
-    # Retry on 503 (service busy) or connection failure
-    if [ "$_result" = "fail" ] && { [ "$status" = "503" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+    # Retry on transient errors: 429 (rate limit), 502/503/504 (server), 000 (connection failure)
+    if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
       echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
       sleep "$UPLOAD_RETRY_DELAY"
       _attempt=$((_attempt + 1))
