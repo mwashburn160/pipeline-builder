@@ -376,6 +376,270 @@ CREATE INDEX IF NOT EXISTS message_org_active_idx
     ON messages(org_id, is_active);
 
 -- ============================================================================
+-- COMPLIANCE POLICIES TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_policies (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by          TEXT NOT NULL DEFAULT 'system',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by          TEXT NOT NULL DEFAULT 'system',
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    name                VARCHAR(255) NOT NULL,
+    description         TEXT,
+    version             VARCHAR(50) NOT NULL DEFAULT '1.0.0',
+    is_template         BOOLEAN NOT NULL DEFAULT false,
+
+    access_modifier     VARCHAR(10) NOT NULL DEFAULT 'private',
+    is_default          BOOLEAN NOT NULL DEFAULT false,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    deleted_at          TIMESTAMPTZ,
+    deleted_by          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS compliance_policy_org_active_idx
+    ON compliance_policies(org_id, is_active);
+CREATE INDEX IF NOT EXISTS compliance_policy_template_idx
+    ON compliance_policies(is_template);
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_policy_name_org_version_unique
+    ON compliance_policies(org_id, name, version);
+
+-- ============================================================================
+-- COMPLIANCE RULES TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_rules (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id                  VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by              TEXT NOT NULL DEFAULT 'system',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by              TEXT NOT NULL DEFAULT 'system',
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    name                    VARCHAR(255) NOT NULL,
+    description             TEXT,
+    policy_id               UUID REFERENCES compliance_policies(id) ON DELETE SET NULL,
+    priority                INTEGER NOT NULL DEFAULT 0,
+    target                  VARCHAR(20) NOT NULL,
+    severity                VARCHAR(10) NOT NULL DEFAULT 'error',
+
+    tags                    JSONB NOT NULL DEFAULT '[]',
+
+    effective_from          TIMESTAMPTZ,
+    effective_until         TIMESTAMPTZ,
+
+    scope                   VARCHAR(10) NOT NULL DEFAULT 'org',
+    forked_from_rule_id     UUID,
+    suppress_notification   BOOLEAN NOT NULL DEFAULT false,
+
+    field                   VARCHAR(100),
+    operator                VARCHAR(20),
+    value                   JSONB,
+
+    conditions              JSONB,
+    condition_mode          VARCHAR(5) DEFAULT 'all',
+
+    access_modifier         VARCHAR(10) NOT NULL DEFAULT 'private',
+    is_default              BOOLEAN NOT NULL DEFAULT false,
+    is_active               BOOLEAN NOT NULL DEFAULT true,
+    deleted_at              TIMESTAMPTZ,
+    deleted_by              TEXT
+);
+
+CREATE INDEX IF NOT EXISTS compliance_rule_org_target_active_idx
+    ON compliance_rules(org_id, target, is_active);
+CREATE INDEX IF NOT EXISTS compliance_rule_org_policy_idx
+    ON compliance_rules(org_id, policy_id);
+CREATE INDEX IF NOT EXISTS compliance_rule_priority_idx
+    ON compliance_rules(priority);
+CREATE INDEX IF NOT EXISTS compliance_rule_scope_idx
+    ON compliance_rules(scope);
+CREATE INDEX IF NOT EXISTS compliance_rule_effective_from_idx
+    ON compliance_rules(effective_from);
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_rule_name_org_unique
+    ON compliance_rules(org_id, name);
+
+-- ============================================================================
+-- COMPLIANCE RULE HISTORY TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_rule_history (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_id             UUID NOT NULL REFERENCES compliance_rules(id) ON DELETE CASCADE,
+    org_id              VARCHAR(255) NOT NULL,
+    change_type         VARCHAR(20) NOT NULL,
+    previous_state      JSONB,
+    changed_by          TEXT NOT NULL,
+    changed_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_rule_history_rule_changed_idx
+    ON compliance_rule_history(rule_id, changed_at);
+CREATE INDEX IF NOT EXISTS compliance_rule_history_org_changed_idx
+    ON compliance_rule_history(org_id, changed_at);
+CREATE INDEX IF NOT EXISTS compliance_rule_history_rule_id_idx
+    ON compliance_rule_history(rule_id);
+
+-- ============================================================================
+-- COMPLIANCE AUDIT LOG TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_audit_log (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL,
+    user_id             TEXT NOT NULL,
+    target              VARCHAR(20) NOT NULL,
+    action              VARCHAR(20) NOT NULL,
+    entity_id           VARCHAR(255),
+    entity_name         VARCHAR(255),
+    result              VARCHAR(10) NOT NULL,
+    violations          JSONB DEFAULT '[]',
+    rule_count          INTEGER NOT NULL,
+    scan_id             UUID,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_audit_org_created_idx
+    ON compliance_audit_log(org_id, created_at);
+CREATE INDEX IF NOT EXISTS compliance_audit_org_target_result_idx
+    ON compliance_audit_log(org_id, target, result);
+CREATE INDEX IF NOT EXISTS compliance_audit_scan_id_idx
+    ON compliance_audit_log(scan_id);
+
+-- ============================================================================
+-- COMPLIANCE EXEMPTIONS TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_exemptions (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL,
+    rule_id             UUID NOT NULL REFERENCES compliance_rules(id) ON DELETE CASCADE,
+    entity_type         VARCHAR(20) NOT NULL,
+    entity_id           UUID NOT NULL,
+    entity_name         VARCHAR(255),
+    reason              TEXT NOT NULL,
+    approved_by         TEXT,
+    rejection_reason    TEXT,
+    status              VARCHAR(20) NOT NULL DEFAULT 'pending',
+    expires_at          TIMESTAMPTZ,
+    created_by          TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by          TEXT NOT NULL,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_exemption_org_rule_entity_unique
+    ON compliance_exemptions(org_id, rule_id, entity_id);
+CREATE INDEX IF NOT EXISTS compliance_exemption_org_status_idx
+    ON compliance_exemptions(org_id, status);
+CREATE INDEX IF NOT EXISTS compliance_exemption_expires_at_idx
+    ON compliance_exemptions(expires_at);
+CREATE INDEX IF NOT EXISTS compliance_exemption_entity_id_idx
+    ON compliance_exemptions(entity_id);
+
+-- ============================================================================
+-- COMPLIANCE RULE SUBSCRIPTIONS TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_rule_subscriptions (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL,
+    rule_id             UUID NOT NULL REFERENCES compliance_rules(id) ON DELETE CASCADE,
+    subscribed_by       TEXT NOT NULL,
+    subscribed_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    pinned_version      JSONB,
+    unsubscribed_at     TIMESTAMPTZ,
+    unsubscribed_by     TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_rule_sub_org_rule_unique
+    ON compliance_rule_subscriptions(org_id, rule_id);
+CREATE INDEX IF NOT EXISTS compliance_rule_sub_org_active_idx
+    ON compliance_rule_subscriptions(org_id, is_active);
+CREATE INDEX IF NOT EXISTS compliance_rule_sub_rule_idx
+    ON compliance_rule_subscriptions(rule_id);
+
+-- ============================================================================
+-- COMPLIANCE SCANS TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_scans (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id                  VARCHAR(255) NOT NULL,
+    target                  VARCHAR(20) NOT NULL,
+    filter                  JSONB,
+    status                  VARCHAR(20) NOT NULL DEFAULT 'pending',
+    triggered_by            VARCHAR(20) NOT NULL,
+    user_id                 TEXT NOT NULL,
+    total_entities          INTEGER NOT NULL DEFAULT 0,
+    processed_entities      INTEGER NOT NULL DEFAULT 0,
+    pass_count              INTEGER NOT NULL DEFAULT 0,
+    warn_count              INTEGER NOT NULL DEFAULT 0,
+    block_count             INTEGER NOT NULL DEFAULT 0,
+    started_at              TIMESTAMPTZ,
+    completed_at            TIMESTAMPTZ,
+    cancelled_at            TIMESTAMPTZ,
+    cancelled_by            TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_scan_org_created_idx
+    ON compliance_scans(org_id, created_at);
+CREATE INDEX IF NOT EXISTS compliance_scan_org_status_idx
+    ON compliance_scans(org_id, status);
+
+-- ============================================================================
+-- COMPLIANCE SCAN SCHEDULES TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_scan_schedules (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL,
+    target              VARCHAR(20) NOT NULL,
+    cron_expression     VARCHAR(100) NOT NULL,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    last_run_at         TIMESTAMPTZ,
+    next_run_at         TIMESTAMPTZ,
+    created_by          TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by          TEXT NOT NULL,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_scan_schedule_active_next_idx
+    ON compliance_scan_schedules(is_active, next_run_at);
+CREATE INDEX IF NOT EXISTS compliance_scan_schedule_org_idx
+    ON compliance_scan_schedules(org_id);
+
+-- Compliance triggers
+DROP TRIGGER IF EXISTS update_compliance_policies_modtime ON compliance_policies;
+CREATE TRIGGER update_compliance_policies_modtime
+    BEFORE UPDATE ON compliance_policies
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_compliance_rules_modtime ON compliance_rules;
+CREATE TRIGGER update_compliance_rules_modtime
+    BEFORE UPDATE ON compliance_rules
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_compliance_exemptions_modtime ON compliance_exemptions;
+CREATE TRIGGER update_compliance_exemptions_modtime
+    BEFORE UPDATE ON compliance_exemptions
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_compliance_scan_schedules_modtime ON compliance_scan_schedules;
+CREATE TRIGGER update_compliance_scan_schedules_modtime
+    BEFORE UPDATE ON compliance_scan_schedules
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+-- ============================================================================
 -- Verify Schema
 -- ============================================================================
 

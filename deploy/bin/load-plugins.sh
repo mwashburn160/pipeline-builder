@@ -286,87 +286,87 @@ if [ "$SERIAL_MODE" = true ]; then
     done
   done
 else
-  # Parallel mode — no delays, concurrent uploads
+  # Parallel mode — no delays, concurrent uploads via temp worker script
   COUNTER_DIR=$(mktemp -d)
   touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
 
   export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
   export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
 
-  printf '%b' "$PLUGIN_LIST" | xargs -I{} -P "$PARALLEL_JOBS" bash -c '
-    . "'"$SCRIPT_DIR"'/common.sh"
-    COUNTER_DIR="'"$COUNTER_DIR"'"
-    DRY_RUN="'"$DRY_RUN"'"
-    REBUILD="'"$REBUILD"'"
-    UPLOAD_TIMEOUT="'"$UPLOAD_TIMEOUT"'"
-    UPLOAD_RETRIES="'"$UPLOAD_RETRIES"'"
-    UPLOAD_RETRY_DELAY="'"$UPLOAD_RETRY_DELAY"'"
+  # Write worker script to temp file (avoids xargs -I{} + bash -c quoting issues)
+  WORKER_SCRIPT="$COUNTER_DIR/worker.sh"
+  cat > "$WORKER_SCRIPT" <<'WORKER_EOF'
+#!/usr/bin/env bash
+. "$SCRIPT_DIR/common.sh"
 
-    plugin_dir="{}"
-    [ -d "$plugin_dir" ] || exit 0
+plugin_dir="$1"
+[ -d "$plugin_dir" ] || exit 0
 
-    plugin_name="$(basename "$plugin_dir")"
-    category="$(basename "$(dirname "$plugin_dir")")"
-    label="${category}/${plugin_name}"
+plugin_name="$(basename "$plugin_dir")"
+category="$(basename "$(dirname "$plugin_dir")")"
+label="${category}/${plugin_name}"
 
-    # Validate
-    errors=""
-    manifest="$plugin_dir/manifest.yaml"
-    _pt=$(get_manifest_field pluginType "$manifest")
-    for field in name description version pluginType computeType; do
-      grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}Missing ${field} "
-    done
-    if [ -n "$errors" ]; then
-      echo "  FAIL $label ($errors)"
-      echo "1" >> "$COUNTER_DIR/failed"
-      exit 0
-    fi
+# Validate
+errors=""
+manifest="$plugin_dir/manifest.yaml"
+_pt=$(get_manifest_field pluginType "$manifest")
+for field in name description version pluginType computeType; do
+  grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}Missing ${field} "
+done
+if [ -n "$errors" ]; then
+  echo "  FAIL $label ($errors)"
+  echo "1" >> "$COUNTER_DIR/failed"
+  exit 0
+fi
 
-    # Rebuild zip if needed
-    zip_file="${plugin_dir}/plugin.zip"
-    zip_files="manifest.yaml"
-    [ -f "$plugin_dir/Dockerfile" ] && zip_files="Dockerfile manifest.yaml"
-    needs_rebuild=false
-    [ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
-    [ "$manifest" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-    [ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-    if [ "$needs_rebuild" = true ]; then
-      (cd "$plugin_dir" && zip -q plugin.zip $zip_files)
-    fi
+# Rebuild zip if needed
+zip_file="${plugin_dir}/plugin.zip"
+zip_files="manifest.yaml"
+[ -f "$plugin_dir/Dockerfile" ] && zip_files="Dockerfile manifest.yaml"
+needs_rebuild=false
+[ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
+[ "$manifest" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+[ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+if [ "$needs_rebuild" = true ]; then
+  (cd "$plugin_dir" && zip -q plugin.zip $zip_files)
+fi
 
-    if [ "$DRY_RUN" = true ]; then
-      echo "  OK   $label (dry-run)"
-      echo "1" >> "$COUNTER_DIR/succeeded"
-      exit 0
-    fi
+if [ "$DRY_RUN" = true ]; then
+  echo "  OK   $label (dry-run)"
+  echo "1" >> "$COUNTER_DIR/succeeded"
+  exit 0
+fi
 
-    _attempt=1
-    while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-      status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-        -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
-        -H "Authorization: Bearer ${JWT_TOKEN}" \
-        -H "x-org-id: system" \
-        -F "plugin=@${plugin_dir}/plugin.zip" \
-        -F "accessModifier=public" \
-        --insecure 2>/dev/null || echo "000")
+_attempt=1
+while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
+  status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+    -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "x-org-id: system" \
+    -F "plugin=@${plugin_dir}/plugin.zip" \
+    -F "accessModifier=public" \
+    --insecure 2>/dev/null || echo "000")
 
-      _result="$(classify_status "$status")"
+  _result="$(classify_status "$status")"
 
-      if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-        echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
-        sleep "$UPLOAD_RETRY_DELAY"
-        _attempt=$((_attempt + 1))
-        continue
-      fi
+  if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+    echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
+    sleep "$UPLOAD_RETRY_DELAY"
+    _attempt=$((_attempt + 1))
+    continue
+  fi
 
-      case "$_result" in
-        ok)     echo "  OK   $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/succeeded" ;;
-        exists) echo "  SKIP $label (exists)";         echo "1" >> "$COUNTER_DIR/skipped" ;;
-        fail)   echo "  FAIL $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/failed" ;;
-      esac
-      break
-    done
-  '
+  case "$_result" in
+    ok)     echo "  OK   $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/succeeded" ;;
+    exists) echo "  SKIP $label (exists)";         echo "1" >> "$COUNTER_DIR/skipped" ;;
+    fail)   echo "  FAIL $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/failed" ;;
+  esac
+  break
+done
+WORKER_EOF
+  chmod +x "$WORKER_SCRIPT"
+
+  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} bash "$WORKER_SCRIPT" "{}"
 
   SUCCEEDED=$(wc -l < "$COUNTER_DIR/succeeded" | tr -d ' ')
   SKIPPED=$(wc -l < "$COUNTER_DIR/skipped" | tr -d ' ')

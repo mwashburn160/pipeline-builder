@@ -1,4 +1,9 @@
-# Loki Configuration — Kubernetes Local Development
+# =============================================================================
+# Loki Configuration — AWS EC2
+# =============================================================================
+# Filesystem-backed, single-instance, 7-day retention.
+# Docs: https://grafana.com/docs/loki/latest/configure/
+
 auth_enabled: false
 
 server:
