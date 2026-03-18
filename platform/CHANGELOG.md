@@ -1,3 +1,17 @@
+## 1.37.0 (2026-03-18)
+
+### 🚀 Features
+
+- updated bulk loading ([fd0422d2](https://github.com/mwashburn160/pipeline-builder/commit/fd0422d2))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.41.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.8 (2026-03-18)
 
 ### 🩹 Fixes

@@ -1,3 +1,7 @@
+## 1.3.0 (2026-03-18)
+
+This was a version bump only for @mwashburn160/event-ingestion to align it with other projects, there were no code changes.
+
 ## 1.2.8 (2026-03-18)
 
 ### 🩹 Fixes
