@@ -50,6 +50,13 @@ export const LOG_TIME_RANGES = [
   { label: 'Last 7d', ms: 7 * 24 * 60 * 60 * 1000 },
 ] as const;
 
+/** Extract a human-readable message from an unknown caught error. */
+export function formatError(err: unknown, fallback = 'An error occurred'): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return fallback;
+}
+
 /** Badge color mapping for log severity levels. */
 export const LOG_LEVEL_COLORS: Record<string, 'green' | 'yellow' | 'red' | 'gray' | 'blue'> = {
   info: 'blue',

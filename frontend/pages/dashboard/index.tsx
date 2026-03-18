@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { formatError } from '@/lib/constants';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2, Container } from 'lucide-react';
@@ -136,7 +137,7 @@ export default function DashboardPage() {
       setModalGitUrl(undefined);
       fetchData();
     } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to create pipeline');
+      setCreateError(formatError(err, 'Failed to create pipeline'));
     } finally {
       setCreateLoading(false);
     }

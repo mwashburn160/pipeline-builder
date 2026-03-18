@@ -1,8 +1,11 @@
 /**
  * Hook for managing compliance rules — CRUD operations with loading/error states.
+ * Uses useAsync for initial fetch and useAsyncCallback for mutations.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
+import { useAsync } from './useAsync';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity } from '@/types/compliance';
 
 interface UseComplianceRulesReturn {
@@ -18,23 +21,27 @@ interface UseComplianceRulesReturn {
 
 export function useComplianceRules(): UseComplianceRulesReturn {
   const [rules, setRules] = useState<ComplianceRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const { loading, error: fetchError, refresh } = useAsync(async () => {
+    const res = await api.getComplianceRules();
+    if (res.success && res.data) {
+      setRules(res.data.rules);
+      setTotal(res.data.pagination?.total ?? res.data.rules.length);
+    }
+  }, []);
 
   const fetchRules = useCallback(async (params?: { target?: RuleTarget; severity?: RuleSeverity; policyId?: string; limit?: number; offset?: number }) => {
-    setLoading(true);
-    setError(null);
     try {
+      setMutationError(null);
       const res = await api.getComplianceRules(params);
       if (res.success && res.data) {
         setRules(res.data.rules);
         setTotal(res.data.pagination?.total ?? res.data.rules.length);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch compliance rules');
-    } finally {
-      setLoading(false);
+      setMutationError(formatError(err, 'Failed to fetch compliance rules'));
     }
   }, []);
 
@@ -48,7 +55,7 @@ export function useComplianceRules(): UseComplianceRulesReturn {
       }
       return null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create rule');
+      setMutationError(formatError(err, 'Failed to create rule'));
       return null;
     }
   }, []);
@@ -63,7 +70,7 @@ export function useComplianceRules(): UseComplianceRulesReturn {
       }
       return null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update rule');
+      setMutationError(formatError(err, 'Failed to update rule'));
       return null;
     }
   }, []);
@@ -74,14 +81,10 @@ export function useComplianceRules(): UseComplianceRulesReturn {
       setRules((prev) => prev.filter((r) => r.id !== id));
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete rule');
+      setMutationError(formatError(err, 'Failed to delete rule'));
       return false;
     }
   }, []);
 
-  useEffect(() => {
-    fetchRules();
-  }, [fetchRules]);
-
-  return { rules, loading, error, total, fetchRules, createRule, updateRule, deleteRule };
+  return { rules, loading, error: mutationError || fetchError, total, fetchRules, createRule, updateRule, deleteRule };
 }

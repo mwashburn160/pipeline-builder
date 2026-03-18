@@ -6,7 +6,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
-import { AI_MAX_PROMPT_LENGTH } from '@/lib/constants';
+import { AI_MAX_PROMPT_LENGTH, formatError } from '@/lib/constants';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -110,7 +110,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         }
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Generation failed';
+      const message = formatError(err, 'Generation failed');
       setError(message);
     } finally {
       setGenerating(false);
@@ -143,7 +143,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         setTimeout(() => onClose(), 2000);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Deployment failed';
+      const message = formatError(err, 'Deployment failed');
       setError(message);
     } finally {
       setDeploying(false);

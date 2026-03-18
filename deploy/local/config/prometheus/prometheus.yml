@@ -32,6 +32,10 @@ scrape_configs:
     static_configs:
       - targets: ['reporting:3000']
 
+  - job_name: 'compliance'
+    static_configs:
+      - targets: ['compliance:3000']
+
   - job_name: 'nginx'
     scheme: https
     tls_config:

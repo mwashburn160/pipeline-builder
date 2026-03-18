@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
+import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { Check, AlertCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
-import { Toast } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/Toast';
 import type { Plan, Subscription, BillingInterval } from '@/types';
 import api from '@/lib/api';
 
@@ -61,6 +62,7 @@ export default function BillingPage() {
   const router = useRouter();
   const { user, isReady, isAdmin } = useAuthGuard();
   const features = useFeatures();
+  const toast = useToast();
   const canChangePlan = isAdmin;
 
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -68,7 +70,6 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Billing not available (disabled or system org) — redirect to dashboard
   useEffect(() => {
@@ -95,7 +96,7 @@ export default function BillingPage() {
         }
       }
     } catch {
-      setToast({ message: 'Failed to load billing data', type: 'error' });
+      toast.error('Failed to load billing data');
     } finally {
       setLoading(false);
     }
@@ -111,18 +112,18 @@ export default function BillingPage() {
       if (subscription) {
         const res = await api.changeSubscription(subscription.id, { planId, interval });
         if (res.success) {
-          setToast({ message: 'Plan changed successfully', type: 'success' });
+          toast.success('Plan changed successfully');
           await fetchData();
         }
       } else {
         const res = await api.createSubscription(planId, interval);
         if (res.success) {
-          setToast({ message: 'Subscription created successfully', type: 'success' });
+          toast.success('Subscription created successfully');
           await fetchData();
         }
       }
     } catch (err) {
-      setToast({ message: err instanceof Error ? err.message : 'Failed to update subscription', type: 'error' });
+      toast.error(formatError(err, 'Failed to update subscription'));
     } finally {
       setActionLoading(false);
     }
@@ -134,11 +135,11 @@ export default function BillingPage() {
     try {
       const res = await api.cancelSubscription(subscription.id);
       if (res.success) {
-        setToast({ message: 'Subscription will be canceled at end of billing period', type: 'success' });
+        toast.success('Subscription will be canceled at end of billing period');
         await fetchData();
       }
     } catch (err) {
-      setToast({ message: err instanceof Error ? err.message : 'Failed to cancel', type: 'error' });
+      toast.error(formatError(err, 'Failed to cancel'));
     } finally {
       setActionLoading(false);
     }
@@ -150,11 +151,11 @@ export default function BillingPage() {
     try {
       const res = await api.reactivateSubscription(subscription.id);
       if (res.success) {
-        setToast({ message: 'Subscription reactivated', type: 'success' });
+        toast.success('Subscription reactivated');
         await fetchData();
       }
     } catch (err) {
-      setToast({ message: err instanceof Error ? err.message : 'Failed to reactivate', type: 'error' });
+      toast.error(formatError(err, 'Failed to reactivate'));
     } finally {
       setActionLoading(false);
     }
@@ -326,9 +327,6 @@ export default function BillingPage() {
         )}
       </div>
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />
-      )}
     </DashboardLayout>
   );
 }

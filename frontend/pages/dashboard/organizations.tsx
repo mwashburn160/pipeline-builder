@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { formatError } from '@/lib/constants';
 import { Building2, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -27,7 +28,7 @@ export default function OrganizationsPage() {
         const orgList = response.data?.organizations || [];
         setOrganizations(orgList);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load organizations');
+        setError(formatError(err, 'Failed to load organizations'));
       } finally {
         setIsLoading(false);
       }
@@ -46,7 +47,7 @@ export default function OrganizationsPage() {
       setOrganizations(organizations.filter(o => o.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete organization');
+      setError(formatError(err, 'Failed to delete organization'));
       setDeleteTarget(null);
     } finally {
       setDeleteLoading(false);

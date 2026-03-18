@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
@@ -118,33 +118,3 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Legacy Toast (backward compatible)
-// ---------------------------------------------------------------------------
-
-interface ToastProps {
-  message: string;
-  type: 'success' | 'error';
-  onDone: () => void;
-  duration?: number;
-}
-
-export function Toast({ message, type, onDone, duration = 3500 }: ToastProps) {
-  useEffect(() => {
-    const t = setTimeout(onDone, duration);
-    return () => clearTimeout(t);
-  }, [onDone, duration]);
-
-  const Icon = type === 'error' ? XCircle : CheckCircle;
-
-  return (
-    <div
-      role="alert"
-      aria-live="assertive"
-      className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm border ${typeStyles[type]}`}
-    >
-      <Icon className="w-5 h-5 flex-shrink-0" />
-      {message}
-    </div>
-  );
-}

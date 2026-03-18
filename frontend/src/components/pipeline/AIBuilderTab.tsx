@@ -5,7 +5,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import api from '@/lib/api';
-import { AI_MAX_PROMPT_LENGTH } from '@/lib/constants';
+import { AI_MAX_PROMPT_LENGTH, formatError } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface AIBuilderTabRef {
@@ -88,7 +88,7 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
           }
         }
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Generation failed';
+        const message = formatError(err, 'Generation failed');
         setError(message);
       } finally {
         setGenerating(false);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
+import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 
 interface AIProviderConfigProps {
@@ -63,7 +64,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
       setSelectedProvider('');
       setNewApiKey('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add provider');
+      setError(formatError(err, 'Failed to add provider'));
     } finally {
       setAddLoading(false);
     }
@@ -82,7 +83,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
       setEditingProvider(null);
       setEditApiKey('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update API key');
+      setError(formatError(err, 'Failed to update API key'));
     } finally {
       setLoading(prev => ({ ...prev, [id]: false }));
     }
@@ -101,7 +102,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
         setEditApiKey('');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove provider');
+      setError(formatError(err, 'Failed to remove provider'));
     } finally {
       setLoading(prev => ({ ...prev, [id]: false }));
     }

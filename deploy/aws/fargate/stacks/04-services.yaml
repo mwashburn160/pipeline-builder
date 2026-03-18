@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Pipeline Builder - Application Services.
   Deploys all Fargate services: Nginx reverse proxy, Platform, Pipeline, Plugin,
-  Quota, Billing, Message, Reporting, and Frontend on ECS with Cloud Map service discovery.
+  Quota, Billing, Message, Reporting, Compliance, and Frontend on ECS with Cloud Map service discovery.
 
 Parameters:
   StackPrefix:
@@ -50,6 +50,11 @@ Parameters:
     Type: String
     Default: ghcr.io/mwashburn160/reporting:0.2.6
     Description: Docker image for the Reporting service
+
+  ComplianceImage:
+    Type: String
+    Default: ghcr.io/mwashburn160/compliance:1.1.6
+    Description: Docker image for the Compliance service
 
   FrontendImage:
     Type: String
@@ -1284,6 +1289,152 @@ Resources:
         FailureThreshold: 1
 
   # ===========================================================================
+  # Compliance Service
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Compliance - Task Definition
+  # ---------------------------------------------------------------------------
+  ComplianceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-compliance"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: compliance
+          Image: !Ref ComplianceImage
+          Essential: true
+          RepositoryCredentials:
+            CredentialsParameter: !Ref GhcrAuthSecretName
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: TRUST_PROXY
+              Value: "1"
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: LOG_FORMAT
+              Value: json
+            - Name: DB_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: DB_PORT
+              Value: "5432"
+            - Name: DATABASE
+              Value: pipeline_builder
+            - Name: QUOTA_SERVICE_HOST
+              Value: quota.pipeline-builder.local
+            - Name: QUOTA_SERVICE_PORT
+              Value: "3000"
+            - Name: MESSAGE_SERVICE_HOST
+              Value: message.pipeline-builder.local
+            - Name: MESSAGE_SERVICE_PORT
+              Value: "3000"
+            - Name: PLUGIN_SERVICE_HOST
+              Value: plugin.pipeline-builder.local
+            - Name: PLUGIN_SERVICE_PORT
+              Value: "3000"
+            - Name: PIPELINE_SERVICE_HOST
+              Value: pipeline.pipeline-builder.local
+            - Name: PIPELINE_SERVICE_PORT
+              Value: "3000"
+            - Name: PLATFORM_BASE_URL
+              Value: !Sub "https://${DomainName}"
+            - Name: SERVICE_NAME
+              Value: compliance
+          Secrets:
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+            - Name: REFRESH_TOKEN_SECRET
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+            - Name: DB_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=compliance
+              Line_Format: json
+        - Name: log-router
+          Image: !Ref FluentBitImage
+          Essential: true
+          FirelensConfiguration:
+            Type: fluentbit
+            Options:
+              enable-ecs-log-metadata: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-ComplianceLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: firelens
+
+  # ---------------------------------------------------------------------------
+  # Compliance - Service
+  # ---------------------------------------------------------------------------
+  ComplianceService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-compliance"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref ComplianceTaskDefinition
+      DesiredCount: !Ref DefaultDesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ComplianceDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Compliance - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  ComplianceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: compliance
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
   # Frontend Service
   # ===========================================================================
 
@@ -1496,6 +1647,19 @@ Outputs:
     Value: !Ref ReportingTaskDefinition
     Export:
       Name: !Sub "${StackPrefix}-ReportingTaskDefinitionArn"
+
+  # Compliance
+  ComplianceServiceArn:
+    Description: ARN of the Compliance ECS service
+    Value: !Ref ComplianceService
+    Export:
+      Name: !Sub "${StackPrefix}-ComplianceServiceArn"
+
+  ComplianceTaskDefinitionArn:
+    Description: ARN of the Compliance task definition
+    Value: !Ref ComplianceTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-ComplianceTaskDefinitionArn"
 
   # Frontend
   FrontendServiceArn:

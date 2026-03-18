@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
@@ -59,7 +60,7 @@ export default function PipelinesPage() {
   const del = useDelete<Pipeline>(
     (p) => api.deletePipeline(p.id),
     list.refresh,
-    (err) => list.setError(err instanceof Error ? err.message : 'Failed to delete pipeline'),
+    (err) => list.setError(formatError(err, 'Failed to delete pipeline')),
   );
 
   const filteredPipelines = canViewPublic

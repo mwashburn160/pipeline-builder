@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useDebounce } from './useDebounce';
+import { formatError } from '@/lib/constants';
 import type { PaginationState } from '@/components/ui/Pagination';
 
 // ─── Types ──────────────────────────────────────────────
@@ -146,7 +147,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load data');
+          setError(formatError(err, 'Failed to load data'));
         }
       } finally {
         if (!cancelled) {

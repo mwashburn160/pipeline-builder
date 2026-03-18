@@ -33,10 +33,7 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true
 
-  # Nginx gateway metrics (HTTPS)
-  - job_name: 'reporting'
-    static_configs:
-      - targets: ['reporting:3000']
+  # Static targets not auto-discovered by kubernetes-pods
   - job_name: 'nginx'
     scheme: https
     tls_config:

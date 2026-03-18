@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
@@ -76,7 +77,7 @@ export default function SettingsPage() {
       await api.deleteAccount();
       window.location.href = '/auth/login';
     } catch (err) {
-      profile.setError(err instanceof Error ? err.message : 'Failed to delete account');
+      profile.setError(formatError(err, 'Failed to delete account'));
       setShowDeleteConfirm(false);
     } finally {
       setDeleteLoading(false);

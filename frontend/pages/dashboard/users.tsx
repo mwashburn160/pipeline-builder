@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { formatError } from '@/lib/constants';
 import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -43,7 +44,7 @@ export default function UsersPage() {
       setUsers(prev => prev.filter(x => x.id !== u.id));
     },
     undefined,
-    (err) => setError(err instanceof Error ? err.message : 'Failed to delete user'),
+    (err) => setError(formatError(err, 'Failed to delete user')),
   );
 
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -59,7 +60,7 @@ export default function UsersPage() {
         const response = await api.listUsers(params);
         setUsers((response.data?.users || []) as UserListItem[]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load users');
+        setError(formatError(err, 'Failed to load users'));
       } finally {
         setIsLoading(false);
       }

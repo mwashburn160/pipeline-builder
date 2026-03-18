@@ -1,0 +1,174 @@
+---
+# =============================================================================
+# Compliance Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliance
+  labels:
+    app: compliance
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: compliance
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance
+  labels:
+    app: compliance
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: compliance
+  template:
+    metadata:
+      labels:
+        app: compliance
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres.pipeline-builder 5432; do sleep 3; done
+              echo "Waiting for quota..."
+              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: compliance
+          image: ghcr.io/mwashburn160/compliance:1.1.6
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: SERVICE_NAME
+              value: "compliance"
+            - name: MESSAGE_SERVICE_HOST
+              value: "message"
+            - name: MESSAGE_SERVICE_PORT
+              value: "3000"
+            - name: PLUGIN_SERVICE_HOST
+              value: "plugin"
+            - name: PLUGIN_SERVICE_PORT
+              value: "3000"
+            - name: PIPELINE_SERVICE_HOST
+              value: "pipeline"
+            - name: PIPELINE_SERVICE_PORT
+              value: "3000"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 768Mi
+            requests:
+              cpu: "75m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+
+---
+# =============================================================================
+# Compliance HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: compliance
+  labels:
+    app: compliance
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: compliance
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# =============================================================================
+# Compliance PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: compliance
+  labels:
+    app: compliance
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: compliance

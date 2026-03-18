@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -57,7 +58,7 @@ export default function InvitationsPage() {
       const list = (response.data?.invitations || []) as InvitationListItem[];
       setInvitations(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load invitations');
+      setError(formatError(err, 'Failed to load invitations'));
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +88,7 @@ export default function InvitationsPage() {
       setSendInvitationType('any');
       await fetchInvitations();
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Failed to send invitation');
+      setSendError(formatError(err, 'Failed to send invitation'));
     } finally {
       setSendLoading(false);
     }
@@ -101,7 +102,7 @@ export default function InvitationsPage() {
       setInvitations((prev) => prev.map((inv) => inv.id === revokeTarget.id ? { ...inv, status: 'revoked' as const } : inv));
       setRevokeTarget(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke invitation');
+      setError(formatError(err, 'Failed to revoke invitation'));
       setRevokeTarget(null);
     } finally {
       setRevokeLoading(false);
@@ -114,7 +115,7 @@ export default function InvitationsPage() {
       await api.resendInvitation(invitation.id);
       await fetchInvitations();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend invitation');
+      setError(formatError(err, 'Failed to resend invitation'));
     } finally {
       setResendLoadingId(null);
     }

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import type { LogEntry } from '@/types';
 
 /**
@@ -76,7 +77,7 @@ export default function LogsPage() {
       const response = await api.getLogs(params);
       setEntries(response.data?.entries || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load logs');
+      setError(formatError(err, 'Failed to load logs'));
     } finally {
       setIsLoading(false);
     }

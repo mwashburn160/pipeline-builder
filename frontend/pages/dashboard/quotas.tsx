@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
+import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
-import { Toast } from '@/components/ui/Toast';
+import { useToast } from '@/components/ui/Toast';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType, QuotaTier } from '@/types';
 import api from '@/lib/api';
@@ -181,6 +182,7 @@ function OrgListItem({
 /** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
 export default function QuotasPage() {
   const { user, isReady, isSysAdmin } = useAuthGuard();
+  const toast = useToast();
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -190,7 +192,6 @@ export default function QuotasPage() {
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0 });
   const [editName, setEditName] = useState('');
@@ -310,9 +311,9 @@ export default function QuotasPage() {
           prev.map((o) => (o.id === updated.orgId ? { ...o, name: updated.name, slug: updated.slug } : o)),
         );
       }
-      setToast({ message: 'Saved', type: 'success' });
+      toast.success('Saved');
     } catch (error) {
-      setToast({ message: error instanceof Error ? error.message : 'Failed to save', type: 'error' });
+      toast.error(formatError(error, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -530,7 +531,6 @@ export default function QuotasPage() {
         </div>
       </div>
 
-      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
     </DashboardLayout>
   );
 }

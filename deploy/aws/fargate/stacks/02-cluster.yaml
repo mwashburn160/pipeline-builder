@@ -399,6 +399,15 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
+  ComplianceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/compliance
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
   FrontendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -613,6 +622,12 @@ Outputs:
     Value: !Ref ReportingLogGroup
     Export:
       Name: !Sub "${StackPrefix}-ReportingLogGroupName"
+
+  ComplianceLogGroupName:
+    Description: CloudWatch log group for Compliance service
+    Value: !Ref ComplianceLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-ComplianceLogGroupName"
 
   FrontendLogGroupName:
     Description: CloudWatch log group for Frontend

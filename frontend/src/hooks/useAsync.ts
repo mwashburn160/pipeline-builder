@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type DependencyList } from 'react';
+import { formatError } from '@/lib/constants';
 
 /**
  * Return type for `useAsync()`.
@@ -59,7 +60,7 @@ export function useAsync<T>(
       })
       .catch((err) => {
         if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(formatError(err));
           setLoading(false);
         }
       });
@@ -134,7 +135,7 @@ export function useAsyncCallback<T, A extends unknown[]>(
         return result;
       } catch (err) {
         if (mountedRef.current) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(formatError(err));
           setLoading(false);
         }
         return null;

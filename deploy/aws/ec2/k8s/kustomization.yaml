@@ -21,6 +21,7 @@ resources:
   - reporting.yaml
   - quota.yaml
   - billing.yaml
+  - compliance.yaml
   - frontend.yaml
   - mongo-express.yaml
   - pgadmin.yaml

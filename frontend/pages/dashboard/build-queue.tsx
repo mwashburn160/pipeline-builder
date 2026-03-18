@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -69,7 +70,7 @@ export default function BuildQueuePage() {
         setError(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch queue status');
+      setError(formatError(err, 'Failed to fetch queue status'));
     }
   }, []);
 

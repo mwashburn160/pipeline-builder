@@ -40,9 +40,15 @@ scrape_configs:
 
   - job_name: 'reporting'
     static_configs:
-      - targets: ['reporting:3000']
+      - targets: ['reporting.pipeline-builder.local:3000']
         labels:
-          service: message
+          service: reporting
+
+  - job_name: 'compliance'
+    static_configs:
+      - targets: ['compliance.pipeline-builder.local:3000']
+        labels:
+          service: compliance
 
   # Nginx Gateway
   - job_name: 'nginx'

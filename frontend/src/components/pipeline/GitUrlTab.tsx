@@ -5,6 +5,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -154,7 +155,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           }
         }
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Generation failed';
+        const message = formatError(err, 'Generation failed');
         setError(message);
       } finally {
         setGenerating(false);

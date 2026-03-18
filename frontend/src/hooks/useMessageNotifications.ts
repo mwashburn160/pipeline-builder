@@ -4,7 +4,8 @@
  * push notifications for new messages, deletions, and unread count updates.
  * Auth is passed via query parameter since EventSource doesn't support custom headers.
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
+import { useSSE } from './useSSE';
 import api from '@/lib/api';
 import { MESSAGE_SSE_MAX_RETRIES, MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
 
@@ -38,76 +39,38 @@ export type NotificationListener = (notification: MessageNotification) => void;
  */
 export function useMessageNotifications(orgId: string | null) {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [connected, setConnected] = useState(false);
   const listenersRef = useRef<Set<NotificationListener>>(new Set());
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const [reconnectKey, setReconnectKey] = useState(0);
 
-  // Subscribe to notifications
   const onNotification = useCallback((listener: NotificationListener) => {
     listenersRef.current.add(listener);
     return () => { listenersRef.current.delete(listener); };
   }, []);
 
-  // Reset retry state when orgId changes
-  useEffect(() => {
-    retryCountRef.current = 0;
-    setReconnectKey(0);
+  const url = useMemo(() => {
+    if (!orgId) return null;
+    const token = api.getAccessToken();
+    if (!token) return null;
+    return `/api/messages/notifications?token=${encodeURIComponent(token)}`;
   }, [orgId]);
 
-  useEffect(() => {
-    if (!orgId) return;
+  const onMessage = useCallback((data: unknown) => {
+    const parsed = data as MessageNotification;
 
-    const token = api.getAccessToken();
-    if (!token) return;
+    if (parsed.data?.action === 'UNREAD_COUNT' && parsed.data.unreadCount !== undefined) {
+      setUnreadCount(parsed.data.unreadCount);
+    }
 
-    const url = `/api/messages/notifications?token=${encodeURIComponent(token)}`;
-    const eventSource = new EventSource(url);
+    listenersRef.current.forEach((listener) => {
+      try { listener(parsed); } catch { /* ignore listener errors */ }
+    });
+  }, []);
 
-    eventSource.onopen = () => {
-      setConnected(true);
-      retryCountRef.current = 0;
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const parsed: MessageNotification = JSON.parse(event.data);
-        retryCountRef.current = 0;
-
-        // Update unread count if provided
-        if (parsed.data?.action === 'UNREAD_COUNT' && parsed.data.unreadCount !== undefined) {
-          setUnreadCount(parsed.data.unreadCount);
-        }
-
-        // Notify all listeners
-        listenersRef.current.forEach((listener) => {
-          try { listener(parsed); } catch { /* ignore listener errors */ }
-        });
-      } catch {
-        // Ignore malformed SSE data
-      }
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-      setConnected(false);
-
-      if (retryCountRef.current < MESSAGE_SSE_MAX_RETRIES) {
-        retryCountRef.current++;
-        const delay = MESSAGE_SSE_BASE_RETRY_DELAY_MS * Math.pow(2, retryCountRef.current - 1);
-        retryTimerRef.current = setTimeout(() => {
-          setReconnectKey(k => k + 1);
-        }, delay);
-      }
-    };
-
-    return () => {
-      eventSource.close();
-      clearTimeout(retryTimerRef.current);
-      setConnected(false);
-    };
-  }, [orgId, reconnectKey]);
+  const { connected } = useSSE({
+    url,
+    maxRetries: MESSAGE_SSE_MAX_RETRIES,
+    baseRetryDelayMs: MESSAGE_SSE_BASE_RETRY_DELAY_MS,
+    onMessage,
+  });
 
   return { unreadCount, setUnreadCount, connected, onNotification };
 }

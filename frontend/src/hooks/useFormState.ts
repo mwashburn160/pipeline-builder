@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { formatError } from '@/lib/constants';
 
 export interface FormState {
   loading: boolean;
@@ -45,7 +46,7 @@ export function useFormState(): FormState {
       setSuccess(opts?.successMessage ?? null);
       return result;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(formatError(err));
       return null;
     } finally {
       setLoading(false);

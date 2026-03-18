@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { formatError } from '@/lib/constants';
 import { Search, Puzzle, Plus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
@@ -60,7 +61,7 @@ export default function PluginsPage() {
   const del = useDelete<Plugin>(
     (p) => api.deletePlugin(p.id),
     list.refresh,
-    (err) => list.setError(err instanceof Error ? err.message : 'Failed to delete plugin'),
+    (err) => list.setError(formatError(err, 'Failed to delete plugin')),
   );
 
   const filteredPlugins = canViewPublic

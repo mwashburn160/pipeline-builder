@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { Message, MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from './useAsync';
 import { useMessageNotifications } from './useMessageNotifications';
@@ -55,7 +56,7 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
       const result = await api.getMessages();
       setMessages(result.data?.messages || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch messages');
+      setError(formatError(err, 'Failed to fetch messages'));
     } finally {
       setLoading(false);
     }
