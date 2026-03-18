@@ -1,3 +1,18 @@
+## 1.2.2 (2026-03-18)
+
+### 🩹 Fixes
+
+- version=1.41.1 ([62572e26](https://github.com/mwashburn160/pipeline-builder/commit/62572e26))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.43.2
+- Updated @mwashburn160/api-server to 1.40.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.2.1 (2026-03-18)
 
 ### 🩹 Fixes
