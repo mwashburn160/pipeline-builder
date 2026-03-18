@@ -2,9 +2,10 @@ import { createSafeClient, RequestOptions } from './http-client';
 import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';
 
-/** Retry options for quota calls — more patient with 429 rate limiting. */
-const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries'> = {
-  maxRateLimitRetries: 4,
+/** Retry options for quota calls — fail fast since quota is fail-open. */
+const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries'> = {
+  maxRateLimitRetries: 1,
+  maxRetries: 1,
 };
 
 const logger = createLogger('quota');
