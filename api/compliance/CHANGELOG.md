@@ -1,3 +1,13 @@
+## 1.2.6 (2026-03-18)
+
+### 🩹 Fixes
+
+- updated compliance routes ([63a686f7](https://github.com/mwashburn160/pipeline-builder/commit/63a686f7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.2.5 (2026-03-18)
 
 ### 🩹 Fixes
