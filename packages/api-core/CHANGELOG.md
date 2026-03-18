@@ -1,3 +1,13 @@
+## 1.40.7 (2026-03-18)
+
+### 🩹 Fixes
+
+- changed quota retries ([27d6e49f](https://github.com/mwashburn160/pipeline-builder/commit/27d6e49f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.6 (2026-03-18)
 
 ### 🩹 Fixes
