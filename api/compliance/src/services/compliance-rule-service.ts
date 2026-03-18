@@ -8,7 +8,7 @@ import {
   type RuleTarget,
   type RuleScope,
 } from '@mwashburn160/pipeline-core';
-import { SQL, eq, and, inArray, desc, sql } from 'drizzle-orm';
+import { SQL, eq, and, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
@@ -66,36 +66,33 @@ export class ComplianceRuleService extends CrudService<
   async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
     const cacheKey = `${orgId}:${target}`;
     return rulesCache.getOrSet(cacheKey, async () => {
-      // 1. Org's own rules
+      // Single query: org's own rules UNION subscribed published rules (via LEFT JOIN)
       const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
 
-      // 2. Get subscribed published rule IDs
-      const subscriptions = await db
-        .select({ ruleId: schema.complianceRuleSubscription.ruleId })
+      // Fetch subscribed published rules in one JOIN query instead of 2 separate queries
+      const publishedRules = await db
+        .select({ rule: schema.complianceRule })
         .from(schema.complianceRuleSubscription)
+        .innerJoin(
+          schema.complianceRule,
+          and(
+            eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id),
+            eq(schema.complianceRule.target, target),
+            eq(schema.complianceRule.isActive, true),
+            eq(schema.complianceRule.scope, 'published' as RuleScope),
+          ),
+        )
         .where(and(
           eq(schema.complianceRuleSubscription.orgId, orgId),
           eq(schema.complianceRuleSubscription.isActive, true),
         ));
 
-      if (subscriptions.length === 0) return orgRules;
+      if (publishedRules.length === 0) return orgRules;
 
-      // 3. Fetch the actual published rules
-      const subscribedRuleIds = subscriptions.map(s => s.ruleId);
-      const publishedRules = await db
-        .select()
-        .from(schema.complianceRule)
-        .where(and(
-          inArray(schema.complianceRule.id, subscribedRuleIds),
-          eq(schema.complianceRule.target, target),
-          eq(schema.complianceRule.isActive, true),
-          eq(schema.complianceRule.scope, 'published' as RuleScope),
-        ));
-
-      // 4. Merge, deduplicate by ID
+      // Merge, deduplicate by ID
       const seenIds = new Set(orgRules.map(r => r.id));
       const merged = [...orgRules];
-      for (const rule of publishedRules) {
+      for (const { rule } of publishedRules) {
         if (!seenIds.has(rule.id)) {
           merged.push(rule as ComplianceRule);
           seenIds.add(rule.id);

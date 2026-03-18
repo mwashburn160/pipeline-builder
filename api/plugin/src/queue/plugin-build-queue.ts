@@ -17,7 +17,6 @@ import type { PluginInsert } from '../services/plugin-service';
 const logger = createLogger('plugin-build-queue');
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
-const FAILED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS;
 
 // Queue name & singleton state
 
@@ -59,6 +58,25 @@ function getConnection(): IORedis {
 
 // Queue
 
+/** Dead letter queue name for failed plugin builds */
+const DLQ_NAME = `${QUEUE_NAME}:dlq`;
+
+let dlq: Queue<PluginBuildJobData> | null = null;
+
+/** Get (or create) the dead letter queue for failed plugin builds. */
+export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
+  if (!dlq) {
+    dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
+      connection: getConnection(),
+      defaultJobOptions: {
+        removeOnComplete: false,
+        removeOnFail: false,
+      },
+    });
+  }
+  return dlq;
+}
+
 /** Get (or create) the shared BullMQ queue for plugin builds. */
 export function getQueue(): Queue<PluginBuildJobData> {
   if (!queue) {
@@ -68,7 +86,7 @@ export function getQueue(): Queue<PluginBuildJobData> {
         attempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10),
         backoff: { type: 'exponential', delay: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10) },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
-        removeOnFail: { age: FAILED_JOB_RETENTION_SECS },
+        removeOnFail: { age: CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS },
       },
     });
   }
@@ -242,17 +260,21 @@ export function startWorker(
     if (job) {
       const { requestId } = job.data;
       const dbDetails = extractDbError(error);
+      const maxAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade >= maxAttempts;
+
       logger.error('Plugin build failed', {
         jobId: job.id,
         requestId,
         error: error.message,
         attemptsMade: job.attemptsMade,
+        isFinalAttempt,
         ...dbDetails,
       });
       sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
         jobId: job.id,
         attemptsMade: job.attemptsMade,
-        maxAttempts: job.opts.attempts,
+        maxAttempts,
       });
 
       // Persist build failure event for reporting
@@ -263,6 +285,15 @@ export function startWorker(
         imageTag: pluginRecord.imageTag,
         errorMessage: error.message,
       });
+
+      // Move to dead letter queue after final attempt for debugging
+      if (isFinalAttempt) {
+        getDeadLetterQueue().add(`dlq:${job.id}`, job.data, {
+          jobId: `dlq:${job.id}`,
+        }).catch((dlqErr) => {
+          logger.warn('Failed to move job to DLQ', { jobId: job.id, error: errorMessage(dlqErr) });
+        });
+      }
     }
   });
 
@@ -341,6 +372,10 @@ export async function shutdownQueue(): Promise<void> {
   if (queue) {
     await queue.close();
     queue = null;
+  }
+  if (dlq) {
+    await dlq.close();
+    dlq = null;
   }
   if (connection) {
     connection.disconnect();

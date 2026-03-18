@@ -1,4 +1,5 @@
-import * as fs from 'fs';
+import { existsSync } from 'fs';
+import * as fs from 'fs/promises';
 import path from 'path';
 
 import { ValidationError } from '@mwashburn160/api-core';
@@ -30,7 +31,7 @@ export interface ParsedPlugin {
  * @returns Parsed plugin with extracted directory and metadata
  * @throws Error with a user-facing message on validation failure
  */
-export function parsePluginZip(zipPath: string): ParsedPlugin {
+export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
   const zip = new AdmZip(zipPath);
 
   // --- Manifest -----------------------------------------------------------
@@ -49,7 +50,8 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
 
   // --- Extract -------------------------------------------------------------
   const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
-  fs.mkdirSync(extractDir, { recursive: true });
+  await fs.mkdir(extractDir, { recursive: true });
+  // AdmZip.extractAllTo is synchronous — run in microtask to avoid blocking
   zip.extractAllTo(extractDir, true);
 
   // --- Dockerfile path validation (skipped for ManualApprovalStep) --------
@@ -72,8 +74,8 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
 
     // --- Read Dockerfile for DB storage -----------------------------------
     const dockerfilePath = path.join(extractDir, dockerfile);
-    const realDockerfilePath = fs.existsSync(dockerfilePath)
-      ? fs.realpathSync(dockerfilePath)
+    const realDockerfilePath = existsSync(dockerfilePath)
+      ? await fs.realpath(dockerfilePath)
       : null;
 
     // Symlink check: ensure resolved path stays within the extraction directory
@@ -82,7 +84,7 @@ export function parsePluginZip(zipPath: string): ParsedPlugin {
     }
 
     dockerfileContent = realDockerfilePath
-      ? fs.readFileSync(realDockerfilePath, 'utf-8')
+      ? await fs.readFile(realDockerfilePath, 'utf-8')
       : null;
   }
 

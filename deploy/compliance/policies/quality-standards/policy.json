@@ -1,0 +1,13 @@
+{
+  "name": "quality-standards",
+  "description": "Enforce documentation, versioning, and metadata quality across plugins and pipelines",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": ["quality", "documentation", "versioning"],
+  "rules": [
+    "require-plugin-description",
+    "require-plugin-version-semver",
+    "require-plugin-keywords"
+  ]
+}

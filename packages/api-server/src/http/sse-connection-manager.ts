@@ -1,4 +1,5 @@
 import { createLogger } from '@mwashburn160/api-core';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
@@ -27,6 +28,8 @@ export interface SSEClient {
   res: Response;
   connectedAt: number;
   timeout: NodeJS.Timeout;
+  /** Number of consecutive backpressure events (write returned false). */
+  backpressureCount: number;
 }
 
 /**
@@ -115,6 +118,7 @@ export class SSEManager {
       res,
       connectedAt: Date.now(),
       timeout,
+      backpressureCount: 0,
     };
 
     // Handle disconnection
@@ -178,10 +182,28 @@ export class SSEManager {
 
     const clients = [...(this.clients.get(requestId) || [])];
     let sentCount = 0;
+    const serialized = `data: ${JSON.stringify(payload)}\n\n`;
 
     for (const client of clients) {
       try {
-        client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        // Backpressure: skip clients whose write buffer is full
+        if (client.res.writableEnded) {
+          this.removeClient(requestId, client.id);
+          continue;
+        }
+        const canWrite = client.res.write(serialized);
+        if (!canWrite) {
+          client.backpressureCount++;
+          // Disconnect clients that consistently can't keep up (10 consecutive backpressure events)
+          if (client.backpressureCount >= CoreConstants.SSE_BACKPRESSURE_THRESHOLD) {
+            logger.warn(`Disconnecting slow client ${client.id} for request ${requestId} (${client.backpressureCount} backpressure events)`);
+            this.removeClient(requestId, client.id);
+            try { client.res.end(); } catch { /* already closed */ }
+            continue;
+          }
+        } else {
+          client.backpressureCount = 0; // Reset on successful write
+        }
         sentCount++;
       } catch (error) {
         logger.error(`Failed to send to client ${client.id}:`, error);

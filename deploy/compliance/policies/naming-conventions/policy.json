@@ -1,0 +1,12 @@
+{
+  "name": "naming-conventions",
+  "description": "Standardize naming patterns across pipelines and plugins for consistency and automation compatibility",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": ["naming", "convention", "consistency"],
+  "rules": [
+    "require-pipeline-naming-convention",
+    "require-plugin-keywords"
+  ]
+}

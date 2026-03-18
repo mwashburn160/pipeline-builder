@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 # Load all plugins from deploy/plugins into the platform.
 #
@@ -125,6 +125,20 @@ maybe_rebuild_zip() {
   echo "    $reason"
 }
 
+# Increment a counter — writes to COUNTER_DIR file in parallel mode,
+# updates global variable in serial mode.
+_increment_counter() {
+  if [ -n "${COUNTER_DIR:-}" ]; then
+    echo "1" >> "$COUNTER_DIR/$1"
+  else
+    case "$1" in
+      succeeded) SUCCEEDED=$((SUCCEEDED + 1)) ;;
+      skipped)   SKIPPED=$((SKIPPED + 1)) ;;
+      failed)    FAILED=$((FAILED + 1)) ;;
+    esac
+  fi
+}
+
 # Upload a single plugin — used by both serial and parallel modes
 upload_one_plugin() {
   plugin_dir="$1"
@@ -134,14 +148,14 @@ upload_one_plugin() {
 
   validate_manifest "$plugin_dir/manifest.yaml" "$plugin_dir" || {
     echo "  FAIL $label (invalid manifest)"
-    [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/failed"
+    _increment_counter "failed"
     return
   }
   maybe_rebuild_zip "$plugin_dir"
 
   if [ "$DRY_RUN" = true ]; then
     echo "  OK   $label (dry-run)"
-    [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/succeeded"
+    _increment_counter "succeeded"
     return
   fi
 
@@ -165,9 +179,9 @@ upload_one_plugin() {
     fi
 
     case "$_result" in
-      ok)     echo "  OK   $label (HTTP ${status})"; [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/succeeded" ;;
-      exists) echo "  SKIP $label (exists)";         [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/skipped" ;;
-      fail)   echo "  FAIL $label (HTTP ${status})"; [ -n "${COUNTER_DIR:-}" ] && echo "1" >> "$COUNTER_DIR/failed" ;;
+      ok)     echo "  OK   $label (HTTP ${status})"; _increment_counter "succeeded" ;;
+      exists) echo "  SKIP $label (exists)";         _increment_counter "skipped" ;;
+      fail)   echo "  FAIL $label (HTTP ${status})"; _increment_counter "failed" ;;
     esac
     break
   done

@@ -1,0 +1,17 @@
+{
+  "name": "production-readiness",
+  "description": "Comprehensive policy combining security, cost, and quality rules for production environments",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": ["production", "comprehensive", "governance"],
+  "rules": [
+    "block-latest-image-tag",
+    "restrict-public-access",
+    "block-privileged-plugins",
+    "enforce-pipeline-timeout",
+    "require-plugin-description",
+    "require-plugin-version-semver",
+    "require-pipeline-naming-convention"
+  ]
+}

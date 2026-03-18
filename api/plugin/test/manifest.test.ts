@@ -48,7 +48,7 @@ afterAll(() => {
 // Tests
 
 describe('parsePluginZip', () => {
-  it('should parse a valid ZIP with manifest.yaml', () => {
+  it('should parse a valid ZIP with manifest.yaml', async () => {
     const manifest = `
 name: my-plugin
 version: "1.0.0"
@@ -60,7 +60,7 @@ commands:
       'Dockerfile': 'FROM node:20\nRUN echo hello',
     });
 
-    const result = parsePluginZip(zipPath);
+    const result = await parsePluginZip(zipPath);
 
     expect(result.manifest.name).toBe('my-plugin');
     expect(result.manifest.version).toBe('1.0.0');
@@ -71,26 +71,26 @@ commands:
     expect(fs.existsSync(result.extractDir)).toBe(true);
   });
 
-  it('should throw when manifest.yaml is missing', () => {
+  it('should throw when manifest.yaml is missing', async () => {
     const zipPath = buildZip({
       'Dockerfile': 'FROM node:20',
       'README.md': '# hello',
     });
 
-    expect(() => parsePluginZip(zipPath)).toThrow(ValidationError);
-    expect(() => parsePluginZip(zipPath)).toThrow('manifest.yaml file missing in ZIP');
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(ValidationError);
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('manifest.yaml file missing in ZIP');
   });
 
-  it('should throw when required manifest fields are missing', () => {
+  it('should throw when required manifest fields are missing', async () => {
     const zipPath = buildZip({
       'manifest.yaml': 'description: incomplete manifest',
     });
 
-    expect(() => parsePluginZip(zipPath)).toThrow(ValidationError);
-    expect(() => parsePluginZip(zipPath)).toThrow('name, version, and commands are required');
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(ValidationError);
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('name, version, and commands are required');
   });
 
-  it('should throw on path traversal in dockerfile field', () => {
+  it('should throw on path traversal in dockerfile field', async () => {
     const manifest = `
 name: evil-plugin
 version: "1.0.0"
@@ -100,11 +100,11 @@ dockerfile: "../../../etc/passwd"
 `;
     const zipPath = buildZip({ 'manifest.yaml': manifest });
 
-    expect(() => parsePluginZip(zipPath)).toThrow(ValidationError);
-    expect(() => parsePluginZip(zipPath)).toThrow('path traversal');
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(ValidationError);
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('path traversal');
   });
 
-  it('should throw on absolute dockerfile path', () => {
+  it('should throw on absolute dockerfile path', async () => {
     const manifest = `
 name: evil-plugin
 version: "1.0.0"
@@ -114,10 +114,10 @@ dockerfile: "/etc/passwd"
 `;
     const zipPath = buildZip({ 'manifest.yaml': manifest });
 
-    expect(() => parsePluginZip(zipPath)).toThrow(ValidationError);
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(ValidationError);
   });
 
-  it('should return null dockerfileContent when Dockerfile is not present', () => {
+  it('should return null dockerfileContent when Dockerfile is not present', async () => {
     const manifest = `
 name: no-docker
 version: "2.0.0"
@@ -127,11 +127,11 @@ dockerfile: missing-dockerfile
 `;
     const zipPath = buildZip({ 'manifest.yaml': manifest });
 
-    const result = parsePluginZip(zipPath);
+    const result = await parsePluginZip(zipPath);
     expect(result.dockerfileContent).toBeNull();
   });
 
-  it('should use default Dockerfile when manifest does not specify one', () => {
+  it('should use default Dockerfile when manifest does not specify one', async () => {
     const manifest = `
 name: default-docker
 version: "1.0.0"
@@ -143,7 +143,7 @@ commands:
       'Dockerfile': 'FROM alpine:3',
     });
 
-    const result = parsePluginZip(zipPath);
+    const result = await parsePluginZip(zipPath);
     expect(result.dockerfile).toBe('Dockerfile');
     expect(result.dockerfileContent).toBe('FROM alpine:3');
   });

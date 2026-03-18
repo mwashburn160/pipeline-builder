@@ -19,14 +19,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin e.g. '1.6.6' for npm
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.40.8',
-  pipelineData:   '1.41.7',
-  pipelineCore:   '1.42.5',
-  apiServer:      '1.39.5',
-  aiCore:         '1.14.5',
-  eventIngestion: '1.2.5',
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // -- Root project --
@@ -195,14 +195,21 @@ const apiServer = new PackageProject({
     'express-rate-limit@8.2.1',
     'helmet@8.1.0',
     'cors@2.8.6',
+    'compression@1.8.0',
     'jsonwebtoken@9.0.3',
     'uuid@13.0.0',
     'prom-client@15.1.3',
     'swagger-ui-express@5.0.1',
+    'ioredis@5.6.1',
+    'rate-limit-redis@4.2.0',
+    '@opentelemetry/sdk-node@0.213.0',
+    '@opentelemetry/exporter-trace-otlp-http@0.213.0',
+    '@opentelemetry/resources@2.6.0',
   ],
   devDeps: [
     '@types/express@5.0.6',
     '@types/express-serve-static-core@5.1.1',
+    '@types/compression@1.7.5',
     '@types/cors@2.8.19',
     '@types/jsonwebtoken@9.0.10',
     '@types/swagger-ui-express@4.1.8',
@@ -356,6 +363,7 @@ const frontend = new FrontEndProject({
     'lucide-react@0.575.0',
     'tailwindcss@4.2.1',
     'framer-motion@12.34.3',
+    'swr@2.3.3',
   ],
   devDeps: [
     '@types/node@25.3.0',

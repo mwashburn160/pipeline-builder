@@ -199,7 +199,7 @@ curl -X POST https://localhost:8443/api/compliance/subscriptions \
 
 ## Sample Rules
 
-10 sample rules are included in `deploy/rules/`, each with a `rule.json` and `README.md`:
+10 sample rules are included in `deploy/compliance/rules/`, each with a `rule.json` and `README.md`:
 
 | Rule | Target | Severity |
 |------|--------|----------|
@@ -219,11 +219,11 @@ All sample rules are `published` scope — sub-organizations browse the catalog 
 Load them during init or standalone:
 
 ```bash
-./deploy/bin/init-platform.sh                              # prompted during init
-PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance-rules.sh  # standalone
+./deploy/bin/init-platform.sh                           # prompted during init
+PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)
 ```
 
-Add your own by creating `deploy/rules/<name>/rule.json` + `README.md`.
+Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md`.
 
 ---
 

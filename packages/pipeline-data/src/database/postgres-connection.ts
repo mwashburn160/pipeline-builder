@@ -17,15 +17,23 @@ function parseIntEnv(value: string | undefined, fallback: number): number {
   return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+/** Detect Lambda environment for pool-size tuning */
+const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
 function getDatabaseConfig() {
+  // Lambda: small pool (each invocation is short-lived, many concurrent instances)
+  // ECS/long-running: larger pool for sustained concurrency
+  const defaultPoolSize = isLambda ? 2 : 20;
+  const defaultIdleTimeout = isLambda ? 10000 : 30000;
+
   return {
     host: process.env.DB_HOST || 'postgres',
     port: parseIntEnv(process.env.DB_PORT, 5432),
     database: process.env.DATABASE || 'pipeline_builder',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() as string : ''),
-    maxPoolSize: parseIntEnv(process.env.DRIZZLE_MAX_POOL_SIZE, 20),
-    idleTimeoutMillis: parseIntEnv(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS, 30000),
+    maxPoolSize: parseIntEnv(process.env.DRIZZLE_MAX_POOL_SIZE, defaultPoolSize),
+    idleTimeoutMillis: parseIntEnv(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS, defaultIdleTimeout),
     connectionTimeoutMillis: parseIntEnv(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS, 5000),
   };
 }

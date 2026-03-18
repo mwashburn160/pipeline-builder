@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 # Load all sample pipelines from deploy/samples into the platform.
 #

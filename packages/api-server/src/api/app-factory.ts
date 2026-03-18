@@ -1,12 +1,15 @@
 import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, CoreConstants, getConnection } from '@mwashburn160/pipeline-core';
+import compression from 'compression';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
+import { etagMiddleware } from './etag-middleware';
+import { idempotencyMiddleware } from './idempotency-middleware';
 import { metricsMiddleware, metricsHandler } from './metrics';
 import { SSEManager } from '../http/sse-connection-manager';
 
@@ -28,6 +31,8 @@ export interface CreateAppOptions {
   enableHelmet?: boolean;
   /** Enable rate limiting (default: true) */
   enableRateLimit?: boolean;
+  /** Redis URL for shared rate-limit state (e.g. 'redis://host:6379'). In-memory when omitted. */
+  redisUrl?: string;
   /** Enable JSON body parsing (default: true) */
   enableJsonBody?: boolean;
   /** JSON body size limit (default: '1mb') */
@@ -45,6 +50,8 @@ export interface CreateAppOptions {
   enableOpenApi?: boolean;
   /** OpenAPI spec customization options */
   openApiOptions?: OpenApiSpecOptions;
+  /** Enable gzip/deflate response compression (default: true) */
+  enableCompression?: boolean;
 }
 
 /**
@@ -97,6 +104,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     skipDefaultHealthCheck = false,
     enableOpenApi = true,
     openApiOptions,
+    enableCompression = true,
   } = options;
 
   const serverConfig = Config.get('server');
@@ -129,6 +137,21 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.use(cors(serverConfig.cors));
   }
 
+  // Response compression (gzip/deflate) — skip SSE streams
+  if (enableCompression) {
+    app.use(compression({
+      filter: (req: Request, res: Response) => {
+        // Don't compress SSE streams
+        if (req.headers.accept === 'text/event-stream') return false;
+        return compression.filter(req, res);
+      },
+      threshold: CoreConstants.COMPRESSION_THRESHOLD_BYTES,
+    }));
+  }
+
+  // ETag support for conditional GET requests (304 Not Modified)
+  app.use(etagMiddleware());
+
   // Body parsing
   if (enableJsonBody) {
     app.use(express.json({ limit: jsonLimit }));
@@ -152,31 +175,42 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Health check and metrics registered before rate limiter so they are never throttled
   if (!skipDefaultHealthCheck) {
-    let cachedHealth: { healthy: boolean; checkedAt: number } | null = null;
-    const HEALTH_CACHE_TTL_MS = 3_000; // 3s
+    app.get('/health', (_req: Request, res: Response) => {
+      sendSuccess(res, 200, {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+      });
+    });
 
-    app.get('/health', async (_req: Request, res: Response) => {
+    // Warm-up endpoint — initializes connection pool without a real API call (for Lambda pre-warming)
+    app.get('/warmup', async (_req: Request, res: Response) => {
       try {
-        const now = Date.now();
-        if (!cachedHealth || now - cachedHealth.checkedAt > HEALTH_CACHE_TTL_MS) {
-          const connection = getConnection();
-          const isHealthy = await connection.testConnection();
-          cachedHealth = { healthy: isHealthy, checkedAt: now };
-        }
+        const connection = getConnection();
+        await connection.testConnection();
+        sendSuccess(res, 200, { warmed: true });
+      } catch {
+        sendSuccess(res, 200, { warmed: false });
+      }
+    });
+
+    // Deep health check that tests database connectivity — use for readiness probes
+    app.get('/health/ready', async (_req: Request, res: Response) => {
+      try {
+        const connection = getConnection();
+        const isHealthy = await connection.testConnection();
 
         const healthData = {
-          status: cachedHealth.healthy ? 'healthy' : 'unhealthy',
+          status: isHealthy ? 'healthy' : 'unhealthy',
           timestamp: new Date().toISOString(),
-          database: cachedHealth.healthy ? 'connected' : 'disconnected',
+          database: isHealthy ? 'connected' : 'disconnected',
         };
 
-        if (cachedHealth.healthy) {
+        if (isHealthy) {
           sendSuccess(res, 200, healthData);
         } else {
           sendError(res, 503, 'Service unhealthy', undefined, healthData);
         }
       } catch (error) {
-        cachedHealth = { healthy: false, checkedAt: Date.now() };
         sendError(res, 503, 'Service unhealthy', undefined, {
           status: 'unhealthy',
           timestamp: new Date().toISOString(),
@@ -199,19 +233,42 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     }));
   }
 
-  // Rate limiting
+  // Rate limiting — uses Redis when redisUrl is provided for shared state across instances
   if (enableRateLimit) {
     const rateLimitConfig = Config.get('rateLimit');
-    const limiter = rateLimit({
+
+    const rateLimitOptions: Parameters<typeof rateLimit>[0] = {
       max: rateLimitConfig.max,
       windowMs: rateLimitConfig.windowMs,
       standardHeaders: true,
       legacyHeaders: false,
-      handler: (_req: Request, res: Response) => {
-        sendError(res, 429, 'Too many requests from this IP, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
+      // Per-org key: use orgId from JWT when available, fall back to IP
+      keyGenerator: (req: Request) => {
+        const orgId = (req as any).orgId || (req as any).identity?.orgId;
+        return orgId || req.ip || req.requestId || 'anon';
       },
-    });
-    app.use(limiter);
+      handler: (_req: Request, res: Response) => {
+        sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
+      },
+    };
+
+    // Use Redis store when available for shared state across instances
+    if (options.redisUrl) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { RedisStore } = require('rate-limit-redis');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Redis = require('ioredis');
+        const redisClient = new Redis(options.redisUrl);
+        rateLimitOptions.store = new RedisStore({
+          sendCommand: (...args: string[]) => redisClient.call(...args),
+        });
+      } catch {
+        createLogger('RateLimit').warn('Redis store unavailable, falling back to in-memory rate limiting');
+      }
+    }
+
+    app.use(rateLimit(rateLimitOptions));
   }
 
   // Express request timeout — uses CoreConstants to share the same default as Lambda handlers
@@ -244,6 +301,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Prometheus metrics middleware — records request duration and count
   app.use(metricsMiddleware());
+
+  // Idempotency key support for mutation endpoints
+  app.use(idempotencyMiddleware());
 
   // SSE logs endpoint
   app.get('/logs/:requestId', sseManager.middleware());

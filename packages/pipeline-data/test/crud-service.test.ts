@@ -488,8 +488,8 @@ describe('CrudService', () => {
       updatedBy: 'u',
     };
 
-    function mockSelectChain(countResult: number, dataResult: TestEntity[]) {
-      // First call is for count, second is for data
+    /** Mock for data-only query (LIMIT+1 trick — no separate COUNT). */
+    function mockDataQuery(dataResult: TestEntity[]) {
       const dataQuery = {
         limit: jest.fn().mockReturnValue({
           offset: jest.fn().mockResolvedValue(dataResult),
@@ -500,64 +500,82 @@ describe('CrudService', () => {
           }),
         }),
       };
-      mockSelect
-        .mockReturnValueOnce({
-          from: jest.fn().mockReturnValue({
-            where: jest.fn().mockResolvedValue([{ count: countResult }]),
-          }),
-        })
-        .mockReturnValueOnce({
-          from: jest.fn().mockReturnValue({
-            where: jest.fn().mockReturnValue(dataQuery),
-          }),
-        });
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue(dataQuery),
+        }),
+      });
+    }
+
+    /** Mock for data query + COUNT query (when includeTotal=true). */
+    function mockDataAndCountQuery(dataResult: TestEntity[], countResult: number) {
+      mockDataQuery(dataResult);
+      // Second call is for COUNT
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue([{ count: countResult }]),
+        }),
+      });
     }
 
     it('should return paginated results with defaults', async () => {
-      mockSelectChain(2, [entity, { ...entity, id: '2', name: 'B' }]);
+      mockDataQuery([entity, { ...entity, id: '2', name: 'B' }]);
 
       const result = await service.findPaginated({}, 'org1');
       expect(result.data).toHaveLength(2);
-      expect(result.total).toBe(2);
-      expect(result.limit).toBe(50);
+      expect(result.total).toBeUndefined(); // total omitted by default
+      expect(result.limit).toBe(100); // DEFAULT_PAGE_LIMIT
       expect(result.offset).toBe(0);
       expect(result.hasMore).toBe(false);
     });
 
+    it('should include total when includeTotal is true', async () => {
+      mockDataAndCountQuery([entity, { ...entity, id: '2', name: 'B' }], 2);
+
+      const result = await service.findPaginated({}, 'org1', { includeTotal: true });
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
     it('should return empty results', async () => {
-      mockSelectChain(0, []);
+      mockDataQuery([]);
 
       const result = await service.findPaginated({}, 'org1');
       expect(result.data).toEqual([]);
-      expect(result.total).toBe(0);
       expect(result.hasMore).toBe(false);
     });
 
     it('should clamp limit to minimum of 1', async () => {
-      mockSelectChain(1, [entity]);
+      mockDataQuery([entity]);
 
       const result = await service.findPaginated({}, 'org1', { limit: 0 });
       expect(result.limit).toBe(1);
     });
 
     it('should clamp limit to maximum of 1000', async () => {
-      mockSelectChain(1, [entity]);
+      mockDataQuery([entity]);
 
       const result = await service.findPaginated({}, 'org1', { limit: 5000 });
       expect(result.limit).toBe(1000);
     });
 
-    it('should calculate hasMore correctly', async () => {
-      mockSelectChain(10, [entity]);
+    it('should detect hasMore via LIMIT+1 trick', async () => {
+      // Request limit=1, but return 2 rows (limit+1) to signal hasMore
+      mockDataQuery([entity, { ...entity, id: '2', name: 'B' }]);
 
       const result = await service.findPaginated({}, 'org1', { limit: 1, offset: 0 });
+      expect(result.data).toHaveLength(1); // Extra row trimmed
       expect(result.hasMore).toBe(true);
     });
 
     it('should propagate database errors', async () => {
       mockSelect.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockRejectedValue(new Error('DB error')),
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({
+              offset: jest.fn().mockRejectedValue(new Error('DB error')),
+            }),
+          }),
         }),
       });
 

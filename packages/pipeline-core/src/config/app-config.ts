@@ -74,6 +74,24 @@ export class CoreConstants {
   static readonly DB_RETRY_DELAY_MS = parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10); // 1s
   static readonly DB_TRANSACTION_TIMEOUT_MS = parseInt(process.env.DB_TRANSACTION_TIMEOUT_MS || '30000', 10); // 30s
   static readonly DB_CLOSE_TIMEOUT_MS = parseInt(process.env.DB_CLOSE_TIMEOUT_MS || '5000', 10); // 5s
+
+  // Response compression
+  static readonly COMPRESSION_THRESHOLD_BYTES = parseInt(process.env.COMPRESSION_THRESHOLD_BYTES || '1024', 10);
+
+  // Idempotency
+  static readonly IDEMPOTENCY_TTL_MS = parseInt(process.env.IDEMPOTENCY_TTL_MS || '300000', 10); // 5 min
+  static readonly IDEMPOTENCY_MAX_STORE_SIZE = parseInt(process.env.IDEMPOTENCY_MAX_STORE_SIZE || '10000', 10);
+  static readonly IDEMPOTENCY_CLEANUP_INTERVAL_MS = parseInt(process.env.IDEMPOTENCY_CLEANUP_INTERVAL_MS || '60000', 10); // 1 min
+
+  // Cache
+  static readonly CACHE_CLEANUP_INTERVAL_MS = parseInt(process.env.CACHE_CLEANUP_INTERVAL_MS || '30000', 10); // 30s
+
+  // SSE backpressure
+  static readonly SSE_BACKPRESSURE_THRESHOLD = parseInt(process.env.SSE_BACKPRESSURE_THRESHOLD || '10', 10);
+
+  // HTTP Cache-Control headers
+  static readonly CACHE_CONTROL_LIST = process.env.CACHE_CONTROL_LIST || 'private, max-age=30, stale-while-revalidate=60';
+  static readonly CACHE_CONTROL_DETAIL = process.env.CACHE_CONTROL_DETAIL || 'private, max-age=60, stale-while-revalidate=120';
 }
 
 /**

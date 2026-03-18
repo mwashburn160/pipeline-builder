@@ -1,8 +1,12 @@
 import { NotFoundError } from '@mwashburn160/api-core';
-import { SQL, eq, and, asc, desc, sql } from 'drizzle-orm';
+import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { db } from '../database/postgres-connection';
+
+/** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
+const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
+const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
 
 /**
  * Base interface for entities with common fields
@@ -25,6 +29,12 @@ export interface QueryOptions {
   offset?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  /** When true, runs a separate COUNT(*) query to include exact total. Default: false. */
+  includeTotal?: boolean;
+  /** Cursor-based pagination: fetch rows after this cursor value (uses sortBy column). */
+  cursor?: string;
+  /** Sparse fieldset: column names to select. Returns all columns when omitted. */
+  fields?: string[];
 }
 
 /**
@@ -32,10 +42,13 @@ export interface QueryOptions {
  */
 export interface PaginatedResult<T> {
   data: T[];
-  total: number;
+  /** Total count of matching entities. Only present when includeTotal is true. */
+  total?: number;
   limit: number;
   offset: number;
   hasMore: boolean;
+  /** Cursor pointing to the last item, for cursor-based pagination. */
+  nextCursor?: string;
 }
 
 /**
@@ -127,24 +140,30 @@ export abstract class CrudService<
     orgId?: string,
     options: QueryOptions = {},
   ): Promise<PaginatedResult<TEntity>> {
-    const { limit: rawLimit = 50, offset = 0, sortBy, sortOrder = 'asc' } = options;
-    const limit = Math.min(Math.max(1, rawLimit), 1000);
+    const { limit: rawLimit = DEFAULT_PAGE_LIMIT, offset = 0, sortBy, sortOrder = 'asc', includeTotal = false, cursor, fields } = options;
+    const limit = Math.min(Math.max(1, rawLimit), MAX_PAGE_LIMIT);
+
+    // Cursor and offset are mutually exclusive — cursor takes precedence
+    const useCursor = !!(cursor && sortBy);
 
     const conditions = this.buildConditions(filter, orgId);
 
-    // Get total count
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(this.schema)
-      .where(and(...conditions)) as unknown as [{ count: number }];
+    // Cursor-based pagination: add WHERE clause for keyset pagination
+    if (useCursor) {
+      const sortColumn = this.getSortColumn(sortBy);
+      if (sortColumn) {
+        const op = sortOrder === 'desc'
+          ? sql`${sortColumn} < ${cursor}`
+          : sql`${sortColumn} > ${cursor}`;
+        conditions.push(op);
+      }
+    }
 
-    const total = countResult?.count || 0;
-
-    // Build query with sorting
-    let query = db
-      .select()
-      .from(this.schema)
-      .where(and(...conditions));
+    // Build SELECT — sparse fieldset when fields are specified
+    const selectSpec = fields ? this.buildFieldSelect(fields) : undefined;
+    let query = selectSpec
+      ? db.select(selectSpec as any).from(this.schema).where(and(...conditions))
+      : db.select().from(this.schema).where(and(...conditions));
 
     if (sortBy) {
       const sortColumn = this.getSortColumn(sortBy);
@@ -153,17 +172,58 @@ export abstract class CrudService<
       }
     }
 
-    const results = await query
-      .limit(limit)
-      .offset(offset) as unknown as TEntity[];
+    // Fetch limit+1 to detect hasMore without COUNT(*)
+    const effectiveOffset = useCursor ? 0 : offset;
+    const rows = await query
+      .limit(limit + 1)
+      .offset(effectiveOffset) as unknown as TEntity[];
 
-    return {
-      data: results,
-      total,
-      limit,
-      offset,
-      hasMore: offset + results.length < total,
-    };
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+
+    const result: PaginatedResult<TEntity> = { data, limit, offset: effectiveOffset, hasMore };
+
+    // Provide next cursor from last item's sort column value
+    if (data.length > 0 && sortBy) {
+      const lastItem = data[data.length - 1] as Record<string, unknown>;
+      const cursorValue = lastItem[sortBy];
+      if (cursorValue !== undefined) {
+        result.nextCursor = cursorValue instanceof Date ? cursorValue.toISOString() : String(cursorValue);
+      }
+    }
+
+    // Only run the COUNT(*) query when the caller explicitly needs the total
+    if (includeTotal) {
+      const baseConditions = this.buildConditions(filter, orgId);
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(this.schema)
+        .where(and(...baseConditions)) as unknown as [{ count: number }];
+      result.total = countResult?.count || 0;
+    }
+
+    return result;
+  }
+
+  /**
+   * Build a column selection map for sparse fieldsets.
+   * Falls back to full select if no matching columns found.
+   */
+  private buildFieldSelect(fields: string[]): Record<string, unknown> | undefined {
+    if (fields.length === 0) return undefined;
+
+    const columns: Record<string, unknown> = {};
+    // Always include id for entity identity
+    columns.id = (this.schema as any).id;
+
+    for (const field of fields) {
+      if (field === 'id') continue; // Already included
+      const col = (this.schema as any)[field];
+      if (col) columns[field] = col;
+    }
+
+    // At minimum we'll have { id }, which is valid
+    return columns;
   }
 
   /**
@@ -372,34 +432,44 @@ export abstract class CrudService<
   }
 
   /**
-   * Create multiple entities in a single transaction.
-   * Uses upsert (onConflictDoUpdate) for each row.
+   * Create multiple entities in a single batch insert.
+   * Uses upsert (onConflictDoUpdate) — all rows are inserted in one query per chunk.
+   * Chunks of 100 to stay within PostgreSQL parameter limits.
    */
   async bulkCreate(items: TInsert[], userId: string): Promise<TEntity[]> {
     if (items.length === 0) return [];
 
+    const CHUNK_SIZE = 100;
+    const now = new Date();
+    const user = userId || 'system';
+
     const results = await db.transaction(async (tx) => {
-      const created: TEntity[] = [];
-      for (const data of items) {
-        const [row] = await tx
+      const allCreated: TEntity[] = [];
+
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const values = chunk.map(data => ({
+          ...data,
+          createdBy: user,
+          updatedBy: user,
+        } as any));
+
+        const created = await tx
           .insert(this.schema)
-          .values({
-            ...data,
-            createdBy: userId || 'system',
-            updatedBy: userId || 'system',
-          } as any)
+          .values(values)
           .onConflictDoUpdate({
             target: this.conflictTarget as any,
             set: {
-              ...data,
-              updatedAt: new Date(),
-              updatedBy: userId || 'system',
+              updatedAt: now,
+              updatedBy: user,
             } as any,
           })
           .returning() as unknown as TEntity[];
-        created.push(row);
+
+        allCreated.push(...created);
       }
-      return created;
+
+      return allCreated;
     });
 
     for (const entity of results) {
@@ -410,7 +480,7 @@ export abstract class CrudService<
   }
 
   /**
-   * Soft-delete multiple entities by IDs in a single operation.
+   * Soft-delete multiple entities by IDs in a single batch operation.
    */
   async bulkDelete(
     ids: string[],
@@ -419,11 +489,29 @@ export abstract class CrudService<
   ): Promise<TEntity[]> {
     if (ids.length === 0) return [];
 
-    const results: TEntity[] = [];
-    for (const id of ids) {
-      const deleted = await this.delete(id, orgId, userId);
-      if (deleted) results.push(deleted);
+    const now = new Date();
+    const user = userId || 'system';
+    const conditions = [
+      inArray((this.schema as any).id, ids),
+      ...this.buildConditions({} as Partial<TFilter>, orgId),
+    ];
+
+    const deleted = await db
+      .update(this.schema)
+      .set({
+        isActive: false,
+        updatedAt: now,
+        updatedBy: user,
+        deletedAt: now,
+        deletedBy: user,
+      } as any)
+      .where(and(...conditions))
+      .returning() as unknown as TEntity[];
+
+    for (const entity of deleted) {
+      this.onAfterDelete(entity.id, entity, userId).catch(() => { /* fire-and-forget */ });
     }
-    return results;
+
+    return deleted;
   }
 }

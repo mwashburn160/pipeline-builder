@@ -92,6 +92,10 @@ jest.mock('@mwashburn160/api-server', () => ({
 
 jest.mock('@mwashburn160/pipeline-core', () => ({
   schema: { plugin: {} },
+  CoreConstants: {
+    CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
+    CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
+  },
 }));
 
 jest.mock('drizzle-orm', () => ({
@@ -142,6 +146,7 @@ function mockRes(): any {
   const res: any = {};
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.setHeader = jest.fn().mockReturnValue(res);
   return res;
 }
 

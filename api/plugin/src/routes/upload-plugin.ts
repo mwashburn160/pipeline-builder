@@ -79,7 +79,7 @@ export function createUploadPluginRoutes(
         });
 
         // -- Parse & validate ZIP ---------------------------------------------
-        const plugin = parsePluginZip(zipPath);
+        const plugin = await parsePluginZip(zipPath);
         validateBuildArgs(plugin.manifest.buildArgs);
 
         ctx.log('INFO', 'Manifest validated', {

@@ -55,7 +55,7 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
  * Load AWS infrastructure configuration from environment variables.
  *
  * Environment variables:
- * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; supports nodejs20.x, nodejs22.x, nodejs24.x)
+ * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; supports nodejs22.x, nodejs24.x)
  * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
  * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `128`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
@@ -71,7 +71,7 @@ export function loadAWSConfig(): AWSConfig {
     lambda: {
       runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs24.x'),
       timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900', 10)),
-      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '128', 10),
+      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '256', 10),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
         ? Architecture.X86_64
         : Architecture.ARM_64,
@@ -102,7 +102,6 @@ export function loadAWSConfig(): AWSConfig {
  */
 function parseRuntime(runtime: string): Runtime {
   const runtimeMap: Record<string, Runtime> = {
-    'nodejs20.x': Runtime.NODEJS_20_X,
     'nodejs22.x': Runtime.NODEJS_22_X,
     'nodejs24.x': Runtime.NODEJS_24_X,
   };

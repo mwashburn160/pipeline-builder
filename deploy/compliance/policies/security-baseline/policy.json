@@ -1,0 +1,13 @@
+{
+  "name": "security-baseline",
+  "description": "Essential security rules every organization should enforce — covers image pinning, access control, and privileged execution",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": ["security", "baseline"],
+  "rules": [
+    "block-latest-image-tag",
+    "restrict-public-access",
+    "block-privileged-plugins"
+  ]
+}

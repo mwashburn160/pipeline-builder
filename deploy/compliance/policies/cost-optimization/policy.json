@@ -1,0 +1,13 @@
+{
+  "name": "cost-optimization",
+  "description": "Prevent runaway builds and excessive resource consumption with timeout and compute guardrails",
+  "version": "1.0.0",
+  "isTemplate": true,
+  "isActive": true,
+  "tags": ["cost", "reliability", "compute"],
+  "rules": [
+    "enforce-pipeline-timeout",
+    "max-pipeline-stages",
+    "recommended-compute-type"
+  ]
+}

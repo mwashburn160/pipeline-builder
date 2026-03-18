@@ -153,12 +153,16 @@ export const plugin = pgTable('plugins', {
   imageTagIdx: index('plugin_image_tag_idx').on(table.imageTag),
   activeIdx: index('plugin_active_idx').on(table.isActive),
   createdAtIdx: index('plugin_created_at_idx').on(table.createdAt),
+  updatedAtIdx: index('plugin_updated_at_idx').on(table.updatedAt),
 
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),
 
-  // Composite index for filtered queries (orgId + accessModifier)
-  orgAccessIdx: index('plugin_org_access_idx').on(table.orgId, table.accessModifier),
+  // Composite index for filtered queries (orgId + accessModifier + isActive)
+  orgAccessActiveIdx: index('plugin_org_access_active_idx').on(table.orgId, table.accessModifier, table.isActive),
+
+  // Partial index for active-only queries (smaller, faster than full index)
+  activeOnlyOrgIdx: index('plugin_active_only_org_idx').on(table.orgId, table.createdAt).where(sql`is_active = true`),
 
   // Unique constraint on name + version + orgId
   nameVersionOrgUnique: uniqueIndex('plugin_name_version_org_unique')
@@ -245,12 +249,16 @@ export const pipeline = pgTable('pipelines', {
   orgIdIdx: index('pipeline_org_id_idx').on(table.orgId),
   activeIdx: index('pipeline_active_idx').on(table.isActive),
   createdAtIdx: index('pipeline_created_at_idx').on(table.createdAt),
+  updatedAtIdx: index('pipeline_updated_at_idx').on(table.updatedAt),
 
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('pipeline_org_active_idx').on(table.orgId, table.isActive),
 
-  // Composite index for filtered queries (orgId + accessModifier)
-  orgAccessIdx: index('pipeline_org_access_idx').on(table.orgId, table.accessModifier),
+  // Composite index for filtered queries (orgId + accessModifier + isActive)
+  orgAccessActiveIdx: index('pipeline_org_access_active_idx').on(table.orgId, table.accessModifier, table.isActive),
+
+  // Partial index for active-only queries (smaller, faster than full index)
+  activeOnlyOrgIdx: index('pipeline_active_only_org_idx').on(table.orgId, table.createdAt).where(sql`is_active = true`),
 
   // Unique constraint on project + organization + orgId
   projectOrgUnique: uniqueIndex('pipeline_project_org_unique')

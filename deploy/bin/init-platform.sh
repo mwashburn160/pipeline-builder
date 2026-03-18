@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 # Initialize the platform — register admin, optionally load plugins and pipelines.
 #
@@ -126,14 +126,14 @@ else
   echo "  Skipping pipeline loading."
 fi
 
-# Load compliance rules
+# Load compliance rules and policy templates
 echo ""
-printf "Load sample compliance rules? [y/N] "
-read -r LOAD_RULES
-if [ "$LOAD_RULES" = "y" ] || [ "$LOAD_RULES" = "Y" ]; then
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance-rules.sh"
+printf "Load sample compliance rules and policy templates? [y/N] "
+read -r LOAD_COMPLIANCE
+if [ "$LOAD_COMPLIANCE" = "y" ] || [ "$LOAD_COMPLIANCE" = "Y" ]; then
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"
 else
-  echo "  Skipping compliance rule loading."
+  echo "  Skipping compliance loading."
 fi
 
 echo ""

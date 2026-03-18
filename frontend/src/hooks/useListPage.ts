@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useDebounce } from './useDebounce';
 import { formatError } from '@/lib/constants';
 import type { PaginationState } from '@/components/ui/Pagination';
@@ -87,24 +87,27 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   const [pagination, setPagination] = useState<PaginationState>({ limit: pageSize, offset: 0, total: 0 });
   const [fetchKey, setFetchKey] = useState(0);
 
-  // Separate text values for debouncing
-  const textFieldKeys = fields.filter(f => f.type === 'text').map(f => f.key);
-  const selectFieldKeys = fields.filter(f => f.type === 'select').map(f => f.key);
+  // Memoize field key arrays to avoid recalculating on every render
+  const textFieldKeys = useMemo(() => fields.filter(f => f.type === 'text').map(f => f.key), [fields]);
+  const selectFieldKeys = useMemo(() => fields.filter(f => f.type === 'select').map(f => f.key), [fields]);
 
   // Debounce all text filter values as a single JSON string to avoid multiple hooks
-  const textValues = JSON.stringify(textFieldKeys.map(k => filters[k]));
+  const textValues = useMemo(() => JSON.stringify(textFieldKeys.map(k => filters[k])), [textFieldKeys, filters]);
   const debouncedTextValues = useDebounce(textValues, debounceMs);
 
-  // Parse debounced text values back
-  const debouncedFilters: Record<string, string> = { ...filters };
-  try {
-    const parsed = JSON.parse(debouncedTextValues) as string[];
-    textFieldKeys.forEach((key, i) => {
-      debouncedFilters[key] = parsed[i];
-    });
-  } catch {
-    // Use raw filter values if parse fails
-  }
+  // Parse debounced text values back — memoized to avoid object recreation
+  const debouncedFilters = useMemo(() => {
+    const result: Record<string, string> = { ...filters };
+    try {
+      const parsed = JSON.parse(debouncedTextValues) as string[];
+      textFieldKeys.forEach((key, i) => {
+        result[key] = parsed[i];
+      });
+    } catch {
+      // Use raw filter values if parse fails
+    }
+    return result;
+  }, [debouncedTextValues, textFieldKeys, filters]);
 
   // Reset to page 0 when filters change
   useEffect(() => {
@@ -170,16 +173,16 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const hasActiveFilters = fields.some(f => {
+  const hasActiveFilters = useMemo(() => fields.some(f => {
     const val = filters[f.key];
     return f.type === 'select' ? val !== f.defaultValue : val !== '';
-  });
+  }), [fields, filters]);
 
-  const advancedFilterCount = fields.filter(f => {
+  const advancedFilterCount = useMemo(() => fields.filter(f => {
     if (f.primary) return false;
     const val = filters[f.key];
     return f.type === 'select' ? val !== f.defaultValue : val !== '';
-  }).length;
+  }).length, [fields, filters]);
 
   const handlePageChange = useCallback((offset: number) => {
     setPagination(prev => ({ ...prev, offset }));

@@ -14,6 +14,7 @@ import {
 } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
 
@@ -33,22 +34,29 @@ export function createReadPipelineRoutes(
       req.query as Record<string, unknown>,
     );
 
+    const includeTotal = req.query.includeTotal === 'true';
+    const cursor = req.query.cursor as string | undefined;
+    const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
+
     const result = await pipelineService.findPaginated(
       effectiveFilter,
       orgId,
-      { limit, offset, sortBy, sortOrder },
+      { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
     );
 
-    ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, total: result.total });
+    ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
     incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+
+    res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
     return sendSuccess(res, 200, {
       pipelines: result.data.map(r => normalizeArrayFields(r, ['keywords'])),
       pagination: {
-        total: result.total,
+        ...(result.total !== undefined && { total: result.total }),
         limit: result.limit,
         offset: result.offset,
         hasMore: result.hasMore,
+        ...(result.nextCursor && { nextCursor: result.nextCursor }),
       },
     });
   }));
@@ -68,6 +76,8 @@ export function createReadPipelineRoutes(
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
     incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
 
+    res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
+
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(result, ['keywords']) });
   }));
 
@@ -85,6 +95,8 @@ export function createReadPipelineRoutes(
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
     incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+
+    res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(result, ['keywords']) });
   }));
