@@ -198,6 +198,95 @@ export class ComplianceRuleSubscriptionService {
     return subscribed;
   }
 
+  /**
+   * Feature #4: Bulk activate/deactivate subscriptions.
+   */
+  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, userId: string): Promise<number> {
+    if (orgId === SYSTEM_ORG_ID) {
+      throw new Error('System org cannot manage subscriptions');
+    }
+
+    let updated = 0;
+    for (const ruleId of ruleIds) {
+      try {
+        await this.setActive(orgId, ruleId, isActive, userId);
+        updated++;
+      } catch {
+        // Skip individual failures (subscription not found, etc.)
+      }
+    }
+    logger.info(`Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { orgId, requested: ruleIds.length, updated });
+    return updated;
+  }
+
+  /**
+   * Feature #5: Pin a subscription to a specific rule version snapshot.
+   */
+  async pinVersion(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
+    if (orgId === SYSTEM_ORG_ID) {
+      throw new Error('System org cannot manage subscriptions');
+    }
+
+    return db.transaction(async (tx) => {
+      // Fetch the subscription
+      const [sub] = await tx
+        .select()
+        .from(schema.complianceRuleSubscription)
+        .where(and(
+          eq(schema.complianceRuleSubscription.orgId, orgId),
+          eq(schema.complianceRuleSubscription.ruleId, ruleId),
+          isNull(schema.complianceRuleSubscription.unsubscribedAt),
+        ));
+      if (!sub) throw new Error('Subscription not found');
+
+      // Fetch current rule state as snapshot
+      const [rule] = await tx
+        .select()
+        .from(schema.complianceRule)
+        .where(eq(schema.complianceRule.id, ruleId));
+      if (!rule) throw new Error('Rule not found');
+
+      const snapshot = {
+        name: rule.name,
+        field: rule.field,
+        operator: rule.operator,
+        value: rule.value,
+        severity: rule.severity,
+        conditions: rule.conditions,
+        conditionMode: rule.conditionMode,
+        pinnedAt: new Date().toISOString(),
+        pinnedBy: userId,
+      };
+
+      const [updated] = await tx
+        .update(schema.complianceRuleSubscription)
+        .set({ pinnedVersion: snapshot })
+        .where(eq(schema.complianceRuleSubscription.id, sub.id))
+        .returning();
+
+      logger.info('Subscription pinned to rule version', { orgId, ruleId, userId });
+      return updated;
+    });
+  }
+
+  /**
+   * Feature #5: Unpin a subscription (use latest rule version).
+   */
+  async unpinVersion(orgId: string, ruleId: string): Promise<ComplianceRuleSubscription> {
+    const [updated] = await db
+      .update(schema.complianceRuleSubscription)
+      .set({ pinnedVersion: null })
+      .where(and(
+        eq(schema.complianceRuleSubscription.orgId, orgId),
+        eq(schema.complianceRuleSubscription.ruleId, ruleId),
+        isNull(schema.complianceRuleSubscription.unsubscribedAt),
+      ))
+      .returning();
+
+    if (!updated) throw new Error('Subscription not found');
+    return updated;
+  }
+
   /** Get enforced (active) subscription rule IDs for an org. */
   async getSubscribedRuleIds(orgId: string): Promise<string[]> {
     const subs = await db

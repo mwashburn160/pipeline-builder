@@ -1,5 +1,5 @@
 import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
-import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry } from '@/types/compliance';
+import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
@@ -1236,6 +1236,127 @@ class ApiClient {
   async unsubscribeFromRule(ruleId: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/compliance/subscriptions/${ruleId}`, {
       method: 'DELETE',
+    });
+  }
+
+  /** Bulk activate/deactivate subscriptions */
+  async bulkSetSubscriptionActive(ruleIds: string[], isActive: boolean) {
+    return this.request<ApiResponse<{ requested: number; updated: number }>>('/api/compliance/subscriptions/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ ruleIds, isActive }),
+    });
+  }
+
+  /** Fork a published rule into org scope */
+  async forkRule(ruleId: string) {
+    return this.request<ApiResponse<{ rule: ComplianceRule }>>('/api/compliance/subscriptions/fork', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId }),
+    });
+  }
+
+  /** Get all enforced rules (org + active subscribed) */
+  async getEnforcedRules(params?: { target?: string }) {
+    return this.request<ApiResponse<{ rules: ComplianceRule[]; total: number }>>(`/api/compliance/subscriptions/enforced${buildQuery(params)}`);
+  }
+
+  /** Pin subscription to current rule version */
+  async pinSubscription(ruleId: string) {
+    return this.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}/pin`, {
+      method: 'POST',
+    });
+  }
+
+  /** Unpin subscription (use latest rule version) */
+  async unpinSubscription(ruleId: string) {
+    return this.request<ApiResponse<{ subscription: ComplianceRuleSubscription }>>(`/api/compliance/subscriptions/${ruleId}/pin`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Preview impact of activating a rule */
+  async previewSubscription(ruleId: string, sampleAttributes?: Record<string, unknown>) {
+    return this.request<ApiResponse<{ preview?: ComplianceCheckResult; rule?: ComplianceRule }>>('/api/compliance/subscriptions/preview', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId, sampleAttributes }),
+    });
+  }
+
+  // ============================================
+  // Exemptions
+  // ============================================
+
+  /** List exemptions */
+  async getExemptions(params?: { ruleId?: string; entityType?: string; entityId?: string; status?: string; limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{ exemptions: ComplianceExemption[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/exemptions${buildQuery(params)}`);
+  }
+
+  /** Request an exemption */
+  async createExemption(data: ExemptionCreate) {
+    return this.request<ApiResponse<{ exemption: ComplianceExemption }>>('/api/compliance/exemptions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Approve or reject an exemption */
+  async reviewExemption(id: string, status: 'approved' | 'rejected', rejectionReason?: string) {
+    return this.request<ApiResponse<{ exemption: ComplianceExemption }>>(`/api/compliance/exemptions/${id}/review`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, rejectionReason }),
+    });
+  }
+
+  /** Delete an exemption */
+  async deleteExemption(id: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/compliance/exemptions/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Scans
+  // ============================================
+
+  /** List compliance scans */
+  async getScans(params?: { target?: string; status?: string; limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{ scans: ComplianceScan[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/scans${buildQuery(params)}`);
+  }
+
+  /** Get scan by ID */
+  async getScan(id: string) {
+    return this.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${id}`);
+  }
+
+  /** Trigger a compliance scan */
+  async triggerScan(target: 'plugin' | 'pipeline' | 'all') {
+    return this.request<ApiResponse<{ scan: ComplianceScan }>>('/api/compliance/scans', {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    });
+  }
+
+  /** Cancel a running scan */
+  async cancelScan(id: string) {
+    return this.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${id}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  // ============================================
+  // Rule Templates
+  // ============================================
+
+  /** List available rule templates */
+  async getRuleTemplates() {
+    return this.request<ApiResponse<{ templates: RuleTemplate[] }>>('/api/compliance/templates');
+  }
+
+  /** Apply selected templates to org */
+  async applyRuleTemplates(templateIds: string[]) {
+    return this.request<ApiResponse<{ created: number; skipped: number; ruleIds: string[] }>>('/api/compliance/templates/apply', {
+      method: 'POST',
+      body: JSON.stringify({ templateIds }),
     });
   }
 }

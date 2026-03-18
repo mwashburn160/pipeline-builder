@@ -6,10 +6,14 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
 } from '@mwashburn160/api-server';
+import { createAuditRoutes } from './routes/audit';
 import { createCreateRuleRoutes } from './routes/create-rules';
 import { createDeleteRuleRoutes } from './routes/delete-rules';
+import { createExemptionRoutes } from './routes/exemptions';
 import { createReadRuleRoutes } from './routes/read-rules';
+import { createScanRoutes } from './routes/scans';
 import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
+import { createTemplateRoutes } from './routes/templates';
 import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createValidateRoutes } from './routes/validate';
 
@@ -34,6 +38,18 @@ app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'ap
 
 // Subscription management (auth + org)
 app.use('/compliance/subscriptions', ...createAuthenticatedWithOrgRoute(), createSubscriptionRoutes());
+
+// Audit log (auth + org, rate limited)
+app.use('/compliance/audit', ...createProtectedRoute(quotaService, 'apiCalls'), createAuditRoutes());
+
+// Exemption management (auth + org)
+app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createExemptionRoutes());
+
+// Compliance scans (auth + org)
+app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRoutes());
+
+// Rule templates (auth + org)
+app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());
 
 logger.info('All /compliance routes registered');
 

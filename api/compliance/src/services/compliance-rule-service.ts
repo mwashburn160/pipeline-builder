@@ -1,4 +1,5 @@
 import { createCacheService } from '@mwashburn160/api-core';
+import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
 import {
   CrudService,
   buildComplianceRuleConditions,
@@ -152,6 +153,60 @@ export class ComplianceRuleService extends CrudService<
     return { history, total: countResult?.count ?? 0 };
   }
 
+  /**
+   * Feature #1: Fork a published rule into the org's own rules.
+   * Creates a copy with scope='org' and tracks the source via forkedFromRuleId.
+   */
+  async forkRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
+    const [sourceRule] = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(and(
+        eq(schema.complianceRule.id, ruleId),
+        eq(schema.complianceRule.scope, 'published' as RuleScope),
+      ));
+
+    if (!sourceRule) throw new Error('Published rule not found');
+
+    const forked = await this.create({
+      orgId,
+      name: `${sourceRule.name}-custom`,
+      description: sourceRule.description ?? undefined,
+      policyId: undefined,
+      priority: sourceRule.priority,
+      target: sourceRule.target,
+      severity: sourceRule.severity,
+      tags: sourceRule.tags as string[],
+      scope: 'org' as RuleScope,
+      suppressNotification: sourceRule.suppressNotification,
+      field: sourceRule.field ?? undefined,
+      operator: sourceRule.operator ?? undefined,
+      value: sourceRule.value ?? undefined,
+      conditions: sourceRule.conditions as any ?? undefined,
+      conditionMode: sourceRule.conditionMode ?? undefined,
+      forkedFromRuleId: ruleId,
+      createdBy: userId,
+      updatedBy: userId,
+    } as ComplianceRuleInsert, userId);
+
+    return forked;
+  }
+
+  /**
+   * Feature #6: Get all enforced rules for an org (org rules + active subscribed rules merged).
+   */
+  async findAllEnforced(orgId: string, target?: RuleTarget): Promise<ComplianceRule[]> {
+    const targets: RuleTarget[] = target ? [target] : ['plugin', 'pipeline'];
+    const allRules: ComplianceRule[] = [];
+
+    for (const t of targets) {
+      const rules = await this.findActiveByOrgAndTarget(orgId, t);
+      allRules.push(...rules);
+    }
+
+    return allRules;
+  }
+
   /** Fetch all rules belonging to a policy. */
   async findByPolicy(policyId: string, orgId: string): Promise<ComplianceRule[]> {
     return this.find({ policyId, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
@@ -202,6 +257,7 @@ export class ComplianceRuleService extends CrudService<
       this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
+        notifyPublishedRuleChange(id, existing.name, 'updated').catch(() => { /* non-fatal */ });
       }
     }
     return updated;
@@ -215,6 +271,7 @@ export class ComplianceRuleService extends CrudService<
       this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
+        notifyPublishedRuleChange(id, existing.name, 'deleted').catch(() => { /* non-fatal */ });
       }
     }
     return deleted;

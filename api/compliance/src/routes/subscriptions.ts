@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { complianceRuleService, type ComplianceRule } from '../services/compliance-rule-service';
 import { subscriptionService } from '../services/subscription-service';
+import { evaluateRules } from '../engine/rule-engine';
 
 const SubscribeSchema = z.object({
   ruleId: z.string().uuid(),
@@ -13,6 +14,15 @@ const SubscribeSchema = z.object({
 
 const SetActiveSchema = z.object({
   isActive: z.boolean(),
+});
+
+const BulkSetActiveSchema = z.object({
+  ruleIds: z.array(z.string().uuid()).min(1).max(100),
+  isActive: z.boolean(),
+});
+
+const ForkRuleSchema = z.object({
+  ruleId: z.string().uuid(),
 });
 
 /**
@@ -157,6 +167,117 @@ export function createSubscriptionRoutes(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('not found') || message.includes('published')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
+  // POST /bulk — bulk activate/deactivate subscriptions (Feature #4)
+  router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, BulkSetActiveSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const { ruleIds, isActive } = validation.value;
+    const updated = await subscriptionService.bulkSetActive(orgId, ruleIds, isActive, userId);
+    await complianceRuleService.invalidateRulesCache(orgId);
+
+    ctx.log('COMPLETED', `Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { requested: ruleIds.length, updated });
+    return sendSuccess(res, 200, { requested: ruleIds.length, updated });
+  }));
+
+  // POST /fork — fork a published rule into org scope (Feature #1)
+  router.post('/fork', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, ForkRuleSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    try {
+      const rule = await complianceRuleService.forkRule(validation.value.ruleId, orgId, userId);
+      ctx.log('COMPLETED', 'Forked published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
+      return sendSuccess(res, 201, { rule });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
+  // GET /enforced — merged view of all enforced rules (org + active subscriptions) (Feature #6)
+  router.get('/enforced', withRoute(async ({ req, res, ctx, orgId }) => {
+    const target = req.query.target as 'plugin' | 'pipeline' | undefined;
+    const rules = await complianceRuleService.findAllEnforced(orgId, target);
+
+    ctx.log('COMPLETED', 'Listed all enforced rules', { count: rules.length });
+    return sendSuccess(res, 200, { rules, total: rules.length });
+  }));
+
+  // POST /preview — dry-run preview of how a rule would affect existing entities (Feature #10)
+  router.post('/preview', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { ruleId, sampleAttributes } = req.body || {};
+    if (!ruleId || typeof ruleId !== 'string') {
+      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    }
+
+    // Fetch the rule
+    const [rule] = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(and(
+        eq(schema.complianceRule.id, ruleId),
+        isNull(schema.complianceRule.deletedAt),
+      ));
+
+    if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
+
+    // If sample attributes provided, evaluate against them
+    if (sampleAttributes && typeof sampleAttributes === 'object') {
+      const result = evaluateRules([rule as any], sampleAttributes, []);
+      ctx.log('COMPLETED', 'Subscription activation preview', { ruleId, blocked: result.blocked });
+      return sendSuccess(res, 200, { preview: result });
+    }
+
+    // Otherwise return rule details for the org to review
+    ctx.log('COMPLETED', 'Subscription rule preview', { ruleId });
+    return sendSuccess(res, 200, { rule });
+  }));
+
+  // POST /:ruleId/pin — pin subscription to current rule version (Feature #5)
+  router.post('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const ruleId = getParam(req.params, 'ruleId');
+    if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+
+    try {
+      const subscription = await subscriptionService.pinVersion(orgId, ruleId, userId);
+      ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
+      return sendSuccess(res, 200, { subscription });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
+  }));
+
+  // DELETE /:ruleId/pin — unpin subscription (use latest rule version) (Feature #5)
+  router.delete('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId }) => {
+    const ruleId = getParam(req.params, 'ruleId');
+    if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+
+    try {
+      const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
+      await complianceRuleService.invalidateRulesCache(orgId);
+      ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
+      return sendSuccess(res, 200, { subscription });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
       throw err;

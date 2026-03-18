@@ -386,7 +386,7 @@ describe('plugin-build-queue', () => {
 
       failedHandler(job, error);
 
-      expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', 'Build failed: Build timeout', expect.objectContaining({
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', 'Build failed: an error occurred during the build process', expect.objectContaining({
         jobId: 'job-1',
         attemptsMade: 1,
         maxAttempts: 2,

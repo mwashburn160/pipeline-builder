@@ -191,3 +191,26 @@ export interface ComplianceRuleSubscription {
 export interface PublishedRuleCatalogEntry extends ComplianceRule {
   subscribed: boolean;
 }
+
+export interface RuleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  target: RuleTarget;
+  severity: RuleSeverity;
+  field: string;
+  operator: string;
+  value?: unknown;
+  priority: number;
+  tags: string[];
+  category: string;
+}
+
+export interface ExemptionCreate {
+  ruleId: string;
+  entityType: RuleTarget;
+  entityId: string;
+  entityName?: string;
+  reason: string;
+  expiresAt?: string;
+}
