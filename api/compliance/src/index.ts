@@ -7,13 +7,17 @@ import {
   createAuthenticatedWithOrgRoute,
 } from '@mwashburn160/api-server';
 import { createAuditRoutes } from './routes/audit';
+import { createCreatePolicyRoutes } from './routes/create-policies';
 import { createCreateRuleRoutes } from './routes/create-rules';
+import { createDeletePolicyRoutes } from './routes/delete-policies';
 import { createDeleteRuleRoutes } from './routes/delete-rules';
 import { createExemptionRoutes } from './routes/exemptions';
+import { createReadPolicyRoutes } from './routes/read-policies';
 import { createReadRuleRoutes } from './routes/read-rules';
 import { createScanRoutes } from './routes/scans';
 import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
 import { createTemplateRoutes } from './routes/templates';
+import { createUpdatePolicyRoutes } from './routes/update-policies';
 import { createUpdateRuleRoutes } from './routes/update-rules';
 import { createValidateRoutes } from './routes/validate';
 
@@ -47,6 +51,12 @@ app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createEx
 
 // Compliance scans (auth + org)
 app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRoutes());
+
+// Policy CRUD routes
+app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createCreatePolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createUpdatePolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createDeletePolicyRoutes());
 
 // Rule templates (auth + org)
 app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());
