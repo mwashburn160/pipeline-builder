@@ -1,3 +1,17 @@
+## 1.43.1 (2026-03-18)
+
+### 🩹 Fixes
+
+- version=1.41.0 ([9f0892ac](https://github.com/mwashburn160/pipeline-builder/commit/9f0892ac))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.42.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.43.0 (2026-03-18)
 
 ### 🚀 Features
