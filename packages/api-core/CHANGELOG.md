@@ -1,3 +1,14 @@
+## 1.40.1 (2026-03-18)
+
+### 🩹 Fixes
+
+- updated compliance model ([2b480e1b](https://github.com/mwashburn160/pipeline-builder/commit/2b480e1b))
+- updated compliance tests ([5feea0d9](https://github.com/mwashburn160/pipeline-builder/commit/5feea0d9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.0 (2026-03-17)
 
 ### 🚀 Features

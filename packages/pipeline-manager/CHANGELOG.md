@@ -1,3 +1,17 @@
+## 1.37.1 (2026-03-18)
+
+### 🩹 Fixes
+
+- updated compliance tests ([5feea0d9](https://github.com/mwashburn160/pipeline-builder/commit/5feea0d9))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.42.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.0 (2026-03-17)
 
 ### 🚀 Features

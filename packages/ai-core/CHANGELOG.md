@@ -1,3 +1,17 @@
+## 1.14.1 (2026-03-18)
+
+### 🩹 Fixes
+
+- updated compliance tests ([5feea0d9](https://github.com/mwashburn160/pipeline-builder/commit/5feea0d9))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.40.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.14.0 (2026-03-17)
 
 ### 🚀 Features
