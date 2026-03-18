@@ -1,3 +1,13 @@
+## 1.42.3 (2026-03-18)
+
+### 🩹 Fixes
+
+- version=1.40.2 ([dee783e3](https://github.com/mwashburn160/pipeline-builder/commit/dee783e3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.2 (2026-03-18)
 
 ### 🩹 Fixes
