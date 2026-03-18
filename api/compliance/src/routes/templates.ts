@@ -44,14 +44,14 @@ export function createTemplateRoutes(): Router {
           target: template.target,
           severity: template.severity,
           field: template.field,
-          operator: template.operator as any,
+          operator: template.operator,
           value: template.value,
           priority: template.priority,
           tags: template.tags,
           scope: 'org',
           createdBy: userId,
           updatedBy: userId,
-        } as any, userId);
+        } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
         created.push(rule.id);
       } catch {
         skipped.push(template.id);

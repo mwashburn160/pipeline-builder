@@ -202,8 +202,10 @@ export function startWorker(
 
         // 4. Persist build event for reporting
         recordBuildEvent(orgId, 'completed', job, {
-          pluginName: result.name, pluginVersion: result.version,
-          imageTag: result.imageTag, pluginId: result.id,
+          pluginName: result.name,
+          pluginVersion: result.version,
+          imageTag: result.imageTag,
+          pluginId: result.id,
         });
 
         // 5. Send completion SSE

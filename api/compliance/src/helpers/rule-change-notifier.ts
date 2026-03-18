@@ -53,7 +53,9 @@ export async function notifyPublishedRuleChange(
     logger.info('Notified subscribers of published rule change', { ruleId, ruleName, changeType, subscribers: subscribers.length });
   } catch (err) {
     logger.warn('Failed to notify subscribers of rule change', {
-      ruleId, ruleName, changeType,
+      ruleId,
+      ruleName,
+      changeType,
       error: err instanceof Error ? err.message : String(err),
     });
   }

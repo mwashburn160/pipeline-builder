@@ -1,12 +1,12 @@
 import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db, buildPublishedRuleCatalogConditions } from '@mwashburn160/pipeline-core';
-import { and, desc, sql, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, sql, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
+import { evaluateRules } from '../engine/rule-engine';
 import { complianceRuleService, type ComplianceRule } from '../services/compliance-rule-service';
 import { subscriptionService } from '../services/subscription-service';
-import { evaluateRules } from '../engine/rule-engine';
 
 const SubscribeSchema = z.object({
   ruleId: z.string().uuid(),
@@ -218,7 +218,7 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // POST /preview — dry-run preview of how a rule would affect existing entities (Feature #10)
-  router.post('/preview', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/preview', withRoute(async ({ req, res, ctx }) => {
     const { ruleId, sampleAttributes } = req.body || {};
     if (!ruleId || typeof ruleId !== 'string') {
       return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
@@ -237,7 +237,7 @@ export function createSubscriptionRoutes(): Router {
 
     // If sample attributes provided, evaluate against them
     if (sampleAttributes && typeof sampleAttributes === 'object') {
-      const result = evaluateRules([rule as any], sampleAttributes, []);
+      const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], sampleAttributes, []);
       ctx.log('COMPLETED', 'Subscription activation preview', { ruleId, blocked: result.blocked });
       return sendSuccess(res, 200, { preview: result });
     }

@@ -161,7 +161,7 @@ export default function SubscriptionManager() {
                         {sub.rule.severity}
                       </span>
                     )}
-                    {(sub as any).pinnedVersion && (
+                    {sub.pinnedVersion && (
                       <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full px-2 py-0.5">pinned</span>
                     )}
                   </div>
@@ -176,7 +176,7 @@ export default function SubscriptionManager() {
                     <button onClick={() => handleFork(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" title="Fork to org rule">
                       <GitFork className="h-4 w-4" />
                     </button>
-                    {(sub as any).pinnedVersion ? (
+                    {sub.pinnedVersion ? (
                       <button onClick={() => handleUnpin(sub.ruleId)} className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title="Unpin version">
                         <PinOff className="h-4 w-4" />
                       </button>

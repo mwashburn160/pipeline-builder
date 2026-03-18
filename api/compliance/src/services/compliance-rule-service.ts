@@ -1,5 +1,4 @@
 import { createCacheService } from '@mwashburn160/api-core';
-import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
 import {
   CrudService,
   buildComplianceRuleConditions,
@@ -12,6 +11,7 @@ import {
 import { SQL, eq, and, inArray, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
 
 /** Cache for active rules per org+target. Rules change infrequently. */
 const RULES_CACHE_TTL = parseInt(process.env.COMPLIANCE_RULES_CACHE_TTL_SECONDS || '60', 10);
@@ -182,7 +182,7 @@ export class ComplianceRuleService extends CrudService<
       field: sourceRule.field ?? undefined,
       operator: sourceRule.operator ?? undefined,
       value: sourceRule.value ?? undefined,
-      conditions: sourceRule.conditions as any ?? undefined,
+      conditions: (sourceRule.conditions as unknown as ComplianceRuleInsert['conditions']) ?? undefined,
       conditionMode: sourceRule.conditionMode ?? undefined,
       forkedFromRuleId: ruleId,
       createdBy: userId,

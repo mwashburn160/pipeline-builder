@@ -184,6 +184,7 @@ export interface ComplianceRuleSubscription {
   subscribedBy: string;
   subscribedAt: string;
   isActive: boolean;
+  pinnedVersion?: Record<string, unknown> | null;
   unsubscribedAt?: string;
   unsubscribedBy?: string;
 }

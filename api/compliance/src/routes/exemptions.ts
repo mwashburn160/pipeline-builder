@@ -31,9 +31,9 @@ export function createExemptionRoutes(): Router {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
       ruleId: req.query.ruleId as string | undefined,
-      entityType: req.query.entityType as string | undefined,
+      entityType: req.query.entityType as 'plugin' | 'pipeline' | undefined,
       entityId: req.query.entityId as string | undefined,
-      status: req.query.status as string | undefined,
+      status: req.query.status as 'pending' | 'approved' | 'rejected' | 'expired' | undefined,
     };
 
     const conditions = buildComplianceExemptionConditions(filter, orgId);

@@ -1,3 +1,4 @@
+import { entityEvents } from '@mwashburn160/api-core';
 import {
   CrudService,
   buildPluginConditions,
@@ -8,7 +9,6 @@ import {
   PluginType,
   type PluginFilter,
 } from '@mwashburn160/pipeline-core';
-import { entityEvents } from '@mwashburn160/api-core';
 import { and, eq, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -62,24 +62,36 @@ export class PluginService extends CrudService<
 
   protected async onAfterCreate(entity: Plugin): Promise<void> {
     entityEvents.emit({
-      eventType: 'created', target: 'plugin', entityId: entity.id,
-      orgId: entity.orgId, userId: entity.createdBy, timestamp: new Date(),
+      eventType: 'created',
+      target: 'plugin',
+      entityId: entity.id,
+      orgId: entity.orgId,
+      userId: entity.createdBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }
 
   protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
     entityEvents.emit({
-      eventType: 'updated', target: 'plugin', entityId: id,
-      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      eventType: 'updated',
+      target: 'plugin',
+      entityId: id,
+      orgId: entity.orgId,
+      userId: entity.updatedBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
     entityEvents.emit({
-      eventType: 'deleted', target: 'plugin', entityId: id,
-      orgId: entity.orgId, userId: entity.updatedBy, timestamp: new Date(),
+      eventType: 'deleted',
+      target: 'plugin',
+      entityId: id,
+      orgId: entity.orgId,
+      userId: entity.updatedBy,
+      timestamp: new Date(),
       attributes: entity as unknown as Record<string, unknown>,
     });
   }

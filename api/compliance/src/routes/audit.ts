@@ -14,9 +14,9 @@ export function createAuditRoutes(): Router {
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
-      target: req.query.target as string | undefined,
+      target: req.query.target as 'plugin' | 'pipeline' | undefined,
       action: req.query.action as string | undefined,
-      result: req.query.result as string | undefined,
+      result: req.query.result as 'pass' | 'warn' | 'block' | undefined,
       scanId: req.query.scanId as string | undefined,
       dateFrom: req.query.dateFrom as string | undefined,
       dateTo: req.query.dateTo as string | undefined,

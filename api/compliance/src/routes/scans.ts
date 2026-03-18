@@ -1,11 +1,9 @@
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody, createLogger } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db, buildComplianceScanConditions } from '@mwashburn160/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-
-const logger = createLogger('compliance-scans');
 
 /**
  * Feature #7: Compliance scan implementation.
@@ -24,9 +22,9 @@ export function createScanRoutes(): Router {
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
-      target: req.query.target as string | undefined,
-      status: req.query.status as string | undefined,
-      triggeredBy: req.query.triggeredBy as string | undefined,
+      target: req.query.target as 'plugin' | 'pipeline' | 'all' | undefined,
+      status: req.query.status as 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | undefined,
+      triggeredBy: req.query.triggeredBy as 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run' | undefined,
     };
 
     const conditions = buildComplianceScanConditions(filter, orgId);
@@ -54,7 +52,7 @@ export function createScanRoutes(): Router {
   }));
 
   // GET /:id — get scan by ID
-  router.get('/:id', withRoute(async ({ req, res, orgId }) => {
+  router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan');
 
@@ -67,6 +65,7 @@ export function createScanRoutes(): Router {
       ));
 
     if (!scan) return sendEntityNotFound(res, 'Scan');
+    ctx.log('COMPLETED', 'Fetched compliance scan', { scanId: id });
     return sendSuccess(res, 200, { scan });
   }));
 
@@ -89,7 +88,6 @@ export function createScanRoutes(): Router {
       })
       .returning();
 
-    logger.info('Compliance scan triggered', { scanId: scan.id, orgId, target: validation.value.target });
     ctx.log('COMPLETED', 'Triggered compliance scan', { scanId: scan.id, target: validation.value.target });
     return sendSuccess(res, 201, { scan });
   }));
