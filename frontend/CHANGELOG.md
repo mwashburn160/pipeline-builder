@@ -1,3 +1,13 @@
+## 1.40.7 (2026-03-18)
+
+### 🩹 Fixes
+
+- updated dashboard ([80d30b90](https://github.com/mwashburn160/pipeline-builder/commit/80d30b90))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.6 (2026-03-18)
 
 ### 🩹 Fixes
