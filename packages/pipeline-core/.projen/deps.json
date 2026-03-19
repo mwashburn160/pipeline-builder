@@ -82,12 +82,12 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.42.9",
+      "version": "1.42.11",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-data",
-      "version": "1.43.10",
+      "version": "1.43.11",
       "type": "runtime"
     },
     {
