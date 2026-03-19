@@ -1,3 +1,13 @@
+## 1.42.12 (2026-03-19)
+
+### 🩹 Fixes
+
+- upgraded reporting=1.1.4 ([e02054da](https://github.com/mwashburn160/pipeline-builder/commit/e02054da))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.11 (2026-03-19)
 
 ### 🩹 Fixes
