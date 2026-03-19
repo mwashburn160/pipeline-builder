@@ -3,7 +3,7 @@
  * Connects to the plugin service's SSE endpoint and streams build events in real time.
  * Includes automatic retry with exponential backoff on transient connection errors.
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSSE } from './useSSE';
 import { BUILD_SSE_MAX_RETRIES, MAX_BUILD_EVENTS } from '@/lib/constants';
 
@@ -68,13 +68,11 @@ export function useBuildStatus(requestId: string | null) {
   });
 
   // Reset state when requestId changes
-  const prevRequestId = useMemo(() => {
+  useEffect(() => {
     if (requestId) {
       setStatus('building');
       setEvents([]);
     }
-    return requestId;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
   const lastEvent = events.length > 0 ? events[events.length - 1] : null;

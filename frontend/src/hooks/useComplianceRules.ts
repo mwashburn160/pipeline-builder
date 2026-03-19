@@ -24,7 +24,7 @@ export function useComplianceRules(): UseComplianceRulesReturn {
   const [total, setTotal] = useState(0);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const { loading, error: fetchError, refresh } = useAsync(async () => {
+  const { loading, error: fetchError } = useAsync(async () => {
     const res = await api.getComplianceRules();
     if (res.success && res.data) {
       setRules(res.data.rules);

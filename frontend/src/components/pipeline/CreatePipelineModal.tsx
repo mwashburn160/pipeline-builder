@@ -39,7 +39,7 @@ export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
   createLoading, createError, createSuccess, canCreatePublic, initialGitUrl,
 }: CreatePipelineModalProps) {
-  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>(initialGitUrl ? 'ai' : 'ai');
+  const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai'>('ai');
   const [createAccess, setCreateAccess] = useState<'public' | 'private'>('private');
   const [showPreview, setShowPreview] = useState(false);
   const [previewJson, setPreviewJson] = useState<string | null>(null);

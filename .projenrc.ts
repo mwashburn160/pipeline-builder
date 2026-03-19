@@ -24,7 +24,7 @@ const pkg = {
   apiCore:        '1.42.4',
   pipelineData:   '1.43.4',
   pipelineCore:   '1.44.4',
-  apiServer:      '1.41.4',
+  apiServer:      '1.41.6',
   aiCore:         '1.16.4',
   eventIngestion: '1.4.4',
 };

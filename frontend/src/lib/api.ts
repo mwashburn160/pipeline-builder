@@ -520,13 +520,6 @@ class ApiClient {
     });
   }
 
-  async transferOrganizationOwnership(orgId: string, newOwnerId: string) {
-    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/transfer-owner`, {
-      method: 'PATCH',
-      body: JSON.stringify({ newOwnerId }),
-    });
-  }
-
   async getOrgAIConfig() {
     return this.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config');
   }
@@ -676,10 +669,6 @@ class ApiClient {
     return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugin/${id}`);
   }
 
-  async searchPlugins(params: Record<string, string>) {
-    return this.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/find${buildQuery(params)}`);
-  }
-
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
     const formData = new FormData();
     formData.append('plugin', file);
@@ -756,10 +745,6 @@ class ApiClient {
 
   async getPipelineById(id: string) {
     return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);
-  }
-
-  async searchPipelines(params: Record<string, string>) {
-    return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/find${buildQuery(params)}`);
   }
 
   async createPipeline(data: CreatePipelineData) {
