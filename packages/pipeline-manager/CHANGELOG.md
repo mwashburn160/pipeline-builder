@@ -1,3 +1,17 @@
+## 1.39.0 (2026-03-19)
+
+### 🚀 Features
+
+- upgraded deps ([a1d9fece](https://github.com/mwashburn160/pipeline-builder/commit/a1d9fece))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.44.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.38.5 (2026-03-18)
 
 ### 🩹 Fixes

@@ -1,3 +1,20 @@
+## 1.37.0 (2026-03-19)
+
+### 🚀 Features
+
+- upgraded deps ([a1d9fece](https://github.com/mwashburn160/pipeline-builder/commit/a1d9fece))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.44.0
+- Updated @mwashburn160/api-server to 1.41.0
+- Updated @mwashburn160/api-core to 1.42.0
+- Updated @mwashburn160/ai-core to 1.16.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.36.5 (2026-03-18)
 
 ### 🩹 Fixes
