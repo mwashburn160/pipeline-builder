@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
@@ -68,6 +68,58 @@ export default function PluginsPage() {
     ? list.data
     : list.data.filter(p => p.accessModifier !== 'public');
 
+  // ── Bulk Operations ──
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    const modifiable = filteredPlugins.filter(p => canModify(isSysAdmin, p.accessModifier));
+    if (selectedIds.size === modifiable.length && modifiable.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(modifiable.map(p => p.id)));
+    }
+  }, [filteredPlugins, isSysAdmin, selectedIds.size]);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api.bulkDeletePlugins(Array.from(selectedIds));
+      clearSelection();
+      list.refresh();
+    } catch (err) {
+      list.setError(formatError(err, 'Failed to delete plugins'));
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkActivate = async (isActive: boolean) => {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
+      clearSelection();
+      list.refresh();
+    } catch (err) {
+      list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} plugins`));
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   // ── Modals ──
 
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -77,6 +129,24 @@ export default function PluginsPage() {
   // ── Columns ──
 
   const pluginColumns: Column<Plugin>[] = useMemo(() => [
+    ...(isAdmin ? [{
+      id: 'select',
+      header: '',
+      locked: true,
+      render: (plugin: Plugin) => (
+        canModify(isSysAdmin, plugin.accessModifier) ? (
+          <input
+            type="checkbox"
+            checked={selectedIds.has(plugin.id)}
+            onChange={(e) => {
+              e.stopPropagation();
+              toggleSelect(plugin.id);
+            }}
+            className="rounded border-gray-300 dark:border-gray-600"
+          />
+        ) : null
+      ),
+    } as Column<Plugin>] : []),
     {
       id: 'name',
       header: 'Name',
@@ -142,7 +212,7 @@ export default function PluginsPage() {
         </div>
       ),
     },
-  ], [isSysAdmin]);
+  ], [isSysAdmin, isAdmin, selectedIds, toggleSelect]);
 
   // ── Render ──
 
@@ -213,6 +283,51 @@ export default function PluginsPage() {
             </>
           }
         />
+
+        {isAdmin && selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 p-3 mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <input
+              type="checkbox"
+              checked={selectedIds.size === filteredPlugins.filter(p => canModify(isSysAdmin, p.accessModifier)).length}
+              onChange={toggleSelectAll}
+              className="rounded border-gray-300 dark:border-gray-600"
+            />
+            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={() => handleBulkActivate(true)}
+                disabled={bulkLoading}
+                className="btn btn-secondary text-xs px-3 py-1.5"
+              >
+                Activate Selected
+              </button>
+              <button
+                onClick={() => handleBulkActivate(false)}
+                disabled={bulkLoading}
+                className="btn btn-secondary text-xs px-3 py-1.5"
+              >
+                Deactivate Selected
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkLoading}
+                className="btn btn-danger text-xs px-3 py-1.5 inline-flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Selected
+              </button>
+              <button
+                onClick={clearSelection}
+                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                title="Clear selection"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {!list.isLoading && filteredPlugins.length === 0 && list.hasActiveFilters && list.data.length > 0 ? (
           <EmptyState

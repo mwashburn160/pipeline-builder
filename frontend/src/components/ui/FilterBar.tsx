@@ -49,6 +49,7 @@ export function FilterBar({
               value={searchValue}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder || 'Search'}
               className="filter-input pl-10"
             />
           </div>

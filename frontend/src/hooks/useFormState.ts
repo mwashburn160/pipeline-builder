@@ -33,6 +33,7 @@ export function useFormState(): FormState {
   const [success, setSuccess] = useState<string | null>(null);
 
   const reset = useCallback(() => {
+    setLoading(false);
     setError(null);
     setSuccess(null);
   }, []);

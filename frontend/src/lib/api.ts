@@ -279,11 +279,14 @@ class ApiClient {
       
       if (refreshed) {
         headers['Authorization'] = `Bearer ${this.accessToken}`;
+        const retryController = new AbortController();
+        const retryTimeoutId = setTimeout(() => retryController.abort(), API_REQUEST_TIMEOUT_MS);
         const retryResponse = await fetch(url, {
           ...options,
           headers,
           credentials: 'same-origin',
-        });
+          signal: retryController.signal,
+        }).finally(() => clearTimeout(retryTimeoutId));
         
         const retryData = await retryResponse.json().catch(() => ({ 
           statusCode: retryResponse.status, 
@@ -670,6 +673,8 @@ class ApiClient {
   }
 
   async uploadPlugin(file: File, accessModifier: 'public' | 'private' = 'private', options?: { signal?: AbortSignal }) {
+    await this.ensureFreshToken();
+
     const formData = new FormData();
     formData.append('plugin', file);
     formData.append('accessModifier', accessModifier);
@@ -678,6 +683,7 @@ class ApiClient {
       method: 'POST',
       headers: this.authHeaders(),
       body: formData,
+      credentials: 'same-origin',
       signal: options?.signal,
     });
 
@@ -735,6 +741,20 @@ class ApiClient {
     });
   }
 
+  async bulkDeletePlugins(ids: string[]) {
+    return this.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/plugins/bulk/delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  }
+
+  async bulkUpdatePlugins(ids: string[], data: Record<string, unknown>) {
+    return this.request<ApiResponse<{ updated: number }>>('/api/plugins/bulk/update', {
+      method: 'PUT',
+      body: JSON.stringify({ ids, data }),
+    });
+  }
+
   // ============================================
   // Pipeline endpoints
   // ============================================
@@ -772,6 +792,20 @@ class ApiClient {
   async deletePipeline(id: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/pipeline/${id}`, {
       method: 'DELETE',
+    });
+  }
+
+  async bulkDeletePipelines(ids: string[]) {
+    return this.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/pipelines/bulk/delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  }
+
+  async bulkUpdatePipelines(ids: string[], data: Record<string, unknown>) {
+    return this.request<ApiResponse<{ updated: number }>>('/api/pipelines/bulk/update', {
+      method: 'PUT',
+      body: JSON.stringify({ ids, data }),
     });
   }
 
@@ -1054,7 +1088,8 @@ class ApiClient {
   /** Exchange JWT for a short-lived, single-use SSE ticket (avoids putting JWT in query string). */
   async getNotificationTicket(): Promise<string> {
     const res = await this.request<ApiResponse<{ ticket: string }>>('/api/messages/notifications/ticket', { method: 'POST' });
-    return res.data!.ticket;
+    if (!res.data?.ticket) throw new ApiError('Failed to obtain notification ticket', 500);
+    return res.data.ticket;
   }
 
   /** List inbox messages (root messages only), optionally filtered by type */

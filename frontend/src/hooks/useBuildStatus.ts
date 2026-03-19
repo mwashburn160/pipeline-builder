@@ -52,7 +52,7 @@ export function useBuildStatus(requestId: string | null) {
         return true; // close connection
       case 'ERROR':
         setStatus('failed');
-        break;
+        return true; // close connection
     }
   }, []);
 

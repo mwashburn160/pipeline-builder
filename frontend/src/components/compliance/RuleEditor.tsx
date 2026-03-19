@@ -27,6 +27,10 @@ const OPERATORS: { value: RuleOperator; label: string }[] = [
 
 const NO_VALUE_OPS = new Set<string>(['exists', 'notExists']);
 
+const safeStringify = (v: unknown): string => {
+  try { return JSON.stringify(v); } catch { return String(v); }
+};
+
 interface RuleEditorProps {
   rule?: ComplianceRule;
   onSave: (rule: ComplianceRule) => void;
@@ -74,10 +78,10 @@ function ruleToForm(rule?: ComplianceRule): FormState {
     useConditions: hasConditions,
     field: rule.field || '',
     operator: rule.operator || 'eq',
-    value: rule.value != null ? JSON.stringify(rule.value) : '',
+    value: rule.value != null ? safeStringify(rule.value) : '',
     conditionMode: rule.conditionMode || 'all',
     conditions: hasConditions
-      ? rule.conditions!.map(c => ({ field: c.field, operator: c.operator, value: c.value != null ? JSON.stringify(c.value) : '' }))
+      ? rule.conditions!.map(c => ({ field: c.field, operator: c.operator, value: c.value != null ? safeStringify(c.value) : '' }))
       : [],
   };
 }

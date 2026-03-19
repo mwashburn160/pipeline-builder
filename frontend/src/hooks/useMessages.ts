@@ -71,7 +71,7 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
     }
   }, []);
 
-  const { execute: sendMessageRaw } = useAsyncCallback(async (data: {
+  const { execute: sendMessageRaw, error: sendError } = useAsyncCallback(async (data: {
     recipientOrgId: string;
     messageType: MessageType;
     subject: string;
@@ -92,9 +92,9 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
     priority?: MessagePriority;
   }): Promise<Message | null> => {
     const result = await sendMessageRaw(data);
-    if (!result) setError('Failed to send message');
+    if (!result && !sendError) setError('Failed to send message');
     return result;
-  }, [sendMessageRaw]);
+  }, [sendMessageRaw, sendError]);
 
   const { execute: replyRaw } = useAsyncCallback(async (threadId: string, content: string): Promise<Message | null> => {
     const result = await api.replyToMessage(threadId, content);
@@ -164,7 +164,7 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
           break;
         case 'MESSAGE_DELETED':
           if (notification.data.messageId) {
-            setMessages(prev => prev.filter(m => m.id !== notification.data!.messageId));
+            setMessages(prev => prev.filter(m => m.id !== notification.data?.messageId));
           }
           fetchUnreadCount();
           break;

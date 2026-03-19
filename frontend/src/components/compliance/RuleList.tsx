@@ -84,6 +84,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             value={nameSearch}
             onChange={e => setNameSearch(e.target.value)}
             placeholder="Search by name..."
+            aria-label="Search by name"
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 pl-8 pr-3 py-1.5 text-sm"
           />
         </div>

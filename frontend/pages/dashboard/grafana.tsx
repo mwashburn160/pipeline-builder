@@ -32,6 +32,7 @@ export default function GrafanaPage() {
         className="w-full border-0"
         style={{ height: 'calc(100vh - 80px)' }}
         allow="fullscreen"
+        sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
       />
     </DashboardLayout>
   );
