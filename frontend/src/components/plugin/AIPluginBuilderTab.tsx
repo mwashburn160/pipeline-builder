@@ -62,7 +62,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
       onCreated();
       setTimeout(() => onClose(), 2000);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; other deps are stable callbacks
   }, [buildStatus]);
 
   // Streaming preview state (shown during generation before final result)

@@ -144,7 +144,7 @@ export function useAIProviders(
       }
     })();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time fetch on mount; no deps needed
   }, []);
 
   /** Update provider selection and reset model to first available. */

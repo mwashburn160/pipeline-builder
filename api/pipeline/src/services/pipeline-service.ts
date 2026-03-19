@@ -1,4 +1,4 @@
-import { entityEvents, createCacheService } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService, createLogger } from '@mwashburn160/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -7,6 +7,8 @@ import {
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
+
+const logger = createLogger('pipeline-service');
 
 /** Server-side cache for pipeline reads. */
 const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY);
@@ -71,7 +73,9 @@ export class PipelineService extends CrudService<
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   protected async onAfterCreate(entity: Pipeline): Promise<void> {
-    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after pipeline create', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'created',
       target: 'pipeline',
@@ -84,7 +88,9 @@ export class PipelineService extends CrudService<
   }
 
   protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
-    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after pipeline update', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'updated',
       target: 'pipeline',
@@ -97,7 +103,9 @@ export class PipelineService extends CrudService<
   }
 
   protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
-    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after pipeline delete', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'deleted',
       target: 'pipeline',
@@ -158,7 +166,9 @@ export class PipelineService extends CrudService<
         .returning();
 
       const pipeline = result as unknown as Pipeline;
-      pipelineCache.invalidatePattern(`${data.orgId}:*`).catch(() => {});
+      pipelineCache.invalidatePattern(`${data.orgId}:*`).catch((err) => {
+        logger.debug('Cache invalidation failed after pipeline createAsDefault', { orgId: data.orgId, error: err instanceof Error ? err.message : String(err) });
+      });
       return pipeline;
     });
   }

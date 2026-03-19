@@ -68,7 +68,7 @@ export function useAsync<T>(
     return () => {
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are spread dynamically; static analysis cannot track them
   }, [...deps, refreshKey]);
 
   return { data, loading, error, refresh };
@@ -141,7 +141,7 @@ export function useAsyncCallback<T, A extends unknown[]>(
         return null;
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fn is intentionally the only dep; callers must memoize it
     [fn],
   );
 

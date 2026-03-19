@@ -40,6 +40,18 @@ export interface AppConfig {
   lifecycleCheckIntervalMs: number;
 }
 
+/** Safely parse a JSON env var, falling back to a default on parse error. */
+function safeJsonParse<T>(value: string | undefined, fallback: T, envVarName: string): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    // eslint-disable-next-line no-console -- startup config warning before logger is available
+    console.warn(`Invalid JSON in ${envVarName}, using default:`, value);
+    return fallback;
+  }
+}
+
 const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
 
 if (billingEnabled && !process.env.MONGODB_URI) {
@@ -73,16 +85,19 @@ export const config: AppConfig = {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',
     region: process.env.AWS_MARKETPLACE_REGION || process.env.AWS_REGION || 'us-east-1',
     snsTopicArn: process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN || '',
-    dimensionToPlanMap: JSON.parse(
-      process.env.AWS_MARKETPLACE_DIMENSION_MAP
-        || '{"developer":"developer","pro":"pro","unlimited":"unlimited"}',
+    dimensionToPlanMap: safeJsonParse(
+      process.env.AWS_MARKETPLACE_DIMENSION_MAP,
+      { developer: 'developer', pro: 'pro', unlimited: 'unlimited' },
+      'AWS_MARKETPLACE_DIMENSION_MAP',
     ),
   },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
-    priceToPlanMap: JSON.parse(
-      process.env.STRIPE_PRICE_MAP || '{}',
+    priceToPlanMap: safeJsonParse(
+      process.env.STRIPE_PRICE_MAP,
+      {} as Record<string, string>,
+      'STRIPE_PRICE_MAP',
     ),
   },
 };

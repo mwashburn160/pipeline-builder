@@ -25,10 +25,20 @@ export function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="section-title text-sm tracking-tight mb-3">{children}</h3>;
 }
 
+/** Map of supported column counts to Tailwind grid classes (avoids dynamic class generation). */
+const gridColsClass: Record<number, string> = {
+  1: 'sm:grid-cols-1',
+  2: 'sm:grid-cols-2',
+  3: 'sm:grid-cols-3',
+  4: 'sm:grid-cols-4',
+  5: 'sm:grid-cols-5',
+  6: 'sm:grid-cols-6',
+};
+
 /** Skeleton cards matching the summary stat card layout. */
 export function StatCardSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className={`grid grid-cols-2 sm:grid-cols-${count} gap-4`}>
+    <div className={`grid grid-cols-2 ${gridColsClass[count] ?? 'sm:grid-cols-4'} gap-4`}>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="card py-4 text-center">
           <Skeleton className="h-8 w-16 mx-auto mb-2" />

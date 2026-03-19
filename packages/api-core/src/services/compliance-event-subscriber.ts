@@ -30,7 +30,7 @@ export function registerComplianceEventSubscriber(config?: Partial<ServiceConfig
         });
       } catch (err) {
         // Fire-and-forget: log and swallow. Compliance notification is non-fatal.
-        logger.debug('Failed to notify compliance service of entity event', {
+        logger.warn('Failed to notify compliance service of entity event', {
           target: event.target,
           eventType: event.eventType,
           entityId: event.entityId,

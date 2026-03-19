@@ -1,4 +1,4 @@
-import { entityEvents, createCacheService } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService, createLogger } from '@mwashburn160/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -10,6 +10,8 @@ import {
   PluginType,
   type PluginFilter,
 } from '@mwashburn160/pipeline-core';
+
+const logger = createLogger('plugin-service');
 
 /** Server-side cache for plugin reads. */
 const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY);
@@ -73,7 +75,9 @@ export class PluginService extends CrudService<
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   protected async onAfterCreate(entity: Plugin): Promise<void> {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after plugin create', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'created',
       target: 'plugin',
@@ -86,7 +90,9 @@ export class PluginService extends CrudService<
   }
 
   protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after plugin update', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'updated',
       target: 'plugin',
@@ -99,7 +105,9 @@ export class PluginService extends CrudService<
   }
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+      logger.debug('Cache invalidation failed after plugin delete', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+    });
     entityEvents.emit({
       eventType: 'deleted',
       target: 'plugin',
@@ -183,7 +191,9 @@ export class PluginService extends CrudService<
         .returning();
 
       const result = upserted as unknown as Plugin;
-      pluginCache.invalidatePattern(`${data.orgId}:*`).catch(() => {});
+      pluginCache.invalidatePattern(`${data.orgId}:*`).catch((err) => {
+        logger.debug('Cache invalidation failed after plugin deploy', { orgId: data.orgId, error: err instanceof Error ? err.message : String(err) });
+      });
       return result;
     });
   }

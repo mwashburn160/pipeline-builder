@@ -112,7 +112,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // Reset to page 0 when filters change
   useEffect(() => {
     setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; only filter values matter
   }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k])]);
 
   // Fetch data when debounced filters, pagination, or fetchKey change
@@ -161,7 +161,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
 
     doFetch();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
   }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pagination.limit, pagination.offset, fetchKey]);
 
   const updateFilter = useCallback((key: string, value: string) => {
@@ -170,7 +170,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
 
   const clearFilters = useCallback(() => {
     setFilters(initialFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialFilters is only used on mount to reset state
   }, []);
 
   const hasActiveFilters = useMemo(() => fields.some(f => {

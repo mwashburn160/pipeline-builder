@@ -168,7 +168,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       if (autoGenerate && initialUrl && ai.selectedProvider && ai.selectedModel && !ai.loading) {
         handleGenerate();
       }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate to prevent infinite loops on prop changes
     }, [ai.loading]);
 
     if (ai.loading) {

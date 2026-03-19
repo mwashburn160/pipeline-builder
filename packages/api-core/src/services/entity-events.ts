@@ -15,6 +15,10 @@
  * - Subscribers run async: never block the original request
  */
 
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('entity-events');
+
 export type EntityEventType = 'created' | 'updated' | 'deleted';
 export type EntityTarget = 'plugin' | 'pipeline' | 'message' | 'organization' | 'user';
 
@@ -62,9 +66,13 @@ class EntityEventEmitter {
    */
   emit(event: EntityEvent): void {
     for (const subscriber of this.subscribers) {
-      subscriber.onEntityEvent(event).catch(() => {
-        // Silently swallow — subscriber is responsible for its own error handling.
-        // This ensures entity mutations are never blocked by subscriber failures.
+      subscriber.onEntityEvent(event).catch((err) => {
+        logger.debug('Entity event subscriber failed', {
+          target: event.target,
+          eventType: event.eventType,
+          entityId: event.entityId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }
   }

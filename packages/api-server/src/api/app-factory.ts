@@ -1,4 +1,4 @@
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, CoreConstants, getConnection } from '@mwashburn160/pipeline-core';
 import compression from 'compression';
@@ -245,8 +245,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       validate: { keyGeneratorIpFallback: false },
       // Per-org key: use orgId from JWT when available, fall back to IP
       keyGenerator: (req: Request) => {
-        const orgId = (req as any).orgId || (req as any).identity?.orgId;
-        return orgId || req.ip || req.requestId || 'anon';
+        return getOrgId(req) || req.ip || 'anon';
       },
       handler: (_req: Request, res: Response) => {
         sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);

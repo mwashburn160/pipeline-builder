@@ -40,7 +40,7 @@ export default function UploadPluginModal({ canUploadPublic, onClose, onUploaded
       }, 2000);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; other deps are stable callbacks
   }, [buildStatus]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
