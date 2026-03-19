@@ -48,7 +48,7 @@ Parameters:
 
   ReportingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/reporting:1.1.0
+    Default: ghcr.io/mwashburn160/reporting:0.4.5
     Description: Docker image for the Reporting service
 
   ComplianceImage:

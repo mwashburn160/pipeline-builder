@@ -478,7 +478,7 @@ services:
     deploy: *api-deploy
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:1.1.0'
+    image: 'ghcr.io/mwashburn160/reporting:0.4.5'
     container_name: reporting
     restart: always
     environment:
