@@ -1,3 +1,13 @@
+## 1.43.3 (2026-03-19)
+
+### 🩹 Fixes
+
+- version=1.42.2 ([33204fc0](https://github.com/mwashburn160/pipeline-builder/commit/33204fc0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.43.2 (2026-03-19)
 
 ### 🩹 Fixes
