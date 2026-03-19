@@ -1,3 +1,13 @@
+## 1.41.6 (2026-03-19)
+
+### 🩹 Fixes
+
+- isAdmin prop wasn't being passed ([b38c5a0b](https://github.com/mwashburn160/pipeline-builder/commit/b38c5a0b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.5 (2026-03-19)
 
 ### 🩹 Fixes
