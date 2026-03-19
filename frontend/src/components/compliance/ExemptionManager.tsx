@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldOff, Check, X, Plus, Loader2, Clock } from 'lucide-react';
+import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import type { ComplianceExemption, ExemptionStatus } from '@/types/compliance';
 
@@ -12,12 +12,18 @@ const STATUS_STYLES: Record<ExemptionStatus, { bg: string; text: string }> = {
   expired: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-500 dark:text-gray-400' },
 };
 
-export default function ExemptionManager() {
+interface ExemptionManagerProps {
+  readOnly?: boolean;
+}
+
+export default function ExemptionManager({ readOnly = false }: ExemptionManagerProps) {
   const [exemptions, setExemptions] = useState<ComplianceExemption[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<{ ruleId: string; entityType: 'plugin' | 'pipeline'; entityId: string; entityName: string; reason: string }>({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const fetchExemptions = useCallback(async () => {
     setLoading(true);
@@ -34,26 +40,48 @@ export default function ExemptionManager() {
 
   const handleCreate = async () => {
     if (!form.ruleId || !form.entityId || !form.reason) return;
-    await api.createExemption({
-      ruleId: form.ruleId,
-      entityType: form.entityType,
-      entityId: form.entityId,
-      entityName: form.entityName || undefined,
-      reason: form.reason,
-    });
-    setShowForm(false);
-    setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
-    fetchExemptions();
+    try {
+      const res = await api.createExemption({
+        ruleId: form.ruleId,
+        entityType: form.entityType,
+        entityId: form.entityId,
+        entityName: form.entityName || undefined,
+        reason: form.reason,
+      });
+      if (res.success) {
+        setShowForm(false);
+        setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
+        fetchExemptions();
+      }
+    } catch { /* handled by API layer */ }
   };
 
-  const handleReview = async (id: string, status: 'approved' | 'rejected') => {
-    await api.reviewExemption(id, status);
-    fetchExemptions();
+  const handleApprove = async (id: string) => {
+    try {
+      await api.reviewExemption(id, 'approved');
+      fetchExemptions();
+    } catch { /* handled by API layer */ }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await api.reviewExemption(id, 'rejected', rejectionReason || undefined);
+      setRejectingId(null);
+      setRejectionReason('');
+      fetchExemptions();
+    } catch { /* handled by API layer */ }
   };
 
   const handleDelete = async (id: string) => {
-    await api.deleteExemption(id);
-    fetchExemptions();
+    try {
+      await api.deleteExemption(id);
+      fetchExemptions();
+    } catch { /* handled by API layer */ }
+  };
+
+  const openReject = (id: string) => {
+    setRejectingId(id);
+    setRejectionReason('');
   };
 
   if (loading) {
@@ -78,9 +106,11 @@ export default function ExemptionManager() {
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
           </select>
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
-            <Plus className="h-4 w-4" /> Request
-          </button>
+          {!readOnly && (
+            <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
+              <Plus className="h-4 w-4" /> Request
+            </button>
+          )}
         </div>
       </div>
 
@@ -110,35 +140,65 @@ export default function ExemptionManager() {
           {exemptions.map(ex => {
             const style = STATUS_STYLES[ex.status];
             return (
-              <div key={ex.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>{ex.status}</span>
-                  <div>
-                    <div className="text-sm text-gray-900 dark:text-white">{ex.entityName || ex.entityId}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
+              <div key={ex.id} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>{ex.status}</span>
+                    <div>
+                      <div className="text-sm text-gray-900 dark:text-white">{ex.entityName || ex.entityId}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
+                    </div>
+                    {ex.expiresAt && (
+                      <div className="flex items-center gap-1 text-xs text-gray-400">
+                        <Clock className="h-3 w-3" />
+                        {new Date(ex.expiresAt).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
-                  {ex.expiresAt && (
-                    <div className="flex items-center gap-1 text-xs text-gray-400">
-                      <Clock className="h-3 w-3" />
-                      {new Date(ex.expiresAt).toLocaleDateString()}
+                  {!readOnly && (
+                    <div className="flex items-center gap-1">
+                      {ex.status === 'pending' && (
+                        <>
+                          <button onClick={() => handleApprove(ex.id)} className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20" title="Approve" aria-label="Approve">
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => openReject(ex.id)}
+                            className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            title="Reject"
+                            aria-label="Reject"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => handleDelete(ex.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete" aria-label="Delete">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
-                  {ex.status === 'pending' && (
-                    <>
-                      <button onClick={() => handleReview(ex.id, 'approved')} className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20" title="Approve">
-                        <Check className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => handleReview(ex.id, 'rejected')} className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Reject">
-                        <X className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-                  <button onClick={() => handleDelete(ex.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+                {ex.status === 'rejected' && ex.rejectionReason && (
+                  <div className="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/10 rounded px-2 py-1">
+                    Rejection reason: {ex.rejectionReason}
+                  </div>
+                )}
+                {rejectingId === ex.id && (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={rejectionReason}
+                      onChange={e => setRejectionReason(e.target.value)}
+                      placeholder="Reason for rejection (optional)"
+                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm"
+                    />
+                    <button onClick={() => handleReject(ex.id)} className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700">
+                      Confirm Reject
+                    </button>
+                    <button onClick={() => { setRejectingId(null); setRejectionReason(''); }} className="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

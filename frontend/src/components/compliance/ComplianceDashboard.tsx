@@ -1,22 +1,27 @@
 'use client';
 
-import { useState, useEffect, lazy, Suspense } from 'react';
-import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles } from 'lucide-react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter } from 'lucide-react';
 import api from '@/lib/api';
-import type { ComplianceAuditEntry } from '@/types/compliance';
+import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 
 const RuleList = lazy(() => import('./RuleList'));
+const RuleEditor = lazy(() => import('./RuleEditor'));
 const SubscriptionManager = lazy(() => import('./SubscriptionManager'));
 const ExemptionManager = lazy(() => import('./ExemptionManager'));
 const ScanManager = lazy(() => import('./ScanManager'));
 const TemplateOnboarding = lazy(() => import('./TemplateOnboarding'));
 const EnforcedRulesView = lazy(() => import('./EnforcedRulesView'));
+const PolicyManager = lazy(() => import('./PolicyManager'));
+const RuleHistory = lazy(() => import('./RuleHistory'));
+const ScanDetail = lazy(() => import('./ScanDetail'));
 
-type Tab = 'overview' | 'rules' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'templates';
+type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'templates';
 
 const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'rules', label: 'Rules', icon: Shield },
+  { id: 'policies', label: 'Policies', icon: FileText },
   { id: 'subscriptions', label: 'Catalog', icon: BookOpen },
   { id: 'enforced', label: 'Enforced', icon: CheckCircle },
   { id: 'exemptions', label: 'Exemptions', icon: ShieldOff },
@@ -41,19 +46,34 @@ function TabSpinner() {
   return <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" /></div>;
 }
 
-export default function ComplianceDashboard() {
+interface ComplianceDashboardProps {
+  isAdmin?: boolean;
+}
+
+export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashboardProps) {
   const [tab, setTab] = useState<Tab>('overview');
   const [audit, setAudit] = useState<ComplianceAuditEntry[]>([]);
   const [stats, setStats] = useState({ rules: 0, pass: 0, warn: 0, block: 0 });
 
-  useEffect(() => {
-    Promise.allSettled([
-      api.getComplianceAuditLog({ limit: 50 }),
-      api.getComplianceRules({ limit: 1 }),
-    ]).then(([auditRes, rulesRes]) => {
-      if (auditRes.status === 'fulfilled' && auditRes.value.success && auditRes.value.data) {
-        const entries = auditRes.value.data.entries;
-        setAudit(entries.slice(0, 10));
+  // Sub-views for drill-downs
+  const [historyRule, setHistoryRule] = useState<{ id: string; name: string } | null>(null);
+  const [detailScanId, setDetailScanId] = useState<string | null>(null);
+  const [editorRule, setEditorRule] = useState<ComplianceRule | undefined>(undefined);
+  const [showEditor, setShowEditor] = useState(false);
+
+  // Audit log filters
+  const [auditTarget, setAuditTarget] = useState('');
+  const [auditResult, setAuditResult] = useState('');
+
+  const fetchAudit = useCallback(async () => {
+    try {
+      const params: Record<string, string | number> = { limit: 50 };
+      if (auditTarget) params.target = auditTarget;
+      if (auditResult) params.result = auditResult;
+      const res = await api.getComplianceAuditLog(params);
+      if (res.success && res.data) {
+        const entries = res.data.entries;
+        setAudit(entries.slice(0, 20));
         setStats(s => ({
           ...s,
           pass: entries.filter(e => e.result === 'pass').length,
@@ -61,11 +81,54 @@ export default function ComplianceDashboard() {
           block: entries.filter(e => e.result === 'block').length,
         }));
       }
-      if (rulesRes.status === 'fulfilled' && rulesRes.value.success && rulesRes.value.data?.pagination) {
-        setStats(s => ({ ...s, rules: rulesRes.value.data!.pagination!.total }));
+    } catch { /* handled by API layer */ }
+  }, [auditTarget, auditResult]);
+
+  useEffect(() => {
+    fetchAudit();
+    api.getComplianceRules({ limit: 1 }).then(res => {
+      if (res.success && res.data?.pagination) {
+        setStats(s => ({ ...s, rules: res.data!.pagination!.total }));
       }
-    });
-  }, []);
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refetch audit when filters change (skip initial since above handles it)
+  const filtersActive = auditTarget || auditResult;
+  useEffect(() => {
+    if (filtersActive) fetchAudit();
+  }, [filtersActive, fetchAudit]);
+
+  // Clear sub-views on tab change
+  useEffect(() => {
+    setHistoryRule(null);
+    setDetailScanId(null);
+    setShowEditor(false);
+    setEditorRule(undefined);
+  }, [tab]);
+
+  const handleViewHistory = (rule: ComplianceRule) => {
+    setHistoryRule({ id: rule.id, name: rule.name });
+  };
+
+  const handleViewScan = (scanId: string) => {
+    setDetailScanId(scanId);
+  };
+
+  const handleEditRule = (rule: ComplianceRule) => {
+    setEditorRule(rule);
+    setShowEditor(true);
+  };
+
+  const handleCreateRule = () => {
+    setEditorRule(undefined);
+    setShowEditor(true);
+  };
+
+  const handleRuleSaved = () => {
+    setShowEditor(false);
+    setEditorRule(undefined);
+  };
 
   return (
     <div className="space-y-6">
@@ -86,19 +149,52 @@ export default function ComplianceDashboard() {
 
       {/* Content */}
       <Suspense fallback={<TabSpinner />}>
-        {tab === 'overview' && <Overview stats={stats} audit={audit} />}
-        {tab === 'rules' && <RuleList />}
-        {tab === 'subscriptions' && <SubscriptionManager />}
+        {tab === 'overview' && (
+          <Overview
+            stats={stats}
+            audit={audit}
+            auditTarget={auditTarget}
+            auditResult={auditResult}
+            onTargetChange={setAuditTarget}
+            onResultChange={setAuditResult}
+          />
+        )}
+        {tab === 'rules' && (
+          showEditor
+            ? <RuleEditor rule={editorRule} onSave={handleRuleSaved} onCancel={() => setShowEditor(false)} />
+            : historyRule
+              ? <RuleHistory ruleId={historyRule.id} ruleName={historyRule.name} onBack={() => setHistoryRule(null)} />
+              : <RuleList
+                  onViewHistory={handleViewHistory}
+                  onEdit={isAdmin ? handleEditRule : undefined}
+                  onCreateNew={isAdmin ? handleCreateRule : undefined}
+                />
+        )}
+        {tab === 'policies' && <PolicyManager readOnly={!isAdmin} />}
+        {tab === 'subscriptions' && <SubscriptionManager readOnly={!isAdmin} />}
         {tab === 'enforced' && <EnforcedRulesView />}
-        {tab === 'exemptions' && <ExemptionManager />}
-        {tab === 'scans' && <ScanManager />}
+        {tab === 'exemptions' && <ExemptionManager readOnly={!isAdmin} />}
+        {tab === 'scans' && (
+          detailScanId
+            ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} />
+            : <ScanManager onViewScan={handleViewScan} readOnly={!isAdmin} />
+        )}
         {tab === 'templates' && <TemplateOnboarding />}
       </Suspense>
     </div>
   );
 }
 
-function Overview({ stats, audit }: { stats: { rules: number; pass: number; warn: number; block: number }; audit: ComplianceAuditEntry[] }) {
+interface OverviewProps {
+  stats: { rules: number; pass: number; warn: number; block: number };
+  audit: ComplianceAuditEntry[];
+  auditTarget: string;
+  auditResult: string;
+  onTargetChange: (v: string) => void;
+  onResultChange: (v: string) => void;
+}
+
+function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onResultChange }: OverviewProps) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -120,11 +216,37 @@ function Overview({ stats, audit }: { stats: { rules: number; pass: number; warn
         ))}
       </div>
 
-      {audit.length > 0 && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Activity className="h-4 w-4" /> Recent Checks
           </h3>
+          <div className="flex items-center gap-2">
+            <Filter className="h-3.5 w-3.5 text-gray-400" />
+            <select
+              value={auditTarget}
+              onChange={e => onTargetChange(e.target.value)}
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+            >
+              <option value="">All targets</option>
+              <option value="plugin">Plugin</option>
+              <option value="pipeline">Pipeline</option>
+            </select>
+            <select
+              value={auditResult}
+              onChange={e => onResultChange(e.target.value)}
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs"
+            >
+              <option value="">All results</option>
+              <option value="pass">Pass</option>
+              <option value="warn">Warn</option>
+              <option value="block">Block</option>
+            </select>
+          </div>
+        </div>
+        {audit.length === 0 ? (
+          <div className="text-center py-4 text-sm text-gray-400">No audit entries found.</div>
+        ) : (
           <div className="space-y-1">
             {audit.map(entry => {
               const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
@@ -142,8 +264,8 @@ function Overview({ stats, audit }: { stats: { rules: number; pass: number; warn
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

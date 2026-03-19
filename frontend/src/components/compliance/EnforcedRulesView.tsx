@@ -98,7 +98,7 @@ function RuleTable({ rules }: { rules: ComplianceRule[] }) {
                 <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
               </td>
               <td className="px-4 py-2.5">
-                <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity]}`}>{rule.severity}</span>
+                <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
               </td>
               <td className="px-4 py-2.5 text-sm text-gray-600 dark:text-gray-400 font-mono">
                 {rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-')}

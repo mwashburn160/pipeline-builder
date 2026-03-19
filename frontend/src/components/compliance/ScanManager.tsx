@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Scan, Play, Square, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Scan, Play, Square, Loader2, CheckCircle, XCircle, Clock, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import type { ComplianceScan, ScanStatus } from '@/types/compliance';
 
@@ -13,19 +13,29 @@ const STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: strin
   cancelled: { icon: Square, color: 'text-gray-500', bg: 'bg-gray-100 dark:bg-gray-700' },
 };
 
-export default function ScanManager() {
+interface ScanManagerProps {
+  onViewScan?: (scanId: string) => void;
+  readOnly?: boolean;
+}
+
+export default function ScanManager({ onViewScan, readOnly = false }: ScanManagerProps) {
   const [scans, setScans] = useState<ComplianceScan[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [targetFilter, setTargetFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   const fetchScans = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getScans({ limit: 20 });
+      const params: Record<string, string | number> = { limit: 20 };
+      if (targetFilter) params.target = targetFilter;
+      if (statusFilter) params.status = statusFilter;
+      const res = await api.getScans(params);
       if (res.success && res.data) setScans(res.data.scans);
     } catch { /* handled by loading state */ }
     setLoading(false);
-  }, []);
+  }, [targetFilter, statusFilter]);
 
   useEffect(() => { fetchScans(); }, [fetchScans]);
 
@@ -50,23 +60,42 @@ export default function ScanManager() {
           <Scan className="h-5 w-5 text-indigo-600" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Compliance Scans</h2>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => handleTrigger('plugin')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-            <Play className="h-3 w-3" /> Scan Plugins
-          </button>
-          <button onClick={() => handleTrigger('pipeline')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-            <Play className="h-3 w-3" /> Scan Pipelines
-          </button>
-          <button onClick={() => handleTrigger('all')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-800 text-white rounded-lg hover:bg-indigo-900 disabled:opacity-50">
-            <Play className="h-3 w-3" /> Scan All
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex gap-2">
+            <button onClick={() => handleTrigger('plugin')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+              <Play className="h-3 w-3" /> Scan Plugins
+            </button>
+            <button onClick={() => handleTrigger('pipeline')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+              <Play className="h-3 w-3" /> Scan Pipelines
+            </button>
+            <button onClick={() => handleTrigger('all')} disabled={triggering} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-800 text-white rounded-lg hover:bg-indigo-900 disabled:opacity-50">
+              <Play className="h-3 w-3" /> Scan All
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-3">
+        <select value={targetFilter} onChange={e => setTargetFilter(e.target.value)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+          <option value="">All targets</option>
+          <option value="plugin">Plugin</option>
+          <option value="pipeline">Pipeline</option>
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="running">Running</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600" /></div>
       ) : scans.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No scans yet. Trigger a scan to evaluate existing entities against current rules.</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No scans found.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -89,8 +118,7 @@ export default function ScanManager() {
                   <tr key={scan.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
-                        <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} />
-                        {scan.status}
+                        <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} /> {scan.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{scan.target}</td>
@@ -111,11 +139,18 @@ export default function ScanManager() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{new Date(scan.createdAt).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
-                      {scan.status === 'running' && (
-                        <button onClick={() => handleCancel(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
-                          <Square className="h-4 w-4" />
-                        </button>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        {onViewScan && (
+                          <button onClick={() => onViewScan(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" title="View details" aria-label="View scan details">
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        )}
+                        {!readOnly && scan.status === 'running' && (
+                          <button onClick={() => handleCancel(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Cancel scan" aria-label="Cancel scan">
+                            <Square className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

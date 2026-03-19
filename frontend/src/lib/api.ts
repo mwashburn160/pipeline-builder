@@ -1,5 +1,5 @@
 import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
-import type { ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
+import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
 // Use relative URL in browser (requests go through nginx), absolute URL for SSR
@@ -1209,6 +1209,43 @@ class ApiClient {
   }
 
   // ============================================
+  // Compliance Policies
+  // ============================================
+
+  /** List compliance policies with optional filters */
+  async getCompliancePolicies(params?: { name?: string; isTemplate?: boolean; limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{ policies: CompliancePolicy[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/policies${buildQuery(params)}`);
+  }
+
+  /** Get a single compliance policy by ID */
+  async getCompliancePolicy(id: string) {
+    return this.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${id}`);
+  }
+
+  /** Create a compliance policy */
+  async createCompliancePolicy(data: { name: string; description?: string; version?: string; ruleNames?: string[] }) {
+    return this.request<ApiResponse<{ policy: CompliancePolicy }>>('/api/compliance/policies', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Update a compliance policy */
+  async updateCompliancePolicy(id: string, data: { name?: string; description?: string; version?: string; isActive?: boolean }) {
+    return this.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Delete a compliance policy */
+  async deleteCompliancePolicy(id: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/compliance/policies/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
   // Published Rules & Subscriptions
   // ============================================
 
@@ -1250,6 +1287,13 @@ class ApiClient {
     return this.request<ApiResponse<{ requested: number; updated: number }>>('/api/compliance/subscriptions/bulk', {
       method: 'POST',
       body: JSON.stringify({ ruleIds, isActive }),
+    });
+  }
+
+  /** Auto-subscribe org to all published rules (inactive by default) */
+  async autoSubscribe() {
+    return this.request<ApiResponse<{ subscribed: number; skipped: number }>>('/api/compliance/subscriptions/auto-subscribe', {
+      method: 'POST',
     });
   }
 
