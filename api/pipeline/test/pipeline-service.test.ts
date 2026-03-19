@@ -20,6 +20,7 @@ jest.mock('@mwashburn160/pipeline-core', () => {
     __mockFind: mockFind,
     __mockSetDefault: mockSetDefault,
     CrudService: MockCrudService,
+    CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPipelineConditions: jest.fn(() => []),
     schema: {
       pipeline: {
