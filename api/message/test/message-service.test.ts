@@ -14,6 +14,7 @@ jest.mock('@mwashburn160/pipeline-core', () => {
 
   return {
     CrudService: MockCrudService,
+    CoreConstants: { CACHE_TTL_MESSAGE: 300 },
     buildMessageConditions: jest.fn(() => []),
     schema: {
       message: {

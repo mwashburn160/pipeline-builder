@@ -24,6 +24,16 @@ jest.mock('@mwashburn160/api-core', () => ({
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
   hashAccountInArn: (arn: string) => arn,
   hashId: (value: string) => value,
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
+}));
+
+jest.mock('@mwashburn160/pipeline-data', () => ({
+  reportingService: {
+    invalidateOrg: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 jest.mock('@mwashburn160/pipeline-core', () => ({

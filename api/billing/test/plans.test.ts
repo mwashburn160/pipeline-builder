@@ -24,6 +24,10 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
 }));
 
 const mockPlanFind = jest.fn();
