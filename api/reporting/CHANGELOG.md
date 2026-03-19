@@ -1,3 +1,13 @@
+## 1.1.6 (2026-03-19)
+
+### 🩹 Fixes
+
+- code review ([8d536c78](https://github.com/mwashburn160/pipeline-builder/commit/8d536c78))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.5 (2026-03-19)
 
 ### 🩹 Fixes
