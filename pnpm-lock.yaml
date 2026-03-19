@@ -600,8 +600,8 @@ importers:
         specifier: 1.44.4
         version: 1.44.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       '@mwashburn160/pipeline-data':
-        specifier: 1.43.4
-        version: 1.43.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 1.43.7
+        version: 1.43.7(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -1007,8 +1007,8 @@ importers:
         specifier: 1.42.4
         version: 1.42.4
       '@mwashburn160/pipeline-data':
-        specifier: 1.43.4
-        version: 1.43.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 1.43.7
+        version: 1.43.7(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.240.0
         version: 2.240.0(constructs@10.5.1)
@@ -2887,8 +2887,8 @@ packages:
     resolution: {integrity: sha512-pwHWlmEqzSzgeUw31eg0MP/TfuD7bLkQh370PfAburuyZH/kvOmd3SSylJ4YhenccVFK9CBhQLuHSnlPerVURw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.43.3/608c1ec693c8767eeaab510568ee52e707401e90}
     engines: {node: '>= 24.14.0'}
 
-  '@mwashburn160/pipeline-data@1.43.4':
-    resolution: {integrity: sha512-KTBSuKdvWEN2Adwca0D++Jgar+wjOb5oIYmKWXY5TIsanFsIcSMDRyOrNG1981eag11EDvulpkfTfua7KmqN5g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.43.4/e57d94be6c58d8fa267e1a8c8294f219b0543f21}
+  '@mwashburn160/pipeline-data@1.43.7':
+    resolution: {integrity: sha512-DPko0GNAWQ4DqUe2wVpkuNG5QsKHO+ovXiSPySL1mOax0/G/zeX4E5v3jKcEiZ/bpDLy3wHMSFnk+tvQoDg39w==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.43.7/85481ed06078588cec2431e14d5bf8823dd8ac4d}
     engines: {node: '>= 24.14.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -9310,9 +9310,9 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@mwashburn160/pipeline-data@1.43.4(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
+  '@mwashburn160/pipeline-data@1.43.7(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
-      '@mwashburn160/api-core': 1.42.3
+      '@mwashburn160/api-core': 1.42.4
       drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
       pg: 8.18.0
     transitivePeerDependencies:

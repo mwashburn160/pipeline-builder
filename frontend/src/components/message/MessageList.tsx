@@ -1,4 +1,4 @@
-import { Megaphone, MessageCircle } from 'lucide-react';
+import { Megaphone, MessageCircle, Trash2 } from 'lucide-react';
 import type { Message } from '@/types';
 
 /** Props for the MessageList component. */
@@ -11,6 +11,8 @@ interface MessageListProps {
   selectedId?: string;
   /** The current user's organization ID, used to determine sender display names. */
   currentOrgId: string;
+  /** Callback to delete a message by ID. */
+  onDelete?: (id: string) => void;
 }
 
 /** Formats a date string as a relative time label (e.g. "5m ago", "2d ago"). */
@@ -42,7 +44,7 @@ function getAvatarLetters(name: string): string {
 }
 
 /** Scrollable inbox list displaying message previews with unread indicators. */
-export function MessageList({ messages, onSelect, selectedId, currentOrgId }: MessageListProps) {
+export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDelete }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 py-12">
@@ -61,14 +63,14 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId }: Me
         const isSelected = selectedId === msg.id;
 
         return (
-          <button
+          <div
             key={msg.id}
-            onClick={() => onSelect(msg)}
-            className={`w-full text-left px-3 py-3 flex items-center gap-3 transition-colors ${
+            className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer ${
               isSelected
                 ? 'bg-blue-50 dark:bg-blue-900/20'
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
             }`}
+            onClick={() => onSelect(msg)}
           >
             {/* Avatar */}
             <div
@@ -110,7 +112,19 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId }: Me
                 )}
               </div>
             </div>
-          </button>
+
+            {/* Delete button (visible on hover) */}
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                title="Delete message"
+                aria-label="Delete message"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         );
       })}
     </div>

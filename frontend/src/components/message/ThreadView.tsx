@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
-import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import type { Message } from '@/types';
 
@@ -16,6 +16,8 @@ interface ThreadViewProps {
   onMarkAsRead: (id: string) => void;
   /** Callback to mark the entire thread as read when opened. */
   onThreadRead: (id: string) => void;
+  /** Callback to delete the conversation (root message + replies). */
+  onDelete?: (id: string) => void;
 }
 
 /** Formats a date string as a locale-specific date/time string. */
@@ -41,7 +43,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, onThreadRead }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, onThreadRead, onDelete }: ThreadViewProps) {
   const [thread, setThread] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
@@ -121,6 +123,16 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, on
             {rootMessage.subject}
           </p>
         </div>
+        {onDelete && (
+          <button
+            onClick={() => { onDelete(rootMessage.id); onBack(); }}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0"
+            title="Delete conversation"
+            aria-label="Delete conversation"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Messages */}

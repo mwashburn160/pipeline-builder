@@ -32,6 +32,7 @@ export default function MessagesPage() {
     sendMessage,
     markAsRead,
     markThreadAsRead,
+    deleteMessage,
     fetchMessages,
   } = useMessages();
 
@@ -49,6 +50,13 @@ export default function MessagesPage() {
     setSelectedMessage(null);
     fetchMessages();
   }, [fetchMessages]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    await deleteMessage(id);
+    if (selectedMessage?.id === id) {
+      setSelectedMessage(null);
+    }
+  }, [deleteMessage, selectedMessage]);
 
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]) => {
     await sendMessage(data);
@@ -102,6 +110,7 @@ export default function MessagesPage() {
                 onSelect={handleSelectMessage}
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
+                onDelete={handleDelete}
               />
             )}
           </div>
@@ -115,6 +124,7 @@ export default function MessagesPage() {
                 onBack={handleBack}
                 onMarkAsRead={markAsRead}
                 onThreadRead={markThreadAsRead}
+                onDelete={handleDelete}
               />
             ) : (
               <EmptyChat />
