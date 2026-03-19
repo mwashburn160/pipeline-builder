@@ -1,39 +1,9 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { z } from 'zod';
+import { ComplianceRuleUpdateSchema } from './rule-schemas';
+import { validateRegexPattern } from '../engine/rule-operators';
 import { complianceRuleService } from '../services/compliance-rule-service';
-
-const VALID_OPERATORS = [
-  'eq', 'neq', 'contains', 'notContains', 'regex',
-  'gt', 'gte', 'lt', 'lte', 'in', 'notIn',
-  'exists', 'notExists', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
-] as const;
-
-const OperatorEnum = z.enum(VALID_OPERATORS);
-
-const ComplianceRuleUpdateSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  policyId: z.string().uuid().nullable().optional(),
-  priority: z.number().int().min(0).max(10000).optional(),
-  severity: z.enum(['warning', 'error', 'critical']).optional(),
-  tags: z.array(z.string()).optional(),
-  effectiveFrom: z.string().datetime().nullable().optional(),
-  effectiveUntil: z.string().datetime().nullable().optional(),
-  suppressNotification: z.boolean().optional(),
-  field: z.string().max(100).optional(),
-  operator: OperatorEnum.optional(),
-  value: z.unknown().optional(),
-  conditions: z.array(z.object({
-    field: z.string().min(1).max(100),
-    operator: OperatorEnum,
-    value: z.unknown().optional(),
-    dependsOnRule: z.string().uuid().optional(),
-  })).optional(),
-  conditionMode: z.enum(['all', 'any']).optional(),
-  isActive: z.boolean().optional(),
-});
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();
@@ -48,6 +18,21 @@ export function createUpdateRuleRoutes(): Router {
     }
 
     const body = validation.value;
+
+    // Validate regex patterns in single-field and cross-field conditions
+    if (body.operator === 'regex' && typeof body.value === 'string') {
+      const regexError = validateRegexPattern(body.value);
+      if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
+    }
+    if (body.conditions) {
+      for (const c of body.conditions) {
+        if (c.operator === 'regex' && typeof c.value === 'string') {
+          const regexError = validateRegexPattern(c.value);
+          if (regexError) return sendBadRequest(res, `Condition "${c.field}": ${regexError}`, ErrorCode.VALIDATION_ERROR);
+        }
+      }
+    }
+
     const updateData: Record<string, unknown> = { ...body };
 
     if (body.effectiveFrom !== undefined) {

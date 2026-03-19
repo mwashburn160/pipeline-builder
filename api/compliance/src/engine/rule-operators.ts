@@ -160,7 +160,7 @@ export function evaluateOperator(
       return Number(fieldValue) < Number(ruleValue);
 
     default:
-      return true; // Unknown operator = no violation
+      return false; // Unknown operator = violation (fail-closed)
   }
 }
 

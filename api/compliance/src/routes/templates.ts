@@ -1,9 +1,11 @@
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { RULE_TEMPLATES } from '../data/rule-templates';
 import { complianceRuleService } from '../services/compliance-rule-service';
+
+const logger = createLogger('compliance-templates');
 
 /**
  * Feature #9: Rule templates — starter rules that orgs can adopt.
@@ -53,7 +55,12 @@ export function createTemplateRoutes(): Router {
           updatedBy: userId,
         } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
         created.push(rule.id);
-      } catch {
+      } catch (err) {
+        logger.warn('Template application failed', {
+          templateId: template.id,
+          templateName: template.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
         skipped.push(template.id);
       }
     }

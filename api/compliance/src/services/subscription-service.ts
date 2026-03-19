@@ -1,7 +1,7 @@
 import { SYSTEM_ORG_ID, createLogger } from '@mwashburn160/api-core';
 import { schema, db } from '@mwashburn160/pipeline-core';
 import type { RuleScope } from '@mwashburn160/pipeline-core';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 
 const logger = createLogger('subscription-service');
 
@@ -181,19 +181,21 @@ export class ComplianceRuleSubscriptionService {
 
     if (publishedRules.length === 0) return 0;
 
-    let subscribed = 0;
-    for (const rule of publishedRules) {
-      try {
-        await db
-          .insert(schema.complianceRuleSubscription)
-          .values({ orgId, ruleId: rule.id, subscribedBy: userId, isActive: false })
-          .onConflictDoNothing({ target: [schema.complianceRuleSubscription.orgId, schema.complianceRuleSubscription.ruleId] });
-        subscribed++;
-      } catch {
-        // Skip individual failures (e.g. race condition)
-      }
-    }
+    // Batch insert all subscriptions in a single query, skipping conflicts
+    const values = publishedRules.map(rule => ({
+      orgId,
+      ruleId: rule.id,
+      subscribedBy: userId,
+      isActive: false,
+    }));
 
+    const result = await db
+      .insert(schema.complianceRuleSubscription)
+      .values(values)
+      .onConflictDoNothing({ target: [schema.complianceRuleSubscription.orgId, schema.complianceRuleSubscription.ruleId] })
+      .returning({ id: schema.complianceRuleSubscription.id });
+
+    const subscribed = result.length;
     logger.info('Auto-subscribed org to published rules', { orgId, total: publishedRules.length, subscribed });
     return subscribed;
   }
@@ -201,20 +203,23 @@ export class ComplianceRuleSubscriptionService {
   /**
    * Feature #4: Bulk activate/deactivate subscriptions.
    */
-  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, userId: string): Promise<number> {
+  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<number> {
     if (orgId === SYSTEM_ORG_ID) {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    let updated = 0;
-    for (const ruleId of ruleIds) {
-      try {
-        await this.setActive(orgId, ruleId, isActive, userId);
-        updated++;
-      } catch {
-        // Skip individual failures (subscription not found, etc.)
-      }
-    }
+    // Single batch update instead of N individual queries
+    const result = await db
+      .update(schema.complianceRuleSubscription)
+      .set({ isActive })
+      .where(and(
+        eq(schema.complianceRuleSubscription.orgId, orgId),
+        inArray(schema.complianceRuleSubscription.ruleId, ruleIds),
+        isNull(schema.complianceRuleSubscription.unsubscribedAt),
+      ))
+      .returning({ id: schema.complianceRuleSubscription.id });
+
+    const updated = result.length;
     logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated });
     return updated;
   }

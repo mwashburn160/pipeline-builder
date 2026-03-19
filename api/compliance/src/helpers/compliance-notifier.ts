@@ -16,7 +16,6 @@ const messageClient = new InternalHttpClient(messageServiceConfig);
  */
 export async function notifyComplianceBlock(
   orgId: string,
-  _userId: string,
   target: string,
   entityName: string,
   violations: Violation[],

@@ -1,7 +1,7 @@
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger } from '@mwashburn160/api-core';
-import type { EntityEvent } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, validateBody } from '@mwashburn160/api-core';
 import type { RuleTarget } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine';
 import { logComplianceCheck } from '../helpers/audit-logger';
 import { complianceRuleService } from '../services/compliance-rule-service';
@@ -13,6 +13,15 @@ const TARGET_MAP: Record<string, RuleTarget | undefined> = {
   plugin: 'plugin',
   pipeline: 'pipeline',
 };
+
+const EntityEventSchema = z.object({
+  entityId: z.string().min(1),
+  orgId: z.string().min(1),
+  target: z.string().min(1),
+  eventType: z.string().min(1),
+  userId: z.string().optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
+});
 
 /**
  * Internal endpoint for receiving entity lifecycle events from other services.
@@ -31,12 +40,12 @@ export function createEntityEventRoutes(): Router {
       return sendError(res, 403, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const event = req.body as EntityEvent;
-
-    if (!event?.entityId || !event?.orgId || !event?.target) {
-      return sendBadRequest(res, 'Missing required fields: entityId, orgId, target', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, EntityEventSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
+    const event = validation.value;
     const ruleTarget = TARGET_MAP[event.target];
     if (!ruleTarget) {
       // Not a compliance-relevant entity type — acknowledge and skip

@@ -4,10 +4,11 @@ import {
   ErrorCode,
   createLogger,
   validateBody,
+  SYSTEM_ORG_ID,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { type RuleTarget, schema, db } from '@mwashburn160/pipeline-core';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or, isNull, gt } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
@@ -60,11 +61,11 @@ async function getActiveExemptions(
   orgId: string,
   entityId: string,
 ): Promise<ActiveExemption[]> {
+  const now = new Date();
   const rows = await db
     .select({
       id: schema.complianceExemption.id,
       ruleId: schema.complianceExemption.ruleId,
-      expiresAt: schema.complianceExemption.expiresAt,
     })
     .from(schema.complianceExemption)
     .where(
@@ -72,13 +73,14 @@ async function getActiveExemptions(
         eq(schema.complianceExemption.orgId, orgId),
         eq(schema.complianceExemption.entityId, entityId),
         eq(schema.complianceExemption.status, 'approved'),
+        or(
+          isNull(schema.complianceExemption.expiresAt),
+          gt(schema.complianceExemption.expiresAt, now),
+        ),
       ),
     );
 
-  const now = new Date();
-  return rows
-    .filter((row) => !row.expiresAt || new Date(row.expiresAt) > now)
-    .map((row) => ({ id: row.id, ruleId: row.ruleId }));
+  return rows.map((row) => ({ id: row.id, ruleId: row.ruleId }));
 }
 
 /**
@@ -95,6 +97,20 @@ async function validateEntity(
   authHeader: string,
   isDryRun: boolean,
 ) {
+  // System org is exempt from all compliance rules and policies
+  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    logger.debug('Skipping compliance for system org', { orgId, target, action });
+    return {
+      passed: true,
+      violations: [],
+      warnings: [],
+      blocked: false,
+      rulesEvaluated: 0,
+      rulesSkipped: 0,
+      exemptionsApplied: [],
+    };
+  }
+
   const rules = await complianceRuleService.findActiveByOrgAndTarget(orgId, target);
   const exemptions = entityId ? await getActiveExemptions(orgId, entityId) : [];
   const result = evaluateRules(rules, attributes, exemptions);
@@ -107,7 +123,7 @@ async function validateEntity(
 
   // Notify on block (skip for dry-runs). Log failures but don't block.
   if (result.blocked && !isDryRun) {
-    notifyComplianceBlock(orgId, userId, target, entityName ?? 'unknown', result.violations, authHeader)
+    notifyComplianceBlock(orgId, target, entityName ?? 'unknown', result.violations, authHeader)
       .catch((err) => logger.warn('Compliance notification failed', { error: String(err) }));
   }
 

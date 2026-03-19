@@ -11,6 +11,7 @@ import { createCreatePolicyRoutes } from './routes/create-policies';
 import { createCreateRuleRoutes } from './routes/create-rules';
 import { createDeletePolicyRoutes } from './routes/delete-policies';
 import { createDeleteRuleRoutes } from './routes/delete-rules';
+import { createEntityEventRoutes } from './routes/entity-events';
 import { createExemptionRoutes } from './routes/exemptions';
 import { createReadPolicyRoutes } from './routes/read-policies';
 import { createReadRuleRoutes } from './routes/read-rules';
@@ -19,7 +20,6 @@ import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './r
 import { createTemplateRoutes } from './routes/templates';
 import { createUpdatePolicyRoutes } from './routes/update-policies';
 import { createUpdateRuleRoutes } from './routes/update-rules';
-import { createEntityEventRoutes } from './routes/entity-events';
 import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');

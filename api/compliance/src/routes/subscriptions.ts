@@ -25,6 +25,11 @@ const ForkRuleSchema = z.object({
   ruleId: z.string().uuid(),
 });
 
+const PreviewSchema = z.object({
+  ruleId: z.string().uuid(),
+  sampleAttributes: z.record(z.string(), z.unknown()).optional(),
+});
+
 /**
  * Routes for browsing the published rules catalog.
  * Any authenticated org can browse.
@@ -219,10 +224,12 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /preview — dry-run preview of how a rule would affect existing entities (Feature #10)
   router.post('/preview', withRoute(async ({ req, res, ctx }) => {
-    const { ruleId, sampleAttributes } = req.body || {};
-    if (!ruleId || typeof ruleId !== 'string') {
-      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, PreviewSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+
+    const { ruleId, sampleAttributes } = validation.value;
 
     // Fetch the rule
     const [rule] = await db
@@ -236,7 +243,7 @@ export function createSubscriptionRoutes(): Router {
     if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
 
     // If sample attributes provided, evaluate against them
-    if (sampleAttributes && typeof sampleAttributes === 'object') {
+    if (sampleAttributes) {
       const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], sampleAttributes, []);
       ctx.log('COMPLETED', 'Subscription activation preview', { ruleId, blocked: result.blocked });
       return sendSuccess(res, 200, { preview: result });

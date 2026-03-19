@@ -1,43 +1,9 @@
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, SYSTEM_ORG_ID, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
-import { z } from 'zod';
+import { ComplianceRuleCreateSchema } from './rule-schemas';
 import { validateRegexPattern } from '../engine/rule-operators';
 import { complianceRuleService } from '../services/compliance-rule-service';
-
-const VALID_OPERATORS = [
-  'eq', 'neq', 'contains', 'notContains', 'regex',
-  'gt', 'gte', 'lt', 'lte', 'in', 'notIn',
-  'exists', 'notExists', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
-] as const;
-
-const OperatorEnum = z.enum(VALID_OPERATORS);
-
-const ConditionSchema = z.object({
-  field: z.string().min(1).max(100),
-  operator: OperatorEnum,
-  value: z.unknown().optional(),
-  dependsOnRule: z.string().uuid().optional(),
-});
-
-const ComplianceRuleCreateSchema = z.object({
-  name: z.string().min(1).max(255),
-  description: z.string().optional(),
-  policyId: z.string().uuid().optional(),
-  priority: z.number().int().min(0).max(10000).default(0),
-  target: z.enum(['plugin', 'pipeline']),
-  severity: z.enum(['warning', 'error', 'critical']).default('error'),
-  tags: z.array(z.string()).default([]),
-  effectiveFrom: z.string().datetime().optional(),
-  effectiveUntil: z.string().datetime().optional(),
-  scope: z.enum(['org', 'published']).default('org'),
-  suppressNotification: z.boolean().default(false),
-  field: z.string().max(100).optional(),
-  operator: OperatorEnum.optional(),
-  value: z.unknown().optional(),
-  conditions: z.array(ConditionSchema).optional(),
-  conditionMode: z.enum(['all', 'any']).default('all'),
-});
 
 export function createCreateRuleRoutes(): Router {
   const router = Router();
@@ -55,10 +21,18 @@ export function createCreateRuleRoutes(): Router {
       return sendError(res, 403, 'Only system org can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    // Validate regex patterns
+    // Validate regex patterns in single-field and cross-field conditions
     if (body.operator === 'regex' && typeof body.value === 'string') {
       const regexError = validateRegexPattern(body.value);
       if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
+    }
+    if (body.conditions) {
+      for (const c of body.conditions) {
+        if (c.operator === 'regex' && typeof c.value === 'string') {
+          const regexError = validateRegexPattern(c.value);
+          if (regexError) return sendBadRequest(res, `Condition "${c.field}": ${regexError}`, ErrorCode.VALIDATION_ERROR);
+        }
+      }
     }
 
     const rule = await complianceRuleService.create({

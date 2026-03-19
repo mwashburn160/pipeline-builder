@@ -14,6 +14,13 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: jest.fn((_res: unknown, status: number, data: unknown) => ({ status, data })),
   sendError: jest.fn((_res: unknown, status: number, msg: string) => ({ status, msg })),
   sendBadRequest: jest.fn((_res: unknown, msg: string) => ({ status: 400, msg })),
+  validateBody: jest.fn((req: { body: unknown }, schema: { parse: (v: unknown) => unknown }) => {
+    try {
+      return { ok: true, value: schema.parse(req.body) };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Validation failed' };
+    }
+  }),
   ErrorCode: {
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',

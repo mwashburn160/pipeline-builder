@@ -236,10 +236,10 @@ export class ComplianceRuleService extends CrudService<
 
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
     const created = await super.create(data, userId);
-    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
-    this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+    this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
     if (created.scope === 'published') {
-      this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
     }
     return created;
   }
@@ -253,11 +253,11 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
-      this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
-      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
-        notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       }
     }
     return updated;
@@ -267,11 +267,11 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
-      this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
-      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
-        notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       }
     }
     return deleted;

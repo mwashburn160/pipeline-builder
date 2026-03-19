@@ -230,8 +230,8 @@ describe('evaluateOperator', () => {
   });
 
   describe('unknown operator', () => {
-    it('returns true (no violation)', () => {
-      expect(evaluateOperator('unknownOp' as any, 'a', 'b')).toBe(true);
+    it('returns false (fail-closed)', () => {
+      expect(evaluateOperator('unknownOp' as any, 'a', 'b')).toBe(false);
     });
   });
 });
