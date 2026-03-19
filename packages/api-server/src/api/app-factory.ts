@@ -242,6 +242,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       windowMs: rateLimitConfig.windowMs,
       standardHeaders: true,
       legacyHeaders: false,
+      validate: { keyGeneratorIpFallback: false },
       // Per-org key: use orgId from JWT when available, fall back to IP
       keyGenerator: (req: Request) => {
         const orgId = (req as any).orgId || (req as any).identity?.orgId;

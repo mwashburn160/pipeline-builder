@@ -22,7 +22,7 @@ export default function CompliancePage() {
 
   return (
     <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">
-      <ComplianceDashboard />
+      <ComplianceDashboard isAdmin />
     </DashboardLayout>
   );
 }
