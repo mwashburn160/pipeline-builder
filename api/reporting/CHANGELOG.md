@@ -1,3 +1,21 @@
+## 1.1.0 (2026-03-19)
+
+### 🚀 Features
+
+- upgraded deps ([a1d9fece](https://github.com/mwashburn160/pipeline-builder/commit/a1d9fece))
+
+### 🩹 Fixes
+
+- version=1.42.4 ([7de318b6](https://github.com/mwashburn160/pipeline-builder/commit/7de318b6))
+- version=1.42.3 ([77aa5cc8](https://github.com/mwashburn160/pipeline-builder/commit/77aa5cc8))
+- version=1.42.2 ([33204fc0](https://github.com/mwashburn160/pipeline-builder/commit/33204fc0))
+- version=1.42.1 ([289c4b14](https://github.com/mwashburn160/pipeline-builder/commit/289c4b14))
+- version=1.42.0 ([ae57d609](https://github.com/mwashburn160/pipeline-builder/commit/ae57d609))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.4.5 (2026-03-19)
 
 ### 🩹 Fixes

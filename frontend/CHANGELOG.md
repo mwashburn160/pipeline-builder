@@ -1,3 +1,13 @@
+## 1.42.6 (2026-03-19)
+
+### 🩹 Fixes
+
+- updated compliance button ([396af3c8](https://github.com/mwashburn160/pipeline-builder/commit/396af3c8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.5 (2026-03-19)
 
 ### 🩹 Fixes
