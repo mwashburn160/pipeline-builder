@@ -48,7 +48,7 @@ Parameters:
 
   ReportingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/reporting:0.4.5
+    Default: ghcr.io/mwashburn160/reporting:1.1.0
     Description: Docker image for the Reporting service
 
   ComplianceImage:
@@ -58,7 +58,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.42.5
+    Default: ghcr.io/mwashburn160/frontend:1.42.6
     Description: Docker image for the Frontend service
 
   OllamaImage:
