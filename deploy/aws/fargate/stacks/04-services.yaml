@@ -61,6 +61,11 @@ Parameters:
     Default: ghcr.io/mwashburn160/frontend:1.42.5
     Description: Docker image for the Frontend service
 
+  OllamaImage:
+    Type: String
+    Default: ollama/ollama:latest
+    Description: Docker image for the Ollama LLM service
+
   AppSecretsName:
     Type: String
     Default: pipeline-builder/app-secrets
@@ -1539,6 +1544,109 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ===========================================================================
+  # Ollama Service (Local LLM)
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Ollama - Task Definition
+  # ---------------------------------------------------------------------------
+  OllamaTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-ollama"
+      Cpu: "2048"
+      Memory: "8192"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: ollama-data
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+            RootDirectory: /
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::ImportValue: !Sub "${StackPrefix}-OllamaAccessPointArn"
+              IAM: ENABLED
+      ContainerDefinitions:
+        - Name: ollama
+          Image: !Ref OllamaImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 11434
+              Protocol: tcp
+          MountPoints:
+            - ContainerPath: /root/.ollama
+              SourceVolume: ollama-data
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:11434/api/tags || exit 1
+            Interval: 30
+            Timeout: 10
+            Retries: 5
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-OllamaLogGroupName"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ollama
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-ollama-task"
+
+  # ---------------------------------------------------------------------------
+  # Ollama - Service
+  # ---------------------------------------------------------------------------
+  OllamaService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-ollama"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref OllamaTaskDefinition
+      DesiredCount: !Ref DefaultDesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt OllamaDiscovery.Arn
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
+  # ---------------------------------------------------------------------------
+  # Ollama - Cloud Map Discovery
+  # ---------------------------------------------------------------------------
+  OllamaDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: ollama
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
 # =============================================================================
 # Outputs
 # =============================================================================
@@ -1673,3 +1781,16 @@ Outputs:
     Value: !Ref FrontendTaskDefinition
     Export:
       Name: !Sub "${StackPrefix}-FrontendTaskDefinitionArn"
+
+  # Ollama
+  OllamaServiceArn:
+    Description: ARN of the Ollama ECS service
+    Value: !Ref OllamaService
+    Export:
+      Name: !Sub "${StackPrefix}-OllamaServiceArn"
+
+  OllamaTaskDefinitionArn:
+    Description: ARN of the Ollama task definition
+    Value: !Ref OllamaTaskDefinition
+    Export:
+      Name: !Sub "${StackPrefix}-OllamaTaskDefinitionArn"

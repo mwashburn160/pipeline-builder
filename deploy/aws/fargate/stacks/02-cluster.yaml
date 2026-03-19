@@ -507,6 +507,15 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
+  OllamaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /pipeline-builder/ollama
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
 # =============================================================================
 # Outputs
 # =============================================================================
@@ -694,3 +703,9 @@ Outputs:
     Value: !Ref MongoExpressLogGroup
     Export:
       Name: !Sub "${StackPrefix}-MongoExpressLogGroupName"
+
+  OllamaLogGroupName:
+    Description: CloudWatch log group for Ollama
+    Value: !Ref OllamaLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-OllamaLogGroupName"
