@@ -1,3 +1,13 @@
+## 1.1.4 (2026-03-19)
+
+### 🩹 Fixes
+
+- compliance cleanup ([6bbb06b4](https://github.com/mwashburn160/pipeline-builder/commit/6bbb06b4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.3 (2026-03-19)
 
 ### 🩹 Fixes
