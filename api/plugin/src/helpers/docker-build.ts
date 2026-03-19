@@ -59,6 +59,9 @@ const MAX_BUILD_ARG_VALUE_LENGTH = 4096;
 /** Tracks the persistent builder state so we can detect network changes. */
 let activeBuilderNetwork: string | null = null;
 
+/** Serialises access to ensureBuilder so concurrent builds don't race. */
+let builderMutex: Promise<void> = Promise.resolve();
+
 function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
   if (!VALID_HOSTNAME_RE.test(registry.host)) {
     throw new ValidationError(`Invalid registry host: ${registry.host}`);
@@ -101,8 +104,18 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   );
 
   // --- Ensure persistent buildx builder (only when network is configured) --
+  // Serialise builder creation so concurrent builds don't race on `buildx create`.
   if (registry.network) {
-    ensureBuilder(configDir, contextDir, registry);
+    await new Promise<void>((resolve, reject) => {
+      builderMutex = builderMutex
+        .then(() => {
+          ensureBuilder(configDir, contextDir, registry);
+          resolve();
+        })
+        .catch((err) => {
+          reject(err);
+        });
+    });
   }
 
   // --- Build + push in one step ------------------------------------------
@@ -300,4 +313,5 @@ function removeBuilder(configDir: string): void {
  */
 export function _resetBuilderStateForTesting(): void {
   activeBuilderNetwork = null;
+  builderMutex = Promise.resolve();
 }

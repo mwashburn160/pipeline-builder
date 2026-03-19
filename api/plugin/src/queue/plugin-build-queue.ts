@@ -66,7 +66,7 @@ function getConnection(): IORedis {
 // Queue
 
 /** Dead letter queue name for failed plugin builds */
-const DLQ_NAME = `${QUEUE_NAME}:dlq`;
+const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 
 let dlq: Queue<PluginBuildJobData> | null = null;
 
@@ -295,8 +295,8 @@ export function startWorker(
 
       // Move to dead letter queue after final attempt for debugging
       if (isFinalAttempt) {
-        getDeadLetterQueue().add(`dlq:${job.id}`, job.data, {
-          jobId: `dlq:${job.id}`,
+        getDeadLetterQueue().add(`dlq-${job.id}`, job.data, {
+          jobId: `dlq-${job.id}`,
         }).catch((dlqErr) => {
           logger.warn('Failed to move job to DLQ', { jobId: job.id, error: errorMessage(dlqErr) });
         });

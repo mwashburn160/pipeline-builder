@@ -275,7 +275,8 @@ export function buildComplianceRuleConditions(
 
   if (filter.isActive !== undefined) {
     conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
-  } else {
+  } else if (filter.id === undefined) {
+    // Only default to active=true for list queries, not single-entity lookups by ID
     conditions.push(eq(schema.complianceRule.isActive, true));
   }
 
