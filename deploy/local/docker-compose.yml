@@ -540,7 +540,7 @@ services:
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
-  billing:
+  billing:  
     image: 'ghcr.io/mwashburn160/billing:1.21.8'
     container_name: billing
     restart: always
