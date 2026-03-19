@@ -1,3 +1,13 @@
+## 1.43.7 (2026-03-19)
+
+### 🩹 Fixes
+
+- skip the isActive = true default ([6a2a247f](https://github.com/mwashburn160/pipeline-builder/commit/6a2a247f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.43.6 (2026-03-19)
 
 ### 🩹 Fixes
