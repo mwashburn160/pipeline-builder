@@ -6,7 +6,7 @@ export interface ExternalSubscriptionResult {
   externalCustomerId: string;
 }
 
-/** Payment provider interface for future Stripe (or other) integration. */
+/** Payment provider interface (Stripe, AWS Marketplace, or stub for dev). */
 export interface PaymentProvider {
   /** Create a customer in the external payment system. */
   createCustomer(orgId: string, email: string): Promise<string>;

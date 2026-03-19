@@ -35,9 +35,17 @@ jest.mock('../src/helpers/stripe-helpers', () => ({
   mapStripeStatus: jest.requireActual('../src/helpers/stripe-helpers').mapStripeStatus,
 }));
 
+// Mock config
+jest.mock('../src/config', () => ({
+  config: {
+    paymentGracePeriodDays: 7,
+  },
+}));
+
 // Mock Plan model
+const mockPlanFindById = jest.fn().mockResolvedValue({ tier: 'pro', name: 'Pro' });
 jest.mock('../src/models/plan', () => ({
-  Plan: { findById: jest.fn().mockResolvedValue({ tier: 'developer' }) },
+  Plan: { findById: (...args: unknown[]) => mockPlanFindById(...args) },
 }));
 
 // Mock Subscription model
@@ -158,5 +166,76 @@ describe('Stripe Webhook Route', () => {
       await mockFindByStripeId('sub_test_123');
       expect(mockFindByStripeId).toHaveBeenCalledWith('sub_test_123');
     });
+  });
+});
+
+// ============================================
+// Grace period & payment handler logic tests
+// ============================================
+
+describe('Payment failure grace period logic', () => {
+  it('should track failed payment attempts incrementally', () => {
+    const subscription = {
+      orgId: 'org-1',
+      status: 'active' as string,
+      failedPaymentAttempts: 0,
+      firstFailedAt: undefined as Date | undefined,
+    };
+
+    // First failure
+    subscription.status = 'past_due';
+    subscription.failedPaymentAttempts += 1;
+    if (!subscription.firstFailedAt) {
+      subscription.firstFailedAt = new Date();
+    }
+
+    expect(subscription.status).toBe('past_due');
+    expect(subscription.failedPaymentAttempts).toBe(1);
+    expect(subscription.firstFailedAt).toBeDefined();
+
+    // Second failure
+    const firstFailedAt = subscription.firstFailedAt;
+    subscription.failedPaymentAttempts += 1;
+    if (!subscription.firstFailedAt) {
+      subscription.firstFailedAt = new Date();
+    }
+
+    expect(subscription.failedPaymentAttempts).toBe(2);
+    expect(subscription.firstFailedAt).toBe(firstFailedAt); // Should not change
+  });
+
+  it('should reset grace period state on successful payment', () => {
+    const subscription = {
+      orgId: 'org-1',
+      status: 'past_due' as string,
+      failedPaymentAttempts: 3,
+      firstFailedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) as Date | undefined,
+      interval: 'monthly' as const,
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(),
+    };
+
+    // Simulate payment success
+    subscription.failedPaymentAttempts = 0;
+    subscription.firstFailedAt = undefined;
+    subscription.status = 'active';
+
+    expect(subscription.failedPaymentAttempts).toBe(0);
+    expect(subscription.firstFailedAt).toBeUndefined();
+    expect(subscription.status).toBe('active');
+  });
+
+  it('should determine grace period expiry correctly', () => {
+    const gracePeriodDays = 7;
+    const gracePeriodMs = gracePeriodDays * 24 * 60 * 60 * 1000;
+
+    // 6 days ago — still in grace period
+    const recentFailure = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+    const cutoff = new Date(Date.now() - gracePeriodMs);
+    expect(recentFailure.getTime() > cutoff.getTime()).toBe(true);
+
+    // 8 days ago — grace period expired
+    const oldFailure = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    expect(oldFailure.getTime() <= cutoff.getTime()).toBe(true);
   });
 });

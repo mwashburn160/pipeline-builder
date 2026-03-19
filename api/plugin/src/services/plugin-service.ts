@@ -1,5 +1,6 @@
-import { entityEvents } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService } from '@mwashburn160/api-core';
 import {
+  CoreConstants,
   CrudService,
   buildPluginConditions,
   db,
@@ -9,6 +10,9 @@ import {
   PluginType,
   type PluginFilter,
 } from '@mwashburn160/pipeline-core';
+
+/** Server-side cache for plugin reads. */
+const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY);
 import { and, eq, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -58,9 +62,18 @@ export class PluginService extends CrudService<
     return [schema.plugin.name, schema.plugin.version, schema.plugin.orgId];
   }
 
-  // Lifecycle hooks — emit entity events for compliance integration
+  // -- Cached reads -----------------------------------------------------------
+
+  /** findById with server-side cache (keyed by orgId:id). */
+  async findById(id: string, orgId?: string): Promise<Plugin | null> {
+    const cacheKey = `${orgId || 'anon'}:id:${id}`;
+    return pluginCache.getOrSet(cacheKey, () => super.findById(id, orgId));
+  }
+
+  // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   protected async onAfterCreate(entity: Plugin): Promise<void> {
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'created',
       target: 'plugin',
@@ -73,6 +86,7 @@ export class PluginService extends CrudService<
   }
 
   protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'updated',
       target: 'plugin',
@@ -85,6 +99,7 @@ export class PluginService extends CrudService<
   }
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
+    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'deleted',
       target: 'plugin',
@@ -167,7 +182,9 @@ export class PluginService extends CrudService<
         })
         .returning();
 
-      return upserted as unknown as Plugin;
+      const result = upserted as unknown as Plugin;
+      pluginCache.invalidatePattern(`${data.orgId}:*`).catch(() => {});
+      return result;
     });
   }
 }

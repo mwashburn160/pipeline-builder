@@ -1,5 +1,8 @@
-import { createCacheService } from '@mwashburn160/api-core';
+import { createCacheService, createLogger } from '@mwashburn160/api-core';
+
+const logger = createLogger('compliance-rule-service');
 import {
+  CoreConstants,
   CrudService,
   buildComplianceRuleConditions,
   schema,
@@ -7,6 +10,7 @@ import {
   type ComplianceRuleFilter,
   type RuleTarget,
   type RuleScope,
+  drizzleCount,
 } from '@mwashburn160/pipeline-core';
 import { SQL, eq, and, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -14,8 +18,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
 
 /** Cache for active rules per org+target. Rules change infrequently. */
-const RULES_CACHE_TTL = parseInt(process.env.COMPLIANCE_RULES_CACHE_TTL_SECONDS || '60', 10);
-const rulesCache = createCacheService('compliance:rules:', RULES_CACHE_TTL);
+const rulesCache = createCacheService('compliance:rules:', CoreConstants.CACHE_TTL_COMPLIANCE_RULES);
 
 export type ComplianceRule = typeof schema.complianceRule.$inferSelect;
 export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
@@ -137,7 +140,7 @@ export class ComplianceRuleService extends CrudService<
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceRuleHistory)
-      .where(conditions) as unknown as [{ count: number }];
+      .where(conditions).then(r => drizzleCount(r));
 
     const history = await db
       .select()
@@ -233,10 +236,10 @@ export class ComplianceRuleService extends CrudService<
 
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
     const created = await super.create(data, userId);
-    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(() => { /* non-fatal */ });
-    this.invalidateRulesCache(created.orgId).catch(() => { /* non-fatal */ });
+    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+    this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
     if (created.scope === 'published') {
-      this.invalidateSubscriberCaches(created.id).catch(() => { /* non-fatal */ });
+      this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
     }
     return created;
   }
@@ -250,11 +253,11 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
-      this.recordHistory(id, orgId, 'updated', existing, userId).catch(() => { /* non-fatal */ });
-      this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
+      this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
-        notifyPublishedRuleChange(id, existing.name, 'updated').catch(() => { /* non-fatal */ });
+        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       }
     }
     return updated;
@@ -264,11 +267,11 @@ export class ComplianceRuleService extends CrudService<
     const existing = await this.findById(id, orgId);
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
-      this.recordHistory(id, orgId, 'deleted', existing, userId).catch(() => { /* non-fatal */ });
-      this.invalidateRulesCache(orgId).catch(() => { /* non-fatal */ });
+      this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+      this.invalidateRulesCache(orgId).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       if (existing.scope === 'published') {
-        this.invalidateSubscriberCaches(id).catch(() => { /* non-fatal */ });
-        notifyPublishedRuleChange(id, existing.name, 'deleted').catch(() => { /* non-fatal */ });
+        this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
+        notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.debug('Non-fatal side effect failed', { error: err instanceof Error ? err.message : String(err) }));
       }
     }
     return deleted;

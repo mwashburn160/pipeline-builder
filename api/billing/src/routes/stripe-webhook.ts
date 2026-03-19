@@ -7,7 +7,8 @@ import {
 } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import type Stripe from 'stripe';
-import { createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
+import { config } from '../config';
+import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers';
 import { Plan } from '../models/plan';
 import { getPaymentProvider } from '../providers/provider-factory';
@@ -64,6 +65,7 @@ export function createStripeWebhookRoutes(): Router {
       const eventHandlers: Record<string, (data: unknown) => Promise<void>> = {
         'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
         'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
+        'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
         'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
       };
 
@@ -175,8 +177,70 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
 }
 
 /**
+ * Handle successful invoice payment from Stripe.
+ * Confirms the subscription is active, resets grace period state, and updates the billing period.
+ */
+async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
+  const stripeSubscriptionId = typeof invoice.subscription === 'string'
+    ? invoice.subscription
+    : invoice.subscription?.id;
+  if (!stripeSubscriptionId) {
+    logger.debug('Invoice payment_succeeded has no subscription', { invoiceId: invoice.id });
+    return;
+  }
+
+  const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
+  if (!subscription) {
+    logger.warn('No subscription found for successful payment', { stripeSubscriptionId });
+    return;
+  }
+
+  const previousStatus = subscription.status;
+  const wasRecovery = previousStatus === 'past_due';
+
+  // Reset grace period state
+  subscription.failedPaymentAttempts = 0;
+  subscription.firstFailedAt = undefined;
+
+  // Advance billing period
+  subscription.currentPeriodStart = new Date();
+  subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
+
+  // Restore active status if recovering from past_due
+  if (wasRecovery) {
+    subscription.status = 'active';
+
+    // Re-upgrade to their plan's tier
+    const plan = await Plan.findById(subscription.planId);
+    if (plan) {
+      await syncTierToQuotaService(subscription.orgId, plan.tier, '');
+    }
+  }
+
+  await subscription.save();
+
+  await createBillingEvent(subscription.orgId, 'payment_succeeded', {
+    provider: 'stripe',
+    previousStatus,
+    newStatus: subscription.status,
+    invoiceId: invoice.id,
+    stripeSubscriptionId,
+    recovered: wasRecovery,
+  }, subscription._id.toString());
+
+  logger.info('Stripe payment succeeded', {
+    orgId: subscription.orgId,
+    stripeSubscriptionId,
+    recovered: wasRecovery,
+    periodEnd: subscription.currentPeriodEnd.toISOString(),
+  });
+}
+
+/**
  * Handle failed invoice payment from Stripe.
- * Marks the subscription as past_due.
+ * Uses a grace period: the org keeps their tier for PAYMENT_GRACE_PERIOD_DAYS
+ * after the first failure. Downgrade only happens when the grace period expires
+ * (checked by the subscription lifecycle background job).
  */
 async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   const stripeSubscriptionId = typeof invoice.subscription === 'string'
@@ -195,13 +259,17 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
 
   const previousStatus = subscription.status;
   subscription.status = 'past_due';
+  subscription.failedPaymentAttempts = (subscription.failedPaymentAttempts || 0) + 1;
+
+  // Record the first failure time (starts the grace period clock)
+  if (!subscription.firstFailedAt) {
+    subscription.firstFailedAt = new Date();
+  }
+
   await subscription.save();
 
-  // Look up plan tier to determine if we should downgrade
-  const plan = await Plan.findById(subscription.planId);
-  if (plan) {
-    await syncTierToQuotaService(subscription.orgId, 'developer', '');
-  }
+  // Note: Tier downgrade is NOT immediate — it happens when the grace period
+  // expires, checked by startSubscriptionLifecycleChecker() in index.ts.
 
   await createBillingEvent(subscription.orgId, 'payment_failed', {
     provider: 'stripe',
@@ -209,10 +277,15 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     newStatus: 'past_due',
     invoiceId: invoice.id,
     stripeSubscriptionId,
+    failedAttempts: subscription.failedPaymentAttempts,
+    gracePeriodDays: config.paymentGracePeriodDays,
   }, subscription._id.toString());
 
-  logger.info('Stripe payment failed — subscription marked past_due', {
+  logger.info('Stripe payment failed — grace period active', {
     orgId: subscription.orgId,
     stripeSubscriptionId,
+    failedAttempts: subscription.failedPaymentAttempts,
+    firstFailedAt: subscription.firstFailedAt.toISOString(),
+    gracePeriodDays: config.paymentGracePeriodDays,
   });
 }

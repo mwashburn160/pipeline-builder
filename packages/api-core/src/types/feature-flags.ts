@@ -39,7 +39,7 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
   priority_support: {
     label: 'Priority Support',
-    description: 'Faster response times and dedicated support channels (coming soon)',
+    description: 'Faster response times and dedicated support channels',
   },
   ai_generation: {
     label: 'AI Generation',
@@ -51,7 +51,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   },
   custom_integrations: {
     label: 'Custom Integrations',
-    description: 'Connect to external services and custom webhook endpoints (coming soon)',
+    description: 'Connect to external services and custom webhook endpoints',
   },
   audit_log: {
     label: 'Audit Log',

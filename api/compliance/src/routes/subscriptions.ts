@@ -1,6 +1,6 @@
 import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import { schema, db, buildPublishedRuleCatalogConditions } from '@mwashburn160/pipeline-core';
+import { schema, db, buildPublishedRuleCatalogConditions, drizzleCount } from '@mwashburn160/pipeline-core';
 import { and, desc, eq, sql, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -48,7 +48,7 @@ export function createPublishedRulesCatalogRoutes(): Router {
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceRule)
-      .where(whereClause) as unknown as [{ count: number }];
+      .where(whereClause).then(r => drizzleCount(r));
 
     const rules = await db
       .select()

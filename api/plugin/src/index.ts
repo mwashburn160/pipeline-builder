@@ -1,4 +1,4 @@
-import { createLogger, createQuotaService } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
@@ -46,6 +46,9 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createBulkPluginRoutes
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);
+
+// -- Register compliance event subscriber for entity lifecycle events --------
+registerComplianceEventSubscriber();
 
 logger.info('All /plugins routes registered');
 

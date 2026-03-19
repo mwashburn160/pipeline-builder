@@ -9,6 +9,10 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
 }));
 
 import { SSEManager } from '../src/http/sse-connection-manager';

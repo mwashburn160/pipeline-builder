@@ -1066,6 +1066,12 @@ class ApiClient {
   // Message endpoints
   // ============================================
 
+  /** Exchange JWT for a short-lived, single-use SSE ticket (avoids putting JWT in query string). */
+  async getNotificationTicket(): Promise<string> {
+    const res = await this.request<ApiResponse<{ ticket: string }>>('/api/messages/notifications/ticket', { method: 'POST' });
+    return res.data.ticket;
+  }
+
   /** List inbox messages (root messages only), optionally filtered by type */
   async getMessages(params?: { messageType?: MessageType; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
     return this.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${buildQuery(params)}`);

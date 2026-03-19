@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { requireAuth, optionalAuth, requireOrganization, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier } from '../src/middleware/auth';
+import { requireAuth, requireOrganization, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier } from '../src/middleware/auth';
 
 const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
 
@@ -148,57 +148,6 @@ describe('requireAuth', () => {
 
     expect(next).toHaveBeenCalled();
     expect(req.user!.organizationId).toBe('org1');
-  });
-});
-
-// optionalAuth
-
-describe('optionalAuth', () => {
-  it('should call next without error when no Authorization header', () => {
-    const req = createMockReq();
-    const res = createMockRes();
-    const next = jest.fn();
-
-    optionalAuth(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.user).toBeUndefined();
-  });
-
-  it('should attach user when valid token present', () => {
-    const payload = { type: 'access', sub: 'user1', role: 'user' };
-    const token = signToken(payload);
-    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
-    const res = createMockRes();
-    const next = jest.fn();
-
-    optionalAuth(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.user).toBeDefined();
-    expect(req.user!.sub).toBe('user1');
-  });
-
-  it('should call next without user when token is invalid', () => {
-    const req = createMockReq({ headers: { authorization: 'Bearer bad.token' } });
-    const res = createMockRes();
-    const next = jest.fn();
-
-    optionalAuth(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.user).toBeUndefined();
-  });
-
-  it('should call next without user when format is wrong', () => {
-    const req = createMockReq({ headers: { authorization: 'NotBearer token' } });
-    const res = createMockRes();
-    const next = jest.fn();
-
-    optionalAuth(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(req.user).toBeUndefined();
   });
 });
 

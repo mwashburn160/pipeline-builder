@@ -40,6 +40,7 @@ export enum ErrorCode {
   DATABASE_ERROR = 'DATABASE_ERROR',
 
   // Service unavailable (503)
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   COMPLIANCE_SERVICE_UNAVAILABLE = 'COMPLIANCE_SERVICE_UNAVAILABLE',
 }
 
@@ -65,6 +66,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.SCAN_CONFLICT]: 409,
   [ErrorCode.INTERNAL_ERROR]: 500,
   [ErrorCode.DATABASE_ERROR]: 500,
+  [ErrorCode.SERVICE_UNAVAILABLE]: 503,
   [ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE]: 503,
 };
 

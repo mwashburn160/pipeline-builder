@@ -2,7 +2,12 @@
  * Lightweight in-process event emitter for entity lifecycle events.
  *
  * Services emit events after mutations (create/update/delete) via CrudService hooks.
- * Subscribers (e.g., compliance service client) react asynchronously.
+ * Subscribers react asynchronously to entity changes.
+ *
+ * Active subscribers:
+ * - **Compliance event subscriber** (`registerComplianceEventSubscriber()`) — forwards
+ *   entity events to the compliance service for post-mutation rule evaluation.
+ *   Registered at startup in plugin and pipeline service index.ts.
  *
  * Design:
  * - Fire-and-forget: emit() never throws, subscriber errors are logged

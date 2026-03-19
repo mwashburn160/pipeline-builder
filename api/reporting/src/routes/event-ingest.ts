@@ -1,6 +1,7 @@
 import { sendSuccess, sendBadRequest, ErrorCode, createLogger, hashAccountInArn } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
+import { reportingService } from '@mwashburn160/pipeline-data';
 import { inArray } from 'drizzle-orm';
 import { Router } from 'express';
 
@@ -74,10 +75,16 @@ export function createEventIngestRoutes(): Router {
     // Single batch insert
     if (rows.length > 0) {
       await db.insert(schema.pipelineEvent).values(rows);
+
+      // Invalidate reporting caches for affected orgs
+      const affectedOrgs = new Set(rows.map(r => r.orgId));
+      for (const org of affectedOrgs) {
+        reportingService.invalidateOrg(org).catch(() => {});
+      }
     }
 
     if (skipped > 0) {
-      logger.debug(`Skipped ${skipped} events for unregistered ARNs`);
+      logger.debug('Skipped events for unregistered ARNs', { skipped });
     }
 
     ctx.log('COMPLETED', `Ingested ${rows.length} events, skipped ${skipped}`);

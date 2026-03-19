@@ -86,6 +86,14 @@ export class CoreConstants {
   // Cache
   static readonly CACHE_CLEANUP_INTERVAL_MS = parseInt(process.env.CACHE_CLEANUP_INTERVAL_MS || '30000', 10); // 30s
 
+  // Server-side cache TTLs (seconds)
+  static readonly CACHE_TTL_ENTITY = parseInt(process.env.CACHE_TTL_ENTITY || '60', 10); // plugin/pipeline findById
+  static readonly CACHE_TTL_MESSAGE = parseInt(process.env.CACHE_TTL_MESSAGE || '300', 10); // announcements/conversations (5 min)
+  static readonly CACHE_TTL_REPORT_INVENTORY = parseInt(process.env.CACHE_TTL_REPORT_INVENTORY || '300', 10); // plugin summary/distribution (5 min)
+  static readonly CACHE_TTL_REPORT_TIMESERIES = parseInt(process.env.CACHE_TTL_REPORT_TIMESERIES || '120', 10); // execution/build metrics (2 min)
+  static readonly CACHE_TTL_COMPLIANCE_RULES = parseInt(process.env.CACHE_TTL_COMPLIANCE_RULES || '60', 10); // active compliance rules
+  static readonly CACHE_TTL_BILLING_PLANS = parseInt(process.env.CACHE_TTL_BILLING_PLANS || '14400', 10); // billing plans (4 hours)
+
   // SSE backpressure
   static readonly SSE_BACKPRESSURE_THRESHOLD = parseInt(process.env.SSE_BACKPRESSURE_THRESHOLD || '10', 10);
 

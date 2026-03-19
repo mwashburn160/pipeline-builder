@@ -15,6 +15,10 @@ export interface SubscriptionDocument extends Document {
   cancelAtPeriodEnd: boolean;
   externalId?: string;
   externalCustomerId?: string;
+  /** Number of consecutive failed payment attempts in the current period. */
+  failedPaymentAttempts: number;
+  /** When the first payment failure occurred (starts grace period). */
+  firstFailedAt?: Date;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -41,6 +45,8 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     cancelAtPeriodEnd: { type: Boolean, default: false },
     externalId: { type: String, default: null },
     externalCustomerId: { type: String, default: null },
+    failedPaymentAttempts: { type: Number, default: 0 },
+    firstFailedAt: { type: Date, default: null },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   {

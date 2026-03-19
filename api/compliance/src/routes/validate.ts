@@ -17,24 +17,39 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
 
-/** Max nesting depth for attributes to prevent DoS via deeply nested payloads. */
+/** Max top-level keys for attributes to prevent DoS. */
 const MAX_ATTRIBUTE_KEYS = 100;
+/** Max nesting depth for attribute values to prevent stack-overflow DoS. */
+const MAX_ATTRIBUTE_DEPTH = 5;
 
-const ValidateSchema = z.object({
-  attributes: z.record(z.string(), z.unknown()).refine(
+/** Recursively check that a value does not exceed the max nesting depth. */
+function checkDepth(value: unknown, depth: number): boolean {
+  if (depth > MAX_ATTRIBUTE_DEPTH) return false;
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).every(v => checkDepth(v, depth + 1));
+  }
+  return true;
+}
+
+const attributesSchema = z.record(z.string(), z.unknown())
+  .refine(
     (obj) => Object.keys(obj).length <= MAX_ATTRIBUTE_KEYS,
     { message: `attributes must have at most ${MAX_ATTRIBUTE_KEYS} keys` },
-  ),
+  )
+  .refine(
+    (obj) => checkDepth(obj, 0),
+    { message: `attributes must not exceed ${MAX_ATTRIBUTE_DEPTH} levels of nesting` },
+  );
+
+const ValidateSchema = z.object({
+  attributes: attributesSchema,
   entityId: z.string().uuid().optional(),
   entityName: z.string().max(255).optional(),
   action: z.string().max(50).optional(),
 });
 
 const DryRunSchema = z.object({
-  attributes: z.record(z.string(), z.unknown()).refine(
-    (obj) => Object.keys(obj).length <= MAX_ATTRIBUTE_KEYS,
-    { message: `attributes must have at most ${MAX_ATTRIBUTE_KEYS} keys` },
-  ),
+  attributes: attributesSchema,
 });
 
 /**

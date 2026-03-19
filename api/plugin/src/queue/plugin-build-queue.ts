@@ -18,6 +18,13 @@ const logger = createLogger('plugin-build-queue');
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
+/** Parse an env var as a positive integer, falling back to the default on failure. */
+function parsePositiveInt(envVar: string | undefined, fallback: number): number {
+  if (!envVar) return fallback;
+  const parsed = parseInt(envVar, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
@@ -83,8 +90,8 @@ export function getQueue(): Queue<PluginBuildJobData> {
     queue = new Queue<PluginBuildJobData>(QUEUE_NAME, {
       connection: getConnection(),
       defaultJobOptions: {
-        attempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10),
-        backoff: { type: 'exponential', delay: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10) },
+        attempts: parsePositiveInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS, 2),
+        backoff: { type: 'exponential', delay: parsePositiveInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS, 5000) },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
         removeOnFail: { age: CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS },
       },
@@ -105,7 +112,7 @@ export function isWorkerReady(): boolean {
  * Wait for the BullMQ worker to connect to Redis.
  * Resolves when ready, rejects after timeout.
  */
-export function waitForWorkerReady(timeoutMs = parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10)): Promise<void> {
+export function waitForWorkerReady(timeoutMs = parsePositiveInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS, 10000)): Promise<void> {
   return new Promise((resolve, reject) => {
     if (isWorkerReady()) {
       resolve();
@@ -320,7 +327,7 @@ export function startWorker(
 // Periodic temp directory cleanup
 
 /** Maximum age (ms) for orphaned temp directories before cleanup (4 hours). */
-const TEMP_DIR_MAX_AGE_MS = parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '14400000', 10);
+const TEMP_DIR_MAX_AGE_MS = parsePositiveInt(process.env.TEMP_DIR_MAX_AGE_MS, 14400000);
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 

@@ -1,4 +1,5 @@
-import { CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
+import { createCacheService } from '@mwashburn160/api-core';
+import { CoreConstants, CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
 import { SQL, eq, and } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -6,6 +7,9 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 type Message = typeof schema.message.$inferSelect;
 type MessageInsert = typeof schema.message.$inferInsert;
 type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
+
+/** Cache for message reads — announcements/conversations are stable between mutations. */
+const messageCache = createCacheService('message:', CoreConstants.CACHE_TTL_MESSAGE);
 
 /**
  * Service for managing internal messages between organizations and system org.
@@ -49,6 +53,20 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     return [schema.message.id];
   }
 
+  // -- Cache invalidation on mutations --
+
+  protected async onAfterCreate(entity: Message): Promise<void> {
+    messageCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+  }
+
+  protected async onAfterUpdate(_id: string, entity: Message): Promise<void> {
+    messageCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+  }
+
+  protected async onAfterDelete(_id: string, entity: Message): Promise<void> {
+    messageCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
+  }
+
   /**
    * Get all reply messages in a thread (excludes the root message).
    *
@@ -86,7 +104,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @returns Array of announcement root messages
    */
   async findAnnouncements(orgId: string): Promise<Message[]> {
-    return this.findInbox(orgId, 'announcement');
+    return messageCache.getOrSet(`${orgId}:announcements`, () => this.findInbox(orgId, 'announcement'));
   }
 
   /**
@@ -96,7 +114,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @returns Array of conversation root messages
    */
   async findConversations(orgId: string): Promise<Message[]> {
-    return this.findInbox(orgId, 'conversation');
+    return messageCache.getOrSet(`${orgId}:conversations`, () => this.findInbox(orgId, 'conversation'));
   }
 
   /**

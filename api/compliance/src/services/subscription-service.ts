@@ -82,7 +82,7 @@ export class ComplianceRuleSubscriptionService {
         .where(eq(schema.complianceRuleSubscription.id, existing.id))
         .returning();
 
-      logger.info(`Subscription ${isActive ? 'activated' : 'deactivated'}`, { orgId, ruleId, userId });
+      logger.info('Subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, ruleId, userId });
       return updated;
     });
   }
@@ -215,7 +215,7 @@ export class ComplianceRuleSubscriptionService {
         // Skip individual failures (subscription not found, etc.)
       }
     }
-    logger.info(`Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { orgId, requested: ruleIds.length, updated });
+    logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated });
     return updated;
   }
 

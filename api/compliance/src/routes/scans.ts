@@ -1,6 +1,6 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import { schema, db, buildComplianceScanConditions } from '@mwashburn160/pipeline-core';
+import { schema, db, buildComplianceScanConditions, drizzleCount } from '@mwashburn160/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -33,7 +33,7 @@ export function createScanRoutes(): Router {
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceScan)
-      .where(whereClause) as unknown as [{ count: number }];
+      .where(whereClause).then(r => drizzleCount(r));
 
     const scans = await db
       .select()

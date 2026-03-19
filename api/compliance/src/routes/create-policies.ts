@@ -1,5 +1,6 @@
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, SYSTEM_ORG_ID, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
+import { db } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { compliancePolicyService } from '../services/policy-service';
@@ -31,23 +32,28 @@ export function createCreatePolicyRoutes(): Router {
       return sendError(res, 403, 'Only system org can create template policies', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const policy = await compliancePolicyService.create({
-      ...body,
-      orgId,
-      createdBy: userId,
-      updatedBy: userId,
-    } as unknown as Parameters<typeof compliancePolicyService.create>[0], userId);
+    // Use a transaction so policy creation + rule linking are atomic
+    const policy = await db.transaction(async () => {
+      const created = await compliancePolicyService.create({
+        ...body,
+        orgId,
+        createdBy: userId,
+        updatedBy: userId,
+      } as unknown as Parameters<typeof compliancePolicyService.create>[0], userId);
 
-    // Link existing rules by name to this policy
-    if (ruleNames && ruleNames.length > 0) {
-      const allRules = await complianceRuleService.find({}, orgId);
-      for (const ruleName of ruleNames) {
-        const rule = allRules.find(r => r.name === ruleName);
-        if (rule) {
-          await complianceRuleService.update(rule.id, { policyId: policy.id }, orgId, userId);
+      // Link existing rules by name to this policy
+      if (ruleNames && ruleNames.length > 0) {
+        const allRules = await complianceRuleService.find({}, orgId);
+        for (const ruleName of ruleNames) {
+          const rule = allRules.find(r => r.name === ruleName);
+          if (rule) {
+            await complianceRuleService.update(rule.id, { policyId: created.id }, orgId, userId);
+          }
         }
       }
-    }
+
+      return created;
+    });
 
     ctx.log('COMPLETED', 'Created compliance policy', { id: policy.id, name: policy.name });
     return sendSuccess(res, 201, { policy });

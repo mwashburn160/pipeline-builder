@@ -493,7 +493,7 @@ services:
     deploy: *api-deploy
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:1.2.5'
+    image: 'ghcr.io/mwashburn160/compliance:1.2.6'
     container_name: compliance
     restart: always
     environment:

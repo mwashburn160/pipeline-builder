@@ -73,6 +73,10 @@ export {
   // CRUD service
   CrudService,
   type BaseEntity,
+
+  // Drizzle type helpers
+  drizzleRows,
+  drizzleCount,
 } from '@mwashburn160/pipeline-data';
 
 // Pipeline (CDK constructs)

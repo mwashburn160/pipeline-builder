@@ -32,7 +32,7 @@ export function idempotencyMiddleware() {
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
 
     // Namespace by orgId to prevent cross-org collisions
-    const orgId = (req as any).orgId || (req as any).identity?.orgId || 'anon';
+    const orgId = req.context?.identity?.orgId || req.user?.organizationId || 'anon';
     const fullKey = `${orgId}:${key}`;
 
     // Check for cached response

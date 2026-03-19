@@ -1,6 +1,6 @@
 import { sendSuccess, parsePaginationParams } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
-import { schema, db, buildComplianceAuditConditions } from '@mwashburn160/pipeline-core';
+import { schema, db, buildComplianceAuditConditions, drizzleCount } from '@mwashburn160/pipeline-core';
 import { and, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 
@@ -28,7 +28,7 @@ export function createAuditRoutes(): Router {
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceAuditLog)
-      .where(whereClause) as unknown as [{ count: number }];
+      .where(whereClause).then(r => drizzleCount(r));
 
     const entries = await db
       .select()

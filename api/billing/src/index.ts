@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { config } from './config';
 import { connectDatabase } from './helpers/database';
 import { seedPlans } from './helpers/seed-plans';
+import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions';
 import { createMarketplaceRoutes } from './routes/marketplace';
 import { createReadPlanRoutes } from './routes/read-plans';
@@ -44,9 +45,13 @@ if (config.enabled) {
     onBeforeStart: async () => {
       await connectDatabase(config.mongodb.uri);
       await seedPlans();
+      startSubscriptionLifecycleChecker();
     },
     testDatabase: async () => mongoose.connection.readyState === 1,
-    closeDatabase: async () => { await mongoose.connection.close(false); },
+    closeDatabase: async () => {
+      stopSubscriptionLifecycleChecker();
+      await mongoose.connection.close(false);
+    },
   });
 } else {
   logger.info('Billing is disabled (BILLING_ENABLED=false)');

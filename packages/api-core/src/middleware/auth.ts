@@ -29,21 +29,6 @@ export interface RequireAuthOptions {
   allowOrgHeaderOverride?: boolean;
 }
 
-/** Extract and verify a Bearer token, returning the decoded payload or null. */
-function verifyBearerToken(authHeader: string | undefined): JwtPayload | null {
-  if (!authHeader) return null;
-
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
-
-  try {
-    const decoded = jwt.verify(parts[1], getJwtSecret()) as JwtPayload;
-    return decoded.type === 'access' ? decoded : null;
-  } catch {
-    return null;
-  }
-}
-
 /** JWT auth middleware. Use directly or call with options: requireAuth({ allowOrgHeaderOverride: true }) */
 export function requireAuth(
   req: Request,
@@ -119,18 +104,6 @@ function _requireAuth(
   }
 }
 
-/** Attaches user if token is present but doesn't require authentication. */
-export function optionalAuth(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
-  const decoded = verifyBearerToken(req.headers.authorization);
-  if (decoded) {
-    req.user = decoded;
-  }
-  next();
-}
 
 /** Requires organization membership. Use after requireAuth. */
 export function requireOrganization(

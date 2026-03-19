@@ -1,11 +1,15 @@
-import { entityEvents } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService } from '@mwashburn160/api-core';
 import {
+  CoreConstants,
   CrudService,
   buildPipelineConditions,
   schema,
   db,
   type PipelineFilter,
 } from '@mwashburn160/pipeline-core';
+
+/** Server-side cache for pipeline reads. */
+const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY);
 import { SQL, eq, and, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -56,9 +60,18 @@ export class PipelineService extends CrudService<
     return [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId];
   }
 
-  // Lifecycle hooks — emit entity events for compliance integration
+  // -- Cached reads -----------------------------------------------------------
+
+  /** findById with server-side cache (keyed by orgId:id). */
+  async findById(id: string, orgId?: string): Promise<Pipeline | null> {
+    const cacheKey = `${orgId || 'anon'}:id:${id}`;
+    return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId));
+  }
+
+  // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   protected async onAfterCreate(entity: Pipeline): Promise<void> {
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'created',
       target: 'pipeline',
@@ -71,6 +84,7 @@ export class PipelineService extends CrudService<
   }
 
   protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'updated',
       target: 'pipeline',
@@ -83,6 +97,7 @@ export class PipelineService extends CrudService<
   }
 
   protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
+    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch(() => {});
     entityEvents.emit({
       eventType: 'deleted',
       target: 'pipeline',
@@ -142,7 +157,9 @@ export class PipelineService extends CrudService<
         })
         .returning();
 
-      return result as unknown as Pipeline;
+      const pipeline = result as unknown as Pipeline;
+      pipelineCache.invalidatePattern(`${data.orgId}:*`).catch(() => {});
+      return pipeline;
     });
   }
 }

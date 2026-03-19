@@ -19,6 +19,7 @@ import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './r
 import { createTemplateRoutes } from './routes/templates';
 import { createUpdatePolicyRoutes } from './routes/update-policies';
 import { createUpdateRuleRoutes } from './routes/update-rules';
+import { createEntityEventRoutes } from './routes/entity-events';
 import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');
@@ -60,6 +61,9 @@ app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createDele
 
 // Rule templates (auth + org)
 app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());
+
+// Internal entity event receiver (service-to-service, no user auth)
+app.use('/compliance/events/entity', createEntityEventRoutes());
 
 logger.info('All /compliance routes registered');
 

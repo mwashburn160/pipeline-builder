@@ -1,4 +1,4 @@
-import { createLogger, createQuotaService } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline';
@@ -38,6 +38,9 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createBulkPipelineRo
 
 // -- Registry route — auth + orgId (upsert pipeline ARN for event reporting) -
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
+
+// -- Register compliance event subscriber for entity lifecycle events --------
+registerComplianceEventSubscriber();
 
 logger.info('All /pipelines routes registered');
 

@@ -169,7 +169,14 @@ export function createUploadPluginRoutes(
           },
         });
 
-        await getQueue().add(`upload-${m.name}-${plugin.imageTag}`, jobData);
+        try {
+          await getQueue().add(`upload-${m.name}-${plugin.imageTag}`, jobData);
+        } catch (queueErr) {
+          ctx.log('ERROR', 'Failed to enqueue build job', {
+            error: queueErr instanceof Error ? queueErr.message : String(queueErr),
+          });
+          return sendError(res, 503, 'Build queue unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
+        }
 
         ctx.log('INFO', 'Build queued', {
           pluginName: m.name,

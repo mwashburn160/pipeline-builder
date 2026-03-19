@@ -5,11 +5,15 @@ import {
   createLogger,
   getParam,
   errorMessage,
+  createCacheService,
 } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import { Plan } from '../models/plan';
 
 const logger = createLogger('billing-plans');
+
+/** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS (default 4 hours). */
+const planCache = createCacheService('billing:plans:', parseInt(process.env.CACHE_TTL_BILLING_PLANS || '14400', 10));
 
 /**
  * Create the public plan-listing router (no auth required).
@@ -22,24 +26,26 @@ const logger = createLogger('billing-plans');
 export function createReadPlanRoutes(): Router {
   const router: Router = Router();
 
-  // GET /billing/plans — list all active plans
+  // GET /billing/plans — list all active plans (cached — plans rarely change)
 
   router.get('/plans', async (_req: Request, res: Response) => {
     try {
-      const plans = await Plan.find({ isActive: true })
-        .sort({ sortOrder: 1 })
-        .lean();
+      const result = await planCache.getOrSet('active', async () => {
+        const plans = await Plan.find({ isActive: true })
+          .sort({ sortOrder: 1 })
+          .lean();
 
-      const result = plans.map((plan) => ({
-        id: plan._id,
-        name: plan.name,
-        description: plan.description,
-        tier: plan.tier,
-        prices: plan.prices,
-        features: plan.features,
-        isDefault: plan.isDefault,
-        sortOrder: plan.sortOrder,
-      }));
+        return plans.map((plan) => ({
+          id: plan._id,
+          name: plan.name,
+          description: plan.description,
+          tier: plan.tier,
+          prices: plan.prices,
+          features: plan.features,
+          isDefault: plan.isDefault,
+          sortOrder: plan.sortOrder,
+        }));
+      });
 
       return sendSuccess(res, 200, { plans: result, total: result.length });
     } catch (error) {
@@ -57,7 +63,9 @@ export function createReadPlanRoutes(): Router {
     }
 
     try {
-      const plan = await Plan.findOne({ _id: planId, isActive: true }).lean();
+      const plan = await planCache.getOrSet(`id:${planId}`, () =>
+        Plan.findOne({ _id: planId, isActive: true }).lean(),
+      );
 
       if (!plan) {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);

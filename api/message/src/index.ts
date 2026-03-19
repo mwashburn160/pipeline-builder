@@ -1,6 +1,8 @@
-import { createLogger, requireAuth, createQuotaService } from '@mwashburn160/api-core';
+import crypto from 'crypto';
+
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 
 import { createCreateMessageRoutes } from './routes/create-message';
 import { createDeleteMessageRoutes } from './routes/delete-message';
@@ -14,28 +16,59 @@ const { app, sseManager } = createApp();
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
 
-// -- SSE notification endpoint (auth via query param, before protected routes) -
-// Injects query token into Authorization header so requireAuth can verify it,
-// then registers the client with SSEManager keyed by orgId.
-app.get(
-  '/messages/notifications',
-  // Inject token from query param into Authorization header
-  (req: Request, _res: Response, next: NextFunction) => {
-    const token = req.query.token as string;
-    if (token && !req.headers.authorization) {
-      req.headers.authorization = `Bearer ${token}`;
-    }
-    next();
-  },
-  // Reuse existing JWT verification middleware
+// -- SSE ticket store ---------------------------------------------------------
+// Short-lived, single-use tickets so JWTs never appear in query strings / logs.
+
+/** Ticket TTL in ms (30 seconds — enough for the client to open the EventSource). */
+const TICKET_TTL_MS = 30_000;
+
+interface SseTicket { orgId: string; expiresAt: number }
+const ticketStore = new Map<string, SseTicket>();
+
+// Periodic cleanup of expired tickets
+const ticketCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [id, ticket] of ticketStore) {
+    if (now > ticket.expiresAt) ticketStore.delete(id);
+  }
+}, TICKET_TTL_MS);
+ticketCleanup.unref();
+
+// POST /messages/notifications/ticket — exchange JWT for a single-use SSE ticket
+app.post(
+  '/messages/notifications/ticket',
   requireAuth,
-  // Set up SSE connection
   (req: Request, res: Response) => {
     const orgId = req.user?.organizationId?.toLowerCase();
     if (!orgId) {
-      res.status(400).json({ success: false, message: 'Token missing organization' });
+      return sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
+    }
+
+    const ticketId = crypto.randomBytes(24).toString('base64url');
+    ticketStore.set(ticketId, { orgId, expiresAt: Date.now() + TICKET_TTL_MS });
+    return sendSuccess(res, 200, { ticket: ticketId });
+  },
+);
+
+// GET /messages/notifications?ticket=<ticket> — SSE endpoint using ticket auth
+app.get(
+  '/messages/notifications',
+  (req: Request, res: Response) => {
+    const ticketId = req.query.ticket as string | undefined;
+    if (!ticketId) {
+      res.status(401).json({ success: false, message: 'Missing ticket parameter' });
       return;
     }
+
+    const ticket = ticketStore.get(ticketId);
+    ticketStore.delete(ticketId); // Single use — consume immediately
+
+    if (!ticket || Date.now() > ticket.expiresAt) {
+      res.status(401).json({ success: false, message: 'Invalid or expired ticket' });
+      return;
+    }
+
+    const { orgId } = ticket;
 
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -50,7 +83,7 @@ app.get(
       return;
     }
 
-    logger.info(`SSE notification client connected for org ${orgId}`);
+    logger.info('SSE notification client connected', { orgId });
   },
 );
 

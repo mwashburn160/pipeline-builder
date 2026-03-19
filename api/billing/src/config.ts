@@ -26,8 +26,18 @@ export interface AppConfig {
     host: string;
     port: number;
   };
+  messageService: {
+    host: string;
+    port: number;
+  };
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
+  /** Grace period in days before downgrading on payment failure (default 7). */
+  paymentGracePeriodDays: number;
+  /** Days before renewal to send a reminder notification (default 7). */
+  renewalReminderDays: number;
+  /** Interval in ms for the subscription lifecycle checker (default 1 hour). */
+  lifecycleCheckIntervalMs: number;
 }
 
 const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
@@ -49,6 +59,15 @@ export const config: AppConfig = {
     host: process.env.QUOTA_SERVICE_HOST || 'quota',
     port: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
   },
+
+  messageService: {
+    host: process.env.MESSAGE_SERVICE_HOST || 'message',
+    port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
+  },
+
+  paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),
+  renewalReminderDays: parseInt(process.env.RENEWAL_REMINDER_DAYS || '7', 10),
+  lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
 
   marketplace: {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',

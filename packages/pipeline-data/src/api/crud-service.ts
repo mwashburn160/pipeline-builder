@@ -9,6 +9,21 @@ const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10)
 const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
 
 /**
+ * Cast Drizzle query results to a typed array.
+ * Drizzle's generic return type (`PgSelectBase<...>`) doesn't narrow to our
+ * entity generics, so an explicit cast is needed. Centralised here so every
+ * call-site stays one-liner clean and the cast is documented in one place.
+ */
+export function drizzleRows<T>(rows: unknown): T[] {
+  return rows as T[];
+}
+
+/** Cast a Drizzle aggregate result to extract `[{ count: number }]`. */
+export function drizzleCount(rows: unknown): [{ count: number }] {
+  return rows as [{ count: number }];
+}
+
+/**
  * Base interface for entities with common fields
  */
 export interface BaseEntity {
@@ -122,10 +137,10 @@ export abstract class CrudService<
   async find(filter: Partial<TFilter>, orgId?: string): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId);
 
-    return await db
+    return db
       .select()
       .from(this.schema)
-      .where(and(...conditions)) as unknown as TEntity[];
+      .where(and(...conditions)).then(r => drizzleRows<TEntity>(r));
   }
 
   /**
@@ -176,7 +191,7 @@ export abstract class CrudService<
     const effectiveOffset = useCursor ? 0 : offset;
     const rows = await query
       .limit(limit + 1)
-      .offset(effectiveOffset) as unknown as TEntity[];
+      .offset(effectiveOffset).then(r => drizzleRows<TEntity>(r));
 
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
@@ -198,7 +213,7 @@ export abstract class CrudService<
       const [countResult] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(this.schema)
-        .where(and(...baseConditions)) as unknown as [{ count: number }];
+        .where(and(...baseConditions)).then(r => drizzleCount(r));
       result.total = countResult?.count || 0;
     }
 
@@ -238,7 +253,7 @@ export abstract class CrudService<
     const [result] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(this.schema)
-      .where(and(...conditions)) as unknown as [{ count: number }];
+      .where(and(...conditions)).then(r => drizzleCount(r));
 
     return result?.count || 0;
   }
@@ -256,7 +271,7 @@ export abstract class CrudService<
       .select()
       .from(this.schema)
       .where(and(...conditions))
-      .limit(1) as unknown as TEntity[];
+      .limit(1).then(r => drizzleRows<TEntity>(r));
 
     return results[0] || null;
   }
@@ -282,7 +297,7 @@ export abstract class CrudService<
           updatedBy: userId || 'system',
         } as any,
       })
-      .returning() as unknown as TEntity[];
+      .returning().then(r => drizzleRows<TEntity>(r));
 
     this.onAfterCreate(created, userId).catch(() => { /* fire-and-forget */ });
 
@@ -308,7 +323,7 @@ export abstract class CrudService<
         updatedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning() as unknown as TEntity[];
+      .returning().then(r => drizzleRows<TEntity>(r));
 
     if (updated) {
       this.onAfterUpdate(id, updated, userId).catch(() => { /* fire-and-forget */ });
@@ -333,7 +348,7 @@ export abstract class CrudService<
         deletedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning() as unknown as TEntity[];
+      .returning().then(r => drizzleRows<TEntity>(r));
 
     if (deleted) {
       this.onAfterDelete(id, deleted, userId).catch(() => { /* fire-and-forget */ });
@@ -399,7 +414,7 @@ export abstract class CrudService<
             eq(orgColumn, org),
           ),
         )
-        .returning() as unknown as TEntity[];
+        .returning().then(r => drizzleRows<TEntity>(r));
 
       if (!updated) {
         throw new NotFoundError(`Entity with id ${id} not found`);
@@ -420,7 +435,7 @@ export abstract class CrudService<
   ): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId);
 
-    return await db
+    return db
       .update(this.schema)
       .set({
         ...data,
@@ -428,7 +443,7 @@ export abstract class CrudService<
         updatedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning() as unknown as TEntity[];
+      .returning().then(r => drizzleRows<TEntity>(r));
   }
 
   /**
@@ -464,7 +479,7 @@ export abstract class CrudService<
               updatedBy: user,
             } as any,
           })
-          .returning() as unknown as TEntity[];
+          .returning().then(r => drizzleRows<TEntity>(r));
 
         allCreated.push(...created);
       }
@@ -506,7 +521,7 @@ export abstract class CrudService<
         deletedBy: user,
       } as any)
       .where(and(...conditions))
-      .returning() as unknown as TEntity[];
+      .returning().then(r => drizzleRows<TEntity>(r));
 
     for (const entity of deleted) {
       this.onAfterDelete(entity.id, entity, userId).catch(() => { /* fire-and-forget */ });

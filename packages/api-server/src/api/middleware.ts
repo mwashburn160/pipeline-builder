@@ -1,7 +1,6 @@
 // Re-export all authentication middleware from api-core
 export {
   requireAuth,
-  optionalAuth,
   requireOrganization,
   requireAdmin,
   isSystemOrg,

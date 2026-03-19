@@ -2,9 +2,9 @@
  * SSE-based hook for real-time message notifications.
  * Connects via EventSource to the message service and receives
  * push notifications for new messages, deletions, and unread count updates.
- * Auth is passed via query parameter since EventSource doesn't support custom headers.
+ * Uses a short-lived ticket exchange so JWTs never appear in query strings.
  */
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSSE } from './useSSE';
 import api from '@/lib/api';
 import { MESSAGE_SSE_MAX_RETRIES, MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
@@ -46,12 +46,31 @@ export function useMessageNotifications(orgId: string | null) {
     return () => { listenersRef.current.delete(listener); };
   }, []);
 
-  const url = useMemo(() => {
-    if (!orgId) return null;
-    const token = api.getAccessToken();
-    if (!token) return null;
-    return `/api/messages/notifications?token=${encodeURIComponent(token)}`;
-  }, [orgId]);
+  // Exchange JWT for a single-use SSE ticket so the JWT never appears in URLs.
+  // A fresh ticket is fetched for each connection attempt (tickets are single-use).
+  const [url, setUrl] = useState<string | null>(null);
+  const [ticketKey, setTicketKey] = useState(0);
+
+  useEffect(() => {
+    if (!orgId || !api.isAuthenticated()) {
+      setUrl(null);
+      return;
+    }
+    let cancelled = false;
+    api.getNotificationTicket()
+      .then((ticket) => {
+        if (!cancelled) setUrl(`/api/messages/notifications?ticket=${encodeURIComponent(ticket)}`);
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+    return () => { cancelled = true; };
+  }, [orgId, ticketKey]);
+
+  // When the SSE connection drops, fetch a fresh ticket for the next attempt
+  const onRetriesExhausted = useCallback(() => {
+    setTicketKey((k) => k + 1);
+  }, []);
 
   const onMessage = useCallback((data: unknown) => {
     const parsed = data as MessageNotification;
@@ -70,6 +89,7 @@ export function useMessageNotifications(orgId: string | null) {
     maxRetries: MESSAGE_SSE_MAX_RETRIES,
     baseRetryDelayMs: MESSAGE_SSE_BASE_RETRY_DELAY_MS,
     onMessage,
+    onRetriesExhausted,
   });
 
   return { unreadCount, setUnreadCount, connected, onNotification };
