@@ -1,3 +1,17 @@
+## 1.37.4 (2026-03-19)
+
+### 🩹 Fixes
+
+- version=1.42.3 ([77aa5cc8](https://github.com/mwashburn160/pipeline-builder/commit/77aa5cc8))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/ai-core to 1.16.4
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.3 (2026-03-19)
 
 ### 🩹 Fixes
