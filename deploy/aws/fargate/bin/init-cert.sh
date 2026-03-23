@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Pipeline Builder - Let's Encrypt Certificate via Route53 DNS
 # =============================================================================
@@ -23,7 +23,7 @@ set -euo pipefail
 
 DOMAIN=""
 REGION="${AWS_REGION:-us-east-1}"
-CERT_DIR="/tmp/letsencrypt-${RANDOM}"
+CERT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/letsencrypt.XXXXXX")"
 EMAIL=""
 
 while [[ $# -gt 0 ]]; do

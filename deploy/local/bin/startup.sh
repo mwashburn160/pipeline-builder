@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -1,9 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Auto-detect GPU availability for Ollama
 # Sets OLLAMA_NO_GPU=1 if no NVIDIA GPU is found, allowing CPU fallback.
 # Can be overridden by explicitly setting OLLAMA_NO_GPU before container start.
 
-if [ -z "${OLLAMA_NO_GPU}" ]; then
+set -e
+
+if [ -z "${OLLAMA_NO_GPU:-}" ]; then
   if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     echo "[detect-gpu] NVIDIA GPU detected — using GPU acceleration"
     export OLLAMA_NO_GPU=0

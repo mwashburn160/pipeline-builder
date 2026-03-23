@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Pipeline Builder - Fargate Deployment Script
 # =============================================================================
@@ -45,7 +45,7 @@ done
 # Validate required params
 for param in DOMAIN HOSTED_ZONE_ID; do
   if [ -z "${!param}" ]; then
-    echo "ERROR: --$(echo $param | tr '_' '-' | tr '[:upper:]' '[:lower:]') is required"
+    echo "ERROR: --$(echo "$param" | tr '_' '-' | tr '[:upper:]' '[:lower:]') is required"
     exit 1
   fi
 done

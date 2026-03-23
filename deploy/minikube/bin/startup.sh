@@ -35,6 +35,12 @@ else
   exit 1
 fi
 
+# Ensure MongoDB keyfile has correct permissions
+KEYFILE="$DEPLOY_DIR/mongodb-keyfile"
+if [ -f "$KEYFILE" ]; then
+  chmod 400 "$KEYFILE"
+fi
+
 # Ensure local data directories exist (host-side mount source)
 mkdir -p "$DATA_DIR/db-data/postgres" "$DATA_DIR/db-data/mongodb" \
          "$DATA_DIR/db-data/grafana" "$DATA_DIR/db-data/loki" \
