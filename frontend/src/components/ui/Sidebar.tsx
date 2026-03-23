@@ -18,6 +18,7 @@ import {
   Settings,
   KeyRound,
   HelpCircle,
+  Download,
   Mail,
   Sun,
   Moon,
@@ -98,6 +99,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
       { title: 'Settings', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
+      { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
     ],
   },
@@ -211,6 +213,15 @@ export function Sidebar({
                     <Plus className="h-4 w-4" />
                   </span>
                   Add Plugin
+                </Link>
+                <Link
+                  href="/dashboard/downloads"
+                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-green-600 text-white">
+                    <Download className="h-4 w-4" />
+                  </span>
+                  Get the CLI
                 </Link>
               </div>
             </div>

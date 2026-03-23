@@ -3,6 +3,8 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 
+const GRAFANA_URL = '/grafana/';
+
 /** Grafana dashboard embed page (system admin only). Renders Grafana in a full-height iframe with an open-in-new-tab link. */
 export default function GrafanaPage() {
   const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
@@ -15,7 +17,7 @@ export default function GrafanaPage() {
       subtitle="Observability dashboards"
       actions={
         <a
-          href="/grafana/"
+          href={GRAFANA_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="action-link-muted inline-flex items-center gap-1.5"
@@ -27,7 +29,7 @@ export default function GrafanaPage() {
       mainClassName="!px-0"
     >
       <iframe
-        src="/grafana/"
+        src={GRAFANA_URL}
         title="Grafana"
         className="w-full border-0"
         style={{ height: 'calc(100vh - 80px)' }}

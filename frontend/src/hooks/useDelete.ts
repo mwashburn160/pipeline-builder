@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export interface UseDeleteResult<T> {
   /** The item currently targeted for deletion, or null. */
@@ -48,18 +48,28 @@ export function useDelete<T>(
 ): UseDeleteResult<T> {
   const [target, setTarget] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
+  const targetRef = useRef<T | null>(null);
 
-  const open = useCallback((item: T) => setTarget(item), []);
-  const close = useCallback(() => setTarget(null), []);
+  const open = useCallback((item: T) => {
+    targetRef.current = item;
+    setTarget(item);
+  }, []);
+  const close = useCallback(() => {
+    targetRef.current = null;
+    setTarget(null);
+  }, []);
 
   const confirm = useCallback(async () => {
-    if (!target) return;
+    const current = targetRef.current;
+    if (!current) return;
     setLoading(true);
     try {
-      await deleteFn(target);
+      await deleteFn(current);
+      targetRef.current = null;
       setTarget(null);
       onSuccess?.();
     } catch (err) {
+      targetRef.current = null;
       setTarget(null);
       if (onError) {
         onError(err);
@@ -69,7 +79,7 @@ export function useDelete<T>(
     } finally {
       setLoading(false);
     }
-  }, [target, deleteFn, onSuccess, onError]);
+  }, [deleteFn, onSuccess, onError]);
 
   return { target, loading, open, close, confirm };
 }

@@ -58,8 +58,8 @@ export default function LogsPage() {
   // Load filter options
   useEffect(() => {
     if (!isAuthenticated) return;
-    api.getLogServices().then(res => setServices(res.data?.services || [])).catch(() => {});
-    api.getLogLevels().then(res => setLevels(res.data?.levels || [])).catch(() => {});
+    api.getLogServices().then(res => setServices(res.data?.services || [])).catch(() => setServices([]));
+    api.getLogLevels().then(res => setLevels(res.data?.levels || [])).catch(() => setLevels([]));
   }, [isAuthenticated]);
 
   const fetchLogs = useCallback(async () => {

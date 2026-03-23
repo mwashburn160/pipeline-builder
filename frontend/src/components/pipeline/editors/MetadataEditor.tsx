@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { MetadataEntry } from '@/types/form-types';
+import { useCombobox } from '@/hooks/useCombobox';
 import { METADATA_KEY_GROUPS, type MetadataKeyOption } from './metadata-keys';
 
 /** Props for {@link MetadataEditor}. */
@@ -31,48 +32,16 @@ function MetadataKeyCombobox({
   onSelectPredefined: (opt: MetadataKeyOption) => void;
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = e.target.value;
-      setFilter(v);
-      onChange(v);
-      setOpen(true);
-    },
-    [onChange],
-  );
+  const { open, setOpen, filter, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss } = useCombobox(onChange);
 
   const handleSelect = useCallback(
     (opt: MetadataKeyOption) => {
       onChange(opt.key);
       onSelectPredefined(opt);
-      setFilter('');
-      setOpen(false);
-      inputRef.current?.blur();
+      dismiss();
     },
-    [onChange, onSelectPredefined],
+    [onChange, onSelectPredefined, dismiss],
   );
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setOpen(false);
-      inputRef.current?.blur();
-    }
-  }, []);
 
   const query = (filter || value).toLowerCase();
   const filteredGroups = METADATA_KEY_GROUPS.map((group) => ({

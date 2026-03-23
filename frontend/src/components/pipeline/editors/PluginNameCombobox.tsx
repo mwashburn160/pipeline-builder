@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Plugin } from '@/types';
 import { usePlugins, groupPlugins } from '@/hooks/usePlugins';
+import { useCombobox } from '@/hooks/useCombobox';
 
 /** Props for {@link PluginNameCombobox}. */
 interface PluginNameComboboxProps {
@@ -28,50 +29,21 @@ interface PluginNameComboboxProps {
 export default function PluginNameCombobox({
   value, onChange, onSelectPlugin, disabled, label = 'Plugin', error,
 }: PluginNameComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { open, setOpen, filter, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss } = useCombobox(onChange);
 
   const [hasOpened, setHasOpened] = useState(false);
   const { plugins, isLoading } = usePlugins(hasOpened);
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setFilter(v);
-    onChange(v);
-    setOpen(true);
-  }, [onChange]);
-
   const handleSelect = useCallback((plugin: Plugin) => {
     onChange(plugin.name);
     onSelectPlugin(plugin);
-    setFilter('');
-    setOpen(false);
-    inputRef.current?.blur();
-  }, [onChange, onSelectPlugin]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setOpen(false);
-      inputRef.current?.blur();
-    }
-  }, []);
+    dismiss();
+  }, [onChange, onSelectPlugin, dismiss]);
 
   const handleFocus = useCallback(() => {
     setHasOpened(true);
     setOpen(true);
-  }, []);
+  }, [setOpen]);
 
   const query = filter || value;
   const groups = groupPlugins(plugins, query);

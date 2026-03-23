@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { type ArtifactKeyOption, groupArtifactOptions } from '@/lib/artifact-keys';
+import { useCombobox } from '@/hooks/useCombobox';
 
 /** Props for {@link ArtifactKeyCombobox}. */
 interface ArtifactKeyComboboxProps {
@@ -29,47 +30,15 @@ export default function ArtifactKeyCombobox({
   disabled,
   placeholder = 'Type or select artifact key',
 }: ArtifactKeyComboboxProps) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = e.target.value;
-      setFilter(v);
-      onChange(v);
-      setOpen(true);
-    },
-    [onChange],
-  );
+  const { open, setOpen, filter, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss } = useCombobox(onChange);
 
   const handleSelect = useCallback(
     (opt: ArtifactKeyOption) => {
       onChange(opt.key);
-      setFilter('');
-      setOpen(false);
-      inputRef.current?.blur();
+      dismiss();
     },
-    [onChange],
+    [onChange, dismiss],
   );
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setOpen(false);
-      inputRef.current?.blur();
-    }
-  }, []);
 
   const query = filter || value;
   const groups = groupArtifactOptions(options, query);

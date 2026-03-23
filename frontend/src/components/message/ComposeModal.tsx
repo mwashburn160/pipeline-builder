@@ -86,7 +86,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={isAnnouncement ? 'New Announcement' : 'New Message'}>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -95,6 +95,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="w-5 h-5 text-gray-500" />

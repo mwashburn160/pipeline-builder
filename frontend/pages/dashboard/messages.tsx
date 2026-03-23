@@ -3,7 +3,7 @@ import { Plus, MessageCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useMessages } from '@/hooks/useMessages';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { LoadingPage } from '@/components/ui/Loading';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
@@ -99,6 +99,7 @@ export default function MessagesPage() {
                 onClick={() => setShowCompose(true)}
                 className="p-1.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
                 title={isSysAdmin ? 'New Message' : 'Contact Support'}
+                aria-label={isSysAdmin ? 'New Message' : 'Contact Support'}
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -124,17 +125,17 @@ export default function MessagesPage() {
             {/* Message list */}
             {loading ? (
               <div className="flex-1 flex items-center justify-center">
-                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <LoadingSpinner size="sm" />
               </div>
             ) : error ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
                 <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
-              <button
-                onClick={fetchMessages}
-                className="action-link mt-2"
-              >
-                Try again
-              </button>
+                <button
+                  onClick={fetchMessages}
+                  className="action-link mt-2"
+                >
+                  Try again
+                </button>
               </div>
             ) : (
               <MessageList
