@@ -1,3 +1,17 @@
+## 1.39.13 (2026-03-23)
+
+### 🩹 Fixes
+
+- offset-based pagination ([374a84ac](https://github.com/mwashburn160/pipeline-builder/commit/374a84ac))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.44.13
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.12 (2026-03-20)
 
 ### 🩹 Fixes
