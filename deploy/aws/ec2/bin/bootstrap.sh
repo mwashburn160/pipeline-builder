@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Pipeline Builder - EC2 Bootstrap Script
 # =============================================================================
@@ -18,6 +18,12 @@
 #   GIT_BRANCH   - Git branch (already checked out)
 # =============================================================================
 set -euo pipefail
+
+# Ensure running as root
+if [ "$(id -u)" != "0" ]; then
+  echo "ERROR: bootstrap.sh must be run as root" >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -262,9 +268,9 @@ echo "========================================"
 echo "Phase 8: iptables port forwarding"
 echo "========================================"
 
-# Enable IP forwarding
+# Enable IP forwarding (idempotent — overwrites rather than appends)
 echo 1 > /proc/sys/net/ipv4/ip_forward
-echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/99-pipeline-builder.conf
+echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-pipeline-builder.conf
 sysctl -p /etc/sysctl.d/99-pipeline-builder.conf
 
 # Note: iptables DNAT rules are set AFTER minikube starts (in startup.sh)
@@ -279,56 +285,17 @@ echo "========================================"
 echo "Phase 9: Launch minikube startup"
 echo "========================================"
 
-# Export variables needed by startup.sh
+# startup.sh now handles root-vs-minikube user internally via run_as_mk,
+# and sets up iptables when run as root, so we can call it directly.
 export DOMAIN
 export GHCR_TOKEN
 export GHCR_USER
 
-su - minikube -c "
-  export DOMAIN='${DOMAIN}'
-  export GHCR_TOKEN='${GHCR_TOKEN}'
-  export GHCR_USER='${GHCR_USER}'
-  cd '${DEPLOY_DIR}'
-  bash bin/startup.sh
-"
+bash "${DEPLOY_DIR}/bin/startup.sh"
 
-# =============================================================================
-# Phase 10: Setup iptables DNAT rules (needs minikube IP)
-# =============================================================================
-echo ""
-echo "========================================"
-echo "Phase 10: iptables DNAT rules"
-echo "========================================"
-
-MINIKUBE_IP=$(su - minikube -c "minikube ip --profile=pipeline-builder" 2>/dev/null || true)
-if [ -n "$MINIKUBE_IP" ]; then
-  # Detect primary network interface (eth0, ens5, etc.)
-  PRIMARY_IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
-  PRIMARY_IF="${PRIMARY_IF:-eth0}"
-
-  # Forward external traffic only (-i $PRIMARY_IF) so minikube VM
-  # outbound traffic to port 443 is not intercepted.
-  iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 443 -j DNAT --to-destination "${MINIKUBE_IP}:30443"
-  iptables -t nat -A PREROUTING -i "$PRIMARY_IF" -p tcp --dport 80 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
-  # Allow DNAT'd packets through the FORWARD chain to reach minikube
-  iptables -A FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30443 -j ACCEPT
-  iptables -A FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT
-  # Masquerade return traffic from minikube back to external clients
-  iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
-
-  # Persist iptables rules across reboots
-  dnf install -y iptables-services 2>/dev/null || true
-  iptables-save > /etc/sysconfig/iptables
-  systemctl enable iptables 2>/dev/null || true
-
-  echo "  Interface: ${PRIMARY_IF}"
-  echo "  443 → ${MINIKUBE_IP}:30443"
-  echo "  80  → ${MINIKUBE_IP}:30080"
-  echo "  Rules persisted to /etc/sysconfig/iptables"
-else
-  echo "  WARNING: Could not determine minikube IP — iptables rules not set"
-  echo "  Run 'sudo bash ${DEPLOY_DIR}/bin/bootstrap.sh' to retry after minikube is running"
-fi
+# Ensure iptables-services is installed for persistence across reboots
+dnf install -y iptables-services 2>/dev/null || true
+systemctl enable iptables 2>/dev/null || true
 
 echo ""
 echo "========================================"

@@ -28,6 +28,18 @@ DATA_DIR="$DEPLOY_DIR/data"
 DOMAIN="${DOMAIN:-}"
 
 # -----------------------------------------------------------------------
+# When run as root, minikube/kubectl/docker must execute as the minikube
+# user (the docker driver rejects root). Wrap them so the rest of the
+# script works identically regardless of who invokes it.
+# -----------------------------------------------------------------------
+if [ "$(id -u)" = "0" ]; then
+  MK_USER="minikube"
+  run_as_mk() { sudo -u "$MK_USER" -- "$@"; }
+else
+  run_as_mk() { "$@"; }
+fi
+
+# -----------------------------------------------------------------------
 # Load environment variables from .env
 # -----------------------------------------------------------------------
 ENV_FILE=""
@@ -71,15 +83,15 @@ echo "=== Cleaning up stale Docker state (if any) ==="
 # If the minikube container references a deleted network, Docker refuses to
 # start it ("network … not found"). Disconnect the container from any missing
 # networks, then remove orphaned networks so minikube can recreate cleanly.
-if docker inspect "$PROFILE" >/dev/null 2>&1; then
-  for net_id in $(docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
-    if ! docker network inspect "$net_id" >/dev/null 2>&1; then
+if run_as_mk docker inspect "$PROFILE" >/dev/null 2>&1; then
+  for net_id in $(run_as_mk docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
+    if ! run_as_mk docker network inspect "$net_id" >/dev/null 2>&1; then
       echo "  Disconnecting container from missing network $net_id"
-      docker network disconnect -f "$net_id" "$PROFILE" 2>/dev/null || true
+      run_as_mk docker network disconnect -f "$net_id" "$PROFILE" 2>/dev/null || true
     fi
   done
 fi
-docker network rm "$PROFILE" 2>/dev/null || true
+run_as_mk docker network rm "$PROFILE" 2>/dev/null || true
 
 # -----------------------------------------------------------------------
 # Dynamic resource allocation based on EC2 instance size
@@ -103,7 +115,7 @@ echo "  Minikube: ${MK_CPUS} CPUs, ${MK_MEMORY} MiB RAM, ${MK_DISK} disk"
 echo ""
 echo "=== Starting Minikube ==="
 echo "  Mounting $DATA_DIR -> /mnt/data"
-if ! minikube start \
+if ! run_as_mk minikube start \
   --profile="$PROFILE" \
   --cpus="$MK_CPUS" \
   --memory="$MK_MEMORY" \
@@ -113,10 +125,10 @@ if ! minikube start \
 
   echo ""
   echo "  Start failed — removing stale container and retrying..."
-  docker rm -f "$PROFILE" 2>/dev/null || true
-  docker network rm "$PROFILE" 2>/dev/null || true
+  run_as_mk docker rm -f "$PROFILE" 2>/dev/null || true
+  run_as_mk docker network rm "$PROFILE" 2>/dev/null || true
 
-  minikube start \
+  run_as_mk minikube start \
     --profile="$PROFILE" \
     --cpus="$MK_CPUS" \
     --memory="$MK_MEMORY" \
@@ -127,22 +139,22 @@ fi
 
 echo ""
 echo "=== Waiting for cluster to be ready ==="
-kubectl wait --for=condition=Ready node/"$PROFILE" --timeout=120s
+run_as_mk kubectl wait --for=condition=Ready node/"$PROFILE" --timeout=120s
 
 echo ""
 echo "=== Enabling addons ==="
 # default-storageclass and storage-provisioner are enabled by default in minikube
-minikube addons enable metrics-server --profile="$PROFILE"
+run_as_mk minikube addons enable metrics-server --profile="$PROFILE"
 
 echo ""
 echo "=== Installing KEDA (queue-based autoscaling) ==="
-kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
-kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  WARNING: KEDA operator not ready yet (will retry in background)"
+run_as_mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
+run_as_mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  WARNING: KEDA operator not ready yet (will retry in background)"
 echo "  KEDA installed"
 
 echo ""
 echo "=== Ensuring namespace exists ==="
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+run_as_mk kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 
 echo ""
 echo "=== Creating app-env ConfigMap from .env ==="
@@ -157,10 +169,10 @@ while IFS='=' read -r key value; do
   printf '%s=%s\n' "$key" "$expanded"
 done < "$FILTERED" > "$CLEAN_ENV"
 rm -f "$FILTERED"
-kubectl create configmap app-env \
+run_as_mk kubectl create configmap app-env \
   --from-env-file="$CLEAN_ENV" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 rm -f "$CLEAN_ENV"
 echo "  app-env ConfigMap created/updated"
 
@@ -168,61 +180,61 @@ echo ""
 echo "=== Creating secrets from .env values ==="
 
 # JWT secrets
-kubectl create secret generic jwt-secret \
+run_as_mk kubectl create secret generic jwt-secret \
   --from-literal=JWT_SECRET="$JWT_SECRET" \
   --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  jwt-secret created/updated"
 
 # PostgreSQL secrets
-kubectl create secret generic postgres-secret \
+run_as_mk kubectl create secret generic postgres-secret \
   --from-literal=POSTGRES_USER="$POSTGRES_USER" \
   --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
   --from-literal=DB_USER="$DB_USER" \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  postgres-secret created/updated"
 
 # MongoDB secrets
-kubectl create secret generic mongodb-secret \
+run_as_mk kubectl create secret generic mongodb-secret \
   --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" \
   --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" \
   --from-literal=MONGODB_URI="$MONGODB_URI" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  mongodb-secret created/updated"
 
 # Registry secrets
-kubectl create secret generic registry-secret \
+run_as_mk kubectl create secret generic registry-secret \
   --from-literal=IMAGE_REGISTRY_USER="$IMAGE_REGISTRY_USER" \
   --from-literal=IMAGE_REGISTRY_TOKEN="$IMAGE_REGISTRY_TOKEN" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  registry-secret created/updated"
 
 # Mongo Express secrets
-kubectl create secret generic mongo-express-secret \
+run_as_mk kubectl create secret generic mongo-express-secret \
   --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" \
   --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  mongo-express-secret created/updated"
 
 # pgAdmin secrets
-kubectl create secret generic pgadmin-secret \
+run_as_mk kubectl create secret generic pgadmin-secret \
   --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" \
   --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  pgadmin-secret created/updated"
 
 # Grafana secrets
-kubectl create secret generic grafana-secret \
+run_as_mk kubectl create secret generic grafana-secret \
   --from-literal=GF_SECURITY_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  grafana-secret created/updated"
 
 # GHCR image pull secret (for pulling app images from ghcr.io)
@@ -230,15 +242,15 @@ echo "  grafana-secret created/updated"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 if [ -n "$GHCR_TOKEN" ]; then
-  kubectl create secret docker-registry ghcr-secret \
+  run_as_mk kubectl create secret docker-registry ghcr-secret \
     --docker-server=ghcr.io \
     --docker-username="$GHCR_USER" \
     --docker-password="$GHCR_TOKEN" \
     -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
+    --dry-run=client -o yaml | run_as_mk kubectl apply -f -
+  run_as_mk kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
   # Validate token works (inside minikube where image pulls actually happen)
-  if ! minikube ssh --profile="$PROFILE" -- "echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null 2>&1; then
+  if ! run_as_mk minikube ssh --profile="$PROFILE" -- "echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null 2>&1; then
     echo "  WARNING: GHCR token validation failed — image pulls may fail"
   fi
   echo "  ghcr-secret created/updated (default SA patched)"
@@ -255,11 +267,11 @@ mkdir -p "$AUTH_DIR"
 LE_CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 if [ -n "$DOMAIN" ] && [ -d "$LE_CERT_DIR" ]; then
   echo "  Using Let's Encrypt certificate for ${DOMAIN}"
-  kubectl create secret tls nginx-tls-secret \
+  run_as_mk kubectl create secret tls nginx-tls-secret \
     --cert="$LE_CERT_DIR/fullchain.pem" \
     --key="$LE_CERT_DIR/privkey.pem" \
     -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
+    --dry-run=client -o yaml | run_as_mk kubectl apply -f -
   echo "  nginx-tls-secret created from Let's Encrypt"
 else
   echo "  Let's Encrypt certs not found, generating self-signed nginx TLS certificate..."
@@ -271,10 +283,10 @@ else
     echo "ERROR: Failed to generate nginx TLS certificate" >&2
     exit 1
   fi
-  kubectl create secret tls nginx-tls-secret \
+  run_as_mk kubectl create secret tls nginx-tls-secret \
     --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" \
     -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
+    --dry-run=client -o yaml | run_as_mk kubectl apply -f -
   echo "  nginx-tls-secret created (self-signed)"
 fi
 
@@ -286,10 +298,10 @@ if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   echo "ERROR: Failed to generate registry TLS certificate" >&2
   exit 1
 fi
-kubectl create secret tls registry-tls-secret \
+run_as_mk kubectl create secret tls registry-tls-secret \
   --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  registry-tls-secret created/updated"
 
 # Registry htpasswd auth
@@ -297,105 +309,105 @@ echo "  Generating registry htpasswd..."
 if command -v htpasswd >/dev/null 2>&1; then
   htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 else
-  docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
+  run_as_mk docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 fi
-kubectl create secret generic registry-auth-secret \
+run_as_mk kubectl create secret generic registry-auth-secret \
   --from-file=registry.passwd="$AUTH_DIR/registry.passwd" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  registry-auth-secret created/updated"
 
 echo ""
 echo "=== Creating PostgreSQL init ConfigMap ==="
-kubectl create configmap postgres-init \
+run_as_mk kubectl create configmap postgres-init \
   --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  postgres-init ConfigMap created/updated"
 
 echo ""
 echo "=== Creating MongoDB init ConfigMap & keyfile Secret ==="
-kubectl create configmap mongodb-init \
+run_as_mk kubectl create configmap mongodb-init \
   --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  mongodb-init ConfigMap created/updated"
 
-kubectl create secret generic mongodb-keyfile \
+run_as_mk kubectl create secret generic mongodb-keyfile \
   --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  mongodb-keyfile Secret created/updated"
 
 echo ""
 echo "=== Creating Nginx ConfigMaps ==="
 # EC2: Use nginx-ec2.conf (no port suffix in redirect, catch-all server_name)
-kubectl create configmap nginx-config \
+run_as_mk kubectl create configmap nginx-config \
   --from-file=nginx.conf="$NGINX_DIR/nginx-ec2.conf" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  nginx-config ConfigMap created/updated (EC2 variant)"
 
-kubectl create configmap nginx-njs \
+run_as_mk kubectl create configmap nginx-njs \
   --from-file=jwt.js="$NGINX_DIR/jwt.js" \
   --from-file=metrics.js="$NGINX_DIR/metrics.js" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  nginx-njs ConfigMap created/updated"
 
 echo ""
 echo "=== Creating Observability ConfigMaps ==="
-kubectl create configmap loki-config \
+run_as_mk kubectl create configmap loki-config \
   --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  loki-config ConfigMap created/updated"
 
-kubectl create configmap prometheus-config \
+run_as_mk kubectl create configmap prometheus-config \
   --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  prometheus-config ConfigMap created/updated"
 
-kubectl create configmap promtail-config \
+run_as_mk kubectl create configmap promtail-config \
   --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  promtail-config ConfigMap created/updated"
 
 echo ""
 echo "=== Creating Grafana ConfigMaps ==="
-kubectl create configmap grafana-datasources \
+run_as_mk kubectl create configmap grafana-datasources \
   --from-file=loki.yml="$CONFIG_DIR/grafana/loki.yml" \
   --from-file=prometheus.yml="$CONFIG_DIR/grafana/prometheus.yml" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  grafana-datasources ConfigMap created/updated"
 
-kubectl create configmap grafana-dashboards-provisioning \
+run_as_mk kubectl create configmap grafana-dashboards-provisioning \
   --from-file=dashboards.yml="$CONFIG_DIR/grafana/dashboards.yml" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  grafana-dashboards-provisioning ConfigMap created/updated"
 
-kubectl create configmap grafana-dashboards \
+run_as_mk kubectl create configmap grafana-dashboards \
   --from-file=service-logs.json="$CONFIG_DIR/grafana/service-logs.json" \
   --from-file=api-metrics.json="$CONFIG_DIR/grafana/api-metrics.json" \
   -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | run_as_mk kubectl apply -f -
 echo "  grafana-dashboards ConfigMap created/updated"
 
 echo ""
 echo "=== Pre-pulling container images ==="
-minikube ssh --profile="$PROFILE" -- 'docker pull docker:27.5.1-dind' 2>/dev/null && echo "  docker:27.5.1-dind pulled" || echo "  WARNING: Could not pre-pull docker:27.5.1-dind"
+run_as_mk minikube ssh --profile="$PROFILE" -- 'docker pull docker:27.5.1-dind' 2>/dev/null && echo "  docker:27.5.1-dind pulled" || echo "  WARNING: Could not pre-pull docker:27.5.1-dind"
 
 echo ""
 echo "=== Applying Kubernetes manifests ==="
-kubectl apply -k "$K8S_DIR"
+run_as_mk kubectl apply -k "$K8S_DIR"
 
 echo ""
 echo "=== Fixing data directory permissions ==="
-minikube ssh --profile="$PROFILE" -- 'sudo chown -R 1000:1000 /mnt/data/registry-data'
+run_as_mk minikube ssh --profile="$PROFILE" -- 'sudo chown -R 1000:1000 /mnt/data/registry-data'
 echo "  registry-data -> 1000:1000"
 
 echo ""
@@ -405,9 +417,9 @@ echo "=== Patching minikube /etc/hosts for Docker registry access ==="
 # the in-cluster registry, it must resolve the 'registry' hostname. K8s DNS
 # only serves pods, not the minikube node itself, so we add an /etc/hosts
 # entry mapping the registry Service ClusterIP on the node.
-REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+REGISTRY_IP=$(run_as_mk kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 if [ -n "$REGISTRY_IP" ]; then
-  minikube ssh --profile="$PROFILE" -- \
+  run_as_mk minikube ssh --profile="$PROFILE" -- \
     "grep -q '\\sregistry\$' /etc/hosts 2>/dev/null && \
        sudo sed -i 's/.*\\sregistry\$/'"$REGISTRY_IP"' registry/' /etc/hosts || \
        echo '"$REGISTRY_IP"' registry | sudo tee -a /etc/hosts > /dev/null"
@@ -418,28 +430,26 @@ fi
 
 echo ""
 echo "=== Waiting for databases to be ready (up to 3 min) ==="
-kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  WARNING: postgres not ready yet"
-kubectl wait --for=condition=Ready pod -l app=mongodb -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  WARNING: mongodb not ready yet"
+run_as_mk kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  WARNING: postgres not ready yet"
+run_as_mk kubectl wait --for=condition=Ready pod -l app=mongodb -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  WARNING: mongodb not ready yet"
 
 echo ""
 echo "=== Waiting for application pods (up to 5 min) ==="
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/part-of=pipeline-builder -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+run_as_mk kubectl wait --for=condition=Ready pod -l app.kubernetes.io/part-of=pipeline-builder -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
 
 echo ""
 echo "=== Pod Status ==="
-kubectl get pods -n "$NAMESPACE" -o wide
+run_as_mk kubectl get pods -n "$NAMESPACE" -o wide
 
 echo ""
 echo "=== Services ==="
-kubectl get svc -n "$NAMESPACE"
+run_as_mk kubectl get svc -n "$NAMESPACE"
 
 echo ""
 echo "=== Setting up iptables port forwarding ==="
-# Only run when executed as root (bootstrap calls startup.sh as minikube user,
-# then sets iptables separately in Phase 10 — but on manual restarts the
-# operator runs startup.sh via sudo, so we handle it here too).
+# iptables requires root — use run_as_mk only for minikube ip
 if [ "$(id -u)" = "0" ]; then
-  MINIKUBE_IP=$(su - minikube -c "minikube ip --profile=$PROFILE" 2>/dev/null || minikube ip --profile="$PROFILE" 2>/dev/null || true)
+  MINIKUBE_IP=$(run_as_mk minikube ip --profile="$PROFILE" 2>/dev/null || true)
   if [ -n "$MINIKUBE_IP" ]; then
     PRIMARY_IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
     PRIMARY_IF="${PRIMARY_IF:-eth0}"
@@ -489,7 +499,7 @@ if [ -n "$DOMAIN" ]; then
   echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
   echo "  Registry UI:   https://${DOMAIN}/registry-express/"
 else
-  MINIKUBE_IP=$(minikube ip --profile="$PROFILE")
+  MINIKUBE_IP=$(run_as_mk minikube ip --profile="$PROFILE")
   echo "  API Gateway (HTTPS): https://$MINIKUBE_IP:30443"
   echo "  API Gateway (HTTP):  http://$MINIKUBE_IP:30080"
   echo "  Grafana:             http://$MINIKUBE_IP:30200"
@@ -499,10 +509,11 @@ else
 fi
 
 echo ""
-echo "=== Credentials (from .env) ==="
-echo "  PostgreSQL:    $POSTGRES_USER / $POSTGRES_PASSWORD"
-echo "  MongoDB:       $MONGO_INITDB_ROOT_USERNAME / $MONGO_INITDB_ROOT_PASSWORD"
-echo "  Grafana:       admin / $GRAFANA_ADMIN_PASSWORD"
-echo "  Mongo Express: $ME_CONFIG_BASICAUTH_USERNAME / $ME_CONFIG_BASICAUTH_PASSWORD"
-echo "  pgAdmin:       $PGADMIN_DEFAULT_EMAIL / $PGADMIN_DEFAULT_PASSWORD"
-echo "  Registry:      $IMAGE_REGISTRY_USER / $IMAGE_REGISTRY_TOKEN"
+echo "=== Credentials ==="
+echo "  (Stored in .env — use 'cat $ENV_FILE' to view)"
+echo "  PostgreSQL:    $POSTGRES_USER / ****"
+echo "  MongoDB:       $MONGO_INITDB_ROOT_USERNAME / ****"
+echo "  Grafana:       admin / ****"
+echo "  Mongo Express: $ME_CONFIG_BASICAUTH_USERNAME / ****"
+echo "  pgAdmin:       $PGADMIN_DEFAULT_EMAIL / ****"
+echo "  Registry:      $IMAGE_REGISTRY_USER / ****"
