@@ -1,3 +1,13 @@
+## 1.19.18 (2026-03-23)
+
+### 🩹 Fixes
+
+- version=1.42.17 ([def41fda](https://github.com/mwashburn160/pipeline-builder/commit/def41fda))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.19.17 (2026-03-23)
 
 ### 🩹 Fixes

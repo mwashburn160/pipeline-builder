@@ -1,3 +1,17 @@
+## 1.37.19 (2026-03-23)
+
+### 🩹 Fixes
+
+- version=1.42.17 ([def41fda](https://github.com/mwashburn160/pipeline-builder/commit/def41fda))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/ai-core to 1.16.17
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.18 (2026-03-23)
 
 ### 🩹 Fixes
