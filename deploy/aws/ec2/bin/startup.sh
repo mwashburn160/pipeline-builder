@@ -67,7 +67,18 @@ export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
 mkdir -p "$DATA_DIR/tmp"
 
 echo ""
-echo "=== Cleaning up stale Docker network (if any) ==="
+echo "=== Cleaning up stale Docker state (if any) ==="
+# If the minikube container references a deleted network, Docker refuses to
+# start it ("network … not found"). Disconnect the container from any missing
+# networks, then remove orphaned networks so minikube can recreate cleanly.
+if docker inspect "$PROFILE" >/dev/null 2>&1; then
+  for net_id in $(docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
+    if ! docker network inspect "$net_id" >/dev/null 2>&1; then
+      echo "  Disconnecting container from missing network $net_id"
+      docker network disconnect -f "$net_id" "$PROFILE" 2>/dev/null || true
+    fi
+  done
+fi
 docker network rm "$PROFILE" 2>/dev/null || true
 
 # -----------------------------------------------------------------------
@@ -92,13 +103,27 @@ echo "  Minikube: ${MK_CPUS} CPUs, ${MK_MEMORY} MiB RAM, ${MK_DISK} disk"
 echo ""
 echo "=== Starting Minikube ==="
 echo "  Mounting $DATA_DIR -> /mnt/data"
-minikube start \
+if ! minikube start \
   --profile="$PROFILE" \
   --cpus="$MK_CPUS" \
   --memory="$MK_MEMORY" \
   --disk-size="$MK_DISK" \
   --driver=docker \
-  --mount --mount-string="$DATA_DIR:/mnt/data"
+  --mount --mount-string="$DATA_DIR:/mnt/data"; then
+
+  echo ""
+  echo "  Start failed — removing stale container and retrying..."
+  docker rm -f "$PROFILE" 2>/dev/null || true
+  docker network rm "$PROFILE" 2>/dev/null || true
+
+  minikube start \
+    --profile="$PROFILE" \
+    --cpus="$MK_CPUS" \
+    --memory="$MK_MEMORY" \
+    --disk-size="$MK_DISK" \
+    --driver=docker \
+    --mount --mount-string="$DATA_DIR:/mnt/data"
+fi
 
 echo ""
 echo "=== Waiting for cluster to be ready ==="
