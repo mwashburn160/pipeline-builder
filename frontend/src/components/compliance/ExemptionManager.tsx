@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { ComplianceExemption, ExemptionStatus } from '@/types/compliance';
 
 const STATUS_STYLES: Record<ExemptionStatus, { bg: string; text: string }> = {
@@ -24,19 +25,32 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   const [form, setForm] = useState<{ ruleId: string; entityType: 'plugin' | 'pipeline'; entityId: string; entityName: string; reason: string }>({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [pagination, setPagination] = useState<PaginationState>({ limit: 10, offset: 0, total: 0 });
 
-  const fetchExemptions = useCallback(async () => {
+  const fetchExemptions = useCallback(async (offset = pagination.offset, limit = pagination.limit) => {
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, string | number> = { limit, offset };
       if (statusFilter) params.status = statusFilter;
-      const res = await api.getExemptions({ ...params, limit: 50 });
-      if (res.success && res.data) setExemptions(res.data.exemptions);
+      const res = await api.getExemptions(params);
+      if (res.success && res.data) {
+        setExemptions(res.data.exemptions);
+        if (res.data.pagination) {
+          setPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+        }
+      }
     } catch { /* handled by loading state */ }
     setLoading(false);
-  }, [statusFilter]);
+  }, [statusFilter, pagination.offset, pagination.limit]);
 
   useEffect(() => { fetchExemptions(); }, [fetchExemptions]);
+
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, offset: 0 }));
+  }, [statusFilter]);
+
+  const handlePageChange = (offset: number) => { fetchExemptions(offset, pagination.limit); };
+  const handlePageSizeChange = (limit: number) => { fetchExemptions(0, limit); };
 
   const handleCreate = async () => {
     if (!form.ruleId || !form.entityId || !form.reason) return;
@@ -136,8 +150,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       {exemptions.length === 0 ? (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">No exemptions found.</div>
       ) : (
+        <>
         <div className="space-y-2">
-          {exemptions.map(ex => {
+          {exemptions.map((ex: ComplianceExemption) => {
             const style = STATUS_STYLES[ex.status];
             return (
               <div key={ex.id} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
@@ -203,6 +218,14 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
             );
           })}
         </div>
+        {pagination.total > pagination.limit && (
+          <Pagination
+            pagination={pagination}
+            onPageChange={handlePageChange}
+            onPageSizeChange={handlePageSizeChange}
+          />
+        )}
+        </>
       )}
     </div>
   );

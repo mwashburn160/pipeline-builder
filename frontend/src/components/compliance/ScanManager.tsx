@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Scan, Play, Square, Loader2, CheckCircle, XCircle, Clock, Eye } from 'lucide-react';
 import api from '@/lib/api';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { ComplianceScan, ScanStatus } from '@/types/compliance';
 
 const STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
@@ -24,20 +25,34 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
   const [triggering, setTriggering] = useState(false);
   const [targetFilter, setTargetFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [pagination, setPagination] = useState<PaginationState>({ limit: 10, offset: 0, total: 0 });
 
-  const fetchScans = useCallback(async () => {
+  const fetchScans = useCallback(async (offset = pagination.offset, limit = pagination.limit) => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { limit: 20 };
+      const params: Record<string, string | number> = { limit, offset };
       if (targetFilter) params.target = targetFilter;
       if (statusFilter) params.status = statusFilter;
       const res = await api.getScans(params);
-      if (res.success && res.data) setScans(res.data.scans);
+      if (res.success && res.data) {
+        setScans(res.data.scans);
+        if (res.data.pagination) {
+          setPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+        }
+      }
     } catch { /* handled by loading state */ }
     setLoading(false);
-  }, [targetFilter, statusFilter]);
+  }, [targetFilter, statusFilter, pagination.offset, pagination.limit]);
 
   useEffect(() => { fetchScans(); }, [fetchScans]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, offset: 0 }));
+  }, [targetFilter, statusFilter]);
+
+  const handlePageChange = (offset: number) => { fetchScans(offset, pagination.limit); };
+  const handlePageSizeChange = (limit: number) => { fetchScans(0, limit); };
 
   const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all') => {
     setTriggering(true);
@@ -97,66 +112,75 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       ) : scans.length === 0 ? (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">No scans found.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Results</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Triggered</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-              {scans.map(scan => {
-                const cfg = STATUS_CONFIG[scan.status];
-                const StatusIcon = cfg.icon;
-                const progress = scan.totalEntities > 0 ? Math.round((scan.processedEntities / scan.totalEntities) * 100) : 0;
-                return (
-                  <tr key={scan.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
-                        <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} /> {scan.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{scan.target}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+        <div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Results</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Triggered</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                {scans.map(scan => {
+                  const cfg = STATUS_CONFIG[scan.status];
+                  const StatusIcon = cfg.icon;
+                  const progress = scan.totalEntities > 0 ? Math.round((scan.processedEntities / scan.totalEntities) * 100) : 0;
+                  return (
+                    <tr key={scan.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
+                          <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} /> {scan.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{scan.target}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-500">{scan.processedEntities}/{scan.totalEntities}</span>
                         </div>
-                        <span className="text-xs text-gray-500">{scan.processedEntities}/{scan.totalEntities}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-3 text-xs">
-                        <span className="text-green-600">{scan.passCount} pass</span>
-                        <span className="text-yellow-600">{scan.warnCount} warn</span>
-                        <span className="text-red-600">{scan.blockCount} block</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{new Date(scan.createdAt).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {onViewScan && (
-                          <button onClick={() => onViewScan(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" title="View details" aria-label="View scan details">
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        )}
-                        {!readOnly && scan.status === 'running' && (
-                          <button onClick={() => handleCancel(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Cancel scan" aria-label="Cancel scan">
-                            <Square className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-3 text-xs">
+                          <span className="text-green-600">{scan.passCount} pass</span>
+                          <span className="text-yellow-600">{scan.warnCount} warn</span>
+                          <span className="text-red-600">{scan.blockCount} block</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{new Date(scan.createdAt).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {onViewScan && (
+                            <button onClick={() => onViewScan(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" title="View details" aria-label="View scan details">
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          )}
+                          {!readOnly && scan.status === 'running' && (
+                            <button onClick={() => handleCancel(scan.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Cancel scan" aria-label="Cancel scan">
+                              <Square className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {pagination.total > pagination.limit && (
+            <Pagination
+              pagination={pagination}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+            />
+          )}
         </div>
       )}
     </div>

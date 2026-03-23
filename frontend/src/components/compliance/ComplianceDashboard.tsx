@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter } from 'lucide-react';
 import api from '@/lib/api';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 
 const RuleList = lazy(() => import('./RuleList'));
@@ -61,28 +62,35 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
   const [editorRule, setEditorRule] = useState<ComplianceRule | undefined>(undefined);
   const [showEditor, setShowEditor] = useState(false);
 
-  // Audit log filters
+  // Audit log filters & pagination
   const [auditTarget, setAuditTarget] = useState('');
   const [auditResult, setAuditResult] = useState('');
+  const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 20, offset: 0, total: 0 });
 
-  const fetchAudit = useCallback(async () => {
+  const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
     try {
-      const params: Record<string, string | number> = { limit: 50 };
+      const params: Record<string, string | number> = { limit, offset };
       if (auditTarget) params.target = auditTarget;
       if (auditResult) params.result = auditResult;
       const res = await api.getComplianceAuditLog(params);
       if (res.success && res.data) {
-        const entries = res.data.entries;
-        setAudit(entries.slice(0, 20));
-        setStats(s => ({
-          ...s,
-          pass: entries.filter(e => e.result === 'pass').length,
-          warn: entries.filter(e => e.result === 'warn').length,
-          block: entries.filter(e => e.result === 'block').length,
-        }));
+        setAudit(res.data.entries);
+        if (res.data.pagination) {
+          setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+          // Update stats from total counts (first page load only)
+          if (offset === 0) {
+            const entries = res.data.entries;
+            setStats(s => ({
+              ...s,
+              pass: entries.filter(e => e.result === 'pass').length,
+              warn: entries.filter(e => e.result === 'warn').length,
+              block: entries.filter(e => e.result === 'block').length,
+            }));
+          }
+        }
       }
     } catch { /* handled by API layer */ }
-  }, [auditTarget, auditResult]);
+  }, [auditTarget, auditResult, auditPagination.offset, auditPagination.limit]);
 
   useEffect(() => {
     fetchAudit();
@@ -93,11 +101,19 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
     }).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setAuditPagination(prev => ({ ...prev, offset: 0 }));
+  }, [auditTarget, auditResult]);
+
   // Refetch audit when filters change (skip initial since above handles it)
   const filtersActive = auditTarget || auditResult;
   useEffect(() => {
     if (filtersActive) fetchAudit();
   }, [filtersActive, fetchAudit]);
+
+  const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
+  const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
 
   // Clear sub-views on tab change
   useEffect(() => {
@@ -157,6 +173,9 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
             auditResult={auditResult}
             onTargetChange={setAuditTarget}
             onResultChange={setAuditResult}
+            auditPagination={auditPagination}
+            onAuditPageChange={handleAuditPageChange}
+            onAuditPageSizeChange={handleAuditPageSizeChange}
           />
         )}
         {tab === 'rules' && (
@@ -192,9 +211,12 @@ interface OverviewProps {
   auditResult: string;
   onTargetChange: (v: string) => void;
   onResultChange: (v: string) => void;
+  auditPagination: PaginationState;
+  onAuditPageChange: (offset: number) => void;
+  onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onResultChange }: OverviewProps) {
+function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onResultChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -247,23 +269,32 @@ function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onRe
         {audit.length === 0 ? (
           <div className="text-center py-4 text-sm text-gray-400">No audit entries found.</div>
         ) : (
-          <div className="space-y-1">
-            {audit.map(entry => {
-              const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
-              return (
-                <div key={entry.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
-                    <span className="text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || 'Unknown'}</span>
-                    <span className="text-xs text-gray-400">({entry.target})</span>
+          <>
+            <div className="space-y-1">
+              {audit.map(entry => {
+                const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+                return (
+                  <div key={entry.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <div className="flex items-center gap-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
+                      <span className="text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || 'Unknown'}</span>
+                      <span className="text-xs text-gray-400">({entry.target})</span>
+                    </div>
+                    <span className="flex items-center gap-1 text-xs text-gray-400">
+                      <Clock className="h-3 w-3" /> {new Date(entry.createdAt).toLocaleString()}
+                    </span>
                   </div>
-                  <span className="flex items-center gap-1 text-xs text-gray-400">
-                    <Clock className="h-3 w-3" /> {new Date(entry.createdAt).toLocaleString()}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {auditPagination.total > auditPagination.limit && (
+              <Pagination
+                pagination={auditPagination}
+                onPageChange={onAuditPageChange}
+                onPageSizeChange={onAuditPageSizeChange}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

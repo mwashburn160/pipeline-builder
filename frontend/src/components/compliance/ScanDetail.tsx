@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Loader2, CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react';
 import api from '@/lib/api';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { ComplianceScan, ComplianceAuditEntry, ScanStatus } from '@/types/compliance';
 
 const STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
@@ -28,21 +29,34 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [auditEntries, setAuditEntries] = useState<ComplianceAuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchScan = useCallback(async () => {
     try {
-      const [scanRes, auditRes] = await Promise.all([
-        api.getScan(scanId),
-        api.getComplianceAuditLog({ scanId, limit: 100 }),
-      ]);
-      if (scanRes.success && scanRes.data) setScan(scanRes.data.scan);
-      if (auditRes.success && auditRes.data) setAuditEntries(auditRes.data.entries);
+      const res = await api.getScan(scanId);
+      if (res.success && res.data) setScan(res.data.scan);
     } catch { /* handled by loading state */ }
-    setLoading(false);
   }, [scanId]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
+    try {
+      const res = await api.getComplianceAuditLog({ scanId, limit, offset });
+      if (res.success && res.data) {
+        setAuditEntries(res.data.entries);
+        if (res.data.pagination) {
+          setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+        }
+      }
+    } catch { /* handled by loading state */ }
+  }, [scanId, auditPagination.offset, auditPagination.limit]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchScan(), fetchAudit()]).finally(() => setLoading(false));
+  }, [fetchScan, fetchAudit]);
+
+  const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
+  const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
 
   if (loading) {
     return (
@@ -122,41 +136,50 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
 
       {/* Entity results */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Entity Results ({auditEntries.length})</h3>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Entity Results ({auditPagination.total})</h3>
         {auditEntries.length === 0 ? (
           <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">No audit entries for this scan.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-800">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rules</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Violations</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
-                {auditEntries.map(entry => {
-                  const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
-                  return (
-                    <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || '-'}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{entry.target}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.ruleCount}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.violations?.length || 0}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{new Date(entry.createdAt).toLocaleTimeString()}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rules</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Violations</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                  {auditEntries.map(entry => {
+                    const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+                    return (
+                      <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || '-'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{entry.target}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.ruleCount}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.violations?.length || 0}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{new Date(entry.createdAt).toLocaleTimeString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {auditPagination.total > auditPagination.limit && (
+              <Pagination
+                pagination={auditPagination}
+                onPageChange={handleAuditPageChange}
+                onPageSizeChange={handleAuditPageSizeChange}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, ToggleLeft, ToggleRight, GitFork, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
+import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -28,39 +29,60 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const [previewResult, setPreviewResult] = useState<ComplianceCheckResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Pagination
+  const DEFAULT_PAGE_SIZE = 10;
+  const [subsPagination, setSubsPagination] = useState<PaginationState>({ limit: DEFAULT_PAGE_SIZE, offset: 0, total: 0 });
+  const [catalogPagination, setCatalogPagination] = useState<PaginationState>({ limit: DEFAULT_PAGE_SIZE, offset: 0, total: 0 });
+
   // Catalog filters
   const [catalogTarget, setCatalogTarget] = useState<RuleTarget | ''>('');
   const [catalogSeverity, setCatalogSeverity] = useState<RuleSeverity | ''>('');
 
-  const fetchSubscriptions = useCallback(async () => {
+  const fetchSubscriptions = useCallback(async (offset = subsPagination.offset, limit = subsPagination.limit) => {
     setLoading(true);
     try {
-      const res = await api.getComplianceSubscriptions({ limit: 100 });
+      const res = await api.getComplianceSubscriptions({ limit, offset });
       if (res.success && res.data) {
         setSubscriptions(res.data.subscriptions);
+        if (res.data.pagination) {
+          setSubsPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+        }
       }
     } catch { /* handled by loading state */ }
     setLoading(false);
-  }, []);
+  }, [subsPagination.offset, subsPagination.limit]);
 
-  const fetchCatalog = useCallback(async () => {
+  const fetchCatalog = useCallback(async (offset = catalogPagination.offset, limit = catalogPagination.limit) => {
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { limit: 100 };
+      const params: Record<string, string | number> = { limit, offset };
       if (catalogTarget) params.target = catalogTarget;
       if (catalogSeverity) params.severity = catalogSeverity;
       const res = await api.getPublishedRules(params);
       if (res.success && res.data) {
         setCatalog(res.data.rules);
+        if (res.data.pagination) {
+          setCatalogPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
+        }
       }
     } catch { /* handled by loading state */ }
     setLoading(false);
-  }, [catalogTarget, catalogSeverity]);
+  }, [catalogPagination.offset, catalogPagination.limit, catalogTarget, catalogSeverity]);
 
   useEffect(() => {
     if (tab === 'subscriptions') fetchSubscriptions();
     else fetchCatalog();
   }, [tab, fetchSubscriptions, fetchCatalog]);
+
+  // Reset catalog offset when filters change
+  useEffect(() => {
+    setCatalogPagination(prev => ({ ...prev, offset: 0 }));
+  }, [catalogTarget, catalogSeverity]);
+
+  const handleSubsPageChange = (offset: number) => { fetchSubscriptions(offset, subsPagination.limit); };
+  const handleSubsPageSizeChange = (limit: number) => { fetchSubscriptions(0, limit); };
+  const handleCatalogPageChange = (offset: number) => { fetchCatalog(offset, catalogPagination.limit); };
+  const handleCatalogPageSizeChange = (limit: number) => { fetchCatalog(0, limit); };
 
   const handleToggle = async (ruleId: string, isActive: boolean) => {
     await api.setSubscriptionActive(ruleId, isActive);
@@ -272,6 +294,13 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                   )}
                 </div>
               ))}
+              {subsPagination.total > subsPagination.limit && (
+                <Pagination
+                  pagination={subsPagination}
+                  onPageChange={handleSubsPageChange}
+                  onPageSizeChange={handleSubsPageSizeChange}
+                />
+              )}
             </div>
           )}
         </>
@@ -304,28 +333,39 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
 
           {catalog.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">No published rules available.</div>
-          ) : catalog.map(rule => (
-            <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-              <div className="flex items-center gap-3">
-                <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
-                  {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{rule.description}</div>}
+          ) : (
+            <>
+              {catalog.map(rule => (
+                <div key={rule.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">{rule.name}</div>
+                      {rule.description && <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-md">{rule.description}</div>}
+                    </div>
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
+                    <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
+                  </div>
+                  {rule.subscribed ? (
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
+                  ) : (
+                    <button
+                      onClick={() => handleSubscribe(rule.id)}
+                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Subscribe
+                    </button>
+                  )}
                 </div>
-                <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
-                <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full px-2 py-0.5">{rule.target}</span>
-              </div>
-              {rule.subscribed ? (
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
-              ) : (
-                <button
-                  onClick={() => handleSubscribe(rule.id)}
-                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Subscribe
-                </button>
+              ))}
+              {catalogPagination.total > catalogPagination.limit && (
+                <Pagination
+                  pagination={catalogPagination}
+                  onPageChange={handleCatalogPageChange}
+                  onPageSizeChange={handleCatalogPageSizeChange}
+                />
               )}
-            </div>
-          ))}
+            </>
+          )}
         </div>
       )}
     </div>
