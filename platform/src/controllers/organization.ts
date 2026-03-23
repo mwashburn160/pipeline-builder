@@ -54,7 +54,7 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
   if (!requireSystemAdmin(req, res)) return;
 
   try {
-    const { search, page = '1', limit = '20' } = req.query;
+    const { search } = req.query;
 
     const filter: Record<string, unknown> = {};
     if (search) {
@@ -64,13 +64,13 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       ];
     }
 
-    const { page: pageNum, limit: limitNum, skip } = parsePagination(page, limit);
+    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
     const [organizations, total] = await Promise.all([
       Organization.find(filter)
         .populate('owner', 'username email')
         .sort({ createdAt: -1 })
-        .skip(skip)
+        .skip(offset)
         .limit(limitNum)
         .lean(),
       Organization.countDocuments(filter),
@@ -89,10 +89,7 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
 
     sendSuccess(res, 200, {
       organizations: orgsWithCount,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
+      pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
     });
   } catch (error) {
     logger.error('[LIST ORGS] Fetch Error:', error);

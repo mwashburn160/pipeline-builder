@@ -8,12 +8,7 @@ import { AccessTokenPayload, RefreshTokenPayload } from '../types';
 
 const logger = createLogger('Token');
 
-/**
- * Build an access token JWT payload from a user document.
- * @param user - Mongoose user document
- * @param organizationName - Resolved org name (optional)
- * @returns Payload object ready for signing
- */
+/** Build an access token JWT payload from a user document. */
 export function createAccessTokenPayload(user: UserDocument, organizationName?: string): AccessTokenPayload {
   return {
     type: 'access',
@@ -29,11 +24,7 @@ export function createAccessTokenPayload(user: UserDocument, organizationName?: 
   };
 }
 
-/**
- * Build a refresh token JWT payload from a user document.
- * @param user - Mongoose user document
- * @returns Payload object ready for signing
- */
+/** Build a refresh token JWT payload from a user document. */
 export function createRefreshTokenPayload(user: UserDocument): RefreshTokenPayload {
   return {
     type: 'refresh',
@@ -42,11 +33,7 @@ export function createRefreshTokenPayload(user: UserDocument): RefreshTokenPaylo
   };
 }
 
-/**
- * Sign and return a JWT access token for the given user.
- * @param user - Mongoose user document
- * @returns Signed JWT string
- */
+/** Sign and return a JWT access token for the given user. */
 export function generateAccessToken(user: UserDocument): string {
   return jwt.sign(createAccessTokenPayload(user), config.auth.jwt.secret, {
     algorithm: config.auth.jwt.algorithm,
@@ -54,11 +41,7 @@ export function generateAccessToken(user: UserDocument): string {
   });
 }
 
-/**
- * Sign and return a JWT refresh token for the given user.
- * @param user - Mongoose user document
- * @returns Signed JWT string
- */
+/** Sign and return a JWT refresh token for the given user. */
 export function generateRefreshToken(user: UserDocument): string {
   return jwt.sign(createRefreshTokenPayload(user), config.auth.refreshToken.secret, {
     algorithm: config.auth.jwt.algorithm,
@@ -66,11 +49,7 @@ export function generateRefreshToken(user: UserDocument): string {
   });
 }
 
-/**
- * Generate both access and refresh tokens for a user.
- * @param user - Mongoose user document
- * @returns Object containing accessToken and refreshToken strings
- */
+/** Generate both access and refresh tokens for a user. */
 export function generateTokenPair(user: UserDocument): { accessToken: string; refreshToken: string } {
   return {
     accessToken: generateAccessToken(user),
@@ -80,8 +59,6 @@ export function generateTokenPair(user: UserDocument): { accessToken: string; re
 
 /**
  * Hash a refresh token using SHA-256 for secure storage.
- * @param token - Plain-text refresh token
- * @returns Hex-encoded SHA-256 hash
  */
 export function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -97,12 +74,8 @@ export interface IssuedTokens {
 /**
  * Generate a new token pair and persist the hashed refresh token in the database.
  * Resolves the organization name for inclusion in the access token payload.
- *
- * @param user - Mongoose user document
- * @returns Access token, refresh token, and expiry (seconds)
  */
 export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
-  // Resolve organization name for the access token
   let organizationName: string | undefined;
   if (user.organizationId) {
     try {
@@ -127,24 +100,14 @@ export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
   return { accessToken, refreshToken, expiresIn: config.auth.jwt.expiresIn };
 }
 
-/**
- * Verify and decode a JWT access token.
- * @param token - JWT string to verify
- * @returns Decoded access token payload
- * @throws If the token is invalid or expired
- */
+/** Verify and decode a JWT access token. */
 export function verifyAccessToken(token: string): AccessTokenPayload {
   return jwt.verify(token, config.auth.jwt.secret, {
     algorithms: [config.auth.jwt.algorithm],
   }) as AccessTokenPayload;
 }
 
-/**
- * Verify and decode a JWT refresh token.
- * @param token - JWT string to verify
- * @returns Decoded refresh token payload
- * @throws If the token is invalid or expired
- */
+/** Verify and decode a JWT refresh token. */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   return jwt.verify(token, config.auth.refreshToken.secret, {
     algorithms: [config.auth.jwt.algorithm],

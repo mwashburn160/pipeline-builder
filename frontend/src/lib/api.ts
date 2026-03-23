@@ -478,8 +478,8 @@ class ApiClient {
     return this.request<ApiResponse<Organization>>('/api/organization');
   }
 
-  async listOrganizations(params?: { search?: string; page?: number; limit?: number }) {
-    return this.request<ApiResponse<{ organizations: Organization[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/organizations${buildQuery(params)}`);
+  async listOrganizations(params?: { search?: string; offset?: number; limit?: number }) {
+    return this.request<ApiResponse<{ organizations: Organization[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
   }
 
   async getOrganization(id: string) {
@@ -538,8 +538,8 @@ class ApiClient {
   // User management endpoints (Admin)
   // ============================================
 
-  async listUsers(params?: { organizationId?: string; role?: string; search?: string; page?: number; limit?: number }) {
-    return this.request<ApiResponse<{ users: User[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/users${buildQuery(params)}`);
+  async listUsers(params?: { organizationId?: string; role?: string; search?: string; offset?: number; limit?: number }) {
+    return this.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
   }
 
   async getUserById(id: string) {
@@ -1031,8 +1031,8 @@ class ApiClient {
   // Invitation endpoints
   // ============================================
 
-  async listInvitations(params?: { status?: string; page?: number; limit?: number }) {
-    return this.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; page: number; limit: number; pages: number } }>>(`/api/invitation${buildQuery(params)}`);
+  async listInvitations(params?: { status?: string; offset?: number; limit?: number }) {
+    return this.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`);
   }
 
   async getInvitation(token: string) {

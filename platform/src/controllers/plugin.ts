@@ -30,9 +30,9 @@ function buildFilter(query: Request['query'], options?: { includePagination?: bo
   if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
   if (query.isDefault !== undefined) filter.isDefault = query.isDefault === 'true';
 
-  if (options?.includePagination && (query.page || query.limit)) {
-    const pg = parsePagination(query.page, query.limit);
-    filter.page = pg.page;
+  if (options?.includePagination && (query.offset || query.limit)) {
+    const pg = parsePagination(query.offset, query.limit);
+    filter.offset = pg.offset;
     filter.limit = pg.limit;
   }
 
@@ -76,7 +76,7 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
       userId: auth.userId,
       orgId: auth.orgId,
       count: result.plugins.length,
-      total: result.total,
+      total: result.pagination?.total,
     });
 
     sendSuccess(res, 200, result);

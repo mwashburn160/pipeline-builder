@@ -38,16 +38,15 @@ export default function InvitationsPage() {
       { key: 'status', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
-      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
-      const p: Record<string, string | number> = { page, limit: Number(params.limit || 25) };
-      if (params.status && params.status !== 'all') p.status = params.status;
-      const response = await api.listInvitations(p as Record<string, string>);
+      const response = await api.listInvitations({
+        ...(params.status && params.status !== 'all' && { status: params.status }),
+        offset: Number(params.offset || 0),
+        limit: Number(params.limit || 25),
+      });
       const data = response.data;
-      const invitations = (data?.invitations || []) as InvitationListItem[];
-      const pagination = data?.pagination;
       return {
-        items: invitations,
-        pagination: pagination ? { total: pagination.total, offset: (pagination.page - 1) * pagination.limit } : undefined,
+        items: (data?.invitations || []) as InvitationListItem[],
+        pagination: data?.pagination,
       };
     },
     enabled: isAuthenticated && isAdmin,

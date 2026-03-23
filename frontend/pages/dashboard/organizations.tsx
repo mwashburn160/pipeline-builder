@@ -22,16 +22,15 @@ export default function OrganizationsPage() {
       { key: 'search', type: 'text', defaultValue: '', primary: true },
     ],
     fetcher: async (params) => {
-      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
       const response = await api.listOrganizations({
         ...(params.search && { search: params.search }),
-        page,
+        offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       });
       const data = response.data;
       return {
         items: data?.organizations || [],
-        pagination: data ? { total: data.total, offset: (data.page - 1) * data.limit } : undefined,
+        pagination: data?.pagination,
       };
     },
     enabled: isAuthenticated && isSysAdmin,

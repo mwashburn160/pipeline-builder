@@ -15,7 +15,7 @@ export interface PipelineFilter {
   isActive?: boolean;
   isDefault?: boolean;
   accessModifier?: 'public' | 'private';
-  page?: number;
+  offset?: number;
   limit?: number;
 }
 
@@ -58,10 +58,7 @@ export interface Pipeline {
  */
 export interface PipelineListResponse {
   pipelines: Pipeline[];
-  total: number;
-  page: number;
-  limit: number;
-  hasMore: boolean;
+  pagination: { total: number; offset: number; limit: number; hasMore: boolean };
 }
 
 /**

@@ -236,26 +236,6 @@ export function handleControllerError(
   sendError(res, 500, fallbackMessage);
 }
 
-// Transaction Helper
-
-/**
- * Execute a callback within a MongoDB transaction, with automatic session cleanup.
- */
-export async function withTransaction<T>(
-  fn: (session: mongoose.ClientSession) => Promise<T>,
-): Promise<T> {
-  const session = await mongoose.startSession();
-  try {
-    let result: T;
-    await session.withTransaction(async () => {
-      result = await fn(session);
-    });
-    return result!;
-  } finally {
-    await session.endSession();
-  }
-}
-
 // ID Conversion
 
 /**

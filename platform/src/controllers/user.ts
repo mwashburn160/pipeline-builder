@@ -268,7 +268,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
   if (!admin) return;
 
   try {
-    const { organizationId, role, search, page = '1', limit = '20' } = req.query;
+    const { organizationId, role, search } = req.query;
 
     const filter: Record<string, unknown> = {};
 
@@ -291,13 +291,13 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
       ];
     }
 
-    const { page: pageNum, limit: limitNum, skip } = parsePagination(page, limit);
+    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
     const [users, total] = await Promise.all([
       User.find(filter)
         .select('_id username email role isEmailVerified organizationId createdAt updatedAt')
         .sort({ createdAt: -1 })
-        .skip(skip)
+        .skip(offset)
         .limit(limitNum)
         .lean(),
       User.countDocuments(filter),
@@ -315,10 +315,7 @@ export async function listAllUsers(req: Request, res: Response): Promise<void> {
 
     sendSuccess(res, 200, {
       users: usersWithOrg,
-      total,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
+      pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
     });
   } catch (error) {
     logger.error('[LIST USERS] Error:', error);

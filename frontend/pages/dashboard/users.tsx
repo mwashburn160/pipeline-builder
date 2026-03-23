@@ -35,16 +35,16 @@ export default function UsersPage() {
       { key: 'role', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
-      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
-      const p: Record<string, string | number> = { page, limit: Number(params.limit || 25) };
-      if (params.search) p.search = params.search;
-      if (params.role && params.role !== 'all') p.role = params.role;
-      const response = await api.listUsers(p as Record<string, string>);
+      const response = await api.listUsers({
+        ...(params.search && { search: params.search }),
+        ...(params.role && params.role !== 'all' && { role: params.role }),
+        offset: Number(params.offset || 0),
+        limit: Number(params.limit || 25),
+      });
       const data = response.data;
-      const users = (data?.users || []) as UserListItem[];
       return {
-        items: users,
-        pagination: data ? { total: data.total, offset: (data.page - 1) * data.limit } : undefined,
+        items: (data?.users || []) as UserListItem[],
+        pagination: data?.pagination,
       };
     },
     enabled: isAuthenticated && isSysAdmin,

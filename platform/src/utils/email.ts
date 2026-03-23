@@ -2,13 +2,11 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { createLogger } from '@mwashburn160/api-core';
 import nodemailer, { Transporter } from 'nodemailer';
 import { config } from '../config';
+import type { InvitationType, InvitationOAuthProvider } from '../models/invitation';
 import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';
 
 const logger = createLogger('EmailService');
 
-/**
- * Email options interface
- */
 export interface EmailOptions {
   to: string | string[];
   subject: string;
@@ -16,15 +14,9 @@ export interface EmailOptions {
   html?: string;
 }
 
-/**
- * Invitation type for OAuth support
- */
-export type InvitationType = 'email' | 'oauth' | 'any';
-
-/**
- * OAuth provider type
- */
-export type OAuthProvider = 'google' | 'github';
+// Re-export from canonical source for backward compatibility
+export type { InvitationType };
+export type OAuthProvider = InvitationOAuthProvider;
 
 /**
  * Email template data for invitations

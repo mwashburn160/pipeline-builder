@@ -16,7 +16,7 @@ export interface PluginFilter {
   isActive?: boolean;
   isDefault?: boolean;
   accessModifier?: 'public' | 'private';
-  page?: number;
+  offset?: number;
   limit?: number;
 }
 
@@ -51,10 +51,7 @@ export interface Plugin {
  */
 export interface PluginListResponse {
   plugins: Plugin[];
-  total: number;
-  page: number;
-  limit: number;
-  hasMore: boolean;
+  pagination: { total: number; offset: number; limit: number; hasMore: boolean };
 }
 
 /**

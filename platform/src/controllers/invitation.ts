@@ -6,6 +6,7 @@ import { requireOrgMembership, handleTransactionError } from '../helpers/control
 import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
+import { parsePagination } from '../utils/pagination';
 import { validateBody, sendInvitationSchema } from '../utils/validation';
 
 const logger = createLogger('InvitationController');
@@ -445,8 +446,8 @@ export async function listInvitations(req: Request, res: Response): Promise<void
   if (!orgId) return;
 
   try {
-    const { status, invitationType, page = 1, limit = 20 } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const { status, invitationType } = req.query;
+    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
     const query: Record<string, unknown> = { organizationId: orgId };
     if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
@@ -461,20 +462,15 @@ export async function listInvitations(req: Request, res: Response): Promise<void
         .populate('invitedBy', 'username email')
         .populate('acceptedBy', 'username email')
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit))
+        .skip(offset)
+        .limit(limitNum)
         .lean(),
       Invitation.countDocuments(query),
     ]);
 
     sendSuccess(res, 200, {
       invitations,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        pages: Math.ceil(total / Number(limit)),
-      },
+      pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
     });
   } catch (error) {
     logger.error('[LIST INVITATIONS] Failed:', error);

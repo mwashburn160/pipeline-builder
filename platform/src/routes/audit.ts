@@ -17,8 +17,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   if (!admin) return;
 
   try {
-    const { action, targetType, targetId, page, limit } = req.query;
-    const { page: pageNum, limit: limitNum } = parsePagination(page, limit);
+    const { action, targetType, targetId } = req.query;
+    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
     const filter: AuditFilter = {};
 
@@ -33,7 +33,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     if (targetType) filter.targetType = targetType as string;
     if (targetId) filter.targetId = targetId as string;
 
-    const result = await auditService.findEvents(filter, pageNum, limitNum);
+    const result = await auditService.findEvents(filter, offset, limitNum);
 
     sendSuccess(res, 200, result);
   } catch (error) {

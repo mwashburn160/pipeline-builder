@@ -30,9 +30,9 @@ function buildFilter(query: Request['query'], options?: { includeId?: boolean; i
   if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
   if (query.isDefault !== undefined) filter.isDefault = query.isDefault === 'true';
 
-  if (options?.includePagination && (query.page || query.limit)) {
-    const pg = parsePagination(query.page, query.limit);
-    filter.page = pg.page;
+  if (options?.includePagination && (query.offset || query.limit)) {
+    const pg = parsePagination(query.offset, query.limit);
+    filter.offset = pg.offset;
     filter.limit = pg.limit;
   }
 

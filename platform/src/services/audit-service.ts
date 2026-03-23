@@ -23,10 +23,7 @@ export interface AuditCreateInput {
 
 export interface PaginatedAuditResult {
   events: AuditEventDocument[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  pagination: { total: number; offset: number; limit: number; hasMore: boolean };
 }
 
 /**
@@ -38,7 +35,7 @@ class AuditService {
    */
   async findEvents(
     filter: AuditFilter,
-    page: number,
+    offset: number,
     limit: number,
   ): Promise<PaginatedAuditResult> {
     const query: Record<string, unknown> = {};
@@ -48,19 +45,14 @@ class AuditService {
     if (filter.targetType) query.targetType = filter.targetType;
     if (filter.targetId) query.targetId = filter.targetId;
 
-    const skip = (page - 1) * limit;
-
     const [events, total] = await Promise.all([
-      AuditEvent.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      AuditEvent.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
       AuditEvent.countDocuments(query),
     ]);
 
     return {
       events: events as AuditEventDocument[],
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      pagination: { total, offset, limit, hasMore: offset + limit < total },
     };
   }
 
