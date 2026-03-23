@@ -1,8 +1,8 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { formatError } from '@/lib/constants';
 import { Search, Users } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useDebounce } from '@/hooks/useDebounce';
+import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -10,6 +10,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
 import { ActionBar } from '@/components/ui/ActionBar';
 import api from '@/lib/api';
 
@@ -27,47 +28,40 @@ interface UserListItem {
 /** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
   const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireAdmin: true });
-  const [users, setUsers] = useState<UserListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin'>('all');
+
+  const list = useListPage<UserListItem>({
+    fields: [
+      { key: 'search', type: 'text', defaultValue: '', primary: true },
+      { key: 'role', type: 'select', defaultValue: 'all' },
+    ],
+    fetcher: async (params) => {
+      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
+      const p: Record<string, string | number> = { page, limit: Number(params.limit || 25) };
+      if (params.search) p.search = params.search;
+      if (params.role && params.role !== 'all') p.role = params.role;
+      const response = await api.listUsers(p as Record<string, string>);
+      const data = response.data;
+      const users = (data?.users || []) as UserListItem[];
+      return {
+        items: users,
+        pagination: data ? { total: data.total, offset: (data.page - 1) * data.limit } : undefined,
+      };
+    },
+    enabled: isAuthenticated && isSysAdmin,
+  });
+
+  const del = useDelete<UserListItem>(
+    async (u) => {
+      await api.deleteUserById(u.id);
+    },
+    list.refresh,
+    (err) => list.setError(formatError(err, 'Failed to delete user')),
+  );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
   const [newPassword, setNewPassword] = useState('');
   const editForm = useFormState();
-
-  const del = useDelete<UserListItem>(
-    async (u) => {
-      await api.deleteUserById(u.id);
-      setUsers(prev => prev.filter(x => x.id !== u.id));
-    },
-    undefined,
-    (err) => setError(formatError(err, 'Failed to delete user')),
-  );
-
-  const debouncedSearch = useDebounce(searchQuery, 300);
-
-  useEffect(() => {
-    async function fetchUsers() {
-      if (!isAuthenticated || !isSysAdmin) return;
-      try {
-        setIsLoading(true);
-        const params: Record<string, string> = {};
-        if (debouncedSearch) params.search = debouncedSearch;
-        if (roleFilter !== 'all') params.role = roleFilter;
-        const response = await api.listUsers(params);
-        setUsers((response.data?.users || []) as UserListItem[]);
-      } catch (err) {
-        setError(formatError(err, 'Failed to load users'));
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    if (isAuthenticated && isSysAdmin) fetchUsers();
-  }, [isAuthenticated, isSysAdmin, debouncedSearch, roleFilter]);
 
   const handleEditUser = (userItem: UserListItem) => {
     setEditingUser(userItem);
@@ -99,7 +93,7 @@ export default function UsersPage() {
     );
 
     if (result !== null) {
-      setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, role: editRole } : u));
+      list.refresh();
       setNewPassword('');
       setTimeout(() => setEditingUser(null), 1500);
     }
@@ -159,10 +153,10 @@ export default function UsersPage() {
 
   return (
     <DashboardLayout title="All Users" subtitle="System-wide user administration">
-      {error && (
+      {list.error && (
         <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
+          <p>{list.error}</p>
+          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
@@ -171,11 +165,11 @@ export default function UsersPage() {
           left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <input type="text" placeholder="Search by username or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+              <input type="text" placeholder="Search by username or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} className="filter-input" />
             </div>
           }
           right={
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
+            <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
               <option value="all">All Roles</option>
               <option value="user">Users</option>
               <option value="admin">Admins</option>
@@ -185,17 +179,21 @@ export default function UsersPage() {
       </div>
 
       <DataTable
-        data={users}
+        data={list.data}
         columns={userColumns}
-        isLoading={isLoading}
+        isLoading={list.isLoading}
         emptyState={{
           icon: Users,
           title: 'No users found',
-          description: searchQuery ? 'Try adjusting your search criteria.' : 'No users to display.',
+          description: list.hasActiveFilters ? 'Try adjusting your search criteria.' : 'No users to display.',
         }}
         getRowKey={(u) => u.id}
         defaultSortColumn="user"
       />
+
+      {!list.isLoading && list.pagination.total > 0 && (
+        <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+      )}
 
       {del.target && (
         <DeleteConfirmModal

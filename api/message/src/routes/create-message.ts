@@ -12,6 +12,7 @@ import {
   createLogger,
   resolveRecipientAlias,
   sendEntityNotFound,
+  errorMessage,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
@@ -100,7 +101,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         sseManager.send(recipientOrgId.toLowerCase(), 'MESSAGE', 'New message', notificationData);
       }
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 201, message, 'Message created successfully');
@@ -184,7 +185,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         messageType: rootMessage.messageType,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 201, reply, 'Reply sent successfully');

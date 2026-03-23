@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, SYSTEM_ORG_ID, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemOrg, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { db } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
@@ -28,7 +28,7 @@ export function createCreatePolicyRoutes(): Router {
     const { rules: ruleNames, tags, ...body } = validation.value;
 
     // Template policies can only be created by system org
-    if (body.isTemplate && orgId !== SYSTEM_ORG_ID) {
+    if (body.isTemplate && !isSystemOrg(req)) {
       return sendError(res, 403, 'Only system org can create template policies', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 

@@ -45,6 +45,7 @@ export default function PipelinesPage() {
         ...mapCommonParams(params, canViewPublic),
         limit: params.limit,
         offset: params.offset,
+        includeTotal: 'true',
       };
       if (params.name) p.pipelineName = params.name;
       if (params.id) p.id = params.id;

@@ -1,4 +1,4 @@
-import { entityEvents, createCacheService, createLogger } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -76,7 +76,7 @@ export class PluginService extends CrudService<
 
   protected async onAfterCreate(entity: Plugin): Promise<void> {
     pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin create', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after plugin create', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'created',
@@ -91,7 +91,7 @@ export class PluginService extends CrudService<
 
   protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
     pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin update', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after plugin update', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'updated',
@@ -106,7 +106,7 @@ export class PluginService extends CrudService<
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
     pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin delete', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after plugin delete', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'deleted',
@@ -192,7 +192,7 @@ export class PluginService extends CrudService<
 
       const result = upserted as unknown as Plugin;
       pluginCache.invalidatePattern(`${data.orgId}:*`).catch((err) => {
-        logger.debug('Cache invalidation failed after plugin deploy', { orgId: data.orgId, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Cache invalidation failed after plugin deploy', { orgId: data.orgId, error: errorMessage(err) });
       });
       return result;
     });

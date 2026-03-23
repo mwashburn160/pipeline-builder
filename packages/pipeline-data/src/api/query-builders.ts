@@ -1,7 +1,8 @@
 import { SYSTEM_ORG_ID } from '@mwashburn160/api-core';
-import { eq, ilike, isNull, or, gte, lte, sql, SQL } from 'drizzle-orm';
+import { eq, ilike, isNull, or, gte, lte, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
+  buildJsonbKeywordCondition,
   escapeLikeWildcards,
   normalizeStringFilter,
   parseBooleanFilter,
@@ -60,8 +61,7 @@ export function buildPipelineConditions(
   }
 
   if (filter.keyword !== undefined) {
-    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.keyword));
-    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.pipeline.keywords}) AS kw WHERE lower(kw) LIKE ${'%' + escaped + '%'})`);
+    conditions.push(buildJsonbKeywordCondition(schema.pipeline.keywords, normalizeStringFilter(filter.keyword)));
   }
 
   return conditions;
@@ -105,8 +105,7 @@ export function buildPluginConditions(
   }
 
   if (filter.keyword !== undefined) {
-    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.keyword));
-    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.plugin.keywords}) AS kw WHERE lower(kw) LIKE ${'%' + escaped + '%'})`);
+    conditions.push(buildJsonbKeywordCondition(schema.plugin.keywords, normalizeStringFilter(filter.keyword)));
   }
 
   return conditions;
@@ -269,8 +268,7 @@ export function buildComplianceRuleConditions(
   }
 
   if (filter.tag !== undefined) {
-    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.tag));
-    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.complianceRule.tags}) AS t WHERE lower(t) LIKE ${'%' + escaped + '%'})`);
+    conditions.push(buildJsonbKeywordCondition(schema.complianceRule.tags, normalizeStringFilter(filter.tag)));
   }
 
   if (filter.isActive !== undefined) {
@@ -292,7 +290,9 @@ export function buildPublishedRuleCatalogConditions(
 ): SQL[] {
   const conditions: SQL[] = [];
 
-  conditions.push(eq(schema.complianceRule.orgId, SYSTEM_ORG_ID));
+  // Only scope='published' is needed — the create endpoint already enforces
+  // that only the system org can create published rules, so filtering by orgId
+  // is redundant and breaks when the system org's DB ID differs from SYSTEM_ORG_ID.
   conditions.push(eq(schema.complianceRule.scope, 'published' as RuleScope));
 
   if (filter.name !== undefined) {
@@ -308,8 +308,7 @@ export function buildPublishedRuleCatalogConditions(
   }
 
   if (filter.tag !== undefined) {
-    const escaped = escapeLikeWildcards(normalizeStringFilter(filter.tag));
-    conditions.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${schema.complianceRule.tags}) AS t WHERE lower(t) LIKE ${'%' + escaped + '%'})`);
+    conditions.push(buildJsonbKeywordCondition(schema.complianceRule.tags, normalizeStringFilter(filter.tag)));
   }
 
   if (filter.isActive !== undefined) {

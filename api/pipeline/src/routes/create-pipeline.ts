@@ -67,7 +67,7 @@ export function createCreatePipelineRoutes(
           }
         } catch (err) {
           ctx.log('ERROR', 'Compliance service unavailable', {
-            error: err instanceof Error ? err.message : String(err),
+            error: errorMessage(err),
           });
           return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }

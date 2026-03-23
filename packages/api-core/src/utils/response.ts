@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { createLogger } from './logger';
 import { QuotaInfo } from '../types/common';
 import { ErrorCode } from '../types/error-codes';
+import { MAX_PAGE_LIMIT } from '../validation/common-schemas';
 
 const logger = createLogger('response');
 
@@ -285,8 +286,6 @@ export interface PaginationParams {
   sortBy: string;
   sortOrder: 'asc' | 'desc';
 }
-
-const MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
 
 /** Parse pagination/sort params from query string, clamping to safe defaults. */
 export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {

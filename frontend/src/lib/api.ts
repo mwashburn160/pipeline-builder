@@ -478,8 +478,8 @@ class ApiClient {
     return this.request<ApiResponse<Organization>>('/api/organization');
   }
 
-  async listOrganizations() {
-    return this.request<ApiResponse<{ organizations: Organization[]; total: number; page: number; limit: number; totalPages: number }>>('/api/organizations');
+  async listOrganizations(params?: { search?: string; page?: number; limit?: number }) {
+    return this.request<ApiResponse<{ organizations: Organization[]; total: number; page: number; limit: number; totalPages: number }>>(`/api/organizations${buildQuery(params)}`);
   }
 
   async getOrganization(id: string) {
@@ -1031,8 +1031,8 @@ class ApiClient {
   // Invitation endpoints
   // ============================================
 
-  async listInvitations() {
-    return this.request<ApiResponse<{ invitations: Invitation[] }>>('/api/invitation');
+  async listInvitations(params?: { status?: string; page?: number; limit?: number }) {
+    return this.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; page: number; limit: number; pages: number } }>>(`/api/invitation${buildQuery(params)}`);
   }
 
   async getInvitation(token: string) {

@@ -20,6 +20,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
   sendBadRequest: jest.fn((_res: any, msg: string) => msg),
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
+  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
   hashAccountInArn: (arn: string) => arn,

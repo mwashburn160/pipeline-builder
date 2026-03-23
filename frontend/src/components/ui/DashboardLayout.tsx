@@ -70,6 +70,17 @@ export function DashboardLayout({
   const sidebarWidth = collapsed ? 'lg:w-16' : 'lg:w-64';
   const contentMargin = collapsed ? 'lg:ml-16' : 'lg:ml-64';
 
+  const sidebarProps = {
+    isSysAdmin,
+    isAdmin,
+    user,
+    unreadCount,
+    currentPath: router.pathname,
+    isDark,
+    onToggleDark: toggle,
+    onLogout: logout,
+  };
+
   return (
     <>
       <Head>
@@ -78,18 +89,7 @@ export function DashboardLayout({
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors flex">
         {/* Desktop sidebar */}
         <div className={`hidden lg:flex ${sidebarWidth} lg:flex-shrink-0 lg:fixed lg:inset-y-0 transition-all duration-200`}>
-          <Sidebar
-            isSysAdmin={isSysAdmin}
-            isAdmin={isAdmin}
-            user={user}
-            unreadCount={unreadCount}
-            currentPath={router.pathname}
-            isDark={isDark}
-            onToggleDark={toggle}
-            onLogout={logout}
-            collapsed={collapsed}
-            onToggleCollapsed={toggleCollapsed}
-          />
+          <Sidebar {...sidebarProps} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
         </div>
 
         {/* Mobile sidebar overlay */}
@@ -111,16 +111,7 @@ export function DashboardLayout({
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                 className="fixed inset-y-0 left-0 w-64 z-50 lg:hidden"
               >
-                <Sidebar
-                  isSysAdmin={isSysAdmin}
-                  isAdmin={isAdmin}
-                  user={user}
-                  unreadCount={unreadCount}
-                  currentPath={router.pathname}
-                  isDark={isDark}
-                  onToggleDark={toggle}
-                  onLogout={logout}
-                />
+                <Sidebar {...sidebarProps} />
                 <button
                   onClick={closeMobile}
                   className="absolute top-4 right-[-44px] p-2 rounded-lg bg-white/90 dark:bg-gray-800/90 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 shadow-lg"

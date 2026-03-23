@@ -39,7 +39,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.25.0
       - name: Setup node
@@ -109,7 +109,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.25.0
       - name: Setup node
@@ -151,7 +151,7 @@ jobs:
         run: pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose
       - name: Upload artifact
         id: upload_artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts
           path: |-
@@ -198,7 +198,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.25.0
       - name: Setup node
@@ -217,7 +217,7 @@ jobs:
         run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Download artifact
         id: dnload_artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: artifacts
           path: dnload
@@ -226,14 +226,14 @@ jobs:
         run: cp -rv dnload/* ./
       - name: Login into container registry
         id: login_registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.PAT_TOKEN }}
       - name: Setup buildx
         id: setup_buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           cleanup: true
           cache-binary: false

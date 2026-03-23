@@ -13,6 +13,15 @@ export function escapeLikeWildcards(str: string): string {
 }
 
 /**
+ * Build a condition that checks if a JSONB text array column contains a keyword (case-insensitive).
+ * Used for keywords/tags filtering on pipelines, plugins, and compliance rules.
+ */
+export function buildJsonbKeywordCondition(column: AnyColumn, keyword: string): SQL {
+  const escaped = escapeLikeWildcards(keyword.toLowerCase());
+  return sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${column}) AS el WHERE lower(el) LIKE ${'%' + escaped + '%'})`;
+}
+
+/**
  * Parse boolean filter value from string or boolean
  */
 export function parseBooleanFilter(value: unknown): boolean {

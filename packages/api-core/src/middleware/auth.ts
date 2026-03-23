@@ -142,13 +142,19 @@ export function requireAdmin(
 /** Organization ID/name that identifies the system (super-admin) tenant. */
 export const SYSTEM_ORG_ID = (process.env.SYSTEM_ORG_ID || 'system').toLowerCase();
 
+/**
+ * Check if an orgId or orgName matches the system org.
+ * Use this instead of comparing directly against SYSTEM_ORG_ID,
+ * because the JWT orgId is a database ID (e.g. MongoDB ObjectId)
+ * while SYSTEM_ORG_ID is the well-known name "system".
+ */
+export function isSystemOrgId(orgId?: string, orgName?: string): boolean {
+  return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_ID;
+}
+
 export function isSystemOrg(req: Request): boolean {
   if (!req.user) return false;
-
-  const orgId = req.user.organizationId?.toLowerCase();
-  const orgName = req.user.organizationName?.toLowerCase();
-
-  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
+  return isSystemOrgId(req.user.organizationId, req.user.organizationName);
 }
 
 export function isSystemAdmin(req: Request): boolean {

@@ -1,14 +1,8 @@
-import { InternalHttpClient, type ServiceConfig, createLogger } from '@mwashburn160/api-core';
+import { createLogger, errorMessage } from '@mwashburn160/api-core';
+import { messageClient } from './message-client';
 import type { Violation } from '../engine/rule-engine';
 
 const logger = createLogger('compliance-notifier');
-
-const messageServiceConfig: ServiceConfig = {
-  host: process.env.MESSAGE_SERVICE_HOST ?? 'message',
-  port: parseInt(process.env.MESSAGE_SERVICE_PORT ?? '3000', 10),
-};
-
-const messageClient = new InternalHttpClient(messageServiceConfig);
 
 /**
  * Send a compliance violation notification to org admins via the message service.
@@ -48,7 +42,7 @@ export async function notifyComplianceBlock(
       orgId,
       target,
       entityName,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   }
 }

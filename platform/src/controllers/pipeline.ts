@@ -1,6 +1,6 @@
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
-import { extractToken } from '../helpers/controller-helper';
+import { getAuthContext, handleControllerError } from '../helpers/controller-helper';
 import {
   pipelineService,
   PipelineServiceError,
@@ -15,78 +15,55 @@ function replaceNonAlphanumeric(input: string, replaceValue: string = '_'): stri
   return input.replace(/[^a-zA-Z0-9]/g, replaceValue);
 }
 
+/** Build pipeline filter from request query parameters. */
+function buildFilter(query: Request['query'], options?: { includeId?: boolean; includePagination?: boolean }): PipelineFilter {
+  const filter: PipelineFilter = {};
+
+  if (options?.includeId && query.id) filter.id = String(query.id);
+  if (query.project) filter.project = String(query.project);
+  if (query.organization) filter.organization = String(query.organization);
+  if (query.pipelineName) filter.pipelineName = String(query.pipelineName);
+
+  const am = String(query.accessModifier ?? '');
+  if (am === 'public' || am === 'private') filter.accessModifier = am;
+
+  if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
+  if (query.isDefault !== undefined) filter.isDefault = query.isDefault === 'true';
+
+  if (options?.includePagination && (query.page || query.limit)) {
+    const pg = parsePagination(query.page, query.limit);
+    filter.page = pg.page;
+    filter.limit = pg.limit;
+  }
+
+  return filter;
+}
+
+/** Map caught errors to HTTP responses. */
+function handleError(res: Response, err: unknown, operation: string): void {
+  if (err instanceof PipelineServiceError) {
+    sendError(res, err.statusCode, err.message, err.code);
+  } else {
+    handleControllerError(res, err, `Failed to ${operation}`);
+  }
+}
+
 /**
  * List pipelines with optional filters
  * GET /pipeline
- * Query params: project, organization, pipelineName, isActive, isDefault, accessModifier, page, limit
  */
 export async function listPipelines(req: Request, res: Response): Promise<void> {
+  const auth = getAuthContext(req, res, 'list pipelines');
+  if (!auth) return;
+
   try {
-    if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
-    }
+    const filter = buildFilter(req.query, { includePagination: true });
+    const result = await pipelineService.listPipelines(auth.orgId, filter, auth);
 
-    const orgId = req.user.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to list pipelines');
-    }
-
-    const token = extractToken(req);
-    if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
-    }
-
-    // Build filter from query params
-    const filter: PipelineFilter = {};
-
-    if (req.query.project) filter.project = String(req.query.project);
-    if (req.query.organization) filter.organization = String(req.query.organization);
-    if (req.query.pipelineName) filter.pipelineName = String(req.query.pipelineName);
-    if (req.query.accessModifier) {
-      const am = String(req.query.accessModifier);
-      if (am === 'public' || am === 'private') {
-        filter.accessModifier = am;
-      }
-    }
-    if (req.query.isActive !== undefined) {
-      filter.isActive = req.query.isActive === 'true';
-    }
-    if (req.query.isDefault !== undefined) {
-      filter.isDefault = req.query.isDefault === 'true';
-    }
-    if (req.query.page || req.query.limit) {
-      const pg = parsePagination(req.query.page, req.query.limit);
-      filter.page = pg.page;
-      filter.limit = pg.limit;
-    }
-
-    logger.info('[LIST PIPELINES] Request received', {
-      userId: req.user.sub,
-      orgId,
-      filter,
-    });
-
-    const result = await pipelineService.listPipelines(orgId, filter, {
-      userId: req.user.sub,
-      token,
-    });
-
-    logger.info('[LIST PIPELINES] Success', {
-      userId: req.user.sub,
-      orgId,
-      count: result.pipelines.length,
-      total: result.total,
-    });
-
+    logger.info('[LIST PIPELINES] Success', { userId: auth.userId, orgId: auth.orgId, count: result.pipelines.length });
     sendSuccess(res, 200, result);
-  } catch (error) {
-    logger.error('[LIST PIPELINES] Failed:', error);
-
-    if (error instanceof PipelineServiceError) {
-      return sendError(res, error.statusCode, error.message, error.code);
-    }
-
-    return sendError(res, 500, 'Failed to list pipelines');
+  } catch (err) {
+    handleError(res, err, 'list pipelines');
   }
 }
 
@@ -95,211 +72,84 @@ export async function listPipelines(req: Request, res: Response): Promise<void> 
  * GET /pipeline/:id
  */
 export async function getPipelineById(req: Request, res: Response): Promise<void> {
+  const auth = getAuthContext(req, res, 'view pipelines');
+  if (!auth) return;
+
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!id) return sendError(res, 400, 'Pipeline ID is required');
+
   try {
-    if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
-    }
-
-    const orgId = req.user.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to view pipelines');
-    }
-
-    const token = extractToken(req);
-    if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
-    }
-
-    const idParam = req.params.id;
-    const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    if (!id) {
-      return sendError(res, 400, 'Pipeline ID is required');
-    }
-
-    logger.info('[GET PIPELINE] Request received', {
-      userId: req.user.sub,
-      orgId,
-      pipelineId: id,
-    });
-
-    const pipeline = await pipelineService.getPipelineById(orgId, id, {
-      userId: req.user.sub,
-      token,
-    });
-
-    logger.info('[GET PIPELINE] Success', {
-      userId: req.user.sub,
-      orgId,
-      pipelineId: id,
-      project: pipeline.project,
-    });
-
+    const pipeline = await pipelineService.getPipelineById(auth.orgId, id, auth);
     sendSuccess(res, 200, pipeline);
-  } catch (error) {
-    logger.error('[GET PIPELINE] Failed:', error);
-
-    if (error instanceof PipelineServiceError) {
-      return sendError(res, error.statusCode, error.message, error.code);
-    }
-
-    return sendError(res, 500, 'Failed to get pipeline');
+  } catch (err) {
+    handleError(res, err, 'get pipeline');
   }
 }
 
 /**
  * Get a single pipeline by query filters
  * GET /pipeline/search
- * Query params: project, organization, pipelineName, etc.
  */
 export async function getPipeline(req: Request, res: Response): Promise<void> {
+  const auth = getAuthContext(req, res, 'view pipelines');
+  if (!auth) return;
+
+  const filter = buildFilter(req.query, { includeId: true });
+  if (Object.keys(filter).length === 0) {
+    return sendError(res, 400, 'At least one search filter is required');
+  }
+
   try {
-    if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
-    }
-
-    const orgId = req.user.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to view pipelines');
-    }
-
-    const token = extractToken(req);
-    if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
-    }
-
-    // Build filter from query params
-    const filter: PipelineFilter = {};
-
-    if (req.query.id) filter.id = String(req.query.id);
-    if (req.query.project) filter.project = String(req.query.project);
-    if (req.query.organization) filter.organization = String(req.query.organization);
-    if (req.query.pipelineName) filter.pipelineName = String(req.query.pipelineName);
-    if (req.query.accessModifier) {
-      const am = String(req.query.accessModifier);
-      if (am === 'public' || am === 'private') {
-        filter.accessModifier = am;
-      }
-    }
-    if (req.query.isActive !== undefined) {
-      filter.isActive = req.query.isActive === 'true';
-    }
-    if (req.query.isDefault !== undefined) {
-      filter.isDefault = req.query.isDefault === 'true';
-    }
-
-    // Require at least one filter
-    if (Object.keys(filter).length === 0) {
-      return sendError(res, 400, 'At least one search filter is required');
-    }
-
-    logger.info('[GET PIPELINE] Search request received', {
-      userId: req.user.sub,
-      orgId,
-      filter,
-    });
-
-    const pipeline = await pipelineService.getPipeline(orgId, filter, {
-      userId: req.user.sub,
-      token,
-    });
-
-    logger.info('[GET PIPELINE] Search success', {
-      userId: req.user.sub,
-      orgId,
-      pipelineId: pipeline.id,
-      project: pipeline.project,
-    });
-
+    const pipeline = await pipelineService.getPipeline(auth.orgId, filter, auth);
     sendSuccess(res, 200, pipeline);
-  } catch (error) {
-    logger.error('[GET PIPELINE] Search failed:', error);
-
-    if (error instanceof PipelineServiceError) {
-      return sendError(res, error.statusCode, error.message, error.code);
-    }
-
-    return sendError(res, 500, 'Failed to get pipeline');
+  } catch (err) {
+    handleError(res, err, 'get pipeline');
   }
 }
 
 /**
  * Create a new pipeline configuration
  * POST /pipeline
- * Body: { pipelineName?, props, accessModifier  }
  */
 export async function createPipeline(req: Request, res: Response): Promise<void> {
+  const auth = getAuthContext(req, res, 'create pipelines');
+  if (!auth) return;
+
+  const { project, organization, pipelineName, props, accessModifier } = req.body;
+
+  if (!project || typeof project !== 'string') {
+    return sendError(res, 400, 'project is required and must be a string');
+  }
+  if (!organization || typeof organization !== 'string') {
+    return sendError(res, 400, 'organization is required and must be a string');
+  }
+  if (!props || typeof props !== 'object' || Array.isArray(props)) {
+    return sendError(res, 400, 'Pipeline props (builderProps) are required and must be an object');
+  }
+  if (!props.synth || typeof props.synth !== 'object') {
+    return sendError(res, 400, 'Pipeline props must include a synth configuration');
+  }
+
+  const resolvedProject = replaceNonAlphanumeric(project, '_');
+  const resolvedOrganization = replaceNonAlphanumeric(organization, '_');
+  const resolvedPipelineName: string = pipelineName
+    ?? `${resolvedOrganization.toLowerCase()}-${resolvedProject.toLowerCase()}-pipeline`;
+  const validAccessModifier = accessModifier === 'public' ? 'public' : 'private';
+
   try {
-    if (!req.user) {
-      return sendError(res, 401, 'Unauthorized');
-    }
-
-    const orgId = req.user.organizationId;
-    if (!orgId) {
-      return sendError(res, 400, 'You must belong to an organization to create pipelines');
-    }
-
-    const token = extractToken(req);
-    if (!token) {
-      return sendError(res, 401, 'Authentication token is required');
-    }
-
-    const { project, organization, pipelineName, props, accessModifier } = req.body;
-
-    if (!project || typeof project !== 'string') {
-      return sendError(res, 400, 'project is required and must be a string');
-    }
-    if (!organization || typeof organization !== 'string') {
-      return sendError(res, 400, 'organization is required and must be a string');
-    }
-    if (!props || typeof props !== 'object' || Array.isArray(props)) {
-      return sendError(res, 400, 'Pipeline props (builderProps) are required and must be an object');
-    }
-    if (!props.synth || typeof props.synth !== 'object') {
-      return sendError(res, 400, 'Pipeline props must include a synth configuration');
-    }
-
-    const resolvedProject = project;
-    const resolvedOrganization = organization;
-    const builderProps = props;
-
-    const resolvedPipelineName: string = pipelineName
-      ?? `${replaceNonAlphanumeric(resolvedOrganization, '_').toLowerCase()}-${replaceNonAlphanumeric(resolvedProject, '_').toLowerCase()}-pipeline`;
-
-    // Validate access modifier
-    const validAccessModifier = accessModifier === 'public' ? 'public' : 'private';
-
-    logger.info('[CREATE PIPELINE] Request received', {
-      userId: req.user.sub,
-      orgId,
-      pipelineName: resolvedPipelineName,
-      project: replaceNonAlphanumeric(resolvedProject, '_'),
-      organization: replaceNonAlphanumeric(resolvedOrganization, '_'),
-      accessModifier: validAccessModifier,
-    });
-
     const result = await pipelineService.createPipeline(
-      orgId,
+      auth.orgId,
       {
-        project: replaceNonAlphanumeric(resolvedProject, '_'),
-        organization: replaceNonAlphanumeric(resolvedOrganization, '_'),
+        project: resolvedProject,
+        organization: resolvedOrganization,
         pipelineName: resolvedPipelineName,
-        props: builderProps,
+        props,
         accessModifier: validAccessModifier,
       },
-      {
-        userId: req.user.sub,
-        token,
-      },
+      auth,
     );
 
-    logger.info('[CREATE PIPELINE] Success', {
-      userId: req.user.sub,
-      orgId,
-      pipelineId: result.id,
-      project: result.project,
-      organization: result.organization,
-    });
-
+    logger.info('[CREATE PIPELINE] Success', { userId: auth.userId, orgId: auth.orgId, pipelineId: result.id });
     sendSuccess(res, 201, {
       pipeline: {
         id: result.id,
@@ -313,13 +163,7 @@ export async function createPipeline(req: Request, res: Response): Promise<void>
         createdBy: result.createdBy,
       },
     }, result.message);
-  } catch (error) {
-    logger.error('[CREATE PIPELINE] Failed:', error);
-
-    if (error instanceof PipelineServiceError) {
-      return sendError(res, error.statusCode, error.message, error.code);
-    }
-
-    return sendError(res, 500, 'Failed to create pipeline');
+  } catch (err) {
+    handleError(res, err, 'create pipeline');
   }
 }

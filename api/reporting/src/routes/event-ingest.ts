@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, hashAccountInArn } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger, hashAccountInArn, errorMessage } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
 import { reportingService } from '@mwashburn160/pipeline-data';
@@ -80,7 +80,7 @@ export function createEventIngestRoutes(): Router {
       const affectedOrgs = new Set(rows.map(r => r.orgId));
       for (const org of affectedOrgs) {
         reportingService.invalidateOrg(org).catch((err) => {
-          logger.debug('Reporting cache invalidation failed', { orgId: org, error: err instanceof Error ? err.message : String(err) });
+          logger.debug('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
         });
       }
     }

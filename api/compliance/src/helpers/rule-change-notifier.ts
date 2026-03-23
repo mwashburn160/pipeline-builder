@@ -1,14 +1,8 @@
-import { InternalHttpClient, type ServiceConfig, createLogger } from '@mwashburn160/api-core';
+import { createLogger, errorMessage } from '@mwashburn160/api-core';
+import { messageClient } from './message-client';
 import { subscriptionService } from '../services/subscription-service';
 
 const logger = createLogger('rule-change-notifier');
-
-const messageServiceConfig: ServiceConfig = {
-  host: process.env.MESSAGE_SERVICE_HOST ?? 'message',
-  port: parseInt(process.env.MESSAGE_SERVICE_PORT ?? '3000', 10),
-};
-
-const messageClient = new InternalHttpClient(messageServiceConfig);
 
 /**
  * Feature #8: Notify subscriber orgs when a published rule is modified or deleted.
@@ -56,7 +50,7 @@ export async function notifyPublishedRuleChange(
       ruleId,
       ruleName,
       changeType,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   }
 }

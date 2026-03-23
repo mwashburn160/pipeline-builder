@@ -1,4 +1,4 @@
-import { entityEvents, createCacheService, createLogger } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -74,7 +74,7 @@ export class PipelineService extends CrudService<
 
   protected async onAfterCreate(entity: Pipeline): Promise<void> {
     pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline create', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after pipeline create', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'created',
@@ -89,7 +89,7 @@ export class PipelineService extends CrudService<
 
   protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
     pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline update', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after pipeline update', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'updated',
@@ -104,7 +104,7 @@ export class PipelineService extends CrudService<
 
   protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
     pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline delete', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after pipeline delete', { orgId: entity.orgId, error: errorMessage(err) });
     });
     entityEvents.emit({
       eventType: 'deleted',
@@ -167,7 +167,7 @@ export class PipelineService extends CrudService<
 
       const pipeline = result as unknown as Pipeline;
       pipelineCache.invalidatePattern(`${data.orgId}:*`).catch((err) => {
-        logger.debug('Cache invalidation failed after pipeline createAsDefault', { orgId: data.orgId, error: err instanceof Error ? err.message : String(err) });
+        logger.debug('Cache invalidation failed after pipeline createAsDefault', { orgId: data.orgId, error: errorMessage(err) });
       });
       return pipeline;
     });

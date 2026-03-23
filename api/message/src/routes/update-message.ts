@@ -5,6 +5,7 @@ import {
   getParam,
   createLogger,
   sendEntityNotFound,
+  errorMessage,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
@@ -47,7 +48,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         unreadCount,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 200, { message }, 'Message marked as read');
@@ -75,7 +76,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         unreadCount,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 200, { updated: updatedMessages.length + 1 }, 'Thread marked as read');

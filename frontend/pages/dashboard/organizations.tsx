@@ -1,58 +1,49 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, AlertTriangle } from 'lucide-react';
+import { Building2, AlertTriangle, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
+import { useDelete } from '@/hooks/useDelete';
 import api from '@/lib/api';
 import { Organization } from '@/types';
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
 
-  useEffect(() => {
-    async function fetchOrganizations() {
-      if (!isAuthenticated || !isSysAdmin) return;
-      try {
-        setIsLoading(true);
-        const response = await api.listOrganizations();
-        const orgList = response.data?.organizations || [];
-        setOrganizations(orgList);
-      } catch (err) {
-        setError(formatError(err, 'Failed to load organizations'));
-      } finally {
-        setIsLoading(false);
-      }
-    }
+  const list = useListPage<Organization>({
+    fields: [
+      { key: 'search', type: 'text', defaultValue: '', primary: true },
+    ],
+    fetcher: async (params) => {
+      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
+      const response = await api.listOrganizations({
+        ...(params.search && { search: params.search }),
+        page,
+        limit: Number(params.limit || 25),
+      });
+      const data = response.data;
+      return {
+        items: data?.organizations || [],
+        pagination: data ? { total: data.total, offset: (data.page - 1) * data.limit } : undefined,
+      };
+    },
+    enabled: isAuthenticated && isSysAdmin,
+  });
 
-    if (isAuthenticated && isSysAdmin) fetchOrganizations();
-  }, [isAuthenticated, isSysAdmin]);
-
-  const handleDeleteOrg = async () => {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    setError(null);
-
-    try {
-      await api.deleteOrganization(deleteTarget.id);
-      setOrganizations(organizations.filter(o => o.id !== deleteTarget.id));
-      setDeleteTarget(null);
-    } catch (err) {
-      setError(formatError(err, 'Failed to delete organization'));
-      setDeleteTarget(null);
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
+  const del = useDelete<Organization>(
+    async (org) => {
+      await api.deleteOrganization(org.id);
+    },
+    list.refresh,
+    (err) => list.setError(formatError(err, 'Failed to delete organization')),
+  );
 
   const orgColumns: Column<Organization>[] = useMemo(() => [
     {
@@ -92,7 +83,7 @@ export default function OrganizationsPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (org) => (
         org.id !== 'system' ? (
-          <button onClick={() => setDeleteTarget(org)} className="action-link-danger">Delete</button>
+          <button onClick={() => del.open(org)} className="action-link-danger">Delete</button>
         ) : (
           <span className="text-gray-400 dark:text-gray-500 text-xs">Protected</span>
         )
@@ -108,21 +99,38 @@ export default function OrganizationsPage() {
       subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
     >
-      {error && (
+      {list.error && (
         <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
+          <p>{list.error}</p>
+          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
+      <div className="filter-bar">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <input
+            type="text"
+            placeholder="Search organizations..."
+            value={list.filters.search}
+            onChange={(e) => list.updateFilter('search', e.target.value)}
+            className="filter-input"
+          />
+        </div>
+      </div>
+
       <DataTable
-        data={organizations}
+        data={list.data}
         columns={orgColumns}
-        isLoading={isLoading}
+        isLoading={list.isLoading}
         emptyState={{ icon: Building2, title: 'No organizations', description: 'No organizations found.' }}
         getRowKey={(org) => org.id}
         defaultSortColumn="name"
       />
+
+      {!list.isLoading && list.pagination.total > 0 && (
+        <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+      )}
 
       {/* Warning */}
       <div className="card mt-6 border-yellow-200/60 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-900/20">
@@ -138,13 +146,13 @@ export default function OrganizationsPage() {
         </div>
       </div>
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete Organization"
-          itemName={deleteTarget.name}
-          loading={deleteLoading}
-          onConfirm={handleDeleteOrg}
-          onCancel={() => setDeleteTarget(null)}
+          itemName={del.target.name}
+          loading={del.loading}
+          onConfirm={del.confirm}
+          onCancel={del.close}
         />
       )}
     </DashboardLayout>

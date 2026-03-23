@@ -32,6 +32,7 @@ jest.mock('@mwashburn160/api-core', () => {
   }
   return {
     NotFoundError,
+    createLogger: () => ({ debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }),
   };
 });
 

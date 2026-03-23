@@ -1,8 +1,8 @@
-import { createLogger, createSafeClient } from '@mwashburn160/api-core';
+import { createLogger, createSafeClient, errorMessage } from '@mwashburn160/api-core';
 import { config } from '../config';
+import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
-import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';
 
 const logger = createLogger('subscription-lifecycle');
 
@@ -28,12 +28,12 @@ export function startSubscriptionLifecycleChecker(): void {
 
   // Run immediately on startup, then on interval
   runLifecycleCheck().catch((err) =>
-    logger.error('Initial lifecycle check failed', { error: err instanceof Error ? err.message : String(err) }),
+    logger.error('Initial lifecycle check failed', { error: errorMessage(err) }),
   );
 
   lifecycleTimer = setInterval(() => {
     runLifecycleCheck().catch((err) =>
-      logger.error('Lifecycle check failed', { error: err instanceof Error ? err.message : String(err) }),
+      logger.error('Lifecycle check failed', { error: errorMessage(err) }),
     );
   }, intervalMs);
   lifecycleTimer.unref();
@@ -90,7 +90,7 @@ async function checkGracePeriodExpiry(): Promise<void> {
     } catch (err) {
       logger.error('Failed to downgrade after grace period', {
         orgId: subscription.orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }
@@ -143,9 +143,9 @@ async function sendRenewalReminders(): Promise<void> {
 
   // Find active subscriptions renewing within the window that haven't been reminded
   const upcoming = await Subscription.find({
-    status: 'active',
-    cancelAtPeriodEnd: false,
-    currentPeriodEnd: { $gt: now, $lte: reminderWindow },
+    'status': 'active',
+    'cancelAtPeriodEnd': false,
+    'currentPeriodEnd': { $gt: now, $lte: reminderWindow },
     'metadata.lastRenewalReminder': { $ne: formatDate(reminderWindow) },
   });
 
@@ -192,7 +192,7 @@ async function sendRenewalReminders(): Promise<void> {
     } catch (err) {
       logger.debug('Failed to send renewal reminder', {
         orgId: subscription.orgId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
     }
   }

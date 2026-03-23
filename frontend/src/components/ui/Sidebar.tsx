@@ -52,6 +52,12 @@ interface NavSection {
   items: NavItem[];
 }
 
+const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string }[] = [
+  { href: '/dashboard/pipelines', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600' },
+  { href: '/dashboard/plugins', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500' },
+  { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-green-600' },
+];
+
 const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Overview',
@@ -196,33 +202,18 @@ export function Sidebar({
                 Quick Actions
               </p>
               <div className="mt-2 space-y-2">
-                <Link
-                  href="/dashboard/pipelines"
-                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white">
-                    <Plus className="h-4 w-4" />
-                  </span>
-                  Create Pipeline
-                </Link>
-                <Link
-                  href="/dashboard/plugins"
-                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500 text-white">
-                    <Plus className="h-4 w-4" />
-                  </span>
-                  Add Plugin
-                </Link>
-                <Link
-                  href="/dashboard/downloads"
-                  className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-green-600 text-white">
-                    <Download className="h-4 w-4" />
-                  </span>
-                  Get the CLI
-                </Link>
+                {QUICK_ACTIONS.map(({ href, label, icon: Icon, color }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${color} text-white`}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    {label}
+                  </Link>
+                ))}
               </div>
             </div>
           </div>

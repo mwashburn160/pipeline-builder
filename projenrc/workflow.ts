@@ -232,7 +232,7 @@ export class Workflow extends Component {
                 {
                     id: 'upload_artifact',
                     name: 'Upload artifact',
-                    uses: 'actions/upload-artifact@v6',
+                    uses: 'actions/upload-artifact@v7',
                     with: {
                         name: 'artifacts',
                         path: './**/lib/\n./**/dist/\n!./**/node_modules/',
@@ -305,7 +305,7 @@ export class Workflow extends Component {
                 {
                     id: 'dnload_artifact',
                     name: 'Download artifact',
-                    uses: 'actions/download-artifact@v7',
+                    uses: 'actions/download-artifact@v8',
                     with: {
                         name: 'artifacts',
                         path: 'dnload',
@@ -319,7 +319,7 @@ export class Workflow extends Component {
                 {
                     id: 'login_registry',
                     name: 'Login into container registry',
-                    uses: 'docker/login-action@v3',
+                    uses: 'docker/login-action@v4',
                     with: {
                         registry: 'ghcr.io',
                         username: '${{ github.actor }}',
@@ -329,7 +329,7 @@ export class Workflow extends Component {
                 {
                     id: 'setup_buildx',
                     name: 'Setup buildx',
-                    uses: 'docker/setup-buildx-action@v3',
+                    uses: 'docker/setup-buildx-action@v4',
                     with: {
                         cleanup: true,
                         'cache-binary': false,
@@ -419,7 +419,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Setup pnpm',
-                uses: 'pnpm/action-setup@v4',
+                uses: 'pnpm/action-setup@v5',
                 with: {
                     version: this.pnpmVersion,
                 },

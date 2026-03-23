@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, ErrorCode, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, errorMessage, getParam, parsePaginationParams, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { schema, db, buildPublishedRuleCatalogConditions, drizzleCount } from '@mwashburn160/pipeline-core';
 import { and, desc, eq, sql, inArray, isNull } from 'drizzle-orm';
@@ -147,7 +147,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
@@ -170,7 +170,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
       return sendSuccess(res, 201, { subscription });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found') || message.includes('published')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
@@ -205,7 +205,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Forked published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
       return sendSuccess(res, 201, { rule });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
@@ -264,7 +264,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
@@ -283,7 +283,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }
@@ -305,7 +305,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
       return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (message.includes('not found')) {
         return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
       }

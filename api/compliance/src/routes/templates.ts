@@ -1,4 +1,4 @@
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -59,7 +59,7 @@ export function createTemplateRoutes(): Router {
         logger.warn('Template application failed', {
           templateId: template.id,
           templateName: template.name,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
         skipped.push(template.id);
       }

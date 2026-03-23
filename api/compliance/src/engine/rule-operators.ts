@@ -192,3 +192,27 @@ export function validateRegexPattern(pattern: string): string | null {
     return `Invalid regex pattern: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
+
+/**
+ * Validate all regex patterns in a rule body (single-field operator + cross-field conditions).
+ * Returns an error message string if any pattern is invalid, null if all are valid.
+ */
+export function validateRuleRegexPatterns(body: {
+  operator?: string;
+  value?: unknown;
+  conditions?: Array<{ field: string; operator: string; value?: unknown }>;
+}): string | null {
+  if (body.operator === 'regex' && typeof body.value === 'string') {
+    const err = validateRegexPattern(body.value);
+    if (err) return err;
+  }
+  if (body.conditions) {
+    for (const c of body.conditions) {
+      if (c.operator === 'regex' && typeof c.value === 'string') {
+        const err = validateRegexPattern(c.value);
+        if (err) return `Condition "${c.field}": ${err}`;
+      }
+    }
+  }
+  return null;
+}

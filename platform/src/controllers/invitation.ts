@@ -45,6 +45,28 @@ async function notifyInviter(invitation: InvitationDocument, user: UserDocument,
  * @param acceptedVia - How the invitation was accepted ('email' or an OAuth provider)
  * @param session - Active Mongoose transaction session
  */
+/**
+ * Validate an invitation token: check it exists, is pending, and not expired.
+ * Throws coded errors for the handleTransactionError map.
+ */
+async function validateInvitationToken(token: string, session: mongoose.ClientSession): Promise<InvitationDocument> {
+  const invitation = await Invitation.findOne({ token }).session(session);
+  if (!invitation) throw new Error('INVITATION_NOT_FOUND');
+  if (invitation.status !== 'pending') throw new Error(`INVITATION_${invitation.status.toUpperCase()}`);
+
+  if (invitation.isExpired()) {
+    invitation.status = 'expired';
+    await invitation.save({ session });
+    throw new Error('INVITATION_EXPIRED');
+  }
+
+  return invitation;
+}
+
+/**
+ * Shared logic for accepting an invitation: adds user to org, updates roles,
+ * marks invitation as accepted, and notifies the inviter.
+ */
 async function processInvitationAcceptance(
   invitation: InvitationDocument,
   user: UserDocument,
@@ -214,15 +236,7 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
     const oauthProvider = req.headers['x-oauth-provider'] as InvitationOAuthProvider | undefined;
 
     await session.withTransaction(async () => {
-      const invitation = await Invitation.findOne({ token }).session(session);
-      if (!invitation) throw new Error('INVITATION_NOT_FOUND');
-      if (invitation.status !== 'pending') throw new Error(`INVITATION_${invitation.status.toUpperCase()}`);
-
-      if (invitation.isExpired()) {
-        invitation.status = 'expired';
-        await invitation.save({ session });
-        throw new Error('INVITATION_EXPIRED');
-      }
+      const invitation = await validateInvitationToken(token, session);
 
       if (oauthProvider) {
         if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error('OAUTH_NOT_ALLOWED');
@@ -294,15 +308,7 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
 
   try {
     await session.withTransaction(async () => {
-      const invitation = await Invitation.findOne({ token }).session(session);
-      if (!invitation) throw new Error('INVITATION_NOT_FOUND');
-      if (invitation.status !== 'pending') throw new Error(`INVITATION_${invitation.status.toUpperCase()}`);
-
-      if (invitation.isExpired()) {
-        invitation.status = 'expired';
-        await invitation.save({ session });
-        throw new Error('INVITATION_EXPIRED');
-      }
+      const invitation = await validateInvitationToken(token, session);
 
       if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error('OAUTH_NOT_ALLOWED');
       if (oauthData.email.toLowerCase() !== invitation.email) throw new Error('EMAIL_MISMATCH');

@@ -1,8 +1,8 @@
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, SYSTEM_ORG_ID, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemOrg, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas';
-import { validateRegexPattern } from '../engine/rule-operators';
+import { validateRuleRegexPatterns } from '../engine/rule-operators';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 export function createCreateRuleRoutes(): Router {
@@ -17,23 +17,12 @@ export function createCreateRuleRoutes(): Router {
     const body = validation.value;
 
     // Published rules can only be created by system org
-    if (body.scope === 'published' && orgId !== SYSTEM_ORG_ID) {
+    if (body.scope === 'published' && !isSystemOrg(req)) {
       return sendError(res, 403, 'Only system org can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    // Validate regex patterns in single-field and cross-field conditions
-    if (body.operator === 'regex' && typeof body.value === 'string') {
-      const regexError = validateRegexPattern(body.value);
-      if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
-    }
-    if (body.conditions) {
-      for (const c of body.conditions) {
-        if (c.operator === 'regex' && typeof c.value === 'string') {
-          const regexError = validateRegexPattern(c.value);
-          if (regexError) return sendBadRequest(res, `Condition "${c.field}": ${regexError}`, ErrorCode.VALIDATION_ERROR);
-        }
-      }
-    }
+    const regexError = validateRuleRegexPatterns(body);
+    if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
 
     const rule = await complianceRuleService.create({
       ...body,

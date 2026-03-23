@@ -7,6 +7,7 @@ import {
   getParam,
   createLogger,
   sendEntityNotFound,
+  errorMessage,
 } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import type { SSEManager } from '@mwashburn160/api-server';
@@ -74,7 +75,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
         });
       }
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 200, undefined, 'Message deleted successfully');

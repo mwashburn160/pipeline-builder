@@ -1,11 +1,12 @@
 import { createCacheService } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
+import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
 import { db } from '../database/postgres-connection';
 
-/** Cast raw SQL result rows to a typed array. Centralises the Drizzle raw-SQL cast. */
+/** Cast raw SQL result rows to a typed array. */
 function sqlRows<T>(result: { rows: unknown[] }): T[] {
-  return result.rows as T[];
+  return drizzleRows<T>(result.rows);
 }
 
 /**

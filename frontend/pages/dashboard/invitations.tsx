@@ -1,13 +1,15 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
 import api from '@/lib/api';
 
 interface InvitationListItem {
@@ -30,10 +32,26 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 
 export default function InvitationsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
-  const [invitations, setInvitations] = useState<InvitationListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'expired' | 'revoked'>('all');
+
+  const list = useListPage<InvitationListItem>({
+    fields: [
+      { key: 'status', type: 'select', defaultValue: 'all' },
+    ],
+    fetcher: async (params) => {
+      const page = Math.floor(Number(params.offset || 0) / Number(params.limit || 25)) + 1;
+      const p: Record<string, string | number> = { page, limit: Number(params.limit || 25) };
+      if (params.status && params.status !== 'all') p.status = params.status;
+      const response = await api.listInvitations(p as Record<string, string>);
+      const data = response.data;
+      const invitations = (data?.invitations || []) as InvitationListItem[];
+      const pagination = data?.pagination;
+      return {
+        items: invitations,
+        pagination: pagination ? { total: pagination.total, offset: (pagination.page - 1) * pagination.limit } : undefined,
+      };
+    },
+    enabled: isAuthenticated && isAdmin,
+  });
 
   // Send modal state
   const [sendModalOpen, setSendModalOpen] = useState(false);
@@ -50,29 +68,6 @@ export default function InvitationsPage() {
   // Resend state
   const [resendLoadingId, setResendLoadingId] = useState<string | null>(null);
 
-  const fetchInvitations = useCallback(async () => {
-    if (!isAuthenticated || !isAdmin) return;
-    try {
-      setIsLoading(true);
-      const response = await api.listInvitations();
-      const list = (response.data?.invitations || []) as InvitationListItem[];
-      setInvitations(list);
-    } catch (err) {
-      setError(formatError(err, 'Failed to load invitations'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isAuthenticated, isAdmin]);
-
-  useEffect(() => {
-    if (isAuthenticated && isAdmin) fetchInvitations();
-  }, [isAuthenticated, isAdmin, fetchInvitations]);
-
-  const filteredInvitations = useMemo(
-    () => statusFilter === 'all' ? invitations : invitations.filter((inv) => inv.status === statusFilter),
-    [invitations, statusFilter],
-  );
-
   const handleSendInvitation = async () => {
     if (!sendEmail.trim()) {
       setSendError('Email is required');
@@ -86,7 +81,7 @@ export default function InvitationsPage() {
       setSendEmail('');
       setSendRole('user');
       setSendInvitationType('any');
-      await fetchInvitations();
+      list.refresh();
     } catch (err) {
       setSendError(formatError(err, 'Failed to send invitation'));
     } finally {
@@ -99,10 +94,10 @@ export default function InvitationsPage() {
     setRevokeLoading(true);
     try {
       await api.revokeInvitation(revokeTarget.id);
-      setInvitations((prev) => prev.map((inv) => inv.id === revokeTarget.id ? { ...inv, status: 'revoked' as const } : inv));
       setRevokeTarget(null);
+      list.refresh();
     } catch (err) {
-      setError(formatError(err, 'Failed to revoke invitation'));
+      list.setError(formatError(err, 'Failed to revoke invitation'));
       setRevokeTarget(null);
     } finally {
       setRevokeLoading(false);
@@ -113,9 +108,9 @@ export default function InvitationsPage() {
     setResendLoadingId(invitation.id);
     try {
       await api.resendInvitation(invitation.id);
-      await fetchInvitations();
+      list.refresh();
     } catch (err) {
-      setError(formatError(err, 'Failed to resend invitation'));
+      list.setError(formatError(err, 'Failed to resend invitation'));
     } finally {
       setResendLoadingId(null);
     }
@@ -168,19 +163,10 @@ export default function InvitationsPage() {
       cellClassName: 'text-right text-sm font-medium',
       render: (inv) => inv.status === 'pending' ? (
         <>
-          <button
-            onClick={() => handleResend(inv)}
-            disabled={resendLoadingId === inv.id}
-            className="action-link mr-4"
-          >
+          <button onClick={() => handleResend(inv)} disabled={resendLoadingId === inv.id} className="action-link mr-4">
             {resendLoadingId === inv.id ? 'Sending...' : 'Resend'}
           </button>
-          <button
-            onClick={() => setRevokeTarget(inv)}
-            className="action-link-danger"
-          >
-            Revoke
-          </button>
+          <button onClick={() => setRevokeTarget(inv)} className="action-link-danger">Revoke</button>
         </>
       ) : null,
     },
@@ -200,10 +186,10 @@ export default function InvitationsPage() {
     >
       <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
 
-      {error && (
+      {list.error && (
         <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
+          <p>{list.error}</p>
+          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 
@@ -211,8 +197,8 @@ export default function InvitationsPage() {
       <div className="filter-bar">
         <div className="flex flex-col sm:flex-row gap-4">
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            value={list.filters.status}
+            onChange={(e) => list.updateFilter('status', e.target.value)}
             className="filter-select"
           >
             <option value="all">All Statuses</option>
@@ -225,17 +211,21 @@ export default function InvitationsPage() {
       </div>
 
       <DataTable
-        data={filteredInvitations}
+        data={list.data}
         columns={columns}
-        isLoading={isLoading}
+        isLoading={list.isLoading}
         emptyState={{
           icon: Mail,
           title: 'No invitations found',
-          description: statusFilter !== 'all' ? 'Try adjusting your filter.' : 'Send an invitation to add team members.',
+          description: list.hasActiveFilters ? 'Try adjusting your filter.' : 'Send an invitation to add team members.',
         }}
         getRowKey={(inv) => inv.id}
         defaultSortColumn="createdAt"
       />
+
+      {!list.isLoading && list.pagination.total > 0 && (
+        <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+      )}
 
       {/* Revoke confirmation */}
       {revokeTarget && (
@@ -261,14 +251,7 @@ export default function InvitationsPage() {
             <div className="space-y-4">
               <div>
                 <label className="label">Email</label>
-                <input
-                  type="email"
-                  value={sendEmail}
-                  onChange={(e) => setSendEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="input"
-                  disabled={sendLoading}
-                />
+                <input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} placeholder="user@example.com" className="input" disabled={sendLoading} />
               </div>
               <div>
                 <label className="label">Role</label>

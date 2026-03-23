@@ -22,9 +22,6 @@ export * from './routes';
 // Errors
 export * from './errors';
 
-// Features
-export * from './features';
-
 // Validation
 export * from './validation';
 

@@ -14,7 +14,7 @@ export class ComplianceRuleSubscriptionService {
    * Uses upsert (onConflictDoUpdate) to handle race conditions atomically.
    */
   async subscribe(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId === SYSTEM_ORG_ID) {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
       throw new Error('System org cannot subscribe to published rules');
     }
 
@@ -60,7 +60,7 @@ export class ComplianceRuleSubscriptionService {
    * Only active subscriptions are enforced during validation.
    */
   async setActive(orgId: string, ruleId: string, isActive: boolean, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId === SYSTEM_ORG_ID) {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -91,7 +91,7 @@ export class ComplianceRuleSubscriptionService {
    * Unsubscribe an org from a published rule (soft delete).
    */
   async unsubscribe(orgId: string, ruleId: string, userId: string): Promise<void> {
-    if (orgId === SYSTEM_ORG_ID) {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -166,14 +166,13 @@ export class ComplianceRuleSubscriptionService {
    * Skips rules the org is already subscribed to.
    */
   async autoSubscribeToPublished(orgId: string, userId: string = 'system'): Promise<number> {
-    if (orgId === SYSTEM_ORG_ID) return 0;
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) return 0;
 
-    // Fetch all active published rules
+    // Fetch all active published rules (scope='published' is only allowed for system org)
     const publishedRules = await db
       .select({ id: schema.complianceRule.id })
       .from(schema.complianceRule)
       .where(and(
-        eq(schema.complianceRule.orgId, SYSTEM_ORG_ID),
         eq(schema.complianceRule.scope, 'published' as RuleScope),
         eq(schema.complianceRule.isActive, true),
         isNull(schema.complianceRule.deletedAt),
@@ -204,7 +203,7 @@ export class ComplianceRuleSubscriptionService {
    * Feature #4: Bulk activate/deactivate subscriptions.
    */
   async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<number> {
-    if (orgId === SYSTEM_ORG_ID) {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -228,7 +227,7 @@ export class ComplianceRuleSubscriptionService {
    * Feature #5: Pin a subscription to a specific rule version snapshot.
    */
   async pinVersion(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId === SYSTEM_ORG_ID) {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
       throw new Error('System org cannot manage subscriptions');
     }
 

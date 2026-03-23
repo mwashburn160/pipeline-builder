@@ -50,9 +50,10 @@ export function createReadPluginRoutes(
 
   router.post('/lookup', withRoute(async ({ req, res, ctx, orgId }) => {
     const { filter } = req.body;
-    if (!filter) return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const plugins = await pluginService.find(filter, orgId);
+    const effectiveFilter = applyAccessControl(filter, req);
+    const plugins = await pluginService.find(effectiveFilter, orgId);
     const result = plugins[0];
 
     if (!result) return sendEntityNotFound(res, 'Plugin');

@@ -1,4 +1,4 @@
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, validateBody } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody } from '@mwashburn160/api-core';
 import type { RuleTarget } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -91,7 +91,7 @@ export function createEntityEventRoutes(): Router {
     } catch (err) {
       logger.error('Entity event compliance evaluation failed', {
         entityId: event.entityId,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       return sendSuccess(res, 200, { evaluated: false, reason: 'evaluation error' });
     }

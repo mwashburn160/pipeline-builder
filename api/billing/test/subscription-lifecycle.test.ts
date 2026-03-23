@@ -12,6 +12,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
+  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   createSafeClient: () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
   }),
@@ -91,8 +92,8 @@ describe('Subscription Lifecycle Checker', () => {
 
       mockFind
         .mockResolvedValueOnce([expiredSub]) // grace period query
-        .mockResolvedValueOnce([])           // expired subscriptions query
-        .mockResolvedValueOnce([]);          // renewal reminders query
+        .mockResolvedValueOnce([]) // expired subscriptions query
+        .mockResolvedValueOnce([]); // renewal reminders query
 
       startSubscriptionLifecycleChecker();
 
@@ -129,9 +130,9 @@ describe('Subscription Lifecycle Checker', () => {
       };
 
       mockFind
-        .mockResolvedValueOnce([])          // grace period query (none expired)
-        .mockResolvedValueOnce([staleSub])   // expired subscriptions query
-        .mockResolvedValueOnce([]);          // renewal reminders query
+        .mockResolvedValueOnce([]) // grace period query (none expired)
+        .mockResolvedValueOnce([staleSub]) // expired subscriptions query
+        .mockResolvedValueOnce([]); // renewal reminders query
 
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -160,8 +161,8 @@ describe('Subscription Lifecycle Checker', () => {
       };
 
       mockFind
-        .mockResolvedValueOnce([])             // grace period query
-        .mockResolvedValueOnce([])             // expired subscriptions query
+        .mockResolvedValueOnce([]) // grace period query
+        .mockResolvedValueOnce([]) // expired subscriptions query
         .mockResolvedValueOnce([upcomingSub]); // renewal reminders query
 
       startSubscriptionLifecycleChecker();

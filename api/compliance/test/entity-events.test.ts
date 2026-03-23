@@ -11,6 +11,7 @@ jest.mock('@mwashburn160/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
+  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   sendSuccess: jest.fn((_res: unknown, status: number, data: unknown) => ({ status, data })),
   sendError: jest.fn((_res: unknown, status: number, msg: string) => ({ status, msg })),
   sendBadRequest: jest.fn((_res: unknown, msg: string) => ({ status: 400, msg })),

@@ -1,4 +1,4 @@
-import { createCacheService, createLogger } from '@mwashburn160/api-core';
+import { createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
 import { CoreConstants, CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
 import { SQL, eq, and } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -59,19 +59,19 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   protected async onAfterCreate(entity: Message): Promise<void> {
     messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message create', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after message create', { orgId: entity.orgId, error: errorMessage(err) });
     });
   }
 
   protected async onAfterUpdate(_id: string, entity: Message): Promise<void> {
     messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message update', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after message update', { orgId: entity.orgId, error: errorMessage(err) });
     });
   }
 
   protected async onAfterDelete(_id: string, entity: Message): Promise<void> {
     messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message delete', { orgId: entity.orgId, error: err instanceof Error ? err.message : String(err) });
+      logger.debug('Cache invalidation failed after message delete', { orgId: entity.orgId, error: errorMessage(err) });
     });
   }
 

@@ -1,4 +1,4 @@
-import { NotFoundError } from '@mwashburn160/api-core';
+import { NotFoundError, createLogger } from '@mwashburn160/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -115,6 +115,8 @@ export abstract class CrudService<
 
   /** Get the unique constraint columns for onConflictDoUpdate */
   protected abstract get conflictTarget(): AnyColumn[];
+
+  private readonly _logger = createLogger('CrudService');
 
   // Lifecycle hooks — override in subclasses to react to mutations
   // These are fire-and-forget: errors are logged but never block the caller.
@@ -299,7 +301,7 @@ export abstract class CrudService<
       })
       .returning().then(r => drizzleRows<TEntity>(r));
 
-    this.onAfterCreate(created, userId).catch(() => { /* fire-and-forget */ });
+    this.onAfterCreate(created, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
 
     return created;
   }
@@ -326,7 +328,7 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r));
 
     if (updated) {
-      this.onAfterUpdate(id, updated, userId).catch(() => { /* fire-and-forget */ });
+      this.onAfterUpdate(id, updated, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
     }
 
     return updated || null;
@@ -351,7 +353,7 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r));
 
     if (deleted) {
-      this.onAfterDelete(id, deleted, userId).catch(() => { /* fire-and-forget */ });
+      this.onAfterDelete(id, deleted, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
     }
 
     return deleted || null;
@@ -488,7 +490,7 @@ export abstract class CrudService<
     });
 
     for (const entity of results) {
-      this.onAfterCreate(entity, userId).catch(() => { /* fire-and-forget */ });
+      this.onAfterCreate(entity, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
     }
 
     return results;
@@ -524,7 +526,7 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r));
 
     for (const entity of deleted) {
-      this.onAfterDelete(entity.id, entity, userId).catch(() => { /* fire-and-forget */ });
+      this.onAfterDelete(entity.id, entity, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
     }
 
     return deleted;
