@@ -1,3 +1,13 @@
+## 1.42.16 (2026-03-23)
+
+### 🩹 Fixes
+
+- updated quick-action to included cli ([aadd4638](https://github.com/mwashburn160/pipeline-builder/commit/aadd4638))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.15 (2026-03-20)
 
 ### 🩹 Fixes
