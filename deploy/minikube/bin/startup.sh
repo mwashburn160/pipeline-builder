@@ -55,14 +55,23 @@ mkdir -p "$DATA_DIR/tmp"
 echo ""
 echo "=== Cleaning up stale Docker state (if any) ==="
 if docker inspect "$PROFILE" >/dev/null 2>&1; then
+  # Check if the container references networks that no longer exist
+  _has_stale_net=false
   for net_id in $(docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
     if ! docker network inspect "$net_id" >/dev/null 2>&1; then
-      echo "  Disconnecting container from missing network $net_id"
-      docker network disconnect -f "$net_id" "$PROFILE" 2>/dev/null || true
+      _has_stale_net=true
+      echo "  Container references missing network $net_id"
     fi
   done
+  # If stale networks are embedded in the container config, the container is
+  # unrecoverable — remove it so minikube can recreate it cleanly.
+  if $_has_stale_net; then
+    echo "  Removing container with stale network references..."
+    docker rm -f "$PROFILE" 2>/dev/null || true
+  fi
 fi
 docker network rm "$PROFILE" 2>/dev/null || true
+docker network prune -f >/dev/null 2>&1 || true
 
 echo ""
 echo "=== Starting Minikube ==="
@@ -76,9 +85,11 @@ if ! minikube start \
   --mount --mount-string="$DATA_DIR:/mnt/data"; then
 
   echo ""
-  echo "  Start failed — removing stale container and retrying..."
+  echo "  Start failed — deleting stale profile and retrying..."
+  minikube delete --profile="$PROFILE" 2>/dev/null || true
   docker rm -f "$PROFILE" 2>/dev/null || true
   docker network rm "$PROFILE" 2>/dev/null || true
+  docker network prune -f >/dev/null 2>&1 || true
 
   minikube start \
     --profile="$PROFILE" \

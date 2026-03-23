@@ -75,14 +75,23 @@ export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
 echo ""
 echo "=== Cleaning up stale Docker state (if any) ==="
 if run_as_mk docker inspect "$PROFILE" >/dev/null 2>&1; then
+  # Check if the container references networks that no longer exist
+  _has_stale_net=false
   for net_id in $(run_as_mk docker inspect "$PROFILE" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
     if ! run_as_mk docker network inspect "$net_id" >/dev/null 2>&1; then
-      echo "  Disconnecting container from missing network $net_id"
-      run_as_mk docker network disconnect -f "$net_id" "$PROFILE" 2>/dev/null || true
+      _has_stale_net=true
+      echo "  Container references missing network $net_id"
     fi
   done
+  # If stale networks are embedded in the container config, the container is
+  # unrecoverable — remove it so minikube can recreate it cleanly.
+  if $_has_stale_net; then
+    echo "  Removing container with stale network references..."
+    run_as_mk docker rm -f "$PROFILE" 2>/dev/null || true
+  fi
 fi
 run_as_mk docker network rm "$PROFILE" 2>/dev/null || true
+run_as_mk docker network prune -f >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # Start Minikube (dynamic resource allocation)
@@ -110,9 +119,11 @@ echo ""
 echo "=== Starting Minikube ==="
 echo "  Mounting $DATA_DIR -> /mnt/data"
 if ! run_as_mk minikube start "${MK_START_ARGS[@]}"; then
-  echo "  Start failed — removing stale container and retrying..."
+  echo "  Start failed — deleting stale profile and retrying..."
+  run_as_mk minikube delete --profile="$PROFILE" 2>/dev/null || true
   run_as_mk docker rm -f "$PROFILE" 2>/dev/null || true
   run_as_mk docker network rm "$PROFILE" 2>/dev/null || true
+  run_as_mk docker network prune -f >/dev/null 2>&1 || true
   run_as_mk minikube start "${MK_START_ARGS[@]}"
 fi
 
