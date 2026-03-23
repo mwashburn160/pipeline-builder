@@ -32,7 +32,9 @@ DOMAIN="${DOMAIN:-}"
 # user (the docker driver rejects root). Wrap them so the rest of the
 # script works identically regardless of who invokes it.
 # -----------------------------------------------------------------------
+IS_ROOT=false
 if [ "$(id -u)" = "0" ]; then
+  IS_ROOT=true
   MK_USER="minikube"
   run_as_mk() { sudo -u "$MK_USER" -- "$@"; }
 else
@@ -57,6 +59,12 @@ else
   echo "ERROR: No .env file found at $DEPLOY_DIR/.env"
   echo "  Run bootstrap.sh first to generate .env from .env.example"
   exit 1
+fi
+
+# When running as root, ensure the minikube user can read deploy files
+# (certs, configs, init scripts) needed by kubectl --from-file
+if $IS_ROOT; then
+  chmod -R o+rX "$DEPLOY_DIR" 2>/dev/null || true
 fi
 
 # Ensure data directory exists and is accessible
@@ -176,6 +184,7 @@ run_as_mk kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | run_a
 echo ""
 echo "=== Creating app-env ConfigMap from .env ==="
 # Process .env: remove comments/empty lines, expand variable references
+# Use /tmp with world-readable perms so minikube user can access the file
 CLEAN_ENV=$(mktemp -t "app-env.XXXXXX")
 FILTERED=$(mktemp -t "filtered.XXXXXX")
 trap 'rm -f "$CLEAN_ENV" "$FILTERED"' EXIT
@@ -186,6 +195,7 @@ while IFS='=' read -r key value; do
   printf '%s=%s\n' "$key" "$expanded"
 done < "$FILTERED" > "$CLEAN_ENV"
 rm -f "$FILTERED"
+chmod 644 "$CLEAN_ENV"
 run_as_mk kubectl create configmap app-env \
   --from-env-file="$CLEAN_ENV" \
   -n "$NAMESPACE" \
