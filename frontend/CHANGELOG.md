@@ -1,3 +1,17 @@
+## 1.42.21 (2026-03-23)
+
+### 🩹 Fixes
+
+- version=1.42.16 ([dcf8ab48](https://github.com/mwashburn160/pipeline-builder/commit/dcf8ab48))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-server to 1.41.18
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.20 (2026-03-23)
 
 ### 🩹 Fixes

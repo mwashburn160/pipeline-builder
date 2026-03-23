@@ -1,3 +1,13 @@
+## 1.44.16 (2026-03-23)
+
+### 🩹 Fixes
+
+- version=1.42.16 ([dcf8ab48](https://github.com/mwashburn160/pipeline-builder/commit/dcf8ab48))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.15 (2026-03-23)
 
 ### 🩹 Fixes
