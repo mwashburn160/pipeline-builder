@@ -147,6 +147,10 @@ run_as_mk kubectl wait --for=condition=Ready node/"$PROFILE" --timeout=120s
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== Enabling addons ==="
+# Re-enable storage addons in case they failed during minikube start
+# (race condition: API server may not be ready when minikube applies them)
+run_as_mk minikube addons enable default-storageclass --profile="$PROFILE"
+run_as_mk minikube addons enable storage-provisioner --profile="$PROFILE"
 run_as_mk minikube addons enable metrics-server --profile="$PROFILE"
 
 echo ""
