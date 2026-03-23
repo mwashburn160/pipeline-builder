@@ -138,7 +138,24 @@ if ! run_as_mk minikube start \
 fi
 
 echo ""
-echo "=== Waiting for cluster to be ready ==="
+echo "=== Waiting for API server to be reachable ==="
+_api_retries=0
+_api_max=30
+while [ "$_api_retries" -lt "$_api_max" ]; do
+  if run_as_mk kubectl cluster-info >/dev/null 2>&1; then
+    echo "  API server is ready"
+    break
+  fi
+  _api_retries=$((_api_retries + 1))
+  if [ "$_api_retries" = "$_api_max" ]; then
+    echo "  ERROR: API server not reachable after ${_api_max}s" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo ""
+echo "=== Waiting for node to be ready ==="
 run_as_mk kubectl wait --for=condition=Ready node/"$PROFILE" --timeout=120s
 
 echo ""
