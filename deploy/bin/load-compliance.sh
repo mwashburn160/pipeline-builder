@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 COMPLIANCE_DIR="$DEPLOY_DIR/compliance"
+UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
+UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-10}
 
 require_auth
 
@@ -20,6 +22,48 @@ SUCCEEDED=0
 FAIL_COUNT=0
 SKIP_COUNT=0
 START_TIME=$(date +%s)
+
+# ---------------------------------------------------------------------------
+# post_with_retry — POST a JSON file with retry on 429/503/502/504
+#   $1 url  $2 json_file  $3 name
+# ---------------------------------------------------------------------------
+post_with_retry() {
+  _url="$1" _file="$2" _name="$3"
+  _attempt=1
+
+  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
+    STATUS=$(curl -X POST "$_url" \
+      -k -s -o /dev/null -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $JWT_TOKEN" \
+      -d @"$_file" 2>/dev/null || echo "000")
+
+    _result="$(classify_status "$STATUS")"
+
+    if [ "$_result" = "fail" ] && { [ "$STATUS" = "429" ] || [ "$STATUS" = "502" ] || [ "$STATUS" = "503" ] || [ "$STATUS" = "504" ] || [ "$STATUS" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+      echo -e "  ${YELLOW}RETRY${NC} $_name (HTTP $STATUS) — waiting ${UPLOAD_RETRY_DELAY}s"
+      sleep "$UPLOAD_RETRY_DELAY"
+      _attempt=$((_attempt + 1))
+      continue
+    fi
+
+    case "$_result" in
+      ok)
+        echo -e "  ${GREEN}OK${NC}    $_name"
+        SUCCEEDED=$((SUCCEEDED + 1))
+        ;;
+      exists)
+        echo -e "  ${YELLOW}SKIP${NC}  $_name (already exists)"
+        SKIP_COUNT=$((SKIP_COUNT + 1))
+        ;;
+      *)
+        echo -e "  ${RED}FAIL${NC}  $_name (HTTP $STATUS)"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        ;;
+    esac
+    break
+  done
+}
 
 # ---------------------------------------------------------------------------
 # Load rules
@@ -36,27 +80,7 @@ for RULE_DIR in "$RULES_DIR"/*/; do
 
   TOTAL=$((TOTAL + 1))
   NAME=$(jq -r '.name' "$RULE_FILE")
-
-  STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/compliance/rules" \
-    -k -s -o /dev/null -w "%{http_code}" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $JWT_TOKEN" \
-    -d @"$RULE_FILE")
-
-  case "$(classify_status "$STATUS")" in
-    ok)
-      echo -e "  ${GREEN}OK${NC}    $NAME"
-      SUCCEEDED=$((SUCCEEDED + 1))
-      ;;
-    exists)
-      echo -e "  ${YELLOW}SKIP${NC}  $NAME (already exists)"
-      SKIP_COUNT=$((SKIP_COUNT + 1))
-      ;;
-    *)
-      echo -e "  ${RED}FAIL${NC}  $NAME (HTTP $STATUS)"
-      FAIL_COUNT=$((FAIL_COUNT + 1))
-      ;;
-  esac
+  post_with_retry "${PLATFORM_BASE_URL}/api/compliance/rules" "$RULE_FILE" "$NAME"
 done
 
 # ---------------------------------------------------------------------------
@@ -75,27 +99,7 @@ for POLICY_DIR in "$POLICIES_DIR"/*/; do
 
   TOTAL=$((TOTAL + 1))
   NAME=$(jq -r '.name' "$POLICY_FILE")
-
-  STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/compliance/policies" \
-    -k -s -o /dev/null -w "%{http_code}" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $JWT_TOKEN" \
-    -d @"$POLICY_FILE")
-
-  case "$(classify_status "$STATUS")" in
-    ok)
-      echo -e "  ${GREEN}OK${NC}    $NAME"
-      SUCCEEDED=$((SUCCEEDED + 1))
-      ;;
-    exists)
-      echo -e "  ${YELLOW}SKIP${NC}  $NAME (already exists)"
-      SKIP_COUNT=$((SKIP_COUNT + 1))
-      ;;
-    *)
-      echo -e "  ${RED}FAIL${NC}  $NAME (HTTP $STATUS)"
-      FAIL_COUNT=$((FAIL_COUNT + 1))
-      ;;
-  esac
+  post_with_retry "${PLATFORM_BASE_URL}/api/compliance/policies" "$POLICY_FILE" "$NAME"
 done
 
 END_TIME=$(date +%s)
