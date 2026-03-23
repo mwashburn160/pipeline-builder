@@ -61,6 +61,14 @@ if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
 fi
 
 # -----------------------------------------------------------------------
+# Ensure MongoDB keyfile has correct permissions
+# -----------------------------------------------------------------------
+KEYFILE="$DEPLOY_DIR/mongodb-keyfile"
+if [ -f "$KEYFILE" ]; then
+  chmod 400 "$KEYFILE"
+fi
+
+# -----------------------------------------------------------------------
 # Ensure data directories exist
 # -----------------------------------------------------------------------
 echo "=== Ensuring data directories exist ==="
