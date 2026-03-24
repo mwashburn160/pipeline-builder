@@ -1,3 +1,13 @@
+## 1.44.33 (2026-03-24)
+
+### 🩹 Fixes
+
+- artifacts empty directory problem ([571baf04](https://github.com/mwashburn160/pipeline-builder/commit/571baf04))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.32 (2026-03-24)
 
 ### 🩹 Fixes
