@@ -195,7 +195,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   const outputDir = plugin.primaryOutputDirectory;
   const ensureOutputDir = (outputDir && !outputDir.includes('*'))
-    ? [`mkdir -p "${outputDir}"`]
+    ? [`mkdir -p "${outputDir}" && touch "${outputDir}/.gitkeep"`]
     : [];
 
   const { installCommands, commands } = buildCommands(plugin, {
