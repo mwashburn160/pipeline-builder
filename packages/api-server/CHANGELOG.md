@@ -1,3 +1,13 @@
+## 1.41.30 (2026-03-24)
+
+### 🩹 Fixes
+
+- upgraded apiServer=1.41.29 ([94c4dd2c](https://github.com/mwashburn160/pipeline-builder/commit/94c4dd2c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.29 (2026-03-24)
 
 ### 🩹 Fixes
