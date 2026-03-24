@@ -1,3 +1,13 @@
+## 1.42.24 (2026-03-24)
+
+### 🩹 Fixes
+
+- updated server-side pagination ([c4f1da67](https://github.com/mwashburn160/pipeline-builder/commit/c4f1da67))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.23 (2026-03-23)
 
 ### 🩹 Fixes
