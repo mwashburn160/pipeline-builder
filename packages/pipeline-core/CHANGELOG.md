@@ -1,3 +1,13 @@
+## 1.44.23 (2026-03-24)
+
+### 🩹 Fixes
+
+- set lamba memory to 512MB ([8777fec0](https://github.com/mwashburn160/pipeline-builder/commit/8777fec0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.22 (2026-03-24)
 
 ### 🩹 Fixes
