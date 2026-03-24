@@ -192,15 +192,16 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     : {};
 
   const env = buildEnv(plugin, merged, customEnv);
-  const { installCommands, commands } = buildCommands(plugin, {
-    preInstallCommands, postInstallCommands, preCommands, postCommands,
-  }, failureBehavior);
 
-  // Ensure primaryOutputDirectory exists after build commands run (skip glob patterns)
   const outputDir = plugin.primaryOutputDirectory;
-  if (outputDir && !outputDir.includes('*')) {
-    commands.push(`mkdir -p "${outputDir}"`);
-  }
+  const ensureOutputDir = (outputDir && !outputDir.includes('*'))
+    ? [`mkdir -p "${outputDir}"`]
+    : [];
+
+  const { installCommands, commands } = buildCommands(plugin, {
+    preInstallCommands: [...ensureOutputDir, ...(preInstallCommands ?? [])],
+    postInstallCommands, preCommands, postCommands,
+  }, failureBehavior);
 
   const programmatic = { input, installCommands, commands };
 
