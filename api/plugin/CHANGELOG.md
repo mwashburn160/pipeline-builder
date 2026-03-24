@@ -1,3 +1,13 @@
+## 1.37.21 (2026-03-24)
+
+### 🩹 Fixes
+
+- pipeline-core=1.44.19 ([c77ff9b9](https://github.com/mwashburn160/pipeline-builder/commit/c77ff9b9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.20 (2026-03-23)
 
 ### 🩹 Fixes
