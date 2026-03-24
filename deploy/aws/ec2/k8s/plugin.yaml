@@ -134,7 +134,7 @@ spec:
             - "--insecure-registry=registry:5000"
             - "--max-concurrent-downloads=3"
             - "--max-concurrent-uploads=3"
-            - "--storage-driver=vfs"
+            - "--storage-driver=overlay2"
             - "--tls=false"
           env:
             - name: DOCKER_TLS_CERTDIR
