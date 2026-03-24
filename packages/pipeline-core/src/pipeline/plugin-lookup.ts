@@ -30,7 +30,7 @@ export interface PluginLookupProps {
   readonly runtime?: Runtime;
   /** Lambda timeout (default: 30s) */
   readonly timeout?: Duration;
-  /** Lambda memory in MB (default: 256) */
+  /** Lambda memory in MB (default: 512) */
   readonly memorySize?: number;
   /** Log retention (default: ONE_WEEK) */
   readonly logRetention?: RetentionDays;
@@ -80,7 +80,7 @@ export class PluginLookup extends Construct {
     this._platformUrl = props.platformUrl;
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
-    this._memorySize = props.memorySize ?? 256;
+    this._memorySize = props.memorySize ?? 512;
     this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
 
     const onEventHandler = this.createLambdaFunction();
@@ -158,8 +158,9 @@ export class PluginLookup extends Construct {
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       bundling: {
         minify: true,
-        sourceMap: true,
+        sourceMap: false,
         target: 'es2022',
+        externalModules: ['@aws-sdk/*'],
       },
     });
 
