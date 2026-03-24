@@ -19,7 +19,7 @@ Parameters:
     Description: Secrets Manager secret name for application secrets
   PostgresImage:
     Type: String
-    Default: postgres:16
+    Default: postgres:18
   MongoImage:
     Type: String
     Default: mongo:7.0
