@@ -4,6 +4,8 @@ import {
   formatDuration,
   generateExecutionId,
   validateBoolean,
+  validateSort,
+  assertShellSafe,
   TIMEOUTS,
   FILE_SIZE_LIMITS,
   ENV_VARS,
@@ -182,5 +184,45 @@ describe('validateBoolean', () => {
 
   it('should include field name in error message', () => {
     expect(() => validateBoolean('xyz', 'isActive')).toThrow('isActive');
+  });
+});
+
+describe('validateSort', () => {
+  it('should return valid sort strings', () => {
+    expect(validateSort('createdAt:asc')).toBe('createdAt:asc');
+    expect(validateSort('name:desc')).toBe('name:desc');
+    expect(validateSort('updated_at:asc')).toBe('updated_at:asc');
+  });
+
+  it('should return undefined for undefined input', () => {
+    expect(validateSort(undefined)).toBeUndefined();
+  });
+
+  it('should throw for invalid format', () => {
+    expect(() => validateSort('invalid')).toThrow('Invalid sort format');
+    expect(() => validateSort('field:up')).toThrow('Invalid sort format');
+    expect(() => validateSort(':asc')).toThrow('Invalid sort format');
+  });
+});
+
+describe('assertShellSafe', () => {
+  it('should accept safe strings', () => {
+    expect(() => assertShellSafe('my-profile', 'profile')).not.toThrow();
+    expect(() => assertShellSafe('us-east-1', 'region')).not.toThrow();
+    expect(() => assertShellSafe('123456789012', 'account')).not.toThrow();
+    expect(() => assertShellSafe('cdk.out', 'output')).not.toThrow();
+  });
+
+  it('should reject strings with shell metacharacters', () => {
+    expect(() => assertShellSafe('profile; rm -rf /', 'profile')).toThrow('unsafe characters');
+    expect(() => assertShellSafe('$(whoami)', 'field')).toThrow('unsafe characters');
+    expect(() => assertShellSafe('`id`', 'field')).toThrow('unsafe characters');
+    expect(() => assertShellSafe('a|b', 'field')).toThrow('unsafe characters');
+    expect(() => assertShellSafe('a&b', 'field')).toThrow('unsafe characters');
+    expect(() => assertShellSafe('a\nb', 'field')).toThrow('unsafe characters');
+  });
+
+  it('should include field name in error message', () => {
+    expect(() => assertShellSafe('bad;input', 'myField')).toThrow('myField');
   });
 });
