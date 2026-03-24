@@ -267,7 +267,7 @@ spec:
   scaleTargetRef:
     name: plugin
   minReplicaCount: 1
-  maxReplicaCount: 2
+  maxReplicaCount: 4
   pollingInterval: 15
   cooldownPeriod: 120
   triggers:
