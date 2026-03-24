@@ -3,9 +3,6 @@ import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
-/** Accessed at module load time — must not depend on lazy-loaded CoreConstants. */
-const DEFAULT_PLATFORM_URL = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
-
 const log = createLogger('ServerConfig');
 
 /**
@@ -27,10 +24,10 @@ export function loadServerConfig(): ServerConfig {
       credentials: process.env.CORS_CREDENTIALS !== 'false',
       origin: process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-        : [process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL],
+        : [process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL],
     },
     trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
-    platformUrl: process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL,
+    platformUrl: process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL,
 
     httpClient: {
       timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10),
@@ -132,31 +129,25 @@ export function validateServerConfig(config: ServerConfig): void {
  * @param config - Auth configuration to validate
  * @throws {Error} If secrets are insecure, too short (<32 chars), or use disallowed algorithms
  */
+const INSECURE_PATTERNS = ['secret', 'password', 'changeme', 'default', '123456', 'admin'];
+
+function isInsecureSecret(secret: string): boolean {
+  const lower = secret.toLowerCase();
+  return INSECURE_PATTERNS.some(s => lower === s || (secret.length < 64 && lower.includes(s)));
+}
+
 export function validateAuthConfig(config: AuthConfig): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Check for insecure secrets
-  const isInsecure = (secret: string) => {
-    const lower = secret.toLowerCase();
-    return ['secret', 'password', 'changeme', 'default', '123456', 'admin']
-      .some(s => lower === s || (secret.length < 64 && lower.includes(s)));
-  };
-
-  if (isInsecure(config.jwt.secret)) {
-    errors.push('JWT secret appears to be insecure or default value');
-  }
-  if (isInsecure(config.refreshToken.secret)) {
-    errors.push('Refresh token secret appears to be insecure or default value');
-  }
-
-  // Check secret length
-  if (config.jwt.secret.length < 32) {
-    errors.push('JWT secret should be at least 32 characters long');
-  }
-
-  if (config.refreshToken.secret.length < 32) {
-    errors.push('Refresh token secret should be at least 32 characters long');
+  // Validate both secrets with the same checks
+  for (const [label, secret] of [['JWT', config.jwt.secret], ['Refresh token', config.refreshToken.secret]] as const) {
+    if (secret.length < 32) {
+      errors.push(`${label} secret should be at least 32 characters long`);
+    }
+    if (isInsecureSecret(secret)) {
+      errors.push(`${label} secret appears to be insecure or default value`);
+    }
   }
 
   // Check JWT expiration times

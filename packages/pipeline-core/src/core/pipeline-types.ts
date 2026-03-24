@@ -4,11 +4,6 @@ import type { CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '.
 export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 
 /**
- * Utility type to extract the union of all values from an object type
- */
-type ValueOf<T> = T[keyof T];
-
-/**
  * Pipeline trigger behavior.
  *
  * @property NONE - Manual trigger only, pipeline does not start automatically
@@ -19,7 +14,7 @@ export const TriggerType = {
   /** Automatic trigger on source changes. Uses polling for S3/GitHub, push-based webhook for CodeStar. */
   AUTO: 'AUTO',
 } as const;
-export type TriggerType = ValueOf<typeof TriggerType>;
+export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
 
 /**
  * Union type of all supported pipeline source types

@@ -5,41 +5,23 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import { CoreConstants } from '../config/app-config';
 
 /**
- * Simple structured logger for Lambda (outputs to CloudWatch)
- * Note: We use console.* directly in Lambda handlers as it integrates
- * with CloudWatch Logs. The core logger is for the main application.
+ * Structured logger for Lambda (outputs JSON to CloudWatch).
+ * Debug messages only emitted when LOG_LEVEL=debug.
  */
+function logEntry(level: string, tag: string, message: string, data?: unknown) {
+  const line = JSON.stringify({ level, tag, message, data, ts: new Date().toISOString() });
+  if (level === 'ERROR') {console.error(line);} else if (level === 'DEBUG') { if (process.env.LOG_LEVEL === 'debug') console.debug(line); } else {console.log(line);}
+}
+
 const lambdaLog = {
-  info: (tag: string, message: string, data?: unknown) => {
-    console.log(JSON.stringify({ level: 'INFO', tag, message, data, ts: new Date().toISOString() }));
-  },
-  error: (tag: string, message: string, data?: unknown) => {
-    console.error(JSON.stringify({ level: 'ERROR', tag, message, data, ts: new Date().toISOString() }));
-  },
-  debug: (tag: string, message: string, data?: unknown) => {
-    if (process.env.LOG_LEVEL === 'debug') {
-      console.debug(JSON.stringify({ level: 'DEBUG', tag, message, data, ts: new Date().toISOString() }));
-    }
-  },
+  info: (tag: string, message: string, data?: unknown) => logEntry('INFO', tag, message, data),
+  error: (tag: string, message: string, data?: unknown) => logEntry('ERROR', tag, message, data),
+  debug: (tag: string, message: string, data?: unknown) => logEntry('DEBUG', tag, message, data),
 };
 
-/**
- * Returns true for HTTP status codes that are safe to retry.
- */
-function isRetryableStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
-}
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT']);
 
-/**
- * Returns true for Axios error codes that indicate transient network failures.
- */
-function isRetryableCode(code: string | undefined): boolean {
-  return code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT';
-}
-
-/**
- * Sleeps for the given number of milliseconds.
- */
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -181,8 +163,8 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
         }
 
         const retryable = error.response
-          ? isRetryableStatus(error.response.status)
-          : isRetryableCode(error.code);
+          ? RETRYABLE_STATUSES.has(error.response.status)
+          : RETRYABLE_CODES.has(error.code ?? '');
 
         const msg = error.response
           ? `API error ${error.response.status}: ${error.response.statusText}`
@@ -213,13 +195,11 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
  * @throws Error if invalid
  */
 function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilter {
-  if (!pluginFilter || typeof pluginFilter !== 'object' || pluginFilter === null) {
+  if (!pluginFilter || typeof pluginFilter !== 'object') {
     throw new Error('Missing or invalid pluginFilter');
   }
 
   const filter = pluginFilter as Record<string, unknown>;
-
-  // At least one filter criterion must be present
   if (!filter.name && !filter.id && !filter.version && !filter.orgId) {
     throw new Error('PluginFilter must have at least one criterion (name, id, version, or orgId)');
   }

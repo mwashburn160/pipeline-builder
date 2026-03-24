@@ -4,6 +4,15 @@ import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { AWSConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
 import { getComputeType } from '../core/pipeline-helpers';
 
+function requireInProduction(envVar: string, devDefault: string): string {
+  const value = process.env[envVar];
+  if (value) return value;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`${envVar} is required in production`);
+  }
+  return devDefault;
+}
+
 /**
  * Load Docker registry configuration from environment variables.
  *
@@ -22,8 +31,8 @@ export function loadRegistryConfig(): RegistryConfig {
   return {
     host: process.env.IMAGE_REGISTRY_HOST || 'registry',
     port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
-    user: process.env.IMAGE_REGISTRY_USER || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_USER is required in production'); })() : 'admin'),
-    token: process.env.IMAGE_REGISTRY_TOKEN || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('IMAGE_REGISTRY_TOKEN is required in production'); })() : 'password'),
+    user: requireInProduction('IMAGE_REGISTRY_USER', 'admin'),
+    token: requireInProduction('IMAGE_REGISTRY_TOKEN', 'password'),
     network: process.env.DOCKER_NETWORK || '',
     http: process.env.DOCKER_REGISTRY_HTTP !== 'false',
     insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
@@ -110,29 +119,15 @@ function parseRuntime(runtime: string): Runtime {
 
 /**
  * Parse log retention days string into a CDK RetentionDays enum value.
+ * RetentionDays enum values are the numeric day counts themselves,
+ * so we parse the string and check if it's a valid enum member.
  *
  * @param days - Retention period in days as a string (e.g. `'30'`)
  * @returns CDK RetentionDays enum; falls back to ONE_DAY for unknown values
  */
+const VALID_RETENTION_DAYS = new Set(Object.values(RetentionDays).filter((v): v is number => typeof v === 'number'));
+
 function parseRetention(days: string): RetentionDays {
-  const retentionMap: Record<string, RetentionDays> = {
-    1: RetentionDays.ONE_DAY,
-    3: RetentionDays.THREE_DAYS,
-    5: RetentionDays.FIVE_DAYS,
-    7: RetentionDays.ONE_WEEK,
-    14: RetentionDays.TWO_WEEKS,
-    30: RetentionDays.ONE_MONTH,
-    60: RetentionDays.TWO_MONTHS,
-    90: RetentionDays.THREE_MONTHS,
-    120: RetentionDays.FOUR_MONTHS,
-    150: RetentionDays.FIVE_MONTHS,
-    180: RetentionDays.SIX_MONTHS,
-    365: RetentionDays.ONE_YEAR,
-    400: RetentionDays.THIRTEEN_MONTHS,
-    545: RetentionDays.EIGHTEEN_MONTHS,
-    731: RetentionDays.TWO_YEARS,
-    1827: RetentionDays.FIVE_YEARS,
-    3653: RetentionDays.TEN_YEARS,
-  };
-  return retentionMap[days] || RetentionDays.ONE_DAY;
+  const parsed = parseInt(days, 10);
+  return VALID_RETENTION_DAYS.has(parsed) ? parsed as RetentionDays : RetentionDays.ONE_DAY;
 }
