@@ -94,8 +94,6 @@ export class PluginLookup extends Construct {
     this._provider = new Provider(this, this._uniqueId.generate('resource:provider'), {
       onEventHandler,
       logGroup,
-      totalTimeout: Duration.minutes(5),
-      queryInterval: Duration.seconds(10),
     });
 
     log.debug(`PluginLookup initialized for ${props.organization}/${props.project}`);
