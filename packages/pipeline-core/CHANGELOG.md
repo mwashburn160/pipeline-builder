@@ -1,3 +1,13 @@
+## 1.44.36 (2026-03-24)
+
+### 🩹 Fixes
+
+- updated cdk synth ([8efd60b1](https://github.com/mwashburn160/pipeline-builder/commit/8efd60b1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.35 (2026-03-24)
 
 ### 🩹 Fixes
