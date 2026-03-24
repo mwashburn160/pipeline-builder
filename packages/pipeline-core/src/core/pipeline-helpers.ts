@@ -195,6 +195,13 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   const { installCommands, commands } = buildCommands(plugin, {
     preInstallCommands, postInstallCommands, preCommands, postCommands,
   }, failureBehavior);
+
+  // Ensure primaryOutputDirectory exists after build commands run (skip glob patterns)
+  const outputDir = plugin.primaryOutputDirectory;
+  if (outputDir && !outputDir.includes('*')) {
+    commands.push(`mkdir -p "${outputDir}"`);
+  }
+
   const programmatic = { input, installCommands, commands };
 
   // Return ShellStep if plugin type is SHELL_STEP
