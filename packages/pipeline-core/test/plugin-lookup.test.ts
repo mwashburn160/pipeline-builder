@@ -331,7 +331,7 @@ describe('PluginLookup', () => {
       );
     });
 
-    it('should enable minification and source maps', () => {
+    it('should enable minification and exclude AWS SDK from bundle', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         project: 'my-project',
@@ -345,8 +345,9 @@ describe('PluginLookup', () => {
         expect.objectContaining({
           bundling: expect.objectContaining({
             minify: true,
-            sourceMap: true,
+            sourceMap: false,
             target: 'es2022',
+            externalModules: ['@aws-sdk/*'],
           }),
         }),
       );
