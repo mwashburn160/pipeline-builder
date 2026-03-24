@@ -1,3 +1,13 @@
+## 1.44.26 (2026-03-24)
+
+### 🩹 Fixes
+
+- lambda memory bump (256→512) ([39de5d1c](https://github.com/mwashburn160/pipeline-builder/commit/39de5d1c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.25 (2026-03-24)
 
 ### 🩹 Fixes
