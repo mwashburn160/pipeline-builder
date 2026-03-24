@@ -247,7 +247,7 @@ export class PluginLookup extends Construct {
       timeout: null,
       failureBehavior: 'fail',
       secrets: [],
-      primaryOutputDirectory: 'dist',
+      primaryOutputDirectory: null,
       env: {},
       buildArgs: {},
       installCommands: [],
