@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { version } from '../../package.json';
 
 /**
@@ -87,10 +88,10 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Generate execution ID for request tracing
+ * Generate cryptographically random execution ID for request tracing.
  */
 export function generateExecutionId(): string {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return randomBytes(4).toString('hex').toUpperCase();
 }
 
 /**
@@ -152,4 +153,30 @@ export function validateNumber(value: string | number, fieldName: string, min?: 
     throw new Error(`Invalid ${fieldName}: must be <= ${max}`);
   }
   return num;
+}
+
+/**
+ * Validate sort parameter format (e.g., "createdAt:desc").
+ * Returns the validated sort string, or the default if invalid.
+ */
+const SORT_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*:(asc|desc)$/;
+
+export function validateSort(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (!SORT_PATTERN.test(value)) {
+    throw new Error(`Invalid sort format: "${value}". Expected "field:asc" or "field:desc".`);
+  }
+  return value;
+}
+
+/**
+ * Reject strings containing shell metacharacters.
+ * Used to sanitize CLI inputs before passing to shell commands.
+ */
+const SHELL_UNSAFE = /[;&|`$(){}[\]<>!#~*?\\\n\r]/;
+
+export function assertShellSafe(value: string, fieldName: string): void {
+  if (SHELL_UNSAFE.test(value)) {
+    throw new Error(`${fieldName} contains unsafe characters: "${value}"`);
+  }
 }

@@ -1,13 +1,9 @@
 import { Command } from 'commander';
-import pico from 'picocolors';
-import { generateExecutionId, formatDuration, formatFileSize, validateBoolean, validateNumber } from '../config/cli.constants';
-import { PluginListResponse, Plugin, Config } from '../types';
-import { ApiClient } from '../utils/api-client';
-import { getConfigWithOptions } from '../utils/config-loader';
+import { formatDuration, formatFileSize, validateBoolean, validateNumber, validateSort } from '../config/cli.constants';
+import { PluginListResponse, Plugin } from '../types';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { outputData, extractListResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
-
-const { bold, cyan, magenta } = pico;
+import { outputData, extractListResponse, printInfo, printKeyValue, printSection, printWarning } from '../utils/output-utils';
 
 /**
  * Query parameters for the plugin list API endpoint.
@@ -73,13 +69,10 @@ export function listPlugins(program: Command): void {
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
 
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('List Plugins', 'Query Plugins');
       const startTime = Date.now();
 
       try {
-        printSection('List Plugins');
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Query Plugins'))}`);
-        console.log('');
 
         // Build filter parameters
         const filterParams: PluginFilterParams = {};
@@ -106,15 +99,8 @@ export function listPlugins(program: Command): void {
         filterParams.offset = validateNumber(options.offset, 'offset', 0);
 
         // Sort
-        if (options.sort) {
-          const sortPattern = /^[a-zA-Z_][a-zA-Z0-9_]*:(asc|desc)$/;
-          if (!sortPattern.test(options.sort)) {
-            printWarning(`Invalid sort format: "${options.sort}". Expected "field:asc" or "field:desc". Using default.`);
-            filterParams.sort = 'createdAt:desc';
-          } else {
-            filterParams.sort = options.sort;
-          }
-        }
+        const sort = validateSort(options.sort);
+        if (sort) filterParams.sort = sort;
 
         // Plugin-specific filters
         if (options.name) {
@@ -160,36 +146,11 @@ export function listPlugins(program: Command): void {
         });
 
         // Security warning for SSL verification disabled
-        if (options.verifySsl === false) {
-          console.log('');
-          printWarning('⚠️  SSL certificate verification is DISABLED');
-        }
+        printSslWarning(options.verifySsl);
 
-        // Load configuration
-        const config: Config = getConfigWithOptions(options);
-
-        // Create API client
-        console.log('');
-        printSection('API Connection');
-        printInfo('Initializing API client');
-        printKeyValue({
-          'Base URL': config.api.baseUrl,
-          'Endpoint': config.api.pluginListUrl,
-          'SSL Verification': config.api.rejectUnauthorized ? 'Enabled' : 'Disabled',
-        });
-
-        const client = new ApiClient(config);
-
-        // Validate authentication
-        if (!client.isAuthenticated()) {
-          printError('Authentication required', {
-            hint: 'Set PLATFORM_TOKEN environment variable',
-            example: 'export PLATFORM_TOKEN=your-token-here',
-          });
-          throw new Error('Missing authentication token');
-        }
-
-        printSuccess('API client ready');
+        // Create authenticated API client
+        const client = createAuthenticatedClient(options);
+        const config = client.getConfig();
 
         // Query plugins
         console.log('');

@@ -1,13 +1,15 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { auditLog } from '../utils/audit-log';
 import { requireAdmin } from '../utils/auth-guard';
+import { printCommandHeader } from '../utils/command-utils';
 import { getToken } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
-const { bold, cyan, dim, magenta } = pico;
+const { dim } = pico;
 
 /** Default secret name following the standard {prefix}/{orgId}/{secretName} pattern. */
 const DEFAULT_SECRET_NAME = 'pipeline-builder/system/credentials';
@@ -18,6 +20,8 @@ const DEFAULT_SECRET_NAME = 'pipeline-builder/system/credentials';
  * Creates or updates an AWS Secrets Manager secret containing the service
  * credentials used by the plugin-lookup Lambda during CDK deployments.
  *
+ * Uses execFileSync (not execSync) to avoid shell interpretation of credentials.
+ *
  * @param program - The root Commander program instance to attach the command to.
  */
 export function storeCredentials(program: Command): void {
@@ -25,21 +29,35 @@ export function storeCredentials(program: Command): void {
     .command('store-credentials')
     .description('Store platform service credentials in AWS Secrets Manager for CDK deployments')
     .requiredOption('-e, --email <email>', 'Platform service account email')
-    .requiredOption('-p, --password <password>', 'Platform service account password')
+    .option('-p, --password <password>', 'Platform service account password')
+    .option('--password-stdin', 'Read password from stdin (avoids shell history exposure)', false)
     .option('--secret-name <name>', 'Secrets Manager secret name', DEFAULT_SECRET_NAME)
     .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('Store Service Credentials');
 
       try {
         // Require admin role before executing this command
         const token = getToken();
         requireAdmin(token);
 
-        printSection('Store Service Credentials');
+        auditLog('store-credentials', { executionId, email: options.email, secretName: options.secretName });
 
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
+        // Resolve password: --password-stdin takes priority, then --password
+        let password: string;
+        if (options.passwordStdin) {
+          password = fs.readFileSync(0, 'utf-8').trim(); // fd 0 = stdin
+          if (!password) {
+            throw new Error('No password received from stdin');
+          }
+        } else if (options.password) {
+          password = options.password;
+        } else {
+          printError('Password is required');
+          console.log(dim('Use --password <pw> or --password-stdin (recommended)'));
+          throw new Error('Password not provided');
+        }
 
         const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION;
         if (!region) {
@@ -53,39 +71,38 @@ export function storeCredentials(program: Command): void {
           email: options.email,
           region,
           profile: options.profile,
+          passwordSource: options.passwordStdin ? 'stdin' : 'cli-arg',
         });
 
         const secretValue = JSON.stringify({
           email: options.email,
-          password: options.password,
+          password,
         });
 
-        const profileArg = options.profile ? `--profile ${options.profile}` : '';
-        const regionArg = `--region ${region}`;
+        // Build args array — execFileSync bypasses shell, preventing credential leakage
+        const baseArgs = ['--region', region];
+        if (options.profile) baseArgs.push('--profile', options.profile);
 
         // Try to create the secret first; if it exists, update it
         try {
-          execSync(
-            'aws secretsmanager create-secret ' +
-            `--name "${options.secretName}" ` +
-            '--description "Service credentials for the plugin-lookup Lambda" ' +
-            `--secret-string '${secretValue.replace(/'/g, "'\\''")}' ` +
-            `${regionArg} ${profileArg}`,
-            { stdio: 'pipe' },
-          );
+          execFileSync('aws', [
+            'secretsmanager', 'create-secret',
+            '--name', options.secretName,
+            '--description', 'Service credentials for the plugin-lookup Lambda',
+            '--secret-string', secretValue,
+            ...baseArgs,
+          ], { stdio: 'pipe' });
           printSuccess('Secret created in Secrets Manager');
         } catch (createError) {
-          // Secret already exists — update it
           const errMsg = createError instanceof Error ? createError.message : '';
           if (errMsg.includes('ResourceExistsException') || errMsg.includes('already exists')) {
             printInfo('Secret already exists, updating...');
-            execSync(
-              'aws secretsmanager put-secret-value ' +
-              `--secret-id "${options.secretName}" ` +
-              `--secret-string '${secretValue.replace(/'/g, "'\\''")}' ` +
-              `${regionArg} ${profileArg}`,
-              { stdio: 'pipe' },
-            );
+            execFileSync('aws', [
+              'secretsmanager', 'put-secret-value',
+              '--secret-id', options.secretName,
+              '--secret-string', secretValue,
+              ...baseArgs,
+            ], { stdio: 'pipe' });
             printSuccess('Secret updated in Secrets Manager');
           } else {
             throw createError;
@@ -93,13 +110,13 @@ export function storeCredentials(program: Command): void {
         }
 
         // Retrieve the ARN
-        const describeOutput = execSync(
-          'aws secretsmanager describe-secret ' +
-          `--secret-id "${options.secretName}" ` +
-          `${regionArg} ${profileArg} ` +
-          '--query ARN --output text',
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-        ).trim();
+        const describeOutput = execFileSync('aws', [
+          'secretsmanager', 'describe-secret',
+          '--secret-id', options.secretName,
+          '--query', 'ARN',
+          '--output', 'text',
+          ...baseArgs,
+        ], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 
         console.log('');
         printSection('Credentials Stored');

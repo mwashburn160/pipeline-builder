@@ -82,34 +82,34 @@ export class StageBuilder {
    * and adds them as a wave to the pipeline.
    */
   addStage(pipeline: CodePipeline, stage: StageOptions): void {
-    const waveId = stage.alias ?? `${stage.stageName}-alias`;
+    const stageAlias = stage.alias ?? `${stage.stageName}-alias`;
 
     const preSteps = stage.steps
       .filter(s => (s.position ?? 'pre') === 'pre')
-      .map(s => this.resolveStep(s, stage.stageName, waveId));
+      .map(s => this.resolveStep(s, stage.stageName, stageAlias));
     const postSteps = stage.steps
       .filter(s => s.position === 'post')
-      .map(s => this.resolveStep(s, stage.stageName, waveId));
+      .map(s => this.resolveStep(s, stage.stageName, stageAlias));
 
-    pipeline.addWave(waveId, {
+    pipeline.addWave(stageAlias, {
       ...(preSteps.length > 0 && { pre: preSteps }),
       ...(postSteps.length > 0 && { post: postSteps }),
     });
   }
 
-  private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, waveId: string) {
+  private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, stageAlias: string) {
     const plugin = this.pluginLookup.plugin(stepConfig.plugin);
     const stepMetadata = merge(this.globalMetadata, stepConfig.metadata ?? {});
-    const stepAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
+    const pluginAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
 
     if (stepConfig.inputArtifact && !this.artifactManager) {
       throw new Error(
-        `Step "${stepAlias}" requires inputArtifact but no artifactManager is configured. Add artifactManager to StageBuilderProps.`,
+        `Step "${pluginAlias}" requires inputArtifact but no artifactManager is configured.`,
       );
     }
     if (stepConfig.additionalInputArtifacts?.length && !this.artifactManager) {
       throw new Error(
-        `Step "${stepAlias}" requires additionalInputArtifacts but no artifactManager is configured. Add artifactManager to StageBuilderProps.`,
+        `Step "${pluginAlias}" requires additionalInputArtifacts but no artifactManager is configured.`,
       );
     }
 
@@ -127,7 +127,7 @@ export class StageBuilder {
       : undefined;
 
     return createCodeBuildStep({
-      id: this.uniqueId.generate(`stage:${waveId}:${stepAlias}`),
+      id: this.uniqueId.generate(`stage:${stageAlias}:${pluginAlias}`),
       uniqueId: this.uniqueId,
       plugin,
       metadata: stepMetadata,
@@ -138,15 +138,15 @@ export class StageBuilder {
       additionalInputs,
       artifactManager: this.artifactManager,
       stageName,
-      stageAlias: waveId,
-      pluginAlias: stepAlias,
+      stageAlias,
+      pluginAlias,
       preInstallCommands: stepConfig.preInstallCommands,
       postInstallCommands: stepConfig.postInstallCommands,
       preCommands: stepConfig.preCommands,
       postCommands: stepConfig.postCommands,
       env: stepConfig.env,
       timeout: stepConfig.timeout ?? plugin.timeout ?? undefined,
-      failureBehavior: stepConfig.failureBehavior ?? plugin.failureBehavior as 'fail' | 'warn' | 'ignore' | undefined,
+      failureBehavior: (stepConfig.failureBehavior ?? plugin.failureBehavior) as 'fail' | 'warn' | 'ignore' | undefined,
       orgId: this.orgId,
     });
   }

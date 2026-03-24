@@ -25,47 +25,29 @@ interface SystemInfo {
 }
 
 /**
- * Returns the current Node.js version string (e.g., `v20.11.0`).
- */
-function getNodeVersion(): string {
-  return process.version;
-}
-
-/**
- * Returns the installed npm version, or `null` if npm is not available.
- */
-function getNpmVersion(): string | null {
-  try {
-    const output = execSync('npm --version', { encoding: 'utf-8', stdio: 'pipe' });
-    return output.trim();
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Collects runtime system information including Node.js/npm versions,
  * platform, architecture, heap memory usage, and process uptime.
- * @returns A {@link SystemInfo} snapshot.
  */
 function getSystemInfo(): SystemInfo {
-  const totalMem = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2);
-  const availableHeap = ((process.memoryUsage().heapTotal - process.memoryUsage().heapUsed) / 1024 / 1024).toFixed(2);
+  const mem = process.memoryUsage();
+  const totalMem = (mem.heapTotal / 1024 / 1024).toFixed(2);
+  const availableHeap = ((mem.heapTotal - mem.heapUsed) / 1024 / 1024).toFixed(2);
   const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
+
+  let npm: string | null;
+  try {
+    npm = execSync('npm --version', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+  } catch {
+    npm = null;
+  }
 
   return {
-    nodejs: getNodeVersion(),
-    npm: getNpmVersion(),
+    nodejs: process.version,
+    npm,
     platform: process.platform,
     architecture: process.arch,
-    memory: {
-      total: `${totalMem} MB`,
-      availableHeap: `${availableHeap} MB`,
-    },
-    uptime: `${hours}h ${minutes}m ${seconds}s`,
+    memory: { total: `${totalMem} MB`, availableHeap: `${availableHeap} MB` },
+    uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
   };
 }
 

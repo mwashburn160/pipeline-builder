@@ -72,9 +72,14 @@ export function getConfig(): Config {
   }
 
   if (process.env.TLS_REJECT_UNAUTHORIZED !== undefined) {
-    config.api.rejectUnauthorized = process.env.TLS_REJECT_UNAUTHORIZED !== '0';
-    if (!config.api.rejectUnauthorized) {
-      printWarning('SSL certificate validation disabled via TLS_REJECT_UNAUTHORIZED=0');
+    const disable = process.env.TLS_REJECT_UNAUTHORIZED === '0';
+    if (disable && process.env.NODE_ENV === 'production') {
+      printWarning('Ignoring TLS_REJECT_UNAUTHORIZED=0 in production — SSL verification remains enabled');
+    } else {
+      config.api.rejectUnauthorized = !disable;
+      if (disable) {
+        printWarning('SSL certificate validation disabled via TLS_REJECT_UNAUTHORIZED=0');
+      }
     }
   }
 

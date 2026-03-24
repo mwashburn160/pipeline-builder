@@ -1,7 +1,7 @@
-import { printError } from './output-utils';
+import { printWarning } from './output-utils';
 
 /**
- * Decoded JWT token payload (subset of fields relevant for authorization).
+ * Decoded JWT token payload (subset of fields relevant for advisory checks).
  */
 interface TokenPayload {
   role?: string;
@@ -11,10 +11,12 @@ interface TokenPayload {
 }
 
 /**
- * Decode a JWT token payload without verification.
+ * Decode a JWT token payload without signature verification.
  *
- * The token signature is NOT verified here — the server validates it
- * on every API call. This is used only for local role checks in the CLI.
+ * SECURITY: This performs NO signature verification. The decoded payload
+ * MUST NOT be used for authorization decisions — the server validates
+ * the token on every API call. This is used only for advisory UX hints
+ * (e.g., warning the user they may lack permissions before making a request).
  *
  * @param token - JWT bearer token
  * @returns Decoded payload or null if decoding fails
@@ -32,24 +34,21 @@ export function decodeTokenPayload(token: string): TokenPayload | null {
 }
 
 /**
- * Require that the current user has an admin role.
- *
- * Decodes the PLATFORM_TOKEN JWT and checks for `role === 'admin'`.
- * Prints an error and throws if the check fails.
+ * Advisory admin check — warns the user if their token does not appear
+ * to have an admin role. Does NOT block execution since the server
+ * performs the authoritative check on every API call.
  *
  * @param token - JWT bearer token from PLATFORM_TOKEN
- * @throws Error if the user is not an admin
  */
 export function requireAdmin(token: string): void {
   const payload = decodeTokenPayload(token);
 
   if (!payload) {
-    printError('Unable to decode authentication token');
-    throw new Error('Invalid authentication token');
+    printWarning('Unable to decode token — the server will validate permissions on the API call');
+    return;
   }
 
   if (payload.role !== 'admin') {
-    printError('Access denied. This command requires system admin or admin role.');
-    throw new Error('Insufficient permissions: admin role required');
+    printWarning('Token does not appear to have admin role — the server may reject this request');
   }
 }

@@ -8,7 +8,7 @@ import { PluginLookup } from './plugin-lookup';
 import { SourceBuilder } from './source-builder';
 import { StageBuilder } from './stage-builder';
 import type { StageOptions, SynthOptions } from './step-types';
-import { Config } from '../config/app-config';
+import { Config, CoreConstants } from '../config/app-config';
 import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
 import { metadataForCodePipeline } from '../core/metadata-builder';
@@ -32,6 +32,9 @@ export interface BuilderProps {
 
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
+
+  /** Pipeline database record ID — injected as PIPELINE_ID env var for autonomous synth */
+  readonly pipelineId?: string;
 
   /** Optional custom pipeline name. Defaults to: {organization}-{project}-pipeline */
   readonly pipelineName?: string;
@@ -121,6 +124,11 @@ export class PipelineBuilder extends Construct {
     const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
+    // Inject platform credentials secret into synth step for autonomous config fetch
+    const synthSecrets: Record<string, string> = {};
+    const credentialSecretName = `${CoreConstants.SECRETS_PATH_PREFIX}/system/credentials`;
+    synthSecrets.PLATFORM_CREDENTIALS = credentialSecretName;
+
     const synth = createCodeBuildStep({
       ...this.config.synthCustomization,
       id: uniqueId.generate('cdk:synth'),
@@ -136,10 +144,11 @@ export class PipelineBuilder extends Construct {
       stageAlias: 'no-stage-alias',
       pluginAlias: `${synthAlias}-alias`,
       orgId: props.orgId,
+      synthSecrets,
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
-    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId);
+    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, serverConfig.platformUrl);
 
     // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
     // the pipeline role with the correct codepipeline.amazonaws.com principal.
@@ -185,13 +194,14 @@ export class PipelineBuilder extends Construct {
 
   /**
    * Resolves CodeBuildDefaults into the shape expected by CDK's codeBuildDefaults.
-   * Combines network config (vpc, subnetSelection, securityGroups from network)
-   * with standalone security group config into a single codeBuildDefaults object.
-   * Metadata is handled separately via the metadata merge chain.
+   * Combines network config, security groups, and pipeline-level environment variables
+   * (PIPELINE_ID, PIPELINE_EXECUTION_ID, PLATFORM_BASE_URL) available to all CodeBuild actions.
    */
   private resolveDefaults(
     defaults: CodeBuildDefaults | undefined,
     id: UniqueId,
+    pipelineId: string | undefined,
+    platformUrl: string,
   ): CodeBuildOptions | undefined {
     const networkProps = defaults?.network
       ? resolveNetwork(this, id, defaults.network)
@@ -201,7 +211,12 @@ export class PipelineBuilder extends Construct {
       ? resolveSecurityGroup(this, id, defaults.securityGroups)
       : undefined;
 
-    if (!networkProps && !standaloneSecurityGroups) return undefined;
+    // Pipeline-level env vars available to all CodeBuild actions
+    const pipelineEnvVars: Record<string, { value: string }> = {
+      PLATFORM_BASE_URL: { value: platformUrl },
+      PIPELINE_EXECUTION_ID: { value: '#{codepipeline.PipelineExecutionId}' },
+      ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
+    };
 
     return {
       ...(networkProps && {
@@ -214,6 +229,9 @@ export class PipelineBuilder extends Construct {
           ...(standaloneSecurityGroups ?? []),
         ],
       }),
+      buildEnvironment: {
+        environmentVariables: pipelineEnvVars,
+      },
     };
   }
 }

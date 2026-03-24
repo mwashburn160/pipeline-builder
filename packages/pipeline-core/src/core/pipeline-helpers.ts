@@ -119,6 +119,22 @@ function toCodeBuildEnvVars(env: Record<string, string>): Record<string, { value
  */
 const VALID_SECRET_NAME = /^[a-zA-Z0-9/_+=.@-]+$/;
 
+/**
+ * Convert a record of env var name → secret name into SECRETS_MANAGER-type env vars.
+ * Used for injecting additional secrets (e.g., platform credentials on the synth step).
+ */
+function toSynthSecretEnvVars(
+  secrets?: Record<string, string>,
+): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
+  if (!secrets) return {};
+  return Object.fromEntries(
+    Object.entries(secrets).map(([name, secretPath]) => [
+      name,
+      { value: secretPath, type: BuildEnvironmentVariableType.SECRETS_MANAGER },
+    ]),
+  );
+}
+
 function toSecretEnvVars(
   secrets: Array<{ name: string; required: boolean }>,
   orgId: string,
@@ -164,6 +180,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     preInstallCommands, postInstallCommands, preCommands, postCommands,
     env: customEnv, additionalInputs, timeout, failureBehavior,
     artifactManager, stageName, stageAlias, pluginAlias, orgId,
+    synthSecrets,
   } = options;
 
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
@@ -200,7 +217,9 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   const { installCommands, commands } = buildCommands(plugin, {
     preInstallCommands: [...ensureOutputDir, ...(preInstallCommands ?? [])],
-    postInstallCommands, preCommands, postCommands,
+    postInstallCommands,
+    preCommands,
+    postCommands,
   }, failureBehavior);
 
   const programmatic = { input, installCommands, commands };
@@ -234,6 +253,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
+        ...toSynthSecretEnvVars(synthSecrets),
       },
       ...metadataForBuildEnvironment(merged),
     },

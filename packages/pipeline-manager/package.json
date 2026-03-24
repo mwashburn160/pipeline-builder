@@ -8,6 +8,7 @@
     "pipeline-manager": "./dist/cli.js"
   },
   "scripts": {
+    "audit": "pnpm dlx projen audit",
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",
     "default": "pnpm dlx projen default",

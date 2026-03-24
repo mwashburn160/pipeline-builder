@@ -205,18 +205,32 @@ function escapeCsvValue(value: unknown): string {
 
 // --- File operations ---
 
+/**
+ * Validate that a file path resolves within the current working directory.
+ * Prevents path traversal attacks (e.g., --output ../../etc/passwd).
+ */
+function validateOutputPath(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  const cwd = path.resolve(process.cwd());
+  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    throw new Error(`Path traversal rejected: "${filePath}" resolves outside the current directory`);
+  }
+  return resolved;
+}
+
 function writeToFile(filePath: string, content: string, format: OutputFormat, append: boolean = false): void {
   try {
-    const dir = path.dirname(filePath);
+    const safePath = validateOutputPath(filePath);
+    const dir = path.dirname(safePath);
     if (dir !== '.') ensureOutputDirectory(dir);
 
     if (append) {
-      fs.appendFileSync(filePath, content + '\n', 'utf-8');
-      printSuccess('Output appended to file', { path: filePath, format });
+      fs.appendFileSync(safePath, content + '\n', 'utf-8');
+      printSuccess('Output appended to file', { path: safePath, format });
     } else {
-      fs.writeFileSync(filePath, content, 'utf-8');
-      const stats = fs.statSync(filePath);
-      printSuccess('Output saved to file', { path: filePath, format, size: formatFileSize(stats.size) });
+      fs.writeFileSync(safePath, content, 'utf-8');
+      const stats = fs.statSync(safePath);
+      printSuccess('Output saved to file', { path: safePath, format, size: formatFileSize(stats.size) });
     }
   } catch (error) {
     printError('Failed to write file', {

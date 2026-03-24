@@ -5,6 +5,7 @@ import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printDebug, printError, printInfo, printSection, printSuccess } from '../utils/output-utils';
+import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter';
 
 const { bold, cyan, green, magenta } = pico;
 
@@ -50,6 +51,13 @@ export function login(program: Command): void {
       const executionId = generateExecutionId();
 
       try {
+        // Rate limiting — prevent brute force
+        const rateLimitMsg = checkAuthRateLimit();
+        if (rateLimitMsg) {
+          printError(rateLimitMsg);
+          process.exit(ERROR_CODES.AUTHENTICATION);
+        }
+
         const quiet = options.quiet ?? false;
 
         if (!quiet) {
@@ -86,9 +94,12 @@ export function login(program: Command): void {
         const token = response.data?.data?.accessToken;
 
         if (!token) {
+          recordAuthFailure();
           printError('Login failed: no access token in response');
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
+
+        recordAuthSuccess();
 
         if (!quiet) {
           console.log('');
@@ -104,6 +115,7 @@ export function login(program: Command): void {
           console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***' --quiet)`));
         }
       } catch (error) {
+        recordAuthFailure();
         // Provide a clear "Login failed" message for auth errors
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;

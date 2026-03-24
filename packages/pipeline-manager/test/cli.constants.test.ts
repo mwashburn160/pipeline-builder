@@ -140,13 +140,13 @@ describe('generateExecutionId', () => {
     expect(id).toBe(id.toUpperCase());
   });
 
-  it('should return a 6-character string', () => {
-    expect(generateExecutionId()).toHaveLength(6);
+  it('should return an 8-character hex string', () => {
+    expect(generateExecutionId()).toHaveLength(8);
   });
 
-  it('should return alphanumeric characters', () => {
+  it('should return uppercase hex characters', () => {
     const id = generateExecutionId();
-    expect(id).toMatch(/^[A-Z0-9]+$/);
+    expect(id).toMatch(/^[A-F0-9]+$/);
   });
 
   it('should generate unique IDs', () => {

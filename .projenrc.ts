@@ -295,6 +295,7 @@ manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
+manager.addTask('audit', { exec: 'pnpm audit --audit-level=high', description: 'Check for known vulnerabilities in dependencies' });
 
 // =============================================================================
 // Platform Service

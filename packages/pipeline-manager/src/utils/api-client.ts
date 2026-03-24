@@ -20,6 +20,9 @@ export class ApiClient {
       throw new Error('Authentication token is required. Set PLATFORM_TOKEN environment variable.');
     }
 
+    // Warn if token appears expired (advisory — server validates authoritatively)
+    this.checkTokenExpiry(config.auth.token);
+
     const httpsAgent = new https.Agent({
       rejectUnauthorized: config.api.rejectUnauthorized ?? true,
     });
@@ -152,4 +155,24 @@ export class ApiClient {
   getConfig(): Config { return this.config; }
   getBaseUrl(): string { return this.config.api.baseUrl; }
   isAuthenticated(): boolean { return !!this.config.auth?.token; }
+
+  /**
+   * Advisory check: decode JWT exp claim and warn if expired.
+   * Does NOT verify signature — server handles that.
+   */
+  private checkTokenExpiry(token: string): void {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3 || !parts[1]) return;
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      if (payload.exp && typeof payload.exp === 'number') {
+        const expiresAt = new Date(payload.exp * 1000);
+        if (expiresAt.getTime() < Date.now()) {
+          printWarning(`Token expired at ${expiresAt.toISOString()} — run "pipeline-manager login" to refresh`);
+        }
+      }
+    } catch {
+      // Silently ignore decode errors — server will reject invalid tokens
+    }
+  }
 }

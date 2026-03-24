@@ -3,14 +3,13 @@ import * as path from 'path';
 import { Command } from 'commander';
 import FormData from 'form-data';
 import pico from 'picocolors';
-import { generateExecutionId, FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
-import { Plugin, PluginResponse, Config } from '../types';
-import { ApiClient } from '../utils/api-client';
-import { getConfigWithOptions } from '../utils/config-loader';
+import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
+import { Plugin, PluginResponse } from '../types';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler';
 import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
-const { bold, cyan, green, magenta } = pico;
+const { bold, green } = pico;
 
 /**
  * Registers the `upload-plugin` command with the CLI program.
@@ -44,12 +43,9 @@ export function uploadPlugin(program: Command): void {
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--dry-run', 'Validate file without uploading', false)
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('Upload Plugin');
 
       try {
-        printSection('Upload Plugin');
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
-        console.log('');
 
         // Display parameters
         printInfo('Upload parameters', {
@@ -64,10 +60,7 @@ export function uploadPlugin(program: Command): void {
         });
 
         // Security warning for SSL verification disabled
-        if (options.verifySsl === false) {
-          printWarning('SSL certificate verification is DISABLED');
-          console.log('');
-        }
+        printSslWarning(options.verifySsl);
 
         // Validate organization
         if (!options.organization || typeof options.organization !== 'string' || options.organization.trim().length === 0) {
@@ -180,22 +173,9 @@ export function uploadPlugin(program: Command): void {
           return;
         }
 
-        // Load configuration
-        const config: Config = getConfigWithOptions(options);
-
-        // Create API client
-        console.log('');
-        printInfo('Initializing API client', { baseUrl: config.api.baseUrl });
-        const client = new ApiClient(config);
-
-        if (!client.isAuthenticated()) {
-          printError('Not authenticated', {
-            hint: 'Set PLATFORM_TOKEN environment variable',
-          });
-          throw new Error('Authentication required');
-        }
-
-        printSuccess('API client initialized');
+        // Create authenticated API client
+        const client = createAuthenticatedClient(options);
+        const config = client.getConfig();
 
         // Create form data
         console.log('');

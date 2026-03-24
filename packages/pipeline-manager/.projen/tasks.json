@@ -1,5 +1,14 @@
 {
   "tasks": {
+    "audit": {
+      "name": "audit",
+      "description": "Check for known vulnerabilities in dependencies",
+      "steps": [
+        {
+          "exec": "pnpm audit --audit-level=high"
+        }
+      ]
+    },
     "build": {
       "name": "build",
       "description": "Full release build",

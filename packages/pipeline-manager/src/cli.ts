@@ -12,6 +12,7 @@ import { login } from './commands/login';
 import { refresh } from './commands/refresh';
 import { setupEvents } from './commands/setup-events';
 import { storeCredentials } from './commands/store-credentials';
+import { synth } from './commands/synth';
 import { uploadPlugin } from './commands/upload-plugin';
 import { version } from './commands/version';
 import {
@@ -158,9 +159,6 @@ Examples:
   $ ${APP_NAME} bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} deploy --id pipe-123 --profile production
 
-Documentation:
-  For detailed documentation, visit: https://docs.example.com
-  For support, contact: support@example.com
 `);
 
   // Version command (special handling)
@@ -188,7 +186,8 @@ Documentation:
   storeCredentials(program); // Store service credentials in Secrets Manager
   setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
-  deploy(program); // Deploy pipeline with CDK
+  deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
+  synth(program); // Run CDK synthesis
 
   printDebug('All commands registered successfully');
 }

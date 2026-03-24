@@ -1,14 +1,11 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 import { Command } from 'commander';
-import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { printCommandHeader } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
-
-const { bold, cyan, magenta } = pico;
 
 const STACK_NAME = 'pipeline-builder-events';
 const LAMBDA_NAME = 'pipeline-builder-event-ingestion';
@@ -35,12 +32,9 @@ export function setupEvents(program: Command): void {
     .option('--region <region>', 'AWS region')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('Setup Event Ingestion');
 
       try {
-        printSection('Setup Event Ingestion');
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
-
         const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION;
         if (!region) {
           printError('AWS region is required');
@@ -52,8 +46,6 @@ export function setupEvents(program: Command): void {
           printError('PLATFORM_BASE_URL environment variable is required');
           throw new Error('PLATFORM_BASE_URL not set');
         }
-
-        const profileArg = options.profile ? `--profile ${options.profile}` : '';
 
         printInfo('Parameters', {
           stack: STACK_NAME,
@@ -68,21 +60,20 @@ export function setupEvents(program: Command): void {
 
         const templatePath = path.join(__dirname, '../templates/events-stack.json');
 
-        const params = [
+        const cfnArgs = [
+          'cloudformation', 'deploy',
+          '--stack-name', STACK_NAME,
+          '--template-file', templatePath,
+          '--parameter-overrides',
           `PlatformBaseUrl=${platformUrl}`,
           `SecretsPathPrefix=${options.secretsPrefix}`,
-        ].join(' ');
-
-        execSync([
-          'aws cloudformation deploy',
-          `--stack-name ${STACK_NAME}`,
-          `--template-file ${templatePath}`,
-          `--parameter-overrides ${params}`,
-          '--capabilities CAPABILITY_NAMED_IAM',
+          '--capabilities', 'CAPABILITY_NAMED_IAM',
           '--no-fail-on-empty-changeset',
-          `--region ${region}`,
-          profileArg,
-        ].filter(Boolean).join(' '), { stdio: 'inherit' });
+          '--region', region,
+        ];
+        if (options.profile) cfnArgs.push('--profile', options.profile);
+
+        execFileSync('aws', cfnArgs, { stdio: 'inherit' });
 
         printSuccess('Infrastructure deployed');
 
@@ -95,7 +86,7 @@ export function setupEvents(program: Command): void {
           const versionSpec = options.packageVersion ? `${PACKAGE_NAME}@${options.packageVersion}` : PACKAGE_NAME;
           printInfo('Installing from registry', { package: versionSpec });
 
-          execSync(`npm install --prefix ${tmpDir} ${versionSpec}`, { stdio: 'pipe' });
+          execFileSync('npm', ['install', '--prefix', tmpDir, versionSpec], { stdio: 'pipe' });
 
           const handlerSrc = path.join(tmpDir, 'node_modules', PACKAGE_NAME, 'lib', 'index.js');
           if (!fs.existsSync(handlerSrc)) {
@@ -109,15 +100,19 @@ export function setupEvents(program: Command): void {
 
           // ZIP the handler
           const zipPath = path.join(tmpDir, 'index.zip');
-          execSync(`cd ${path.dirname(handlerSrc)} && zip -j ${zipPath} index.js`, { stdio: 'pipe' });
+          execFileSync('zip', ['-j', zipPath, 'index.js'], { cwd: path.dirname(handlerSrc), stdio: 'pipe' });
 
           // Upload directly to Lambda (no S3 needed)
           printInfo('Uploading code to Lambda', { function: LAMBDA_NAME, version });
 
-          execSync(
-            `aws lambda update-function-code --function-name ${LAMBDA_NAME} --zip-file fileb://${zipPath} --region ${region} ${profileArg}`,
-            { stdio: 'pipe' },
-          );
+          const lambdaArgs = [
+            'lambda', 'update-function-code',
+            '--function-name', LAMBDA_NAME,
+            '--zip-file', `fileb://${zipPath}`,
+            '--region', region,
+          ];
+          if (options.profile) lambdaArgs.push('--profile', options.profile);
+          execFileSync('aws', lambdaArgs, { stdio: 'pipe' });
 
           printSuccess(`Lambda code deployed (${PACKAGE_NAME}@${version})`);
 
@@ -126,10 +121,15 @@ export function setupEvents(program: Command): void {
         }
 
         // Step 3: Show outputs
-        const outputsRaw = execSync(
-          `aws cloudformation describe-stacks --stack-name ${STACK_NAME} --region ${region} ${profileArg} --query "Stacks[0].Outputs" --output json`,
-          { encoding: 'utf-8' },
-        );
+        const describeArgs = [
+          'cloudformation', 'describe-stacks',
+          '--stack-name', STACK_NAME,
+          '--region', region,
+          '--query', 'Stacks[0].Outputs',
+          '--output', 'json',
+        ];
+        if (options.profile) describeArgs.push('--profile', options.profile);
+        const outputsRaw = execFileSync('aws', describeArgs, { encoding: 'utf-8' });
         const outputs = JSON.parse(outputsRaw) as Array<{ OutputKey: string; OutputValue: string }>;
         const outputMap = Object.fromEntries(outputs.map(o => [o.OutputKey, o.OutputValue]));
 

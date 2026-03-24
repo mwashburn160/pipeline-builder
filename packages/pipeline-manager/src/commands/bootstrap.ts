@@ -1,11 +1,13 @@
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { ENV_VARS, generateExecutionId } from '../config/cli.constants';
+import { ENV_VARS, assertShellSafe } from '../config/cli.constants';
+import { auditLog } from '../utils/audit-log';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
+import { printCommandHeader } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
-const { bold, cyan, dim, magenta } = pico;
+const { bold, cyan, dim } = pico;
 
 /**
  * Resolves the AWS account ID from the CLI option or environment variable.
@@ -34,6 +36,10 @@ export function buildBootstrapCommand(options: {
   trust?: string;
   cloudformationExecutionPolicies?: string;
 }): string {
+  assertShellSafe(options.account, 'account');
+  assertShellSafe(options.region, 'region');
+  if (options.profile) assertShellSafe(options.profile, 'profile');
+
   const parts: string[] = [
     'cdk',
     'bootstrap',
@@ -78,12 +84,10 @@ export function bootstrap(program: Command): void {
     .option('--trust <accounts>', 'Comma-separated account IDs to trust for cross-account deployments')
     .option('--cloudformation-execution-policies <arns>', 'IAM policy ARNs for CloudFormation execution role')
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('CDK Bootstrap');
 
       try {
-        printSection('CDK Bootstrap');
-
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
+        auditLog('bootstrap', { executionId, account: options.account, region: options.region, profile: options.profile });
 
         // Resolve account and region
         const account = resolveAccount(options.account);

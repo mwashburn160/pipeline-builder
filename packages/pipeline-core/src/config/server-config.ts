@@ -126,7 +126,7 @@ const INSECURE_PATTERNS = ['secret', 'password', 'changeme', 'default', '123456'
 
 function isInsecureSecret(secret: string): boolean {
   const lower = secret.toLowerCase();
-  return INSECURE_PATTERNS.some(s => lower === s || (secret.length < 64 && lower.includes(s)));
+  return INSECURE_PATTERNS.some(s => lower === s || (lower.length < 64 && lower.includes(s)));
 }
 
 /**

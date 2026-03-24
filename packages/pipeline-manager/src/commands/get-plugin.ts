@@ -1,30 +1,20 @@
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
-import { Plugin, PluginResponse, Config } from '../types';
-import { ApiClient } from '../utils/api-client';
-import { getConfigWithOptions } from '../utils/config-loader';
+import { Plugin, PluginResponse } from '../types';
+import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
-const { bold, cyan, dim, green, magenta } = pico;
+const { bold, dim, green } = pico;
 
 /**
  * Registers the `get-plugin` command with the CLI program.
  *
- * Fetches a single plugin by its unique ID and displays its
- * details including file info, metadata, and configuration.
- * Output can be formatted as JSON, YAML, or table, and
- * optionally saved to a file.
- *
- * @param program - The root Commander program instance to attach the command to.
- *
  * @example
  * ```bash
- * cli get-plugin --id <plugin-id>
- * cli get-plugin --id <plugin-id> --format json
- * cli get-plugin --id <plugin-id> --output plugin.json
- * cli get-plugin --id <plugin-id> --no-verify-ssl
+ * pipeline-manager get-plugin --id <plugin-id>
+ * pipeline-manager get-plugin --id <plugin-id> --format json
+ * pipeline-manager get-plugin --id <plugin-id> --output plugin.json
  * ```
  */
 export function getPlugin(program: Command): void {
@@ -38,155 +28,61 @@ export function getPlugin(program: Command): void {
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--show-metadata', 'Show full plugin metadata in table format', false)
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('Get Plugin');
 
       try {
-        printSection('Get Plugin');
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
-        console.log('');
-
-        // Display parameters
+        printSslWarning(options.verifySsl);
         printInfo('Request parameters', {
           id: options.id,
           format: options.format,
           output: options.output || '(console)',
-          verifySsl: options.verifySsl,
         });
 
-        // Security warning for SSL verification disabled
-        if (options.verifySsl === false) {
-          printWarning('SSL certificate verification is DISABLED');
-          console.log('');
-        }
+        const pluginId = validateEntityId(options.id, 'Plugin');
+        const client = createAuthenticatedClient(options);
 
-        // Validate plugin ID
-        if (!options.id || typeof options.id !== 'string' || options.id.trim().length === 0) {
-          printError('Invalid plugin ID', { provided: options.id });
-          throw new Error('Plugin ID must be a non-empty string');
-        }
-
-        const pluginId = options.id.trim();
-
-        // Basic ID format validation (ULID format: 26 characters)
-        if (pluginId.length !== 26 && pluginId.length !== 36) {
-          printWarning('Plugin ID format may be invalid', {
-            provided: pluginId,
-            expectedLength: '26 characters (ULID) or 36 characters (UUID)',
-            actualLength: pluginId.length,
-          });
-        }
-
-        // Load configuration
-        const config: Config = getConfigWithOptions(options);
-
-        // Create API client
-        printInfo('Initializing API client', { baseUrl: config.api.baseUrl });
-        const client = new ApiClient(config);
-
-        if (!client.isAuthenticated()) {
-          printError('Not authenticated', {
-            hint: 'Set PLATFORM_TOKEN environment variable',
-          });
-          throw new Error('Authentication required');
-        }
-
-        printSuccess('API client initialized');
-
-        // Make API request
+        // Fetch plugin
         console.log('');
         printSection('Fetching Plugin');
 
-        const endpoint = `${config.api.pluginUrl}/${pluginId}`;
-        printInfo('Sending request', {
-          endpoint: `${config.api.baseUrl}${endpoint}`,
-          method: 'GET',
-        });
-
         const startTime = Date.now();
-        const response = await client.get<PluginResponse>(endpoint);
+        const response = await client.get<PluginResponse>(
+          `${client.getConfig().api.pluginUrl}/${pluginId}`,
+        );
         const duration = Date.now() - startTime;
 
         const plugin = extractSingleResponse<Plugin>(response, 'plugin', 'id');
-
         if (!plugin) {
-          printError('No plugin returned from API', {
-            responseKeys: response ? Object.keys(response) : '(null)',
-          });
+          printError('No plugin returned from API');
           throw new Error(`Failed to retrieve plugin with ID: ${pluginId}`);
         }
 
         console.log('');
         printSection('Plugin Retrieved Successfully');
 
-        // Display plugin summary
         printKeyValue({
           'Plugin ID': green(bold(plugin.id)),
           'Name': plugin.name,
           'Version': plugin.version,
           'Organization': plugin.organization,
           'Description': plugin.description || '(not set)',
-        });
-
-        console.log('');
-        printKeyValue({
-          'File URL': plugin.fileUrl || '(not available)',
           'File Size': plugin.fileSize ? `${(plugin.fileSize / 1024).toFixed(2)} KB` : '(not available)',
-          'Checksum': plugin.checksum ? `${plugin.checksum.substring(0, 16)}...` : '(not available)',
-        });
-
-        console.log('');
-        printKeyValue({
           'Public': plugin.isPublic ? 'Yes' : 'No',
           'Active': plugin.isActive ? 'Yes' : 'No',
           'Created At': plugin.createdAt || '(not available)',
           'Updated At': plugin.updatedAt || '(not available)',
-          'Uploaded By': plugin.uploadedBy || '(not available)',
         });
 
-        // Show metadata if requested (for table format)
-        if (options.showMetadata && options.format === 'table') {
-          if (plugin.metadata && Object.keys(plugin.metadata).length > 0) {
-            console.log('');
-            printInfo('Plugin Metadata', {
-              keys: Object.keys(plugin.metadata).length,
-            });
-            console.log('');
-            console.log(dim('─'.repeat(process.stdout.columns || 80)));
-            console.log(JSON.stringify(plugin.metadata, null, 2));
-            console.log(dim('─'.repeat(process.stdout.columns || 80)));
-          } else {
-            console.log('');
-            printInfo('No metadata available');
-          }
-        }
-
-        // Show config if available
-        if (plugin.config && Object.keys(plugin.config).length > 0 && options.format === 'table') {
+        // Show metadata if requested
+        if (options.showMetadata && options.format === 'table' && plugin.metadata && Object.keys(plugin.metadata).length > 0) {
           console.log('');
-          printInfo('Plugin Configuration', {
-            main: plugin.config.main || '(not set)',
-            hasSchema: !!plugin.config.schema,
-            hasDefaults: !!plugin.config.defaults,
-          });
+          printInfo('Plugin Metadata', { keys: Object.keys(plugin.metadata).length });
+          console.log(dim('─'.repeat(process.stdout.columns || 80)));
+          console.log(JSON.stringify(plugin.metadata, null, 2));
+          console.log(dim('─'.repeat(process.stdout.columns || 80)));
         }
 
-        console.log('');
-        printKeyValue({
-          'Execution ID': executionId,
-          'Duration': `${duration}ms`,
-          'Status': green('✓ Success'),
-        });
-
-        // Output data in requested format
-        console.log('');
-        if (options.output) {
-          printInfo('Saving to file', {
-            path: options.output,
-            format: options.format,
-          });
-        } else {
-          printInfo('Output format', { format: options.format });
-        }
+        printExecutionSummary(executionId, duration);
 
         outputData(plugin, {
           format: options.format,
@@ -203,13 +99,7 @@ export function getPlugin(program: Command): void {
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
           exit: true,
-          context: {
-            command: 'get-plugin',
-            executionId,
-            pluginId: options.id,
-            format: options.format,
-            verifySsl: options.verifySsl,
-          },
+          context: { command: 'get-plugin', executionId, pluginId: options.id },
         });
       }
     });

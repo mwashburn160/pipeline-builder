@@ -1,24 +1,24 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { assertShellSafe } from '../config/cli.constants';
 import { Pipeline, PipelineResponse } from '../types';
-import { ApiClient } from '../utils/api-client';
+import { auditLog } from '../utils/audit-log';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
-import { getConfigWithOptions } from '../utils/config-loader';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
-const { bold, cyan, dim, magenta } = pico;
+const { bold, cyan, dim } = pico;
 
 /**
  * Registers the `deploy` command with the CLI program.
  *
  * Fetches pipeline properties by ID from the platform API, then
- * runs `cdk synth` or `cdk deploy` to provision the pipeline
- * infrastructure in AWS.
+ * runs `cdk deploy` to provision the pipeline infrastructure in AWS.
+ * For synthesis only, use `pipeline-manager synth`.
  *
  * Requires service credentials to be pre-stored in AWS Secrets Manager.
  * Create them first with: `pipeline-manager store-credentials`
@@ -33,33 +33,25 @@ export function deploy(program: Command): void {
     .option('--profile <profile>', 'AWS profile', 'default')
     .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
-    .option('--synth', 'Run synthesis only (skip deployment)', false)
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .action(async (options) => {
-      const executionId = generateExecutionId();
-      const mode = options.synth ? 'SYNTH' : 'DEPLOY';
+
+      const executionId = printCommandHeader('Pipeline Deploy');
 
       try {
-        printSection(`Pipeline ${mode}`);
-
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Execution ID'))}`);
+        auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });
 
         printInfo('Deployment parameters', {
           id: options.id,
-          mode,
           awsProfile: options.profile,
           outputDir: options.output,
           requireApproval: options.requireApproval,
-          synthOnly: options.synth,
           verifySsl: options.verifySsl,
         });
 
         // Security warning for SSL verification disabled
-        if (options.verifySsl === false) {
-          printWarning('SSL certificate verification is DISABLED');
-          console.log('');
-        }
+        printSslWarning(options.verifySsl);
 
         // Check CDK availability
         if (!checkCdkAvailable()) {
@@ -70,13 +62,12 @@ export function deploy(program: Command): void {
 
         printSuccess('AWS CDK is available');
 
-        // Load configuration
-        const config = getConfigWithOptions(options);
+        // Create authenticated API client
+        const client = createAuthenticatedClient(options);
+        const config = client.getConfig();
 
         // Fetch pipeline from API
         printInfo('Fetching pipeline configuration', { id: options.id });
-
-        const client = new ApiClient(config);
         const response = await client.get<PipelineResponse>(
           `${config.api.pipelineUrl}/${options.id}`,
         );
@@ -101,24 +92,29 @@ export function deploy(program: Command): void {
           'Is Active': pipeline.isActive,
         });
 
-        // Encode pipeline props (inject orgId for per-org secret resolution)
-        const propsWithOrgId = { ...pipeline.props, ...(pipeline.orgId && { orgId: pipeline.orgId }) };
-        const encoded = Buffer.from(JSON.stringify(propsWithOrgId), 'utf-8').toString('base64');
+        // Encode pipeline props (inject orgId and pipelineId for autonomous synth)
+        const propsWithIds = {
+          ...pipeline.props,
+          ...(pipeline.orgId && { orgId: pipeline.orgId }),
+          pipelineId: pipeline.id,
+        };
+        const encoded = Buffer.from(JSON.stringify(propsWithIds), 'utf-8').toString('base64');
         const outputPath = options.output;
 
         // Ensure output directory exists
         printInfo('Preparing output directory', { path: outputPath });
         ensureOutputDirectory(outputPath);
 
-        // Build CDK command
+        // Build CDK command (validate inputs that flow into shell)
+        if (options.profile) assertShellSafe(options.profile, 'profile');
+        assertShellSafe(outputPath, 'output');
+
         const scriptPath = path.join(__dirname, '../boilerplate.js');
         const profileArg = options.profile ? `--profile=${options.profile}` : '';
         const outputArg = `--output=${outputPath}`;
         const appArg = `--app="node ${scriptPath}"`;
 
-        const command = options.synth
-          ? `cdk synth ${profileArg} ${outputArg} --notices=false ${appArg}`
-          : `cdk deploy ${profileArg} --require-approval=${options.requireApproval} ${outputArg} --notices=false ${appArg}`;
+        const command = `cdk deploy ${profileArg} --require-approval=${options.requireApproval} ${outputArg} --notices=false ${appArg}`;
 
         printSection('CDK Execution');
         console.log(cyan(bold('Command:')), dim(command.split(' --')[0] + ' ...'));
@@ -143,41 +139,41 @@ export function deploy(program: Command): void {
           });
 
           // Register pipeline ARN for event reporting (non-blocking)
-          if (!options.synth) {
-            try {
-              const profileFlag = options.profile ? `--profile ${options.profile}` : '';
-              const account = execSync(`aws sts get-caller-identity --query Account --output text ${profileFlag}`, { encoding: 'utf-8' }).trim();
-              const region = execSync(`aws configure get region ${profileFlag}`, { encoding: 'utf-8' }).trim()
-                || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
-
-              const pipelineName = pipeline.pipelineName
-                || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
-
-              // Hash the account number so the real value never reaches the database.
-              // Must use the same SHA-256 algorithm as event-ingestion and api-core.
-              const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
-              const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
-
-              // Upsert pipeline_registry via the API
-              await client.post(`${config.api.pipelineUrl}/registry`, {
-                pipelineId: pipeline.id,
-                orgId: pipeline.orgId,
-                pipelineArn,
-                pipelineName,
-                accountId: hashedAccount,
-                region,
-                project: pipeline.project,
-                organization: pipeline.organization,
-                stackName: `${pipeline.project}-${pipeline.organization}`.toLowerCase(),
-              });
-
-              printSuccess('Pipeline registered for event reporting', { arn: pipelineArn });
-            } catch (regError) {
-              // Non-blocking — deploy succeeded even if registration fails
-              printWarning('Pipeline registry update failed (reporting may be incomplete)', {
-                error: regError instanceof Error ? regError.message : String(regError),
-              });
+          try {
+            const stsArgs = ['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text'];
+            const regionArgs = ['configure', 'get', 'region'];
+            if (options.profile) {
+              assertShellSafe(options.profile, 'profile');
+              stsArgs.push('--profile', options.profile);
+              regionArgs.push('--profile', options.profile);
             }
+            const account = execFileSync('aws', stsArgs, { encoding: 'utf-8' }).trim();
+            const region = execFileSync('aws', regionArgs, { encoding: 'utf-8' }).trim()
+              || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+
+            const pipelineName = pipeline.pipelineName
+              || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
+
+            const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
+            const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
+
+            await client.post(`${config.api.pipelineUrl}/registry`, {
+              pipelineId: pipeline.id,
+              orgId: pipeline.orgId,
+              pipelineArn,
+              pipelineName,
+              accountId: hashedAccount,
+              region,
+              project: pipeline.project,
+              organization: pipeline.organization,
+              stackName: `${pipeline.project}-${pipeline.organization}`.toLowerCase(),
+            });
+
+            printSuccess('Pipeline registered for event reporting', { arn: pipelineArn });
+          } catch (regError) {
+            printWarning('Pipeline registry update failed (reporting may be incomplete)', {
+              error: regError instanceof Error ? regError.message : String(regError),
+            });
           }
         }
 
@@ -188,7 +184,6 @@ export function deploy(program: Command): void {
           context: {
             command: 'deploy',
             executionId,
-            mode,
             pipelineId: options.id,
             verifySsl: options.verifySsl,
           },

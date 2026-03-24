@@ -2,14 +2,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId, formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
-import { Pipeline, PipelineResponse, CreatePipelineRequest, Config } from '../types';
-import { ApiClient } from '../utils/api-client';
-import { getConfigWithOptions } from '../utils/config-loader';
+import { formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
+import { Pipeline, PipelineResponse, CreatePipelineRequest } from '../types';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
-const { bold, cyan, dim, green, magenta } = pico;
+const { bold, cyan, dim, green } = pico;
 
 /**
  * Registers the `create-pipeline` command with the CLI program.
@@ -35,13 +34,10 @@ export function createPipeline(program: Command): void {
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--dry-run', 'Validate inputs without creating pipeline', false)
     .action(async (options) => {
-      const executionId = generateExecutionId();
+      const executionId = printCommandHeader('Create Pipeline', 'Creating Pipeline');
       const startTime = Date.now();
 
       try {
-        printSection('Pipeline Creation');
-        console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Creating Pipeline'))}`);
-        console.log('');
 
         // Display parameters
         printInfo('Configuration');
@@ -58,10 +54,7 @@ export function createPipeline(program: Command): void {
         });
 
         // Security warning for SSL verification disabled
-        if (options.verifySsl === false) {
-          console.log('');
-          printWarning('⚠️  SSL certificate verification is DISABLED');
-        }
+        printSslWarning(options.verifySsl);
 
         console.log('');
         printSection('File Validation');
@@ -190,31 +183,9 @@ export function createPipeline(program: Command): void {
           return;
         }
 
-        // Load configuration
-        const config: Config = getConfigWithOptions(options);
-
-        // Create API client
-        console.log('');
-        printSection('API Connection');
-        printInfo('Initializing API client');
-        printKeyValue({
-          'Base URL': config.api.baseUrl,
-          'Endpoint': config.api.pipelinePostUrl,
-          'SSL Verification': config.api.rejectUnauthorized ? 'Enabled' : 'Disabled',
-        });
-
-        const client = new ApiClient(config);
-
-        // Validate authentication
-        if (!client.isAuthenticated()) {
-          printError('Authentication required', {
-            hint: 'Set PLATFORM_TOKEN environment variable',
-            example: 'export PLATFORM_TOKEN=your-token-here',
-          });
-          throw new Error('Missing authentication token');
-        }
-
-        printSuccess('API client ready');
+        // Create authenticated API client
+        const client = createAuthenticatedClient(options);
+        const config = client.getConfig();
 
         // Create pipeline
         console.log('');

@@ -19,10 +19,9 @@ metadata:
   aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
-- npm ci
-- npm run build
+- npm install -g aws-cdk @mwashburn160/pipeline-manager
 commands:
-- npx cdk synth --quiet --no-notices
+- pipeline-manager synth --quiet --no-notices
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}

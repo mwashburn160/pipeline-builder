@@ -273,9 +273,12 @@ export const handler = async (
     const pluginFilter = event.ResourceProperties.pluginFilter;
     const baseURL = event.ResourceProperties.baseURL || CoreConstants.HANDLER_DEFAULT_BASE_URL;
 
+    if (!baseURL.startsWith('https://') && !baseURL.startsWith('http://')) {
+      throw new Error(`Invalid baseURL: "${baseURL}" — must start with http:// or https://`);
+    }
+
     lambdaLog.info('CONFIG', 'Configuration loaded', { baseURL, pluginFilter });
 
-    // Validate filter
     validatePluginFilter(pluginFilter);
 
     // Authenticate and create API client
