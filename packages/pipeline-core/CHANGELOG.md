@@ -1,3 +1,13 @@
+## 1.44.22 (2026-03-24)
+
+### 🩹 Fixes
+
+- changed lambda custom resource timeout ([7a7cb8d7](https://github.com/mwashburn160/pipeline-builder/commit/7a7cb8d7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.21 (2026-03-24)
 
 ### 🩹 Fixes
