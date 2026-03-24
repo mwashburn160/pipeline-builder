@@ -1,3 +1,14 @@
+## 1.44.19 (2026-03-24)
+
+### 🩹 Fixes
+
+- changed from 'dist' to null ([223a27e4](https://github.com/mwashburn160/pipeline-builder/commit/223a27e4))
+- changed from 'dist' to null ([40e83d46](https://github.com/mwashburn160/pipeline-builder/commit/40e83d46))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.18 (2026-03-23)
 
 ### 🩹 Fixes
