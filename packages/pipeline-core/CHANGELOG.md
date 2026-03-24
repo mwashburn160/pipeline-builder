@@ -1,3 +1,13 @@
+## 1.44.31 (2026-03-24)
+
+### 🩹 Fixes
+
+- execute mkdir as preInstallCommand ([e3e6ea35](https://github.com/mwashburn160/pipeline-builder/commit/e3e6ea35))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.30 (2026-03-24)
 
 ### 🩹 Fixes
