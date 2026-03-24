@@ -23,7 +23,7 @@ const expressVersion = '5.2.1';
 const pkg = {
   apiCore:        '1.42.27',
   pipelineData:   '1.43.27',
-  pipelineCore:   '1.44.32',
+  pipelineCore:   '1.44.33',
   apiServer:      '1.41.28',
   aiCore:         '1.16.26',
   eventIngestion: '1.4.26',
