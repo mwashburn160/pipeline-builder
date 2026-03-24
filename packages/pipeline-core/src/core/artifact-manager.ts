@@ -53,12 +53,7 @@ export class ArtifactManager {
    * @throws Error if the step is not found or has no primary output
    */
   getOutput(key: ArtifactKey): FileSet {
-    const step = this.get(key);
-    if (!step) {
-      const registered = this.list();
-      const available = registered.length > 0 ? ` Available: [${registered.join(', ')}]` : ' No artifacts registered.';
-      throw new Error(`No artifact registered for "${this.generateKey(key)}".${available}`);
-    }
+    const step = this.require(key);
     const output = step.primaryOutput;
     if (!output) {
       throw new Error(`Step '${key.pluginName}' has no primary output`);
@@ -75,13 +70,20 @@ export class ArtifactManager {
    * @throws Error if the step is not found
    */
   addOutput(key: ArtifactKey, directory: string): FileSet {
+    return this.require(key).addOutputDirectory(directory);
+  }
+
+  /**
+   * Get a step by key or throw with a helpful error listing available artifacts.
+   */
+  private require(key: ArtifactKey): CodeBuildStep | ShellStep {
     const step = this.get(key);
     if (!step) {
       const registered = this.list();
       const available = registered.length > 0 ? ` Available: [${registered.join(', ')}]` : ' No artifacts registered.';
       throw new Error(`No artifact registered for "${this.generateKey(key)}".${available}`);
     }
-    return step.addOutputDirectory(directory);
+    return step;
   }
 
   /**

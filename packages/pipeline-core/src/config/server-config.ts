@@ -122,13 +122,6 @@ export function validateServerConfig(config: ServerConfig): void {
   }
 }
 
-/**
- * Validate authentication configuration (JWT secrets, algorithms, expiration).
- * Call this at server startup, not during CDK synthesis.
- *
- * @param config - Auth configuration to validate
- * @throws {Error} If secrets are insecure, too short (<32 chars), or use disallowed algorithms
- */
 const INSECURE_PATTERNS = ['secret', 'password', 'changeme', 'default', '123456', 'admin'];
 
 function isInsecureSecret(secret: string): boolean {
@@ -136,6 +129,13 @@ function isInsecureSecret(secret: string): boolean {
   return INSECURE_PATTERNS.some(s => lower === s || (secret.length < 64 && lower.includes(s)));
 }
 
+/**
+ * Validate authentication configuration (JWT secrets, algorithms, expiration).
+ * Call this at server startup, not during CDK synthesis.
+ *
+ * @param config - Auth configuration to validate
+ * @throws {Error} If secrets are insecure, too short (<32 chars), or use disallowed algorithms
+ */
 export function validateAuthConfig(config: AuthConfig): void {
   const errors: string[] = [];
   const warnings: string[] = [];

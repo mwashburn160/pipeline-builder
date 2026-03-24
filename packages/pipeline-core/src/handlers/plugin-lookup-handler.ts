@@ -10,7 +10,11 @@ import { CoreConstants } from '../config/app-config';
  */
 function logEntry(level: string, tag: string, message: string, data?: unknown) {
   const line = JSON.stringify({ level, tag, message, data, ts: new Date().toISOString() });
-  if (level === 'ERROR') {console.error(line);} else if (level === 'DEBUG') { if (process.env.LOG_LEVEL === 'debug') console.debug(line); } else {console.log(line);}
+  switch (level) {
+    case 'ERROR': console.error(line); break;
+    case 'DEBUG': if (process.env.LOG_LEVEL === 'debug') console.debug(line); break;
+    default: console.log(line);
+  }
 }
 
 const lambdaLog = {

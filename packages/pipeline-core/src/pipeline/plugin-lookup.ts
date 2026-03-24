@@ -222,13 +222,13 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Returns fallback plugin configuration used only when the plugin value is
+   * Returns fallback plugin configuration used when the plugin value is
    * an unresolved CDK token during synthesis. This is expected — the actual
    * plugin will be resolved at deployment time via the Custom Resource.
    *
-   * IMPORTANT: This fallback should never appear in a deployed stack. If it
-   * does, it indicates the Custom Resource failed to resolve the plugin.
-   * The fallback uses empty commands so CodeBuild will fail visibly.
+   * Uses `primaryOutputDirectory: 'cdk.out'` so CDK synthesis can complete,
+   * and a descriptive echo command so the build log shows what happened
+   * if the fallback is ever reached in a deployed stack.
    */
   private fallback(): Plugin {
     return {
@@ -248,11 +248,11 @@ export class PluginLookup extends Construct {
       timeout: null,
       failureBehavior: 'fail',
       secrets: [],
-      primaryOutputDirectory: null,
+      primaryOutputDirectory: 'cdk.out',
       env: {},
       buildArgs: {},
       installCommands: [],
-      commands: [],
+      commands: ['echo "FALLBACK: Plugin lookup unresolved during synthesis — actual plugin will be resolved at deployment time"'],
       imageTag: 'no_image_tag',
       dockerfile: null,
       accessModifier: 'public',

@@ -157,7 +157,9 @@ describe('PluginLookup', () => {
       const result = lookup.plugin('nodejs-build');
 
       expect(result.name).toBe('no_pluginname');
-      expect(result.commands).toEqual([]);
+      expect(result.primaryOutputDirectory).toBe('cdk.out');
+      expect(result.commands).toHaveLength(1);
+      expect(result.commands[0]).toContain('FALLBACK');
     });
 
     it('should normalize string plugin to PluginOptions', () => {
