@@ -102,7 +102,7 @@ export class PipelineConfiguration {
     // Validate repo format for GitHub and CodeStar sources (both use "owner/repo")
     const sourceType = props.synth?.source?.type;
     if (sourceType === 'github' || sourceType === 'codestar') {
-      const repo = props.synth.source.options.repo;
+      const repo = props.synth?.source?.options?.repo;
       if (repo && !repo.includes('/')) {
         errors.push(`Invalid ${sourceType} repository format: "${repo}". Expected format: "owner/repo"`);
       }

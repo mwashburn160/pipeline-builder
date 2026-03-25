@@ -351,10 +351,4 @@ export interface CodeBuildStepOptions extends StepCustomization {
 
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
-
-  /**
-   * Additional SECRETS_MANAGER-type env vars for the step (e.g., platform credentials for synth).
-   * Keys are env var names, values are Secrets Manager secret names.
-   */
-  readonly synthSecrets?: Record<string, string>;
 }

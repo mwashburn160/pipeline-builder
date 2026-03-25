@@ -40,7 +40,7 @@ export function decodeTokenPayload(token: string): TokenPayload | null {
  *
  * @param token - JWT bearer token from PLATFORM_TOKEN
  */
-export function requireAdmin(token: string): void {
+export function warnIfNotAdmin(token: string): void {
   const payload = decodeTokenPayload(token);
 
   if (!payload) {

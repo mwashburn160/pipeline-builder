@@ -1,4 +1,4 @@
-import { decodeTokenPayload, requireAdmin } from '../src/utils/auth-guard';
+import { decodeTokenPayload, warnIfNotAdmin } from '../src/utils/auth-guard';
 
 // Mock output-utils
 jest.mock('../src/utils/output-utils', () => ({
@@ -39,25 +39,25 @@ describe('decodeTokenPayload', () => {
   });
 });
 
-describe('requireAdmin', () => {
+describe('warnIfNotAdmin', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('should not warn for admin role', () => {
     const token = fakeJwt({ role: 'admin' });
-    requireAdmin(token);
+    warnIfNotAdmin(token);
     expect(printWarning).not.toHaveBeenCalled();
   });
 
   it('should warn for non-admin role', () => {
     const token = fakeJwt({ role: 'user' });
-    requireAdmin(token);
+    warnIfNotAdmin(token);
     expect(printWarning).toHaveBeenCalledWith(
       expect.stringContaining('does not appear to have admin role'),
     );
   });
 
   it('should warn for invalid token but not throw', () => {
-    requireAdmin('invalid-token');
+    warnIfNotAdmin('invalid-token');
     expect(printWarning).toHaveBeenCalledWith(
       expect.stringContaining('Unable to decode token'),
     );

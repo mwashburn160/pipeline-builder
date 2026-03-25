@@ -7,7 +7,7 @@ import { assertShellSafe } from '../config/cli.constants';
 import { Pipeline, PipelineResponse } from '../types';
 import { auditLog } from '../utils/audit-log';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
+import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
@@ -33,6 +33,8 @@ export function deploy(program: Command): void {
     .option('--profile <profile>', 'AWS profile', 'default')
     .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
+    .option('--store-credentials', 'Authenticate using credentials from AWS Secrets Manager', false)
+    .option('--region <region>', 'AWS region (for --store-credentials)')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .action(async (options) => {
@@ -62,8 +64,8 @@ export function deploy(program: Command): void {
 
         printSuccess('AWS CDK is available');
 
-        // Create authenticated API client
-        const client = createAuthenticatedClient(options);
+        // Create authenticated API client (supports PLATFORM_TOKEN or --store-credentials)
+        const client = await createAuthenticatedClientAsync(options);
         const config = client.getConfig();
 
         // Fetch pipeline from API

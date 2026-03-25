@@ -102,41 +102,23 @@ export function version(program: Command): void {
     .action((options) => {
       try {
         const executionId = generateExecutionId();
+        const cdkInfo = getCdkInfo();
 
         // JSON output
         if (options.json) {
-          const cdkInfo = getCdkInfo();
           const systemInfo = getSystemInfo();
           const configStatus = options.checkConfig ? checkConfiguration() : { valid: true };
           const envStatus = getEnvironmentStatus();
 
-          const jsonOutput = {
-            cli: {
-              name: APP_NAME,
-              version: APP_VERSION,
-            },
-            system: {
-              nodejs: systemInfo.nodejs,
-              npm: systemInfo.npm,
-              platform: systemInfo.platform,
-              architecture: systemInfo.architecture,
-              memory: systemInfo.memory,
-              uptime: systemInfo.uptime,
-            },
-            cdk: {
-              available: cdkInfo.available,
-              version: cdkInfo.version,
-            },
-            configuration: {
-              valid: configStatus.valid,
-              error: configStatus.error,
-            },
+          console.log(JSON.stringify({
+            cli: { name: APP_NAME, version: APP_VERSION },
+            system: systemInfo,
+            cdk: { available: cdkInfo.available, version: cdkInfo.version },
+            configuration: { valid: configStatus.valid, error: configStatus.error },
             environment: envStatus,
             executionId,
             timestamp: new Date().toISOString(),
-          };
-
-          console.log(JSON.stringify(jsonOutput, null, 2));
+          }, null, 2));
           return;
         }
 
@@ -145,7 +127,6 @@ export function version(program: Command): void {
         console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('CLI Version Check'))}`);
         console.log('');
 
-        // CLI version
         printKeyValue({
           'CLI Name': bold(APP_NAME),
           'CLI Version': green(bold(APP_VERSION)),
@@ -153,12 +134,10 @@ export function version(program: Command): void {
 
         printDivider();
 
-        // Environment information
+        // Verbose: system environment
         if (options.verbose) {
           printSection('System Environment');
-
           const systemInfo = getSystemInfo();
-
           printKeyValue({
             'Node.js': systemInfo.nodejs,
             'npm': systemInfo.npm || yellow('(not available)'),
@@ -167,21 +146,13 @@ export function version(program: Command): void {
             'Memory (Heap)': `${systemInfo.memory.total} total, ${systemInfo.memory.availableHeap} available`,
             'Process Uptime': systemInfo.uptime,
           });
-
           printDivider();
-        }
-
-        // CDK information
-        if (options.verbose) {
           printSection('AWS CDK');
         }
 
-        const cdkInfo = getCdkInfo();
-
+        // CDK information
         if (cdkInfo.available && cdkInfo.version) {
-          if (options.verbose) {
-            printSuccess('AWS CDK is installed');
-          }
+          if (options.verbose) printSuccess('AWS CDK is installed');
           printKeyValue({
             'CDK Version': green(cdkInfo.version),
             'Status': green('✓ Available'),
@@ -189,10 +160,8 @@ export function version(program: Command): void {
         } else {
           if (options.verbose) {
             printWarning('AWS CDK is not installed');
-            console.log(dim('  💡 Tip: Install CDK with: npm install -g aws-cdk'));
-            if (cdkInfo.error) {
-              console.log(dim(`  Error: ${cdkInfo.error}`));
-            }
+            console.log(dim('  Install CDK with: npm install -g aws-cdk'));
+            if (cdkInfo.error) console.log(dim(`  Error: ${cdkInfo.error}`));
           }
           printKeyValue({
             'AWS CDK': red('✗ Not installed'),
@@ -201,7 +170,7 @@ export function version(program: Command): void {
         }
 
         if (!options.verbose) {
-          console.log(dim('\n  💡 Tip: Run with --verbose for detailed environment information'));
+          console.log(dim('\n  Run with --verbose for detailed environment information'));
         }
 
         // Configuration check

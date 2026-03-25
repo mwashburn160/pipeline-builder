@@ -1,42 +1,99 @@
 import path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
+import { assertShellSafe } from '../config/cli.constants';
 import { auditLog } from '../utils/audit-log';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
-import { printCommandHeader } from '../utils/command-utils';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 
 const { dim } = pico;
+
+/**
+ * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.
+ * Uses createAuthenticatedClientAsync which supports all three auth methods.
+ */
+async function fetchPipelineConfig(
+  pipelineId: string,
+  options: { storeCredentials?: boolean; verifySsl?: boolean; region?: string; profile?: string },
+): Promise<void> {
+  const client = await createAuthenticatedClientAsync(options);
+  const config = client.getConfig();
+
+  const response = await client.get<Record<string, unknown>>(
+    `${config.api.pipelineUrl}/${pipelineId}`,
+  );
+
+  // Extract props from response envelope
+  const inner = (response?.data as Record<string, unknown>) ?? response;
+  const pipeline = (inner?.pipeline as Record<string, unknown>) ?? undefined;
+
+  if (!pipeline?.props) {
+    printError('Pipeline has no props', { id: pipelineId });
+    throw new Error(`Failed to retrieve pipeline props for ID: ${pipelineId}`);
+  }
+
+  const props = pipeline.props as Record<string, unknown>;
+  const propsWithIds: Record<string, unknown> = {
+    ...props,
+    pipelineId: pipeline.id || pipelineId,
+  };
+  if (pipeline.orgId) propsWithIds.orgId = pipeline.orgId;
+
+  process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
+  printSuccess('Pipeline configuration loaded');
+}
 
 /**
  * Registers the `synth` command with the CLI program.
  *
  * Runs CDK synthesis using the boilerplate app. Pipeline config is resolved from:
- * - PIPELINE_PROPS env var (CLI deploy path), or
- * - PIPELINE_ID + PLATFORM_CREDENTIALS env vars (autonomous CodePipeline path)
+ * 1. --id flag or PIPELINE_ID env var → fetches config from platform API
+ * 2. PIPELINE_PROPS env var (pre-encoded, from deploy command)
+ *
+ * Authentication methods (in priority order):
+ * - PLATFORM_TOKEN env var
+ * - --store-credentials → fetch from AWS Secrets Manager
  *
  * @example
  * ```bash
- * pipeline-manager synth
- * pipeline-manager synth --quiet --no-notices
- * pipeline-manager synth --output cdk.out --profile production
+ * pipeline-manager synth --id <pipeline-id> --no-verify-ssl
+ * pipeline-manager synth --id <pipeline-id> --store-credentials
+ * pipeline-manager synth --quiet --no-notices          # CodePipeline (uses env vars)
  * ```
  */
 export function synth(program: Command): void {
   program
     .command('synth')
     .description('Run CDK synthesis using pipeline configuration')
+    .option('-i, --id <id>', 'Pipeline ID (or set PIPELINE_ID env var)')
+    .option('--store-credentials', 'Authenticate using credentials from AWS Secrets Manager', false)
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
     .option('--profile <profile>', 'AWS profile')
+    .option('--region <region>', 'AWS region (for --store-credentials)')
     .option('--quiet', 'Suppress CDK output', false)
     .option('--no-notices', 'Suppress CDK notices')
     .option('--verbose', 'Show verbose CDK output', false)
+    .option('--verify-ssl', 'Enable SSL certificate verification')
+    .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .action(async (options) => {
       const executionId = printCommandHeader('CDK Synthesis');
 
       try {
-        auditLog('synth', { executionId, output: options.output, profile: options.profile });
+        const pipelineId = options.id || process.env.PIPELINE_ID;
+
+        auditLog('synth', { executionId, pipelineId, output: options.output, profile: options.profile });
+        printSslWarning(options.verifySsl);
+
+        // Fetch pipeline config if ID is available and PIPELINE_PROPS not already set
+        if (pipelineId && !process.env.PIPELINE_PROPS) {
+          printInfo('Fetching pipeline configuration', { id: pipelineId });
+          await fetchPipelineConfig(pipelineId, options);
+        } else if (!pipelineId && !process.env.PIPELINE_PROPS) {
+          printWarning('No pipeline ID or PIPELINE_PROPS set');
+          throw new Error('Pipeline ID is required. Use --id <id> or set PIPELINE_ID env var.');
+        }
 
         // Check CDK availability
         if (!checkCdkAvailable()) {
@@ -48,6 +105,9 @@ export function synth(program: Command): void {
         printSuccess('AWS CDK is available');
 
         // Build cdk synth command
+        if (options.output) assertShellSafe(options.output, 'output');
+        if (options.profile) assertShellSafe(options.profile, 'profile');
+
         const boilerplatePath = path.join(__dirname, '../boilerplate.js');
         const parts = [
           'cdk synth',
@@ -83,8 +143,9 @@ export function synth(program: Command): void {
 
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {
+          debug: program.opts().debug,
           exit: true,
-          context: { command: 'synth', executionId },
+          context: { command: 'synth', executionId, pipelineId: options.id },
         });
       }
     });

@@ -7,15 +7,7 @@ import { printDebug, printError, printWarning } from './output-utils';
 export type { Config };
 
 /**
- * Default configuration
- *
- * Endpoint paths must match nginx routes:
- * - GET  /api/pipeline/:id  → Get single pipeline
- * - GET  /api/pipelines     → List pipelines
- * - POST /api/pipeline      → Create pipeline
- * - GET  /api/plugin/:id    → Get single plugin
- * - GET  /api/plugins       → List plugins
- * - POST /api/plugin/upload → Upload plugin
+ * Default configuration — API endpoint paths and connection settings.
  */
 const defaultConfig: Omit<Config, 'auth'> = {
   api: {

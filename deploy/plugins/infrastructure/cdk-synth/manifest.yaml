@@ -21,7 +21,7 @@ dockerfile: Dockerfile
 installCommands:
 - npm install -g aws-cdk @mwashburn160/pipeline-manager
 commands:
-- pipeline-manager synth --quiet --no-notices
+- pipeline-manager synth --id ${PIPELINE_ID} --store-credentials --quiet --no-notices --no-verify-ssl
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
