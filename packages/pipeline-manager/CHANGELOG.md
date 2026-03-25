@@ -1,3 +1,13 @@
+## 1.39.32 (2026-03-25)
+
+### 🩹 Fixes
+
+- updated cdk-synth plugin ([ad667bf1](https://github.com/mwashburn160/pipeline-builder/commit/ad667bf1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.31 (2026-03-25)
 
 ### 🩹 Fixes
