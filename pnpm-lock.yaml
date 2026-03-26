@@ -54,8 +54,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -142,8 +142,8 @@ importers:
   api/compliance:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -221,8 +221,8 @@ importers:
   api/message:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -297,8 +297,8 @@ importers:
         specifier: 1.16.39
         version: 1.16.39(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -394,8 +394,8 @@ importers:
         specifier: 1.16.39
         version: 1.16.39(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -506,8 +506,8 @@ importers:
   api/quota:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -591,8 +591,8 @@ importers:
   api/reporting:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -600,8 +600,8 @@ importers:
         specifier: 1.44.48
         version: 1.44.48(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       '@mwashburn160/pipeline-data':
-        specifier: 1.43.40
-        version: 1.43.40(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 1.44.1
+        version: 1.44.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -664,8 +664,8 @@ importers:
   frontend:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/api-server':
         specifier: 1.41.41
         version: 1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -746,8 +746,8 @@ importers:
         specifier: 3.0.59
         version: 3.0.59(zod@4.3.6)
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       ai:
         specifier: 6.0.99
         version: 6.0.99(zod@4.3.6)
@@ -853,8 +853,8 @@ importers:
   packages/api-server:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/pipeline-core':
         specifier: 1.44.48
         version: 1.44.48(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
@@ -1004,11 +1004,11 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       '@mwashburn160/pipeline-data':
-        specifier: 1.43.40
-        version: 1.43.40(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 1.44.1
+        version: 1.44.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.240.0
         version: 2.240.0(constructs@10.5.1)
@@ -1080,8 +1080,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
@@ -1229,8 +1229,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@mwashburn160/api-core':
-        specifier: 1.43.0
-        version: 1.43.0
+        specifier: 1.43.1
+        version: 1.43.1
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -2991,6 +2991,10 @@ packages:
     resolution: {integrity: sha512-Xr8sh6dedugb+cqBk920M0LW/4x5rjoJP7FGPawaFPhYyM+hFbdJqQdJ2jIwl4NDzr+bcyJh8vkgcDVWPKmrqw==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.43.0/ed231c9da6e17ac34b727cd5df3c39ce5b07fb46}
     engines: {node: '>= 24.14.0'}
 
+  '@mwashburn160/api-core@1.43.1':
+    resolution: {integrity: sha512-mFTQ2bi8jBjQHq2dn9rA5lFvKskzZcU4uTfyA9qFYvBmEAHd1lY8eBnG7o3gsQEUUXo65U6TKnGyNBTvtQIO/g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-core/1.43.1/ebe5fa3193dc19e4bb8da6fd5f844f6c4f41d5a2}
+    engines: {node: '>= 24.14.0'}
+
   '@mwashburn160/api-server@1.41.41':
     resolution: {integrity: sha512-XD0ZtU6gkKslu7GCQDvjYHWFscpPRWyJU7wgupROYw4a06ZZGVgOadpcRxqkNYxsitrnz03Ck/zcmQjK069RtA==, tarball: https://npm.pkg.github.com/download/@mwashburn160/api-server/1.41.41/2b44c33ff718d4552fcefa4293bd3788420f2ae0}
     engines: {node: '>= 24.14.0'}
@@ -3011,8 +3015,8 @@ packages:
     resolution: {integrity: sha512-TDcrqwHkE45uGpprwD/77dp8ALWWUaqPGTt2dnUBCV7X33pr6+S03l1ZgBYsysAx+yU4cFQaOfOhysbVgdxrhg==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.43.39/7d29ca35e22496247959dfe99309d515c34eb73a}
     engines: {node: '>= 24.14.0'}
 
-  '@mwashburn160/pipeline-data@1.43.40':
-    resolution: {integrity: sha512-9obCFJqKSLgnzuz4AVUgXlkAmb31zj0W6cXCTvAqtW8ttfEzpFuM3aFvmJLUy5HyLBRpKkdfkIu+vNqsleCl4g==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.43.40/138156034c463d6f39ca53f4e761b8a80ebbe359}
+  '@mwashburn160/pipeline-data@1.44.1':
+    resolution: {integrity: sha512-6cVb+Um6JLK5zNQcyjKzvKEacAKSuXdCJSK5XQ3+CZz0WdfE6Fu1KPBraWtVQY7yzbONnwnQ5fDabswgBhmypQ==, tarball: https://npm.pkg.github.com/download/@mwashburn160/pipeline-data/1.44.1/54a9e8b71390b6ece845e8d999518eb6f3b328e5}
     engines: {node: '>= 24.14.0'}
 
   '@napi-rs/wasm-runtime@0.2.12':
@@ -9813,6 +9817,16 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@mwashburn160/api-core@1.43.1':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 8.4.0(zod@4.3.6)
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
+
   '@mwashburn160/api-server@1.41.41(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
       '@mwashburn160/api-core': 1.42.39
@@ -10022,9 +10036,9 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@mwashburn160/pipeline-data@1.43.40(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
+  '@mwashburn160/pipeline-data@1.44.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
-      '@mwashburn160/api-core': 1.42.39
+      '@mwashburn160/api-core': 1.43.0
       drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
       pg: 8.18.0
     transitivePeerDependencies:
