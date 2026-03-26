@@ -1,3 +1,13 @@
+## 1.43.0 (2026-03-26)
+
+### 🚀 Features
+
+- added kaniko ([46c067db](https://github.com/mwashburn160/pipeline-builder/commit/46c067db))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.40 (2026-03-26)
 
 ### 🩹 Fixes
