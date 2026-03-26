@@ -10,6 +10,10 @@
       "Type": "String",
       "Default": "pipeline-builder",
       "Description": "Secrets Manager path prefix (must match SECRETS_PATH_PREFIX env var)"
+    },
+    "PlatformSecretName": {
+      "Type": "String",
+      "Description": "Secrets Manager secret name containing the platform JWT token (e.g. pipeline-builder/{orgId}/platform)"
     }
   },
   "Resources": {
@@ -116,7 +120,7 @@
         "Environment": {
           "Variables": {
             "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
-            "SECRETS_PATH_PREFIX": { "Ref": "SecretsPathPrefix" }
+            "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" }
           }
         }
       }

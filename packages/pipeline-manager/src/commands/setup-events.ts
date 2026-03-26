@@ -31,6 +31,7 @@ export function setupEvents(program: Command): void {
     .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
     .option('--package-version <version>', 'event-ingestion package version (default: latest)')
     .option('--secrets-prefix <prefix>', 'Secrets Manager path prefix', 'pipeline-builder')
+    .option('--secret-name <name>', 'Platform secret name (e.g. pipeline-builder/{orgId}/platform)')
     .option('--region <region>', 'AWS region')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .action(async (options) => {
@@ -49,10 +50,17 @@ export function setupEvents(program: Command): void {
           throw new Error('PLATFORM_BASE_URL not set');
         }
 
+        const secretName = options.secretName || process.env.PLATFORM_SECRET_NAME;
+        if (!secretName) {
+          printError('--secret-name or PLATFORM_SECRET_NAME env var is required');
+          throw new Error('Platform secret name not provided');
+        }
+
         printInfo('Parameters', {
           stack: STACK_NAME,
           region,
           platformUrl,
+          secretName,
           secretsPrefix: options.secretsPrefix,
           packageVersion: options.packageVersion || 'latest',
         });
@@ -69,6 +77,7 @@ export function setupEvents(program: Command): void {
           '--parameter-overrides',
           `PlatformBaseUrl=${platformUrl}`,
           `SecretsPathPrefix=${options.secretsPrefix}`,
+          `PlatformSecretName=${secretName}`,
           '--capabilities', 'CAPABILITY_NAMED_IAM',
           '--no-fail-on-empty-changeset',
           '--region', region,
