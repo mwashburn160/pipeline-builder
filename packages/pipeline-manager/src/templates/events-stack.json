@@ -104,7 +104,7 @@
       "Type": "AWS::Lambda::Function",
       "Properties": {
         "FunctionName": "pipeline-builder-event-ingestion",
-        "Runtime": "nodejs20.x",
+        "Runtime": "nodejs24.x",
         "Handler": "index.handler",
         "Code": {
           "ZipFile": "exports.handler=async(event)=>{console.log('Placeholder handler — run pipeline-manager setup-events to deploy real code');return{statusCode:200,body:JSON.stringify({message:'hello',records:event.Records?.length||0})}}"

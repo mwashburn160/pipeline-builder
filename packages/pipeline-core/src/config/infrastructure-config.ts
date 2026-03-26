@@ -111,7 +111,7 @@ export function loadAWSConfig(): AWSConfig {
  */
 function parseRuntime(runtime: string): Runtime {
   const runtimeMap: Record<string, Runtime> = {
-    'nodejs22.x': Runtime.NODEJS_22_X,
+    'nodejs22.x': Runtime.NODEJS_24_X,
     'nodejs24.x': Runtime.NODEJS_24_X,
   };
   return runtimeMap[runtime] || Runtime.NODEJS_24_X;
