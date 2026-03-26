@@ -1,3 +1,18 @@
+## 1.37.37 (2026-03-26)
+
+### 🩹 Fixes
+
+- upgraded pipelineCore=1.44.44 ([001b7e7e](https://github.com/mwashburn160/pipeline-builder/commit/001b7e7e))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-server to 1.41.38
+- Updated @mwashburn160/ai-core to 1.16.36
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.36 (2026-03-26)
 
 ### 🩹 Fixes

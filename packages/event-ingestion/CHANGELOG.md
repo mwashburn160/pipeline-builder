@@ -1,3 +1,13 @@
+## 1.4.36 (2026-03-26)
+
+### 🩹 Fixes
+
+- upgraded pipelineCore=1.44.44 ([001b7e7e](https://github.com/mwashburn160/pipeline-builder/commit/001b7e7e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.4.35 (2026-03-26)
 
 ### 🩹 Fixes
