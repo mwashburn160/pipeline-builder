@@ -1,3 +1,18 @@
+## 1.44.42 (2026-03-26)
+
+### 🩹 Fixes
+
+- refactored org id ([49c770f6](https://github.com/mwashburn160/pipeline-builder/commit/49c770f6))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.43.34
+- Updated @mwashburn160/api-core to 1.42.34
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.41 (2026-03-25)
 
 ### 🩹 Fixes
