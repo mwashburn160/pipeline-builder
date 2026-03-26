@@ -4,32 +4,41 @@ import { CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
 import { reportingService } from '@mwashburn160/pipeline-data';
 import { inArray } from 'drizzle-orm';
 import { Router } from 'express';
+import { z } from 'zod';
 
 const logger = createLogger('event-ingest');
 
-interface IngestEvent {
-  pipelineArn: string;
-  eventSource: string;
-  eventType: string;
-  status: string;
-  executionId?: string;
-  stageName?: string;
-  actionName?: string;
-  startedAt?: string;
-  completedAt?: string;
-  durationMs?: number;
-  detail?: Record<string, unknown>;
-}
+/** Zod schema for validating individual ingest events. */
+const ingestEventSchema = z.object({
+  pipelineArn: z.string().min(1),
+  eventSource: z.enum(['codepipeline', 'codebuild', 'plugin-build']),
+  eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
+  status: z.string().min(1),
+  executionId: z.string().optional(),
+  stageName: z.string().optional(),
+  actionName: z.string().optional(),
+  startedAt: z.string().datetime({ offset: true }).optional(),
+  completedAt: z.string().datetime({ offset: true }).optional(),
+  durationMs: z.number().int().min(0).optional(),
+  detail: z.record(z.string(), z.unknown()).optional(),
+});
+
+const ingestBatchSchema = z.object({
+  events: z.array(ingestEventSchema).min(1, 'At least one event is required'),
+});
+
 
 export function createEventIngestRoutes(): Router {
   const router = Router();
 
   router.post('/events', withRoute(async ({ req, res, ctx }) => {
-    const { events } = req.body as { events?: IngestEvent[] };
-
-    if (!Array.isArray(events) || events.length === 0) {
-      return sendBadRequest(res, 'Request body must include a non-empty "events" array', ErrorCode.VALIDATION_ERROR);
+    const parsed = ingestBatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+      return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
     }
+
+    const { events } = parsed.data;
     if (events.length > CoreConstants.MAX_EVENTS_PER_BATCH) {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
@@ -58,8 +67,8 @@ export function createEventIngestRoutes(): Router {
       rows.push({
         pipelineId: registry.pipelineId,
         orgId: registry.orgId,
-        eventSource: event.eventSource as 'codepipeline' | 'codebuild' | 'plugin-build',
-        eventType: event.eventType as 'PIPELINE' | 'STAGE' | 'ACTION' | 'BUILD',
+        eventSource: event.eventSource,
+        eventType: event.eventType,
         status: event.status,
         pipelineArn: hashAccountInArn(event.pipelineArn),
         executionId: event.executionId,

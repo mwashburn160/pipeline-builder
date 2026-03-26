@@ -22,15 +22,22 @@ export interface OAuthProviders {
 }
 
 /**
- * User document interface
+ * User document interface.
+ *
+ * Users can belong to multiple organizations via the {@link UserOrganization}
+ * junction collection. The `lastActiveOrgId` field tracks which organization
+ * the user last interacted with (used as a default when issuing tokens).
+ *
+ * There is no global `role` on the User model -- roles are per-organization
+ * and stored in UserOrganization (see `models/user-organization.ts`).
  */
 export interface UserDocument extends Document {
   _id: Types.ObjectId;
   username: string;
   email: string;
   password?: string;
-  role: 'user' | 'admin';
-  organizationId?: Types.ObjectId | string;
+  /** Last organization the user interacted with. Replaces the former `organizationId` field. */
+  lastActiveOrgId?: Types.ObjectId | string;
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
@@ -75,12 +82,7 @@ const userSchema = new Schema<UserDocument>(
       type: String,
       select: false,
     },
-    role: {
-      type: String,
-      enum: ['user', 'admin'],
-      default: 'user',
-    },
-    organizationId: {
+    lastActiveOrgId: {
       type: Schema.Types.Mixed,
       ref: 'Organization',
       index: true,
@@ -182,7 +184,6 @@ userSchema.methods.getLinkedProviders = function (): string[] {
  */
 userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
 userSchema.index({ 'oauth.github.id': 1 }, { sparse: true });
-userSchema.index({ organizationId: 1, role: 1 }); // listAllUsers filter: org + role
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
 export default mongoose.model<UserDocument>('User', userSchema);

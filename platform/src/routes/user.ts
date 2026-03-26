@@ -4,6 +4,7 @@ import {
   deleteUser,
   generateToken,
   getUser,
+  listUserOrganizations,
   updateUser,
 } from '../controllers';
 import { requireAuth } from '../middleware';
@@ -21,6 +22,9 @@ router.delete('/account', requireAuth, deleteUser);
 
 /** POST /user/change-password - Change current user's password */
 router.post('/change-password', requireAuth, changePassword);
+
+/** GET /user/organizations - List all organizations the user belongs to */
+router.get('/organizations', requireAuth, listUserOrganizations);
 
 /** POST /user/generate-token - Generate API token for current user */
 router.post('/generate-token', requireAuth, generateToken);

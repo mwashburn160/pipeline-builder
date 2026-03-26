@@ -11,16 +11,37 @@ const mockSendError = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
 
+class MockAppError extends Error {
+  statusCode: number;
+  code: string;
+  constructor(statusCode: number, code: string, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+    this.name = 'AppError';
+  }
+}
+
+class MockNotFoundError extends MockAppError {
+  constructor(message: string) {
+    super(404, 'NOT_FOUND', message);
+    this.name = 'NotFoundError';
+  }
+}
+
 jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   isSystemAdmin: mockIsSystemAdmin,
+  AppError: MockAppError,
+  NotFoundError: MockNotFoundError,
   ErrorCode: {
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
     DATABASE_ERROR: 'DATABASE_ERROR',
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
+    NOT_FOUND: 'NOT_FOUND',
   },
   createLogger: () => ({
     info: jest.fn(),
@@ -34,6 +55,34 @@ jest.mock('@mwashburn160/api-core', () => ({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
+}));
+
+jest.mock('@mwashburn160/api-server', () => ({
+  withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
+    const orgId = req.user?.organizationId || '';
+    const requireOrgId = opts?.requireOrgId !== false;
+    if (requireOrgId && !orgId) {
+      mockSendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', 'VALIDATION_ERROR');
+      return;
+    }
+    const ctx = {
+      identity: { orgId, userId: req.user?.sub },
+      log: jest.fn(),
+    };
+    try {
+      await handler({ req, res, ctx, orgId, userId: req.user?.sub || '' });
+    } catch (err: any) {
+      if (err.statusCode && err.code) {
+        mockSendError(res, err.statusCode, err.message, err.code);
+      } else {
+        mockSendError(res, 500, err.message || 'Internal server error');
+      }
+    }
+  },
 }));
 
 jest.mock('../src/middleware/authorize-org', () => ({
@@ -145,7 +194,7 @@ describe('GET /quotas (own org)', () => {
     expect(mockSendError).toHaveBeenCalledWith(
       res, 400,
       expect.stringContaining('Organization ID is required'),
-      'MISSING_REQUIRED_FIELD',
+      'VALIDATION_ERROR',
     );
   });
 
@@ -156,7 +205,7 @@ describe('GET /quotas (own org)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to fetch quotas', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB down');
   });
 });
 
@@ -170,7 +219,7 @@ describe('GET /quotas/all (system admin)', () => {
     const orgs = [makeOrg({ _id: 'org-1', name: 'Org A' }), makeOrg({ _id: 'org-2', name: 'Org B' })];
     mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(orgs) }) }) });
 
-    const req = mockReq();
+    const req = mockReq({ user: { organizationId: 'admin-org' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -183,7 +232,7 @@ describe('GET /quotas/all (system admin)', () => {
   it('returns 403 for non-admin user', async () => {
     mockIsSystemAdmin.mockReturnValue(false);
 
-    const req = mockReq();
+    const req = mockReq({ user: { organizationId: 'some-org' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -198,11 +247,11 @@ describe('GET /quotas/all (system admin)', () => {
     mockIsSystemAdmin.mockReturnValue(true);
     mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) }) });
 
-    const req = mockReq();
+    const req = mockReq({ user: { organizationId: 'admin-org' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to list organizations', 'DATABASE_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
 
@@ -215,7 +264,7 @@ describe('GET /quotas/:orgId', () => {
     const org = makeOrg();
     mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(org) }) });
 
-    const req = mockReq({ params: { orgId: 'org-123' } });
+    const req = mockReq({ params: { orgId: 'org-123' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -228,7 +277,7 @@ describe('GET /quotas/:orgId', () => {
   it('returns default response when org not found', async () => {
     mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) });
 
-    const req = mockReq({ params: { orgId: 'missing-org' } });
+    const req = mockReq({ params: { orgId: 'missing-org' }, user: { organizationId: 'missing-org' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -248,7 +297,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
     const org = makeOrg();
     mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(org) }) });
 
-    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' } });
+    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -264,7 +313,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   it('returns default values when org not found', async () => {
     mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }) });
 
-    const req = mockReq({ params: { orgId: 'unknown', quotaType: 'pipelines' } });
+    const req = mockReq({ params: { orgId: 'unknown', quotaType: 'pipelines' }, user: { organizationId: 'unknown' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -278,7 +327,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   });
 
   it('returns 400 for invalid quota type', async () => {
-    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'invalid' } });
+    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'invalid' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -292,10 +341,10 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   it('returns 500 on database error', async () => {
     mockFindById.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) });
 
-    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' } });
+    const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to fetch quota status', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });

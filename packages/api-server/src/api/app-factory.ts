@@ -107,6 +107,11 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     enableCompression = true,
   } = options;
 
+  // Fail fast if JWT_SECRET is not configured — prevents silent auth failures at runtime
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required. Set it before starting the server.');
+  }
+
   const serverConfig = Config.get('server');
   const app = express();
 

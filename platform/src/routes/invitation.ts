@@ -34,15 +34,15 @@ router.post('/accept', requireAuth, acceptInvitation);
  */
 
 /** POST /invitation/send - Send new invitation (org admin only) */
-router.post('/send', requireAuth, requireRole('admin'), sendInvitation);
+router.post('/send', requireAuth, requireRole('admin', 'owner'), sendInvitation);
 
 /** GET /invitation - List organization's invitations (org admin only) */
-router.get('/', requireAuth, requireRole('admin'), listInvitations);
+router.get('/', requireAuth, requireRole('admin', 'owner'), listInvitations);
 
 /** DELETE /invitation/:invitationId - Revoke pending invitation (org admin only) */
-router.delete('/:invitationId', requireAuth, requireRole('admin'), revokeInvitation);
+router.delete('/:invitationId', requireAuth, requireRole('admin', 'owner'), revokeInvitation);
 
 /** POST /invitation/:invitationId/resend - Resend invitation email (org admin only) */
-router.post('/:invitationId/resend', requireAuth, requireRole('admin'), resendInvitation);
+router.post('/:invitationId/resend', requireAuth, requireRole('admin', 'owner'), resendInvitation);
 
 export default router;

@@ -5,21 +5,18 @@ import {
   sendError,
   sendBadRequest,
   ErrorCode,
-  createLogger,
   getParam,
-  errorMessage,
   parseQueryInt,
   parseQueryString,
   validateBody,
 } from '@mwashburn160/api-core';
-import { Router, Request, Response, RequestHandler } from 'express';
+import { withRoute } from '@mwashburn160/api-server';
+import { Router, RequestHandler } from 'express';
 import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { BillingEvent } from '../models/billing-event';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
 import { AdminSubscriptionUpdateSchema } from '../validation/schemas';
-
-const logger = createLogger('billing-admin');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
@@ -41,28 +38,24 @@ export function createAdminSubscriptionRoutes(): Router {
     '/admin/subscriptions',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
-    async (req: Request, res: Response) => {
-      try {
-        const limit = parseQueryInt(req.query.limit, 50);
-        const offset = parseQueryInt(req.query.offset, 0);
-        const status = parseQueryString(req.query.status);
+    withRoute(async ({ req, res, ctx }) => {
+      const limit = parseQueryInt(req.query.limit, 50);
+      const offset = parseQueryInt(req.query.offset, 0);
+      const status = parseQueryString(req.query.status);
 
-        const filter: Record<string, unknown> = {};
-        if (status) filter.status = status;
+      const filter: Record<string, unknown> = {};
+      if (status) filter.status = status;
 
-        const [subscriptions, total] = await Promise.all([
-          Subscription.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
-          Subscription.countDocuments(filter),
-        ]);
+      const [subscriptions, total] = await Promise.all([
+        Subscription.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
+        Subscription.countDocuments(filter),
+      ]);
 
-        const result = subscriptions.map((sub) => buildSubscriptionResponse(sub));
+      const result = subscriptions.map((sub) => buildSubscriptionResponse(sub));
 
-        return sendSuccess(res, 200, { subscriptions: result, total, limit, offset });
-      } catch (error) {
-        logger.error('Failed to list subscriptions', { error: errorMessage(error) });
-        return sendError(res, 500, 'Failed to list subscriptions', ErrorCode.INTERNAL_ERROR);
-      }
-    },
+      ctx.log('COMPLETED', 'Listed all subscriptions', { total, limit, offset });
+      return sendSuccess(res, 200, { subscriptions: result, total, limit, offset });
+    }, { requireOrgId: false }),
   );
 
   // PUT /billing/admin/subscriptions/:id — admin override subscription
@@ -71,7 +64,7 @@ export function createAdminSubscriptionRoutes(): Router {
     '/admin/subscriptions/:id',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
-    async (req: Request, res: Response) => {
+    withRoute(async ({ req, res, ctx }) => {
       const subscriptionId = getParam(req.params, 'id');
       const validation = validateBody(req, AdminSubscriptionUpdateSchema);
       if (!validation.ok) {
@@ -79,57 +72,52 @@ export function createAdminSubscriptionRoutes(): Router {
       }
       const { planId, status, interval, cancelAtPeriodEnd } = validation.value;
 
-      try {
-        const subscription = await Subscription.findById(subscriptionId);
-        if (!subscription) {
-          return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
-        }
-
-        const orgId = subscription.orgId;
-
-        if (planId) {
-          const plan = await Plan.findOne({ _id: planId, isActive: true });
-          if (!plan) {
-            return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
-          }
-          const oldPlanId = subscription.planId;
-          subscription.planId = planId;
-
-          // Sync tier
-          const authHeader = req.headers.authorization || '';
-          await syncTierToQuotaService(orgId, plan.tier, authHeader);
-          await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
-        }
-
-        if (status && status !== subscription.status) {
-          subscription.status = status;
-          await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId);
-        } else if (status) {
-          subscription.status = status;
-        }
-
-        if (interval && interval !== subscription.interval) {
-          const oldInterval = subscription.interval;
-          subscription.interval = interval;
-          await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId);
-        } else if (interval) {
-          subscription.interval = interval;
-        }
-
-        if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
-
-        await subscription.save();
-
-        logger.info('Admin updated subscription', { subscriptionId, planId, status });
-
-        return sendSuccess(res, 200, {
-          subscription: buildSubscriptionResponse(subscription),
-        });
-      } catch (error) {
-        logger.error('Failed to update subscription', { error: errorMessage(error) });
-        return sendError(res, 500, 'Failed to update subscription', ErrorCode.INTERNAL_ERROR);
+      const subscription = await Subscription.findById(subscriptionId);
+      if (!subscription) {
+        return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
       }
-    },
+
+      const orgId = subscription.orgId;
+
+      if (planId) {
+        const plan = await Plan.findOne({ _id: planId, isActive: true });
+        if (!plan) {
+          return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+        }
+        const oldPlanId = subscription.planId;
+        subscription.planId = planId;
+
+        // Sync tier
+        const authHeader = req.headers.authorization || '';
+        await syncTierToQuotaService(orgId, plan.tier, authHeader);
+        await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
+      }
+
+      if (status && status !== subscription.status) {
+        subscription.status = status;
+        await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId);
+      } else if (status) {
+        subscription.status = status;
+      }
+
+      if (interval && interval !== subscription.interval) {
+        const oldInterval = subscription.interval;
+        subscription.interval = interval;
+        await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId);
+      } else if (interval) {
+        subscription.interval = interval;
+      }
+
+      if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
+
+      await subscription.save();
+
+      ctx.log('COMPLETED', 'Admin updated subscription', { subscriptionId, planId, status });
+
+      return sendSuccess(res, 200, {
+        subscription: buildSubscriptionResponse(subscription),
+      });
+    }, { requireOrgId: false }),
   );
 
   // GET /billing/admin/events — list billing events
@@ -138,35 +126,31 @@ export function createAdminSubscriptionRoutes(): Router {
     '/admin/events',
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
-    async (req: Request, res: Response) => {
-      try {
-        const limit = parseQueryInt(req.query.limit, 50);
-        const offset = parseQueryInt(req.query.offset, 0);
-        const orgId = parseQueryString(req.query.orgId);
+    withRoute(async ({ req, res, ctx }) => {
+      const limit = parseQueryInt(req.query.limit, 50);
+      const offset = parseQueryInt(req.query.offset, 0);
+      const orgId = parseQueryString(req.query.orgId);
 
-        const filter: Record<string, unknown> = {};
-        if (orgId) filter.orgId = orgId;
+      const filter: Record<string, unknown> = {};
+      if (orgId) filter.orgId = orgId;
 
-        const [events, total] = await Promise.all([
-          BillingEvent.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
-          BillingEvent.countDocuments(filter),
-        ]);
+      const [events, total] = await Promise.all([
+        BillingEvent.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
+        BillingEvent.countDocuments(filter),
+      ]);
 
-        const result = events.map((event) => ({
-          id: event._id.toString(),
-          orgId: event.orgId,
-          subscriptionId: event.subscriptionId,
-          type: event.type,
-          details: event.details,
-          createdAt: event.createdAt.toISOString(),
-        }));
+      const result = events.map((event) => ({
+        id: event._id.toString(),
+        orgId: event.orgId,
+        subscriptionId: event.subscriptionId,
+        type: event.type,
+        details: event.details,
+        createdAt: event.createdAt.toISOString(),
+      }));
 
-        return sendSuccess(res, 200, { events: result, total, limit, offset });
-      } catch (error) {
-        logger.error('Failed to list billing events', { error: errorMessage(error) });
-        return sendError(res, 500, 'Failed to list billing events', ErrorCode.INTERNAL_ERROR);
-      }
-    },
+      ctx.log('COMPLETED', 'Listed billing events', { total, limit, offset });
+      return sendSuccess(res, 200, { events: result, total, limit, offset });
+    }, { requireOrgId: false }),
   );
 
   return router;

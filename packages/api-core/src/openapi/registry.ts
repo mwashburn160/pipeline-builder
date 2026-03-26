@@ -1,5 +1,8 @@
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
 
+import { registerAllRoutes } from './routes';
+import { registerSchemas } from './schema-registry';
+
 /** Shared OpenAPI registry for all schema and path registrations. */
 export const registry = new OpenAPIRegistry();
 
@@ -11,22 +14,14 @@ export interface OpenApiSpecOptions {
   serverUrl?: string;
 }
 
-/** Registration callbacks queued by schema-registry and route modules. */
-const registrationCallbacks: Array<() => void> = [];
 let _initialized = false;
 
-/** Queue a registration callback. Called by schema-registry and route modules. */
-export function addRegistration(callback: () => void): void {
-  registrationCallbacks.push(callback);
-}
-
-/** Execute all queued registrations once. */
+/** Execute all registrations once. */
 function ensureInitialized(): void {
   if (_initialized) return;
   _initialized = true;
-  for (const cb of registrationCallbacks) {
-    cb();
-  }
+  registerSchemas();
+  registerAllRoutes();
 }
 
 /**

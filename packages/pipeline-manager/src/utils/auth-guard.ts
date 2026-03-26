@@ -48,7 +48,7 @@ export function warnIfNotAdmin(token: string): void {
     return;
   }
 
-  if (payload.role !== 'admin') {
+  if (payload.role !== 'admin' && payload.role !== 'owner') {
     printWarning('Token does not appear to have admin role — the server may reject this request');
   }
 }

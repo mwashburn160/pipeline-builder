@@ -1,9 +1,9 @@
-import { addRegistration, registry } from '../registry';
+import { registry } from '../registry';
 
 const tags = ['Plugins'];
 const auth = [{ bearerAuth: [] }];
 
-addRegistration(() => {
+export function registerPluginRoutes(): void {
   registry.registerPath({
     method: 'get',
     path: '/plugins',
@@ -101,4 +101,4 @@ addRegistration(() => {
     security: auth,
     responses: { 202: { description: 'Plugin build queued' }, 400: { description: 'Validation error' }, 403: { description: 'Admin required' }, 429: { description: 'Quota exceeded' } },
   });
-});
+}

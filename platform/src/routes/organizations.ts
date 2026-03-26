@@ -5,6 +5,6 @@ import { requireAuth, requireRole } from '../middleware';
 const router = Router();
 
 /** GET /organizations - List all organizations (system admin only) */
-router.get('/', requireAuth, requireRole('admin'), listAllOrganizations);
+router.get('/', requireAuth, requireRole('admin', 'owner'), listAllOrganizations);
 
 export default router;

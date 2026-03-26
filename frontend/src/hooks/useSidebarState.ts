@@ -41,7 +41,7 @@ export function useSidebarState() {
   const toggleCollapsed = useCallback(() => {
     setCollapsed((prev) => {
       const next = !prev;
-      try { localStorage.setItem(COLLAPSED_KEY, String(next)); } catch {}
+      try { localStorage.setItem(COLLAPSED_KEY, String(next)); } catch { /* localStorage may be unavailable */ }
       return next;
     });
   }, []);

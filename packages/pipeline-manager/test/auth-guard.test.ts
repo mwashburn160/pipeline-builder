@@ -48,6 +48,12 @@ describe('warnIfNotAdmin', () => {
     expect(printWarning).not.toHaveBeenCalled();
   });
 
+  it('should not warn for owner role', () => {
+    const token = fakeJwt({ role: 'owner' });
+    warnIfNotAdmin(token);
+    expect(printWarning).not.toHaveBeenCalled();
+  });
+
   it('should warn for non-admin role', () => {
     const token = fakeJwt({ role: 'user' });
     warnIfNotAdmin(token);

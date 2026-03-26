@@ -1,11 +1,21 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/router';
-import { User } from '@/types';
+import { User, UserOrgMembership } from '@/types';
 import api from '@/lib/api';
 import { clearPluginCache } from './usePlugins';
 
+/**
+ * Auth context shape.
+ *
+ * Supports multi-org membership: `organizations` lists all orgs the user
+ * belongs to (via UserOrganization), and `switchOrganization` re-issues
+ * tokens scoped to a different org (calls `POST /auth/switch-org`).
+ * After switching, `user.role` and `user.organizationId` reflect the new org.
+ */
 interface AuthContextType {
   user: User | null;
+  /** All organizations the user belongs to, fetched from GET /user/organizations */
+  organizations: UserOrgMembership[];
   isLoading: boolean;
   isAuthenticated: boolean;
   isInitialized: boolean;
@@ -13,6 +23,8 @@ interface AuthContextType {
   register: (username: string, email: string, password: string, organizationName?: string, planId?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
+  switchOrganization: (orgId: string) => Promise<void>;
 }
 
 /** Raw user shape from the backend (may use _id/sub instead of id) */
@@ -37,6 +49,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [organizations, setOrganizations] = useState<UserOrgMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const router = useRouter();
@@ -73,6 +86,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Set organization ID for API requests
           if (userData.organizationId) {
             api.setOrganizationId(userData.organizationId);
+          }
+          // Use organizations from profile if available, otherwise fetch separately
+          if (userData.organizations) {
+            setOrganizations(userData.organizations);
+          } else {
+            try {
+              const orgRes = await api.getUserOrganizations();
+              const orgs = (orgRes.data?.organizations || []).map(o => ({
+                id: o.organizationId,
+                name: o.organizationName,
+                slug: o.slug,
+                role: o.role as UserOrgMembership['role'],
+              }));
+              setOrganizations(orgs);
+            } catch {
+              setOrganizations([]);
+            }
           }
           return;
         }
@@ -169,6 +199,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
+   * Switch active organization — re-issues tokens and refreshes user profile.
+   */
+  const switchOrganization = useCallback(async (orgId: string) => {
+    await api.switchOrganization(orgId);
+    await refreshUser();
+  }, [refreshUser]);
+
+  /**
    * Logout user
    */
   const logout = useCallback(async () => {
@@ -189,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        organizations,
         isLoading,
         isAuthenticated: !!user,
         isInitialized,
@@ -196,6 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         refreshUser,
+        switchOrganization,
       }}
     >
       {children}

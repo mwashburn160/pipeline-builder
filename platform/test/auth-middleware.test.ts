@@ -131,8 +131,8 @@ describe('auth middleware', () => {
     });
 
     it('should allow when role is in list', () => {
-      const middleware = requireRole('user', 'admin');
-      const req = { user: { role: 'user' } } as any;
+      const middleware = requireRole('member', 'admin');
+      const req = { user: { role: 'member' } } as any;
       const res = mockRes();
       const next = mockNext();
 
@@ -142,7 +142,7 @@ describe('auth middleware', () => {
 
     it('should deny when role is not in list', () => {
       const middleware = requireRole('admin');
-      const req = { user: { role: 'user' } } as any;
+      const req = { user: { role: 'member' } } as any;
       const res = mockRes();
       const next = mockNext();
 

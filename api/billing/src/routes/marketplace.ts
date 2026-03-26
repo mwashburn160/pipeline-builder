@@ -6,6 +6,7 @@ import {
   createLogger,
   errorMessage,
 } from '@mwashburn160/api-core';
+import { withRoute } from '@mwashburn160/api-server';
 import { Router, Request, Response, RequestHandler } from 'express';
 import { config } from '../config';
 import {
@@ -193,6 +194,7 @@ export function createMarketplaceRoutes(): Router {
   const router: Router = Router();
 
   // POST /billing/marketplace/resolve — Registration redirect endpoint
+  // No auth — this is called by AWS Marketplace redirect flow
 
   router.post(
     '/marketplace/resolve',
@@ -327,6 +329,7 @@ export function createMarketplaceRoutes(): Router {
   );
 
   // POST /billing/marketplace/sns — SNS notification webhook
+  // No auth — SNS uses signature verification instead
 
   router.post(
     '/marketplace/sns',
@@ -398,48 +401,39 @@ export function createMarketplaceRoutes(): Router {
   router.get(
     '/marketplace/entitlements',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    async (req: Request, res: Response) => {
-      const orgId = req.user?.organizationId;
-      if (!orgId) {
-        return sendError(res, 400, 'Organization ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    withRoute(async ({ res, ctx, orgId }) => {
+      const provider = getMarketplaceProvider();
+      if (!provider) {
+        return sendError(
+          res, 400,
+          'AWS Marketplace provider is not configured',
+          ErrorCode.VALIDATION_ERROR,
+        );
       }
 
-      try {
-        const provider = getMarketplaceProvider();
-        if (!provider) {
-          return sendError(
-            res, 400,
-            'AWS Marketplace provider is not configured',
-            ErrorCode.VALIDATION_ERROR,
-          );
-        }
+      const subscription = await Subscription.findOne({
+        orgId,
+        'metadata.provider': 'aws-marketplace',
+      });
 
-        const subscription = await Subscription.findOne({
-          orgId,
-          'metadata.provider': 'aws-marketplace',
-        });
-
-        if (!subscription || !subscription.metadata?.awsCustomerIdentifier) {
-          return sendError(
-            res, 404,
-            'No marketplace subscription found for this organization',
-            ErrorCode.NOT_FOUND,
-          );
-        }
-
-        const customerIdentifier = subscription.metadata.awsCustomerIdentifier as string;
-        const entitlements = await provider.getEntitlements(customerIdentifier);
-
-        return sendSuccess(res, 200, {
-          customerIdentifier,
-          entitlements,
-          currentPlanId: subscription.planId,
-        });
-      } catch (error) {
-        logger.error('Failed to get marketplace entitlements', { error: errorMessage(error), orgId });
-        return sendError(res, 500, 'Failed to get entitlements', ErrorCode.INTERNAL_ERROR);
+      if (!subscription || !subscription.metadata?.awsCustomerIdentifier) {
+        return sendError(
+          res, 404,
+          'No marketplace subscription found for this organization',
+          ErrorCode.NOT_FOUND,
+        );
       }
-    },
+
+      const customerIdentifier = subscription.metadata.awsCustomerIdentifier as string;
+      const entitlements = await provider.getEntitlements(customerIdentifier);
+
+      ctx.log('COMPLETED', 'Retrieved marketplace entitlements', { orgId, customerIdentifier });
+      return sendSuccess(res, 200, {
+        customerIdentifier,
+        entitlements,
+        currentPlanId: subscription.planId,
+      });
+    }),
   );
 
   return router;

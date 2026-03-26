@@ -12,16 +12,37 @@ const mockSendQuotaExceeded = jest.fn();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
 const mockIsSystemOrg = jest.fn().mockReturnValue(false);
 
+class MockAppError extends Error {
+  statusCode: number;
+  code: string;
+  constructor(statusCode: number, code: string, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+    this.name = 'AppError';
+  }
+}
+
+class MockNotFoundError extends MockAppError {
+  constructor(message: string) {
+    super(404, 'NOT_FOUND', message);
+    this.name = 'NotFoundError';
+  }
+}
+
 jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
   isSystemOrg: mockIsSystemOrg,
+  AppError: MockAppError,
+  NotFoundError: MockNotFoundError,
   ErrorCode: {
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     DATABASE_ERROR: 'DATABASE_ERROR',
     ORG_NOT_FOUND: 'ORG_NOT_FOUND',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
+    NOT_FOUND: 'NOT_FOUND',
   },
   createLogger: () => ({
     info: jest.fn(),
@@ -62,6 +83,34 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     mockSendError(res, 400, msg, code);
   }),
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
+}));
+
+jest.mock('@mwashburn160/api-server', () => ({
+  withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
+    const orgId = req.user?.organizationId || '';
+    const requireOrgId = opts?.requireOrgId !== false;
+    if (requireOrgId && !orgId) {
+      mockSendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', 'VALIDATION_ERROR');
+      return;
+    }
+    const ctx = {
+      identity: { orgId, userId: req.user?.sub },
+      log: jest.fn(),
+    };
+    try {
+      await handler({ req, res, ctx, orgId, userId: req.user?.sub || '' });
+    } catch (err: any) {
+      if (err.statusCode && err.code) {
+        mockSendError(res, err.statusCode, err.message, err.code);
+      } else {
+        mockSendError(res, 500, err.message || 'Internal server error');
+      }
+    }
+  },
 }));
 
 jest.mock('../src/middleware/authorize-org', () => ({
@@ -148,6 +197,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { name: 'New Name', slug: 'new-name' },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -169,6 +219,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { tier: 'pro' },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -185,15 +236,16 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const req = mockReq({
       params: { orgId: 'missing' },
       body: { name: 'Test' },
+      user: { organizationId: 'missing' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'ORG_NOT_FOUND');
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
   });
 
   it('returns 400 for invalid body (empty)', async () => {
-    const req = mockReq({ params: { orgId: 'org-123' }, body: {} });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -206,11 +258,12 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { name: 'Test' },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to update quota', 'DATABASE_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
 
@@ -225,7 +278,7 @@ describe('POST /quotas/:orgId/reset', () => {
     const org = makeSaveableOrg();
     mockFindById.mockResolvedValue(org);
 
-    const req = mockReq({ params: { orgId: 'org-123' }, body: {} });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -244,7 +297,7 @@ describe('POST /quotas/:orgId/reset', () => {
     const org = makeSaveableOrg();
     mockFindById.mockResolvedValue(org);
 
-    const req = mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins' } });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -260,15 +313,15 @@ describe('POST /quotas/:orgId/reset', () => {
   it('returns 404 when org not found', async () => {
     mockFindById.mockResolvedValue(null);
 
-    const req = mockReq({ params: { orgId: 'missing' }, body: {} });
+    const req = mockReq({ params: { orgId: 'missing' }, body: {}, user: { organizationId: 'missing' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'ORG_NOT_FOUND');
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
   });
 
   it('returns 400 for invalid quotaType', async () => {
-    const req = mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'invalid' } });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'invalid' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -278,11 +331,11 @@ describe('POST /quotas/:orgId/reset', () => {
   it('returns 500 on database error', async () => {
     mockFindById.mockRejectedValue(new Error('DB error'));
 
-    const req = mockReq({ params: { orgId: 'org-123' }, body: {} });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to reset quota usage', 'DATABASE_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
 
@@ -308,6 +361,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -338,6 +392,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -358,15 +413,16 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'missing' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'missing' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'ORG_NOT_FOUND');
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
   });
 
   it('returns 400 for missing quotaType', async () => {
-    const req = mockReq({ params: { orgId: 'org-123' }, body: {} });
+    const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -377,6 +433,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { quotaType: 'plugins', amount: -5 },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -390,11 +447,12 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to increment quota usage', 'DATABASE_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 
   it('bypasses quota limit for system org', async () => {
@@ -412,6 +470,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'org-123' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
@@ -436,10 +495,11 @@ describe('POST /quotas/:orgId/increment', () => {
     const req = mockReq({
       params: { orgId: 'missing' },
       body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'missing' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'ORG_NOT_FOUND');
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
   });
 });

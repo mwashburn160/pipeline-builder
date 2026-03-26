@@ -11,11 +11,11 @@ export interface AccessTokenPayload {
   username: string;
   /** User email address */
   email: string;
-  /** User role */
-  role: 'user' | 'admin';
-  /** Whether user has admin privileges */
+  /** Per-org role in the active organization */
+  role: 'owner' | 'admin' | 'member';
+  /** Whether user has admin privileges (owner or admin) */
   isAdmin: boolean;
-  /** Organization ID the user belongs to */
+  /** Active organization ID */
   organizationId?: string;
   /** Organization name */
   organizationName?: string;
@@ -53,4 +53,4 @@ export interface RefreshTokenPayload {
  * - 'user': Standard user with limited permissions
  * - 'admin': Organization administrator with full permissions
  */
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'owner' | 'admin' | 'member';

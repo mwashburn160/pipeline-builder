@@ -24,7 +24,7 @@ export interface InvitationDocument extends Document {
   email: string;
   organizationId: Types.ObjectId;
   invitedBy: Types.ObjectId;
-  role: 'user' | 'admin';
+  role: 'owner' | 'admin' | 'member';
   token: string;
   status: InvitationStatus;
   expiresAt: Date;
@@ -67,8 +67,8 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     role: {
       type: String,
-      enum: ['user', 'admin'],
-      default: 'user',
+      enum: ['owner', 'admin', 'member'],
+      default: 'member',
     },
     token: {
       type: String,

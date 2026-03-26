@@ -222,15 +222,15 @@ function buildKanikoArgs(
     `--dockerfile=${path.join(contextDir, dockerfile)}`,
     `--destination=${fullImage}`,
     '--verbosity=info',
-    `--cache=true`,
+    '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
   ];
 
   if (registry.insecure) {
     args.push(
-      `--insecure`,
-      `--insecure-pull`,
-      `--skip-tls-verify`,
+      '--insecure',
+      '--insecure-pull',
+      '--skip-tls-verify',
     );
   }
 

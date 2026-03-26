@@ -15,7 +15,7 @@ import api from '@/lib/api';
 interface InvitationListItem {
   id: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'owner' | 'admin' | 'member';
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   invitedBy: string;
   inviterName: string;
@@ -55,7 +55,7 @@ export default function InvitationsPage() {
   // Send modal state
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [sendEmail, setSendEmail] = useState('');
-  const [sendRole, setSendRole] = useState<'user' | 'admin'>('user');
+  const [sendRole, setSendRole] = useState<'admin' | 'member'>('member');
   const [sendInvitationType, setSendInvitationType] = useState('any');
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export default function InvitationsPage() {
       await api.sendInvitation({ email: sendEmail.trim(), role: sendRole, invitationType: sendInvitationType });
       setSendModalOpen(false);
       setSendEmail('');
-      setSendRole('user');
+      setSendRole('member');
       setSendInvitationType('any');
       list.refresh();
     } catch (err) {
@@ -254,8 +254,8 @@ export default function InvitationsPage() {
               </div>
               <div>
                 <label className="label">Role</label>
-                <select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'user' | 'admin')} className="input" disabled={sendLoading}>
-                  <option value="user">User</option>
+                <select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} className="input" disabled={sendLoading}>
+                  <option value="member">Member</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>

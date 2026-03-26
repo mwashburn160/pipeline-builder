@@ -45,6 +45,7 @@ export function login(program: Command): void {
     .option('-u, --identifier <identifier>', 'Username or email')
     .option('-p, --password <password>', 'Password')
     .option('--refresh <refreshToken>', 'Use a refresh token instead of login credentials')
+    .option('--org <orgId>', 'Switch to a specific organization after login')
     .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
@@ -132,6 +133,41 @@ export function login(program: Command): void {
 
         if (!isRefresh) recordAuthSuccess();
 
+        // Switch to a specific organization if --org is provided
+        if (options.org) {
+          if (!quiet) {
+            printInfo('Switching to organization', { orgId: options.org });
+          }
+
+          const switchUrl = `${options.url}/api/auth/switch-org`;
+          printDebug('POST', { url: switchUrl });
+
+          const switchResponse = await axios.post<LoginResponse>(
+            switchUrl,
+            { organizationId: options.org },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              httpsAgent,
+              timeout: 30000,
+            },
+          );
+
+          const switchedToken = switchResponse.data?.data?.accessToken;
+          if (!switchedToken) {
+            printError('Organization switch failed: no access token in response');
+            process.exit(ERROR_CODES.AUTHENTICATION);
+          }
+
+          token = switchedToken;
+
+          if (!quiet) {
+            printSuccess(`Switched to organization ${options.org}`);
+          }
+        }
+
         if (!quiet) {
           console.log('');
           printSuccess(isRefresh ? 'Token refreshed successfully' : 'Login successful');
@@ -143,10 +179,11 @@ export function login(program: Command): void {
         if (!quiet) {
           console.log('');
           printInfo('Tip: Run the following to set the token in your shell:');
+          const orgFlag = options.org ? ` --org ${options.org}` : '';
           if (isRefresh) {
-            console.log(green("  eval $(pipeline-manager login --refresh '<refresh-token>' --quiet)"));
+            console.log(green(`  eval $(pipeline-manager login --refresh '<refresh-token>'${orgFlag} --quiet)`));
           } else {
-            console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***' --quiet)`));
+            console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***'${orgFlag} --quiet)`));
           }
         }
       } catch (error) {

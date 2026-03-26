@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, logout, register, refresh, sendVerificationEmail, verifyEmail } from '../controllers';
+import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
 import { requireAuth, isValidRefreshToken } from '../middleware';
 
 const router = Router();
@@ -15,6 +15,9 @@ router.post('/refresh', isValidRefreshToken, refresh);
 
 /** POST /auth/logout - Invalidate current session */
 router.post('/logout', requireAuth, logout);
+
+/** POST /auth/switch-org - Switch active organization and re-issue tokens */
+router.post('/switch-org', requireAuth, switchOrg);
 
 /** POST /auth/send-verification - Send email verification link */
 router.post('/send-verification', requireAuth, sendVerificationEmail);

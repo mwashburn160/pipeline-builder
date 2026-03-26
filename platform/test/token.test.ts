@@ -41,18 +41,16 @@ function mockUser(overrides: Partial<{
   _id: { toString(): string };
   username: string;
   email: string;
-  role: string;
   isEmailVerified: boolean;
-  organizationId: { toString(): string } | string;
+  lastActiveOrgId: { toString(): string } | string;
   tokenVersion: number;
 }> = {}) {
   return {
     _id: overrides._id || { toString: () => 'user-123' },
     username: overrides.username || 'testuser',
     email: overrides.email || 'test@example.com',
-    role: overrides.role || 'user',
     isEmailVerified: overrides.isEmailVerified ?? true,
-    organizationId: 'organizationId' in overrides ? overrides.organizationId : { toString: () => 'org-456' },
+    lastActiveOrgId: 'lastActiveOrgId' in overrides ? overrides.lastActiveOrgId : { toString: () => 'org-456' },
     tokenVersion: overrides.tokenVersion ?? 1,
   } as any;
 }
@@ -61,7 +59,7 @@ function mockUser(overrides: Partial<{
 
 describe('token utilities', () => {
   describe('createAccessTokenPayload', () => {
-    it('should build payload from user document', () => {
+    it('should build payload from user document without membership', () => {
       const user = mockUser();
       const payload = createAccessTokenPayload(user);
 
@@ -69,23 +67,36 @@ describe('token utilities', () => {
       expect(payload.sub).toBe('user-123');
       expect(payload.username).toBe('testuser');
       expect(payload.email).toBe('test@example.com');
-      expect(payload.role).toBe('user');
+      expect(payload.role).toBe('member');
       expect(payload.isAdmin).toBe(false);
-      expect(payload.organizationId).toBe('org-456');
+      expect(payload.organizationId).toBeUndefined();
       expect(payload.tokenVersion).toBe(1);
       expect(payload.isEmailVerified).toBe(true);
     });
 
-    it('should set isAdmin=true for admin role', () => {
-      const user = mockUser({ role: 'admin' });
-      const payload = createAccessTokenPayload(user);
+    it('should build payload with membership context', () => {
+      const user = mockUser();
+      const membership = { organizationId: 'org-456', organizationName: 'Test Org', role: 'admin' as const };
+      const payload = createAccessTokenPayload(user, membership);
+      expect(payload.role).toBe('admin');
       expect(payload.isAdmin).toBe(true);
+      expect(payload.organizationId).toBe('org-456');
+      expect(payload.organizationName).toBe('Test Org');
     });
 
-    it('should handle undefined organizationId', () => {
-      const user = mockUser({ organizationId: undefined as any });
-      const payload = createAccessTokenPayload(user);
-      expect(payload.organizationId).toBeUndefined();
+    it('should set isAdmin=true for owner role', () => {
+      const user = mockUser();
+      const membership = { organizationId: 'org-1', role: 'owner' as const };
+      const payload = createAccessTokenPayload(user, membership);
+      expect(payload.isAdmin).toBe(true);
+      expect(payload.role).toBe('owner');
+    });
+
+    it('should set isAdmin=false for member role', () => {
+      const user = mockUser();
+      const membership = { organizationId: 'org-1', role: 'member' as const };
+      const payload = createAccessTokenPayload(user, membership);
+      expect(payload.isAdmin).toBe(false);
     });
   });
 

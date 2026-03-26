@@ -172,11 +172,11 @@ describe('sendInvitationSchema', () => {
     expect(sendInvitationSchema.safeParse({ email: 'invite@test.com' }).success).toBe(true);
   });
 
-  it('should default role to user', () => {
+  it('should default role to member', () => {
     const result = sendInvitationSchema.safeParse({ email: 'invite@test.com' });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.role).toBe('user');
+      expect(result.data.role).toBe('member');
     }
   });
 
@@ -231,8 +231,9 @@ describe('addMemberSchema', () => {
 
 describe('updateMemberRoleSchema', () => {
   it('should accept valid roles', () => {
-    expect(updateMemberRoleSchema.safeParse({ role: 'user' }).success).toBe(true);
+    expect(updateMemberRoleSchema.safeParse({ role: 'owner' }).success).toBe(true);
     expect(updateMemberRoleSchema.safeParse({ role: 'admin' }).success).toBe(true);
+    expect(updateMemberRoleSchema.safeParse({ role: 'member' }).success).toBe(true);
   });
 
   it('should reject invalid role', () => {

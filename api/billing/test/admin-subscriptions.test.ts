@@ -39,6 +39,10 @@ jest.mock('@mwashburn160/api-core', () => ({
   parseQueryInt: jest.fn((_val: unknown, defaultVal: number) => defaultVal),
   parseQueryString: jest.fn((_val: unknown) => undefined as string | undefined),
   validateBody: mockValidateBody,
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
 }));
 
 const mockSubscriptionFind = jest.fn();
@@ -86,6 +90,22 @@ jest.mock('../src/helpers/billing-helpers', () => ({
 
 jest.mock('../src/validation/schemas', () => ({
   AdminSubscriptionUpdateSchema: {},
+}));
+
+jest.mock('@mwashburn160/api-server', () => ({
+  withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
+    const ctx = {
+      identity: { orgId: req.user?.organizationId, userId: req.user?.sub },
+      log: jest.fn(),
+    };
+    const orgId = req.user?.organizationId || '';
+    const userId = req.user?.sub || '';
+    try {
+      await handler({ req, res, ctx, orgId, userId });
+    } catch (err: any) {
+      mockSendError(res, 500, err.message || 'Internal server error');
+    }
+  },
 }));
 
 import { createAdminSubscriptionRoutes } from '../src/routes/admin-subscriptions';
@@ -186,7 +206,7 @@ describe('GET /admin/subscriptions', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to list subscriptions', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
 
@@ -340,6 +360,6 @@ describe('GET /admin/events', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to list billing events', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });

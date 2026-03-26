@@ -91,12 +91,19 @@ export const changePasswordSchema = z.object({
 /** Invitation send request schema. */
 export const sendInvitationSchema = z.object({
   email: emailSchema,
-  role: z.enum(['user', 'admin']).optional().default('user'),
+  role: z.enum(['admin', 'member']).optional().default('member'),
   invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
   allowedOAuthProviders: z.array(z.enum(['google', 'github'])).optional(),
 });
 
 // Organization Schemas
+
+/** Create organization schema (name required, tier defaults to developer). */
+export const createOrganizationSchema = z.object({
+  name: z.string().min(2).max(100),
+  description: z.string().max(500).optional(),
+  tier: z.enum(['developer', 'pro', 'unlimited']).optional().default('developer'),
+});
 
 /** Organization update schema (name and/or description). */
 export const updateOrganizationSchema = z.object({
@@ -104,22 +111,28 @@ export const updateOrganizationSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-/** Add member schema (either userId or email required). */
+/** Add member schema (either userId or email required, with optional role). */
 export const addMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
+  role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });
 
 /** Member role update schema. */
 export const updateMemberRoleSchema = z.object({
-  role: z.enum(['user', 'admin']),
+  role: z.enum(['owner', 'admin', 'member']),
 });
 
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
+});
+
+/** Switch active organization schema. */
+export const switchOrgSchema = z.object({
+  organizationId: z.string().min(1, 'Organization ID is required'),
 });
 
 /** Quota limits update schema (values can be numbers or 'unlimited'). */

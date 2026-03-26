@@ -1,9 +1,9 @@
-import { addRegistration, registry } from '../registry';
+import { registry } from '../registry';
 
 const tags = ['Messages'];
 const auth = [{ bearerAuth: [] }];
 
-addRegistration(() => {
+export function registerMessageRoutes(): void {
   registry.registerPath({
     method: 'get',
     path: '/messages',
@@ -111,4 +111,4 @@ addRegistration(() => {
     security: auth,
     responses: { 200: { description: 'Message deleted' }, 404: { description: 'Not found' } },
   });
-});
+}

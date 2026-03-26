@@ -99,7 +99,7 @@ describe('requireAuth', () => {
   });
 
   it('should accept valid access token and attach user', () => {
-    const payload = { type: 'access', sub: 'user1', role: 'user', organizationId: 'org1' };
+    const payload = { type: 'access', sub: 'user1', role: 'member', organizationId: 'org1' };
     const token = signToken(payload);
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
@@ -114,7 +114,7 @@ describe('requireAuth', () => {
   });
 
   it('should apply org header override when enabled', () => {
-    const payload = { type: 'access', sub: 'user1', role: 'user', organizationId: 'org1' };
+    const payload = { type: 'access', sub: 'user1', role: 'member', organizationId: 'org1' };
     const token = signToken(payload);
     const req = createMockReq({
       headers: {
@@ -133,7 +133,7 @@ describe('requireAuth', () => {
   });
 
   it('should NOT apply org header override when not enabled', () => {
-    const payload = { type: 'access', sub: 'user1', role: 'user', organizationId: 'org1' };
+    const payload = { type: 'access', sub: 'user1', role: 'member', organizationId: 'org1' };
     const token = signToken(payload);
     const req = createMockReq({
       headers: {
@@ -167,7 +167,7 @@ describe('requireOrganization', () => {
 
   it('should reject when user has no organizationId', () => {
     const req = createMockReq();
-    req.user = { sub: 'user1', role: 'user' } as any;
+    req.user = { sub: 'user1', role: 'member' } as any;
     const res = createMockRes();
     const next = jest.fn();
 
@@ -179,7 +179,7 @@ describe('requireOrganization', () => {
 
   it('should call next when user has organizationId', () => {
     const req = createMockReq();
-    req.user = { sub: 'user1', role: 'user', organizationId: 'org1' } as any;
+    req.user = { sub: 'user1', role: 'member', organizationId: 'org1' } as any;
     const res = createMockRes();
     const next = jest.fn();
 
@@ -205,7 +205,7 @@ describe('requireAdmin', () => {
 
   it('should reject non-admin users', () => {
     const req = createMockReq();
-    req.user = { sub: 'user1', role: 'user' } as any;
+    req.user = { sub: 'user1', role: 'member' } as any;
     const res = createMockRes();
     const next = jest.fn();
 
@@ -218,6 +218,17 @@ describe('requireAdmin', () => {
   it('should allow admin users', () => {
     const req = createMockReq();
     req.user = { sub: 'user1', role: 'admin' } as any;
+    const res = createMockRes();
+    const next = jest.fn();
+
+    requireAdmin(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('should allow owner users', () => {
+    const req = createMockReq();
+    req.user = { sub: 'user1', role: 'owner' } as any;
     const res = createMockRes();
     const next = jest.fn();
 
@@ -263,7 +274,7 @@ describe('isSystemOrg', () => {
 describe('isSystemAdmin', () => {
   it('should return false when not admin', () => {
     const req = createMockReq();
-    req.user = { role: 'user', organizationId: 'system' } as any;
+    req.user = { role: 'member', organizationId: 'system' } as any;
     expect(isSystemAdmin(req)).toBe(false);
   });
 
@@ -276,6 +287,12 @@ describe('isSystemAdmin', () => {
   it('should return true when admin in system org', () => {
     const req = createMockReq();
     req.user = { role: 'admin', organizationId: 'system' } as any;
+    expect(isSystemAdmin(req)).toBe(true);
+  });
+
+  it('should return true when owner in system org', () => {
+    const req = createMockReq();
+    req.user = { role: 'owner', organizationId: 'system' } as any;
     expect(isSystemAdmin(req)).toBe(true);
   });
 });
@@ -291,7 +308,7 @@ describe('resolveAccessModifier', () => {
 
   it('should return "private" when non-admin requests public', () => {
     const req = createMockReq();
-    req.user = { role: 'user', organizationId: 'system' } as any;
+    req.user = { role: 'member', organizationId: 'system' } as any;
     expect(resolveAccessModifier(req, 'public')).toBe('private');
   });
 

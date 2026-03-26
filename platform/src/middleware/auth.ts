@@ -1,6 +1,7 @@
 import { sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
-import { User, Organization } from '../models';
+import { User, Organization, UserOrganization } from '../models';
+import type { OrgMemberRole } from '../models/user-organization';
 import { AccessTokenPayload, UserRole } from '../types';
 import {
   verifyAccessToken,
@@ -13,42 +14,62 @@ interface UserLike {
   _id: { toString(): string };
   username: string;
   email: string;
-  role: 'user' | 'admin';
   isEmailVerified: boolean;
-  organizationId?: { toString(): string } | string;
+  lastActiveOrgId?: { toString(): string } | string;
   tokenVersion: number;
 }
 
 /**
  * Populate the request.user object with user details from the database.
- * Includes organization name lookup if user belongs to an organization.
+ * Queries UserOrganization for the active org membership to resolve role and org name.
  *
  * @param req - Express request object to populate
  * @param user - User document from database
+ * @param activeOrgId - Optional org ID override (e.g. from JWT)
  * @internal
  */
-async function populateRequestUser(req: Request, user: UserLike): Promise<void> {
+async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: string): Promise<void> {
+  const userId = user._id.toString();
+  const orgId = activeOrgId || user.lastActiveOrgId?.toString();
+
+  let role: OrgMemberRole = 'member';
+  let organizationId: string | undefined;
   let organizationName: string | undefined;
 
-  // Look up organization name if user has an organizationId
-  if (user.organizationId) {
-    const org = await Organization.findById(user.organizationId).select('name').lean();
-    organizationName = org?.name;
+  if (orgId) {
+    const membership = await UserOrganization.findOne({ userId, organizationId: orgId, isActive: true }).lean();
+    if (membership) {
+      role = membership.role as OrgMemberRole;
+      organizationId = orgId;
+      const org = await Organization.findById(orgId).select('name').lean();
+      organizationName = org?.name;
+    }
+  }
+
+  // Fall back to first membership if no active org found
+  if (!organizationId) {
+    const first = await UserOrganization.findOne({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
+    if (first) {
+      role = first.role as OrgMemberRole;
+      organizationId = first.organizationId.toString();
+      const org = await Organization.findById(organizationId).select('name').lean();
+      organizationName = org?.name;
+    }
   }
 
   const payload: AccessTokenPayload = {
     type: 'access',
-    sub: user._id.toString(),
+    sub: userId,
     username: user.username,
     email: user.email,
-    role: user.role,
-    isAdmin: user.role === 'admin',
+    role,
+    isAdmin: role === 'admin' || role === 'owner',
     isEmailVerified: user.isEmailVerified,
-    organizationId: user.organizationId?.toString(),
+    organizationId,
     organizationName,
     tokenVersion: user.tokenVersion,
   };
-  (req as any).user = payload;
+  req.user = payload;
 }
 
 /**
@@ -154,7 +175,7 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
   const orgId = req.params.orgId || req.body.organizationId;
 
   if (!req.user?.organizationId || req.user.organizationId !== orgId) {
-    if (req.user?.role !== 'admin') {
+    if (req.user?.role !== 'admin' && req.user?.role !== 'owner') {
       return sendError(res, 403, 'You do not belong to this organization');
     }
   }
@@ -166,7 +187,7 @@ export function isOrgMember(req: Request, res: Response, next: NextFunction): vo
  * Middleware factory for role-based access control.
  * Creates middleware that restricts access to users with specified roles.
  *
- * @param roles - Allowed user roles ('user' | 'admin')
+ * @param roles - Allowed user roles ('owner' | 'admin' | 'member')
  * @returns Express middleware function
  * @returns 403 if user's role is not in the allowed list
  *

@@ -436,6 +436,31 @@ class ApiClient {
     return this.request<ApiResponse<{ user: User }>>('/api/user/profile');
   }
 
+  /** Switch active organization and re-issue tokens. */
+  async switchOrganization(organizationId: string) {
+    const result = await this.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn: number }>>('/api/auth/switch-org', {
+      method: 'POST',
+      body: JSON.stringify({ organizationId }),
+    });
+    if (result.data) {
+      this.setTokens({ accessToken: result.data.accessToken, refreshToken: result.data.refreshToken });
+    }
+    return result;
+  }
+
+  /** List all organizations the current user belongs to. */
+  async getUserOrganizations() {
+    return this.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string }> }>>('/api/user/organizations');
+  }
+
+  /** Create a new organization. The authenticated user becomes the owner. */
+  async createOrganization(data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'unlimited' }) {
+    return this.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string } }>>('/api/organization', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async updateProfile(data: { username?: string; email?: string }) {
     return this.request<ApiResponse<{ user: User }>>('/api/user/profile', {
       method: 'PATCH',
@@ -516,10 +541,24 @@ class ApiClient {
     });
   }
 
-  async updateMemberRole(orgId: string, userId: string, role: 'user' | 'admin') {
+  async updateMemberRole(orgId: string, userId: string, role: 'owner' | 'admin' | 'member') {
     return this.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members/${userId}`, {
       method: 'PATCH',
       body: JSON.stringify({ role }),
+    });
+  }
+
+  /** Deactivate a member (soft removal — keeps record, revokes access). */
+  async deactivateMember(orgId: string, userId: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}/deactivate`, {
+      method: 'PATCH',
+    });
+  }
+
+  /** Reactivate a previously deactivated member. */
+  async activateMember(orgId: string, userId: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}/activate`, {
+      method: 'PATCH',
     });
   }
 
@@ -1039,7 +1078,7 @@ class ApiClient {
     return this.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${token}`);
   }
 
-  async sendInvitation(data: { email: string; role?: 'user' | 'admin'; invitationType?: string }) {
+  async sendInvitation(data: { email: string; role?: 'admin' | 'member'; invitationType?: string }) {
     return this.request<ApiResponse<{ invitation: Invitation }>>('/api/invitation/send', {
       method: 'POST',
       body: JSON.stringify(data),

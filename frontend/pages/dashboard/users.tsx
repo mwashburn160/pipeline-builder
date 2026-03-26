@@ -18,7 +18,7 @@ interface UserListItem {
   id: string;
   username: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'owner' | 'admin' | 'member';
   isEmailVerified: boolean;
   organizationId?: string;
   organizationName?: string;
@@ -59,7 +59,7 @@ export default function UsersPage() {
   );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
-  const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
+  const [editRole, setEditRole] = useState<'owner' | 'admin' | 'member'>('member');
   const [newPassword, setNewPassword] = useState('');
   const editForm = useFormState();
 
@@ -171,7 +171,7 @@ export default function UsersPage() {
           right={
             <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
               <option value="all">All Roles</option>
-              <option value="user">Users</option>
+              <option value="member">Members</option>
               <option value="admin">Admins</option>
             </select>
           }
@@ -224,9 +224,10 @@ export default function UsersPage() {
               </div>
               <div>
                 <label className="label">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'user' | 'admin')} className="input" disabled={editForm.loading || editingUser.id === user?.id}>
-                  <option value="user">User</option>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'owner' | 'admin' | 'member')} className="input" disabled={editForm.loading || editingUser.id === user?.id}>
+                  <option value="member">Member</option>
                   <option value="admin">Admin</option>
+                  <option value="owner">Owner</option>
                 </select>
                 {editingUser.id === user?.id && (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>

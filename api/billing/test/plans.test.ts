@@ -28,6 +28,12 @@ jest.mock('@mwashburn160/api-core', () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),
   }),
+  parsePositiveInt: (value: string | undefined, fallback: number) => {
+    if (!value) return fallback;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  },
+  CACHE_TTL_BILLING_PLANS_SECS: 14400,
 }));
 
 const mockPlanFind = jest.fn();

@@ -65,7 +65,7 @@ export function loadServerConfig(): ServerConfig {
 export function loadAuthConfig(): AuthConfig {
   return {
     jwt: {
-      secret: process.env.JWT_SECRET || '',
+      secret: process.env.JWT_SECRET ?? '',
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
@@ -105,8 +105,16 @@ export function validateServerConfig(config: ServerConfig): void {
 
   // Check CORS configuration
   const origin = config.cors.origin;
-  if (origin === '*' || (Array.isArray(origin) && origin.includes('*'))) {
+  const isWildcard = origin === '*' || (Array.isArray(origin) && origin.includes('*'));
+  if (isWildcard) {
     warnings.push('CORS origin set to wildcard (*) - consider restricting to specific domains');
+  }
+  if (isWildcard && config.cors.credentials) {
+    // Browsers reject this combination, but it indicates a misconfiguration
+    throw new Error(
+      'SECURITY ERROR: CORS_ORIGIN=* with CORS_CREDENTIALS=true is an invalid and insecure configuration. ' +
+      'Set CORS_ORIGIN to specific domains or disable CORS_CREDENTIALS.',
+    );
   }
 
   // Check platform URL uses HTTPS

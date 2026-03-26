@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import { Request, Response } from 'express';
 import { config } from '../config';
-import { User } from '../models';
+import { User, Organization, UserOrganization } from '../models';
 import { issueTokens } from '../utils/token';
 import { validateBody, oauthCallbackSchema } from '../utils/validation';
 
@@ -172,10 +172,15 @@ async function findOrCreateUser(providerName: ProviderName, userInfo: OAuthUserI
     username,
     email: userInfo.email.toLowerCase(),
     isEmailVerified: true,
-    role: 'user',
     tokenVersion: 0,
     oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
   });
+
+  // Auto-create personal org + owner membership (same as email registration)
+  const org = await Organization.create({ name: username, owner: newUser._id });
+  await UserOrganization.create({ userId: newUser._id, organizationId: org._id, role: 'owner' });
+  newUser.lastActiveOrgId = org._id;
+
   await newUser.save();
   return newUser;
 }
@@ -224,7 +229,7 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
     if (!userInfo.email) return sendError(res, 400, `${providerName} did not return an email address`);
 
     const user = await findOrCreateUser(providerName as ProviderName, userInfo);
-    const tokens = await issueTokens(user);
+    const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
     logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
     sendSuccess(res, 200, tokens);

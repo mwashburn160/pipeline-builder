@@ -84,6 +84,12 @@ jest.mock('@mwashburn160/api-core', () => ({
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   extractDbError: jest.fn(() => ({})),
   incrementQuota: mockIncrementQuota,
+  parsePositiveInt: (value: string | undefined, fallback: number) => {
+    if (!value) return fallback;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  },
+  TEMP_DIR_MAX_AGE_MS: 14400000,
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({}));
@@ -214,6 +220,12 @@ describe('plugin-build-queue', () => {
       errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
       extractDbError: jest.fn(() => ({})),
       incrementQuota: mockIncrementQuota,
+      parsePositiveInt: (value: string | undefined, fallback: number) => {
+        if (!value) return fallback;
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+      },
+      TEMP_DIR_MAX_AGE_MS: 14400000,
     }));
 
     jest.mock('@mwashburn160/api-server', () => ({}));

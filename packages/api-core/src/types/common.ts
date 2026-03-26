@@ -110,6 +110,14 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
 /**
  * JWT payload from access tokens.
+ *
+ * Users can belong to multiple organizations. The token is scoped to one
+ * active organization at a time. The `role` field is the user's per-org
+ * role in that organization (from the UserOrganization junction collection),
+ * and `isAdmin` is derived as `role === 'admin' || role === 'owner'`.
+ *
+ * Use `POST /auth/switch-org` to change the active organization, which
+ * re-issues tokens with the new org's role and context.
  */
 export interface JwtPayload {
   /** User ID (subject) */
@@ -118,11 +126,13 @@ export interface JwtPayload {
   username: string;
   /** User email */
   email: string;
-  /** User role */
-  role: 'user' | 'admin';
-  /** Organization ID */
+  /** Per-org role in the active organization ('owner' | 'admin' | 'member'). Not a global role. */
+  role: 'owner' | 'admin' | 'member';
+  /** Derived: true when role is 'admin' or 'owner' in the active organization */
+  isAdmin?: boolean;
+  /** Active organization ID (from UserOrganization membership) */
   organizationId?: string;
-  /** Organization name */
+  /** Active organization name */
   organizationName?: string;
   /** Token type */
   type: 'access' | 'refresh';

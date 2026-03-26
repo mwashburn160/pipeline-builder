@@ -8,7 +8,7 @@ function mockUser(overrides: Partial<User> = {}): User {
     id: 'user-1',
     username: 'testuser',
     email: 'test@example.com',
-    role: 'user',
+    role: 'member',
     isEmailVerified: true,
     ...overrides,
   };
@@ -33,8 +33,9 @@ describe('isSystemOrg', () => {
   });
 
   it('should return true regardless of role', () => {
-    expect(isSystemOrg(mockUser({ role: 'user', organizationId: 'system' }))).toBe(true);
+    expect(isSystemOrg(mockUser({ role: 'member', organizationId: 'system' }))).toBe(true);
     expect(isSystemOrg(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(true);
+    expect(isSystemOrg(mockUser({ role: 'owner', organizationId: 'system' }))).toBe(true);
   });
 
   it('should return false for non-system org', () => {
@@ -59,13 +60,17 @@ describe('isSystemAdmin', () => {
     expect(isSystemAdmin(mockUser({ role: 'admin', organizationName: 'system' }))).toBe(true);
   });
 
+  it('should return true for owner in system org', () => {
+    expect(isSystemAdmin(mockUser({ role: 'owner', organizationId: 'system' }))).toBe(true);
+  });
+
   it('should be case-insensitive', () => {
     expect(isSystemAdmin(mockUser({ role: 'admin', organizationId: 'System' }))).toBe(true);
     expect(isSystemAdmin(mockUser({ role: 'admin', organizationName: 'SYSTEM' }))).toBe(true);
   });
 
-  it('should return false for non-admin role', () => {
-    expect(isSystemAdmin(mockUser({ role: 'user', organizationId: 'system' }))).toBe(false);
+  it('should return false for member role', () => {
+    expect(isSystemAdmin(mockUser({ role: 'member', organizationId: 'system' }))).toBe(false);
   });
 
   it('should return false for admin in non-system org', () => {
@@ -86,12 +91,16 @@ describe('isOrgAdmin', () => {
     expect(isOrgAdmin(mockUser({ role: 'admin', organizationId: 'org-1' }))).toBe(true);
   });
 
+  it('should return true for owner in non-system org', () => {
+    expect(isOrgAdmin(mockUser({ role: 'owner', organizationId: 'org-1' }))).toBe(true);
+  });
+
   it('should return false for system admin', () => {
     expect(isOrgAdmin(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(false);
   });
 
-  it('should return false for non-admin user', () => {
-    expect(isOrgAdmin(mockUser({ role: 'user', organizationId: 'org-1' }))).toBe(false);
+  it('should return false for member role', () => {
+    expect(isOrgAdmin(mockUser({ role: 'member', organizationId: 'org-1' }))).toBe(false);
   });
 
   it('should return false for null user', () => {

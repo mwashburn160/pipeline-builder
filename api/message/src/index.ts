@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode } from '@mwashburn160/api-core';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 import { Request, Response } from 'express';
 
@@ -20,7 +20,7 @@ app.use(attachRequestContext(sseManager));
 // Short-lived, single-use tickets so JWTs never appear in query strings / logs.
 
 /** Ticket TTL in ms (30 seconds — enough for the client to open the EventSource). */
-const TICKET_TTL_MS = 30_000;
+const TICKET_TTL_MS = SSE_TICKET_TTL_MS;
 
 interface SseTicket { orgId: string; expiresAt: number }
 const ticketStore = new Map<string, SseTicket>();

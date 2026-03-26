@@ -7,20 +7,24 @@ const logger = createLogger('platform-api');
 // Auth Helpers
 
 export function isSystemAdmin(req: Request): boolean {
-  if (req.user?.role !== 'admin') return false;
+  const role = req.user?.role;
+  if (role !== 'admin' && role !== 'owner') return false;
   const orgId = req.user?.organizationId?.toLowerCase();
   const orgName = req.user?.organizationName?.toLowerCase();
   return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
 }
 
 export function isOrgAdmin(req: Request): boolean {
-  return req.user?.role === 'admin' && !isSystemAdmin(req);
+  const role = req.user?.role;
+  return (role === 'admin' || role === 'owner') && !isSystemAdmin(req);
 }
 
 /**
  * Verify request is authenticated. Sends 401 if not.
+ * Acts as a TypeScript type guard — after `if (!requireAuth(req, res)) return;`,
+ * `req.user` is narrowed to non-null.
  */
-export function requireAuth(req: Request, res: Response): boolean {
+export function requireAuth(req: Request, res: Response): req is Request & { user: NonNullable<Request['user']> } {
   if (!req.user) {
     sendError(res, 401, 'Unauthorized');
     return false;

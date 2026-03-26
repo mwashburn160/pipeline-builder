@@ -25,11 +25,21 @@ function getJwtSecret(): string {
 }
 
 export interface RequireAuthOptions {
-  /** Allow x-org-id/x-org-name headers to override JWT org fields (for service-to-service calls). */
+  /**
+   * Allow x-org-id/x-org-name headers to override the JWT's organization fields.
+   *
+   * **SECURITY WARNING:** When enabled, a caller can set `x-org-id` to ANY
+   * organization ID, effectively impersonating that org. This MUST only be
+   * used on routes that are:
+   *   1. Internal service-to-service routes (not exposed to end users)
+   *   2. Behind network isolation (container network, VPC, etc.)
+   *
+   * NEVER enable this on user-facing API routes. If unsure, leave it disabled.
+   */
   allowOrgHeaderOverride?: boolean;
 }
 
-/** JWT auth middleware. Use directly or call with options: requireAuth({ allowOrgHeaderOverride: true }) */
+/** JWT auth middleware. Use directly or call with options. */
 export function requireAuth(
   req: Request,
   res: Response,
@@ -122,7 +132,10 @@ export function requireOrganization(
   next();
 }
 
-/** Requires admin role. Use after requireAuth. */
+/**
+ * Requires admin role. Use after requireAuth.
+ * Permits users whose per-org role is 'admin' or 'owner'.
+ */
 export function requireAdmin(
   req: Request,
   res: Response,
@@ -132,7 +145,7 @@ export function requireAdmin(
     return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
   }
 
-  if (req.user.role !== 'admin') {
+  if (req.user.role !== 'admin' && req.user.role !== 'owner') {
     return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
   }
 
@@ -157,8 +170,12 @@ export function isSystemOrg(req: Request): boolean {
   return isSystemOrgId(req.user.organizationId, req.user.organizationName);
 }
 
+/**
+ * Check if the request is from a system admin.
+ * A system admin has per-org role 'admin' or 'owner' in the system organization.
+ */
 export function isSystemAdmin(req: Request): boolean {
-  return req.user?.role === 'admin' && isSystemOrg(req);
+  return (req.user?.role === 'admin' || req.user?.role === 'owner') && isSystemOrg(req);
 }
 
 /** Requires system admin (admin role + system organization). */

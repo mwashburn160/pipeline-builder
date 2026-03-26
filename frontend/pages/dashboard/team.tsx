@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { UserPlus, Users, Shield, ShieldOff, UserMinus, Crown, Search, KeyRound } from 'lucide-react';
+import { UserPlus, Users, Shield, ShieldOff, UserMinus, UserCheck, UserX, Crown, Search, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
@@ -90,7 +90,7 @@ export default function TeamPage() {
 
   const handleRoleChange = async () => {
     if (!orgId || !roleChangeTarget) return;
-    const newRole = roleChangeTarget.role === 'admin' ? 'user' : 'admin';
+    const newRole = roleChangeTarget.role === 'admin' ? 'member' : 'admin';
     setRoleChangeLoading(true);
     try {
       await api.updateMemberRole(orgId, roleChangeTarget.id, newRole);
@@ -116,6 +116,20 @@ export default function TeamPage() {
     if (result !== null) {
       setNewPassword('');
       setTimeout(() => { setPasswordTarget(null); passwordForm.reset(); }, 1500);
+    }
+  };
+
+  const handleToggleActive = async (member: OrganizationMember) => {
+    if (!orgId) return;
+    try {
+      if (member.isActive) {
+        await api.deactivateMember(orgId, member.id);
+      } else {
+        await api.activateMember(orgId, member.id);
+      }
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, isActive: !m.isActive } : m));
+    } catch {
+      setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
     }
   };
 
@@ -145,9 +159,12 @@ export default function TeamPage() {
     {
       id: 'status',
       header: 'Status',
-      sortValue: (m) => m.isEmailVerified,
+      sortValue: (m) => m.isActive,
       render: (m) => (
-        <Badge color={m.isEmailVerified ? 'green' : 'yellow'}>{m.isEmailVerified ? 'Verified' : 'Unverified'}</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge color={m.isActive ? 'green' : 'red'}>{m.isActive ? 'Active' : 'Inactive'}</Badge>
+          {!m.isEmailVerified && <Badge color="yellow">Unverified</Badge>}
+        </div>
       ),
     },
     {
@@ -181,6 +198,17 @@ export default function TeamPage() {
               title="Reset password"
             >
               <KeyRound className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleToggleActive(m)}
+              className={`p-1.5 rounded-lg transition-colors ${
+                m.isActive
+                  ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/20'
+                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/20'
+              }`}
+              title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
+            >
+              {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
             </button>
             <button
               onClick={() => removeMember.open(m)}

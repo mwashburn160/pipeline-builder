@@ -5,12 +5,11 @@ import {
   sendError,
   ErrorCode,
   VALID_QUOTA_TYPES,
-  createLogger,
   getParam,
-  errorMessage,
 } from '@mwashburn160/api-core';
 import type { QuotaType } from '@mwashburn160/api-core';
-import { Router, Request, Response, RequestHandler } from 'express';
+import { withRoute } from '@mwashburn160/api-server';
+import { Router, RequestHandler } from 'express';
 import {
   AUTH_OPTS,
   isValidQuotaType,
@@ -18,7 +17,6 @@ import {
 import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService } from '../services/quota-service';
 
-const logger = createLogger('quota-read');
 const router: Router = Router();
 
 // GET /quotas — own org quotas (orgId from JWT / header)
@@ -26,18 +24,11 @@ const router: Router = Router();
 router.get(
   '/',
   requireAuth(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
-    const orgId = req.user?.organizationId;
-    if (!orgId) return sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.MISSING_REQUIRED_FIELD);
-
-    try {
-      const quota = await quotaService.findByOrgId(orgId);
-      return sendSuccess(res, 200, { quota });
-    } catch (error) {
-      logger.error('Quota query failed', { error: errorMessage(error), orgId });
-      return sendError(res, 500, 'Failed to fetch quotas', ErrorCode.INTERNAL_ERROR);
-    }
-  },
+  withRoute(async ({ res, ctx, orgId }) => {
+    const quota = await quotaService.findByOrgId(orgId);
+    ctx.log('COMPLETED', 'Retrieved own org quotas', { orgId });
+    return sendSuccess(res, 200, { quota });
+  }),
 );
 
 // GET /quotas/all — all organizations with quotas (system admin only)
@@ -46,7 +37,7 @@ router.get(
 router.get(
   '/all',
   requireAuth(AUTH_OPTS) as RequestHandler,
-  async (req: Request, res: Response) => {
+  withRoute(async ({ req, res, ctx }) => {
     if (!isSystemAdmin(req)) {
       return sendError(
         res, 403,
@@ -55,14 +46,10 @@ router.get(
       );
     }
 
-    try {
-      const organizations = await quotaService.findAll();
-      return sendSuccess(res, 200, { organizations, total: organizations.length });
-    } catch (error) {
-      logger.error('Failed to list all organizations', { error: errorMessage(error) });
-      return sendError(res, 500, 'Failed to list organizations', ErrorCode.DATABASE_ERROR);
-    }
-  },
+    const organizations = await quotaService.findAll();
+    ctx.log('COMPLETED', 'Listed all organizations', { total: organizations.length });
+    return sendSuccess(res, 200, { organizations, total: organizations.length });
+  }),
 );
 
 // GET /quotas/:orgId — all quotas for a specific org
@@ -71,17 +58,13 @@ router.get(
   '/:orgId',
   requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
-  async (req: Request, res: Response) => {
+  withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
 
-    try {
-      const quota = await quotaService.findByOrgId(targetOrgId);
-      return sendSuccess(res, 200, { quota });
-    } catch (error) {
-      logger.error('Quota query failed', { error: errorMessage(error), orgId: targetOrgId });
-      return sendError(res, 500, 'Failed to fetch quotas', ErrorCode.INTERNAL_ERROR);
-    }
-  },
+    const quota = await quotaService.findByOrgId(targetOrgId);
+    ctx.log('COMPLETED', 'Retrieved org quotas', { orgId: targetOrgId });
+    return sendSuccess(res, 200, { quota });
+  }),
 );
 
 // GET /quotas/:orgId/:quotaType — single quota type status
@@ -90,20 +73,16 @@ router.get(
   '/:orgId/:quotaType',
   requireAuth(AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
-  async (req: Request, res: Response) => {
+  withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
     const quotaType = getParam(req.params, 'quotaType');
 
     if (!quotaType || !isValidQuotaType(quotaType)) return sendError(res, 400, `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`, ErrorCode.VALIDATION_ERROR);
 
-    try {
-      const status = await quotaService.getQuotaStatus(targetOrgId, quotaType as QuotaType);
-      return sendSuccess(res, 200, { quotaType, status });
-    } catch (error) {
-      logger.error('Quota status query failed', { error: errorMessage(error), targetOrgId });
-      return sendError(res, 500, 'Failed to fetch quota status', ErrorCode.INTERNAL_ERROR);
-    }
-  },
+    const status = await quotaService.getQuotaStatus(targetOrgId, quotaType as QuotaType);
+    ctx.log('COMPLETED', 'Retrieved quota status', { orgId: targetOrgId, quotaType });
+    return sendSuccess(res, 200, { quotaType, status });
+  }),
 );
 
 /** Read-side quota router (mounted at /quotas). */

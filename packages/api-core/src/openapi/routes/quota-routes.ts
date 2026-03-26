@@ -1,9 +1,9 @@
-import { addRegistration, registry } from '../registry';
+import { registry } from '../registry';
 
 const tags = ['Quotas'];
 const auth = [{ bearerAuth: [] }];
 
-addRegistration(() => {
+export function registerQuotaRoutes(): void {
   registry.registerPath({
     method: 'get',
     path: '/quotas',
@@ -63,4 +63,4 @@ addRegistration(() => {
     security: auth,
     responses: { 200: { description: 'Quota usage reset' }, 403: { description: 'Admin required' } },
   });
-});
+}

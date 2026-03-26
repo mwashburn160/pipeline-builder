@@ -1,9 +1,9 @@
-import { addRegistration, registry } from '../registry';
+import { registry } from '../registry';
 
 const tags = ['Pipelines'];
 const auth = [{ bearerAuth: [] }];
 
-addRegistration(() => {
+export function registerPipelineRoutes(): void {
   registry.registerPath({
     method: 'get',
     path: '/pipelines',
@@ -91,4 +91,4 @@ addRegistration(() => {
     security: auth,
     responses: { 200: { description: 'SSE event stream of partial pipeline objects' }, 400: { description: 'Validation error' } },
   });
-});
+}

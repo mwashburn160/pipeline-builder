@@ -38,8 +38,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.43.3",
-    "@mwashburn160/pipeline-core": "1.44.51",
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "@opentelemetry/exporter-trace-otlp-http": "0.213.0",
     "@opentelemetry/resources": "2.6.0",
     "@opentelemetry/sdk-node": "0.213.0",
@@ -60,7 +60,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.41.45",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

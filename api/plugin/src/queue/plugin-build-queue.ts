@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
+import { createLogger, errorMessage, extractDbError, incrementQuota, parsePositiveInt, TEMP_DIR_MAX_AGE_MS as DEFAULT_TEMP_DIR_MAX_AGE_MS } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { Config, CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
@@ -19,11 +19,6 @@ const logger = createLogger('plugin-build-queue');
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
 /** Parse an env var as a positive integer, falling back to the default on failure. */
-function parsePositiveInt(envVar: string | undefined, fallback: number): number {
-  if (!envVar) return fallback;
-  const parsed = parseInt(envVar, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 // Queue name & singleton state
 
@@ -327,7 +322,7 @@ export function startWorker(
 // Periodic temp directory cleanup
 
 /** Maximum age (ms) for orphaned temp directories before cleanup (4 hours). */
-const TEMP_DIR_MAX_AGE_MS = parsePositiveInt(process.env.TEMP_DIR_MAX_AGE_MS, 14400000);
+const TEMP_DIR_MAX_AGE_MS = parsePositiveInt(process.env.TEMP_DIR_MAX_AGE_MS, DEFAULT_TEMP_DIR_MAX_AGE_MS);
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 

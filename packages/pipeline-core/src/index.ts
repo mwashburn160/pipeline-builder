@@ -1,3 +1,40 @@
+/**
+ * @module @mwashburn160/pipeline-core
+ *
+ * Application configuration, pipeline domain types, and CDK constructs.
+ *
+ * **Config**
+ * - Config — application configuration singleton (environment-driven)
+ * - ConfigTypes — typed configuration interfaces
+ *
+ * **Types**
+ * - PipelineType, ComputeType, AccessModifier, PluginType — pipeline domain enums
+ * - NetworkTypes, RoleTypes, SecurityGroupTypes — infrastructure type definitions
+ * - SourceTypes, StepTypes — pipeline source and step configuration types
+ * - IdGenerator — deterministic ID generation
+ *
+ * **CDK Constructs**
+ * - PipelineBuilder — top-level CDK pipeline construct
+ * - StageBuilder — pipeline stage composition
+ * - PipelineConfiguration — pipeline config resolution
+ * - PluginLookup — plugin resolution for pipeline steps
+ * - ArtifactManager — build artifact management
+ *
+ * **Helpers**
+ * - replaceNonAlphanumeric, extractMetadataEnv — string and metadata utilities
+ * - buildConfigFromMetadata, metadataForCodePipeline, etc. — metadata builders
+ *
+ * **Re-exports from api-core**
+ * - ErrorCode, createLogger
+ *
+ * **Re-exports from pipeline-data**
+ * - db, schema, getConnection, closeConnection — database access
+ * - CrudService, BaseEntity — CRUD service infrastructure
+ * - All query condition builders and filter types
+ * - Compliance domain types (RuleSeverity, RuleTarget, etc.)
+ * - drizzleRows, drizzleCount — type helpers
+ */
+
 // Configuration
 export * from './config/app-config';
 export * from './config/config-types';

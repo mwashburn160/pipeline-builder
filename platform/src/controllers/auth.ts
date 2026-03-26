@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import { config } from '../config';
 import { audit } from '../helpers/audit';
 import { handleControllerError } from '../helpers/controller-helper';
-import { User, Organization } from '../models';
+import { User, Organization, UserOrganization } from '../models';
 import { issueTokens, hashRefreshToken } from '../utils/token';
 import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation';
 
@@ -58,8 +58,13 @@ const registerErrorMap: Record<string, { status: number; message: string }> = {
 };
 
 /**
- * Register a new user
+ * Register a new user.
  * POST /auth/register
+ *
+ * Creates a User, an Organization, and a {@link UserOrganization} record
+ * linking the user to the new org with role 'owner'. Sets the user's
+ * `lastActiveOrgId` to the new organization. Fire-and-forget hooks
+ * create a billing subscription and auto-subscribe to compliance rules.
  */
 export async function register(req: Request, res: Response): Promise<void> {
   const body = validateBody(registerSchema, req.body, res);
@@ -89,7 +94,6 @@ export async function register(req: Request, res: Response): Promise<void> {
         username,
         email,
         password,
-        role: 'admin',
       });
 
       const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_ID;
@@ -97,7 +101,6 @@ export async function register(req: Request, res: Response): Promise<void> {
       const orgData: Record<string, unknown> = {
         name: isSystemOrg ? SYSTEM_ORG_ID : effectiveOrgName,
         owner: user._id,
-        members: [user._id],
       };
 
       if (isSystemOrg) {
@@ -107,18 +110,24 @@ export async function register(req: Request, res: Response): Promise<void> {
       }
 
       const [org] = await Organization.create([orgData], { session });
-      user.organizationId = org._id as mongoose.Types.ObjectId;
-      const orgName = org.name;
       const orgId = String(org._id);
 
+      // Create membership in junction collection
+      await UserOrganization.create([{
+        userId: user._id,
+        organizationId: org._id,
+        role: 'owner',
+      }], { session });
+
+      user.lastActiveOrgId = org._id as mongoose.Types.ObjectId;
       await user.save({ session });
 
       result = {
         sub: user._id.toString(),
         email: user.email,
-        role: user.role,
+        role: 'owner',
         organizationId: orgId,
-        organizationName: orgName,
+        organizationName: org.name,
         planId: isSystemOrg ? 'unlimited' : (planId || 'developer'),
       };
     });
@@ -149,8 +158,12 @@ export async function register(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * Login user
+ * Login user.
  * POST /auth/login
+ *
+ * Authenticates by email/username + password. Issues tokens scoped to
+ * the user's last active organization (resolved via {@link UserOrganization}).
+ * The JWT `role` field reflects the user's role in that organization.
  */
 export async function login(req: Request, res: Response): Promise<void> {
   try {
@@ -167,7 +180,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       return sendError(res, 401, 'Invalid credentials');
     }
 
-    const tokens = await issueTokens(user);
+    const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
     res.cookie('grafana_token', tokens.accessToken, {
       httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
@@ -219,7 +232,9 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return sendError(res, 401, 'Session invalidated — please log in again');
     }
 
-    const tokens = await issueTokens(user);
+    // Preserve active org from current JWT; fall back to lastActiveOrgId
+    const activeOrgId = req.user.organizationId || user.lastActiveOrgId?.toString();
+    const tokens = await issueTokens(user, activeOrgId);
 
     res.cookie('grafana_token', tokens.accessToken, {
       httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
@@ -252,6 +267,48 @@ export async function logout(req: Request, res: Response): Promise<void> {
     sendSuccess(res, 200, undefined, 'Logged out');
   } catch (error) {
     return sendError(res, 500, 'Logout failed');
+  }
+}
+
+/**
+ * Switch active organization.
+ * POST /auth/switch-org
+ *
+ * Verifies the user has an active {@link UserOrganization} membership
+ * for the requested org, updates `User.lastActiveOrgId`, and re-issues
+ * tokens with the new org context. The JWT `role` and `isAdmin` fields
+ * will reflect the user's role in the target organization.
+ */
+export async function switchOrg(req: Request, res: Response): Promise<void> {
+  try {
+    const userId = req.user?.sub;
+    if (!userId) return sendError(res, 401, 'Unauthorized');
+
+    const { organizationId } = req.body;
+    if (!organizationId) return sendError(res, 400, 'organizationId is required');
+
+    // Verify membership
+    const membership = await UserOrganization.findOne({ userId, organizationId, isActive: true }).lean();
+    if (!membership) {
+      return sendError(res, 403, 'You are not an active member of this organization');
+    }
+
+    // Update last active org
+    await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
+
+    // Re-fetch user for token issuance
+    const user = await User.findById(userId).select('+tokenVersion');
+    if (!user) return sendError(res, 404, 'User not found');
+
+    const tokens = await issueTokens(user, organizationId);
+
+    res.cookie('grafana_token', tokens.accessToken, {
+      httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
+    });
+    sendSuccess(res, 200, tokens);
+  } catch (error) {
+    logger.error('Switch org error', error);
+    return sendError(res, 500, 'Failed to switch organization');
   }
 }
 

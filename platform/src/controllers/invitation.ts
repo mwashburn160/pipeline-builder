@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { requireOrgMembership, handleTransactionError } from '../helpers/controller-helper';
-import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument } from '../models';
+import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument, UserOrganization } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
 import { parsePagination } from '../utils/pagination';
@@ -38,15 +38,6 @@ async function notifyInviter(invitation: InvitationDocument, user: UserDocument,
 }
 
 /**
- * Shared logic for accepting an invitation: adds user to org, updates roles,
- * marks invitation as accepted, and notifies the inviter.
- * @param invitation - The invitation document being accepted
- * @param user - The user accepting the invitation
- * @param org - The target organization
- * @param acceptedVia - How the invitation was accepted ('email' or an OAuth provider)
- * @param session - Active Mongoose transaction session
- */
-/**
  * Validate an invitation token: check it exists, is pending, and not expired.
  * Throws coded errors for the handleTransactionError map.
  */
@@ -65,8 +56,13 @@ async function validateInvitationToken(token: string, session: mongoose.ClientSe
 }
 
 /**
- * Shared logic for accepting an invitation: adds user to org, updates roles,
- * marks invitation as accepted, and notifies the inviter.
+ * Shared logic for accepting an invitation: creates UserOrganization membership,
+ * sets lastActiveOrgId if needed, marks invitation as accepted, and notifies the inviter.
+ * @param invitation - The invitation document being accepted
+ * @param user - The user accepting the invitation
+ * @param org - The target organization
+ * @param acceptedVia - How the invitation was accepted ('email' or an OAuth provider)
+ * @param session - Active Mongoose transaction session
  */
 async function processInvitationAcceptance(
   invitation: InvitationDocument,
@@ -75,14 +71,19 @@ async function processInvitationAcceptance(
   acceptedVia: 'email' | InvitationOAuthProvider,
   session: mongoose.ClientSession,
 ): Promise<void> {
-  org.members.push(user._id);
-  await org.save({ session });
+  // Create the membership record with appropriate role
+  const memberRole = invitation.role === 'admin' ? 'admin' : 'member';
+  await UserOrganization.create([{
+    userId: user._id,
+    organizationId: org._id,
+    role: memberRole,
+  }], { session });
 
-  user.organizationId = org._id;
-  if (invitation.role === 'admin') {
-    user.role = 'admin';
+  // Set lastActiveOrgId if the user doesn't have one yet
+  if (!user.lastActiveOrgId) {
+    user.lastActiveOrgId = org._id;
+    await user.save({ session });
   }
-  await user.save({ session });
 
   invitation.status = 'accepted';
   invitation.acceptedAt = new Date();
@@ -120,9 +121,16 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         throw new Error('UNAUTHORIZED');
       }
 
+      // Check if user is already a member via UserOrganization
       const existingUser = await User.findOne({ email: email.toLowerCase() }).session(session);
-      if (existingUser && org.members.some(id => id.toString() === existingUser._id.toString())) {
-        throw new Error('ALREADY_MEMBER');
+      if (existingUser) {
+        const existingMembership = await UserOrganization.findOne({
+          userId: existingUser._id,
+          organizationId: orgId,
+        }).session(session);
+        if (existingMembership) {
+          throw new Error('ALREADY_MEMBER');
+        }
       }
 
       const existingInvitation = await Invitation.findOne({
@@ -252,7 +260,13 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
       const org = await Organization.findById(invitation.organizationId).session(session);
       if (!org) throw new Error('ORGANIZATION_NOT_FOUND');
 
-      if (org.members.some(id => id.toString() === user._id.toString())) {
+      // Check if already a member via UserOrganization
+      const existingMembership = await UserOrganization.findOne({
+        userId: user._id,
+        organizationId: org._id,
+      }).session(session);
+
+      if (existingMembership) {
         invitation.status = 'accepted';
         invitation.acceptedAt = new Date();
         invitation.acceptedBy = user._id;
@@ -323,7 +337,6 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
           email: oauthData.email.toLowerCase(),
           username: oauthData.email.split('@')[0],
           isEmailVerified: true,
-          role: 'user',
           tokenVersion: 0,
           oauth: {
             [oauthProvider]: {
@@ -353,7 +366,13 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
       const org = await Organization.findById(invitation.organizationId).session(session);
       if (!org) throw new Error('ORGANIZATION_NOT_FOUND');
 
-      if (org.members.some(id => id.toString() === user!._id.toString())) {
+      // Check if already a member via UserOrganization
+      const existingMembership = await UserOrganization.findOne({
+        userId: user._id,
+        organizationId: org._id,
+      }).session(session);
+
+      if (existingMembership) {
         invitation.status = 'accepted';
         invitation.acceptedAt = new Date();
         invitation.acceptedBy = user._id;

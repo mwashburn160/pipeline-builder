@@ -6,6 +6,8 @@ import {
   getParam,
   errorMessage,
   createCacheService,
+  parsePositiveInt,
+  CACHE_TTL_BILLING_PLANS_SECS,
 } from '@mwashburn160/api-core';
 import { Router, Request, Response } from 'express';
 import { Plan } from '../models/plan';
@@ -14,13 +16,8 @@ const logger = createLogger('billing-plans');
 
 /** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS (default 4 hours). */
 /** Parse a positive integer from an env var, falling back to the default on invalid input. */
-function safeParseInt(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
-const planCache = createCacheService('billing:plans:', safeParseInt(process.env.CACHE_TTL_BILLING_PLANS, 14400));
+const planCache = createCacheService('billing:plans:', parsePositiveInt(process.env.CACHE_TTL_BILLING_PLANS, CACHE_TTL_BILLING_PLANS_SECS));
 
 /**
  * Create the public plan-listing router (no auth required).

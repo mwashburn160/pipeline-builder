@@ -1,9 +1,9 @@
-import { addRegistration, registry } from '../registry';
+import { registry } from '../registry';
 
 const tags = ['Billing'];
 const auth = [{ bearerAuth: [] }];
 
-addRegistration(() => {
+export function registerBillingRoutes(): void {
   registry.registerPath({
     method: 'get',
     path: '/billing/plans',
@@ -68,4 +68,4 @@ addRegistration(() => {
     security: auth,
     responses: { 200: { description: 'Marketplace event processed' } },
   });
-});
+}

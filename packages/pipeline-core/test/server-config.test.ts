@@ -175,11 +175,25 @@ describe('validateServerConfig', () => {
     ).not.toThrow();
   });
 
-  it('does not throw on wildcard CORS (only warns)', () => {
+  it('throws on wildcard CORS with credentials enabled', () => {
     expect(() =>
       validateServerConfig({
         port: 3000,
         cors: { credentials: true, origin: '*' },
+        trustProxy: 1,
+        platformUrl: 'https://example.com',
+        httpClient: defaultHttpClient,
+        sse: defaultSse,
+        services: defaultServices,
+      }),
+    ).toThrow('SECURITY ERROR');
+  });
+
+  it('does not throw on wildcard CORS without credentials (only warns)', () => {
+    expect(() =>
+      validateServerConfig({
+        port: 3000,
+        cors: { credentials: false, origin: '*' },
         trustProxy: 1,
         platformUrl: 'https://example.com',
         httpClient: defaultHttpClient,

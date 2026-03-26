@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { registry, addRegistration } from './registry';
+import { registry } from './registry';
 import {
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
@@ -54,7 +54,7 @@ export const PaginatedResponseSchema = z.object({
   message: z.string().optional(),
 });
 
-addRegistration(() => {
+export function registerSchemas(): void {
   // Common schemas
   registry.register('AccessModifier', AccessModifierSchema.openapi({
     description: 'Resource visibility: "public" (visible to all) or "private" (organization only)',
@@ -125,4 +125,4 @@ addRegistration(() => {
   registry.register('SuccessResponse', SuccessResponseSchema.openapi('SuccessResponse'));
   registry.register('ErrorResponse', ErrorResponseSchema.openapi('ErrorResponse'));
   registry.register('PaginatedResponse', PaginatedResponseSchema.openapi('PaginatedResponse'));
-});
+}

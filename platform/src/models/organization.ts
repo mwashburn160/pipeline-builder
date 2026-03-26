@@ -32,15 +32,22 @@ export interface QuotaUsageTracking {
 export type { QuotaTier };
 
 /**
- * Organization document interface
+ * Organization document interface.
+ *
+ * Organizations no longer embed a `members[]` array. Membership is managed
+ * through the {@link UserOrganization} junction collection, which stores
+ * per-org roles ('owner' | 'admin' | 'member') and an `isActive` flag.
+ *
+ * To list members of an organization, query `UserOrganization` by `organizationId`.
+ * The `owner` field here is kept as a denormalized reference to the owning user.
  */
 export interface OrganizationDocument extends Document {
   name: string;
   slug: string;
   description?: string;
   tier: QuotaTier;
+  /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
-  members: Types.ObjectId[];
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
   aiProviderKeys?: {
@@ -145,12 +152,6 @@ const organizationSchema = new Schema<OrganizationDocument>(
       required: true,
       index: true,
     },
-    members: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
     quotas: {
       plugins: {
         type: Number,
@@ -331,10 +332,6 @@ organizationSchema.pre<OrganizationDocument>('validate', async function () {
     this.slug = `${baseSlug}-${maxSuffix + 1}`;
   }
 
-  // Ensure owner is in members
-  if (this.owner && !this.members.some(id => id.equals(this.owner))) {
-    this.members.push(this.owner);
-  }
 });
 
 export default model<OrganizationDocument>('Organization', organizationSchema);

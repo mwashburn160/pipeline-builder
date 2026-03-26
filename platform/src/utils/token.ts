@@ -2,23 +2,32 @@ import crypto from 'crypto';
 import { createLogger } from '@mwashburn160/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import { User, Organization } from '../models';
+import { User, Organization, UserOrganization } from '../models';
 import { UserDocument } from '../models/user';
+import type { OrgMemberRole } from '../models/user-organization';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types';
 
 const logger = createLogger('Token');
 
-/** Build an access token JWT payload from a user document. */
-export function createAccessTokenPayload(user: UserDocument, organizationName?: string): AccessTokenPayload {
+/** Membership context for token payload. */
+export interface MembershipContext {
+  organizationId: string;
+  organizationName?: string;
+  role: OrgMemberRole;
+}
+
+/** Build an access token JWT payload from a user document and optional membership. */
+export function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
+  const role = membership?.role ?? 'member';
   return {
     type: 'access',
     sub: user._id.toString(),
-    organizationId: user.organizationId?.toString(),
-    ...(organizationName && { organizationName }),
+    organizationId: membership?.organizationId,
+    ...(membership?.organizationName && { organizationName: membership.organizationName }),
     username: user.username,
     email: user.email,
-    role: user.role,
-    isAdmin: user.role === 'admin',
+    role,
+    isAdmin: role === 'admin' || role === 'owner',
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
   };
@@ -34,8 +43,8 @@ export function createRefreshTokenPayload(user: UserDocument): RefreshTokenPaylo
 }
 
 /** Sign and return a JWT access token for the given user. */
-export function generateAccessToken(user: UserDocument): string {
-  return jwt.sign(createAccessTokenPayload(user), config.auth.jwt.secret, {
+export function generateAccessToken(user: UserDocument, membership?: MembershipContext): string {
+  return jwt.sign(createAccessTokenPayload(user, membership), config.auth.jwt.secret, {
     algorithm: config.auth.jwt.algorithm,
     expiresIn: config.auth.jwt.expiresIn,
   });
@@ -50,9 +59,9 @@ export function generateRefreshToken(user: UserDocument): string {
 }
 
 /** Generate both access and refresh tokens for a user. */
-export function generateTokenPair(user: UserDocument): { accessToken: string; refreshToken: string } {
+export function generateTokenPair(user: UserDocument, membership?: MembershipContext): { accessToken: string; refreshToken: string } {
   return {
-    accessToken: generateAccessToken(user),
+    accessToken: generateAccessToken(user, membership),
     refreshToken: generateRefreshToken(user),
   };
 }
@@ -72,27 +81,67 @@ export interface IssuedTokens {
 }
 
 /**
- * Generate a new token pair and persist the hashed refresh token in the database.
- * Resolves the organization name for inclusion in the access token payload.
- *
- * @param user - User document to generate tokens for
- * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
+ * Resolve the membership context for a user's active organization.
+ * Looks up UserOrganization + Organization name for the given orgId.
+ * Falls back to user.lastActiveOrgId, then first membership.
  */
-export async function issueTokens(user: UserDocument, expiresIn?: number): Promise<IssuedTokens> {
-  const tokenExpiresIn = expiresIn ?? config.auth.jwt.expiresIn;
-
-  let organizationName: string | undefined;
-  if (user.organizationId) {
-    try {
-      const org = await Organization.findById(user.organizationId).select('name').lean();
-      organizationName = org?.name;
-    } catch (error) {
-      logger.warn('Failed to fetch organization name for token', { error });
+async function resolveMembership(userId: string, activeOrgId?: string): Promise<MembershipContext | undefined> {
+  // Try explicit activeOrgId first
+  if (activeOrgId) {
+    const membership = await UserOrganization.findOne({ userId, organizationId: activeOrgId, isActive: true }).lean();
+    if (membership) {
+      const org = await Organization.findById(activeOrgId).select('name').lean();
+      return {
+        organizationId: activeOrgId,
+        organizationName: org?.name,
+        role: membership.role as OrgMemberRole,
+      };
     }
   }
 
+  // Fall back to first membership
+  const first = await UserOrganization.findOne({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
+  if (!first) return undefined;
+
+  const orgId = first.organizationId.toString();
+  const org = await Organization.findById(orgId).select('name').lean();
+  return {
+    organizationId: orgId,
+    organizationName: org?.name,
+    role: first.role as OrgMemberRole,
+  };
+}
+
+/**
+ * Generate a new token pair and persist the hashed refresh token in the database.
+ *
+ * Resolves the user's membership context by looking up {@link UserOrganization}
+ * for the active org. The resulting access token JWT contains:
+ * - `role`: the user's per-org role ('owner' | 'admin' | 'member')
+ * - `isAdmin`: derived as `role === 'admin' || role === 'owner'`
+ * - `organizationId` / `organizationName`: the active org context
+ *
+ * Falls back to `user.lastActiveOrgId`, then the user's earliest active membership.
+ *
+ * @param user - User document to generate tokens for
+ * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
+ * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
+ */
+export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number): Promise<IssuedTokens> {
+  const tokenExpiresIn = expiresIn ?? config.auth.jwt.expiresIn;
+
+  let membership: MembershipContext | undefined;
+  try {
+    membership = await resolveMembership(
+      user._id.toString(),
+      activeOrgId || user.lastActiveOrgId?.toString(),
+    );
+  } catch (error) {
+    logger.warn('Failed to resolve membership for token', { error });
+  }
+
   const accessToken = jwt.sign(
-    createAccessTokenPayload(user, organizationName),
+    createAccessTokenPayload(user, membership),
     config.auth.jwt.secret,
     { algorithm: config.auth.jwt.algorithm, expiresIn: tokenExpiresIn },
   );

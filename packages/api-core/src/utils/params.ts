@@ -136,3 +136,13 @@ export function parseQueryString(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   return String(value);
 }
+
+/**
+ * Parse a string to a positive integer, returning a fallback if invalid.
+ * Useful for parsing environment variables with numeric defaults.
+ */
+export function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}

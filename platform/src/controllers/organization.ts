@@ -14,10 +14,10 @@ import {
   updateQuotaLimits,
   QuotaType,
 } from '../middleware/quota';
-import { Organization, User } from '../models';
+import { Organization, User, UserOrganization } from '../models';
 import type { QuotaTier } from '../models/organization';
 import { parsePagination } from '../utils/pagination';
-import { validateBody, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation';
+import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation';
 
 const logger = createLogger('OrganizationController');
 
@@ -77,12 +77,17 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
       Organization.countDocuments(filter),
     ]);
 
-    const orgsWithCount = organizations.map(org => ({
+    // Fetch member counts for all returned orgs in parallel
+    const memberCounts = await Promise.all(
+      organizations.map(org => UserOrganization.countDocuments({ organizationId: org._id, isActive: true })),
+    );
+
+    const orgsWithCount = organizations.map((org, idx) => ({
       id: org._id.toString(),
       name: org.name,
       slug: org.slug,
       description: org.description || '',
-      memberCount: org.members?.length || 0,
+      memberCount: memberCounts[idx],
       ownerId: org.owner?.toString(),
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,
@@ -95,6 +100,81 @@ export async function listAllOrganizations(req: Request, res: Response): Promise
   } catch (error) {
     logger.error('[LIST ORGS] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organizations');
+  }
+}
+
+/**
+ * Create a new organization.
+ * POST /organization
+ *
+ * Creates an Organization and a {@link UserOrganization} record
+ * linking the authenticated user as the owner. Sets the user's
+ * `lastActiveOrgId` to the new organization.
+ */
+export async function createOrganization(req: Request, res: Response): Promise<void> {
+  if (!requireAuth(req, res)) return;
+
+  const body = validateBody(createOrganizationSchema, req.body, res);
+  if (!body) return;
+
+  const session = await mongoose.startSession();
+
+  try {
+    let result: Record<string, unknown> | undefined;
+
+    await session.withTransaction(async () => {
+      const userId = req.user!.sub;
+
+      const tier = body.tier || 'developer';
+      const tierConfig = config.quota.tier[tier];
+
+      const orgData: Record<string, unknown> = {
+        name: body.name,
+        description: body.description || '',
+        owner: userId,
+        tier,
+      };
+
+      // Set quota limits from tier config (developer limits are the model default,
+      // but we set them explicitly for all tiers for consistency)
+      if (tierConfig) {
+        orgData.quotas = {
+          plugins: tierConfig.plugins,
+          pipelines: tierConfig.pipelines,
+          apiCalls: tierConfig.apiCalls,
+        };
+      }
+
+      const [org] = await Organization.create([orgData], { session });
+
+      await UserOrganization.create([{
+        userId,
+        organizationId: org._id,
+        role: 'owner',
+      }], { session });
+
+      await User.updateOne(
+        { _id: userId },
+        { $set: { lastActiveOrgId: org._id } },
+      ).session(session);
+
+      result = {
+        id: org._id.toString(),
+        name: org.name,
+        slug: org.slug,
+        description: org.description || '',
+        tier,
+      };
+    });
+
+    audit(req, 'org.create', { targetType: 'organization', targetId: (result as Record<string, string>)?.id });
+    logger.info(`[CREATE ORG] Org created by ${req.user!.sub}`, result);
+    sendSuccess(res, 201, { organization: result }, 'Organization created successfully');
+  } catch (error) {
+    logger.error('[CREATE ORG] Error:', error);
+    return sendError(res, 500, 'Failed to create organization');
+  } finally {
+    await session.endSession();
   }
 }
 
@@ -114,21 +194,32 @@ export async function getOrganizationById(req: Request, res: Response): Promise<
 
     const org = await Organization.findById(toOrgId(id))
       .populate('owner', 'username email')
-      .populate('members', 'username email role')
       .lean();
 
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
 
+    // Fetch members from junction collection
+    const [memberships, memberCount] = await Promise.all([
+      UserOrganization.find({ organizationId: org._id }).populate('userId', 'username email').lean(),
+      UserOrganization.countDocuments({ organizationId: org._id }),
+    ]);
+
+    const members = memberships.map(m => ({
+      ...(m.userId as unknown as Record<string, unknown>),
+      role: m.role,
+      joinedAt: m.joinedAt,
+    }));
+
     sendSuccess(res, 200, {
       id: org._id.toString(),
       name: org.name,
       slug: org.slug,
       description: org.description || '',
-      memberCount: org.members?.length || 0,
+      memberCount,
       ownerId: org.owner?.toString(),
-      members: org.members,
+      members,
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,
     });
@@ -198,7 +289,8 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
       const org = await Organization.findById(queryId).session(session);
       if (!org) throw new Error('ORG_NOT_FOUND');
 
-      await User.updateMany({ organizationId: queryId }, { $unset: { organizationId: '' } }).session(session);
+      await UserOrganization.deleteMany({ organizationId: queryId }).session(session);
+      await User.updateMany({ lastActiveOrgId: queryId }, { $unset: { lastActiveOrgId: '' } }).session(session);
       await Organization.findByIdAndDelete(queryId).session(session);
     });
 
@@ -373,13 +465,24 @@ export async function getMyOrganization(req: Request, res: Response): Promise<vo
 
     const org = await Organization.findById(toOrgId(orgId as string))
       .populate('owner', 'username email')
-      .populate('members', 'username email role');
+      .lean();
 
     if (!org) {
       return sendError(res, 404, 'Organization not found');
     }
 
-    sendSuccess(res, 200, { organization: org });
+    // Fetch members from junction collection
+    const memberships = await UserOrganization.find({ organizationId: org._id })
+      .populate('userId', 'username email')
+      .lean();
+
+    const members = memberships.map(m => ({
+      ...(m.userId as unknown as Record<string, unknown>),
+      role: m.role,
+      joinedAt: m.joinedAt,
+    }));
+
+    sendSuccess(res, 200, { organization: { ...org, members } });
   } catch (error) {
     logger.error('[GET ORG] Fetch Error:', error);
     return sendError(res, 500, 'Error fetching organization');

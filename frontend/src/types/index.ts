@@ -1,19 +1,37 @@
 /**
- * User model
+ * User model.
+ *
+ * Users can belong to multiple organizations via {@link UserOrgMembership}.
+ * The `role` here is the user's role in their **active** organization (from
+ * the JWT), not a global role. Use `organizations` to see all memberships.
+ * `organizationId` / `organizationName` reflect the currently active org.
  */
 export interface User {
   id: string;
   username: string;
   email: string;
-  role: 'user' | 'admin';
+  /** Per-org role in the active organization. Derived from UserOrganization, not a global role. */
+  role: 'owner' | 'admin' | 'member';
+  /** Active organization ID (user may belong to multiple orgs; see `organizations`) */
   organizationId?: string;
+  /** Active organization name */
   organizationName?: string;
   isEmailVerified: boolean;
   tier?: QuotaTier;
   features?: string[];
   featureOverrides?: Record<string, boolean>;
+  /** All organizations this user belongs to, with per-org roles */
+  organizations?: UserOrgMembership[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A user's membership in an organization. */
+export interface UserOrgMembership {
+  id: string;
+  name: string;
+  slug?: string;
+  role: 'owner' | 'admin' | 'member';
 }
 
 /** System organization identifier (must match backend SYSTEM_ORG_ID). */
@@ -33,15 +51,16 @@ export function isSystemOrg(user: User | null): boolean {
  * Check if user is system admin
  */
 export function isSystemAdmin(user: User | null): boolean {
-  if (!user || user.role !== 'admin') return false;
+  if (!user) return false;
+  if (user.role !== 'admin' && user.role !== 'owner') return false;
   return isSystemOrg(user);
 }
 
 /**
- * Check if user is organization admin
+ * Check if user is organization admin (admin or owner, not in system org)
  */
 export function isOrgAdmin(user: User | null): boolean {
-  return user?.role === 'admin' && !isSystemAdmin(user);
+  return (user?.role === 'admin' || user?.role === 'owner') && !isSystemAdmin(user);
 }
 
 /**
@@ -51,8 +70,9 @@ export interface OrganizationMember {
   id: string;
   username: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'owner' | 'admin' | 'member';
   isOwner: boolean;
+  isActive: boolean;
   isEmailVerified: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -287,7 +307,7 @@ export interface Pipeline {
 export interface Invitation {
   id: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'owner' | 'admin' | 'member';
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   invitedBy: string;
   inviterName: string;
