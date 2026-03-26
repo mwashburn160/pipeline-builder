@@ -1,3 +1,13 @@
+## 1.1.35 (2026-03-26)
+
+### 🩹 Fixes
+
+- upgraded eventIngestion=1.4.38 ([2720ebef](https://github.com/mwashburn160/pipeline-builder/commit/2720ebef))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.34 (2026-03-26)
 
 ### 🩹 Fixes

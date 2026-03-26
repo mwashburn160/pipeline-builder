@@ -1,3 +1,14 @@
+## 1.44.48 (2026-03-26)
+
+### 🩹 Fixes
+
+- added missing ComputeType ([eb17a239](https://github.com/mwashburn160/pipeline-builder/commit/eb17a239))
+- upgraded eventIngestion=1.4.38 ([2720ebef](https://github.com/mwashburn160/pipeline-builder/commit/2720ebef))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.47 (2026-03-26)
 
 ### 🩹 Fixes
