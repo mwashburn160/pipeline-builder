@@ -44,7 +44,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: frontend
-          image: ghcr.io/mwashburn160/frontend:1.42.26
+          image: ghcr.io/mwashburn160/frontend:1.42.45
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
