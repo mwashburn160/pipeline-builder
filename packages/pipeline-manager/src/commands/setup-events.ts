@@ -30,7 +30,6 @@ export function setupEvents(program: Command): void {
     .command('setup-events')
     .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
     .option('--package-version <version>', 'event-ingestion package version (default: latest)')
-    .option('--secrets-prefix <prefix>', 'Secrets Manager path prefix', 'pipeline-builder')
     .option('--secret-name <name>', 'Platform secret name (e.g. pipeline-builder/{orgId}/platform)')
     .option('--region <region>', 'AWS region')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
@@ -61,7 +60,6 @@ export function setupEvents(program: Command): void {
           region,
           platformUrl,
           secretName,
-          secretsPrefix: options.secretsPrefix,
           packageVersion: options.packageVersion || 'latest',
         });
 
@@ -76,7 +74,6 @@ export function setupEvents(program: Command): void {
           '--template-file', templatePath,
           '--parameter-overrides',
           `PlatformBaseUrl=${platformUrl}`,
-          `SecretsPathPrefix=${options.secretsPrefix}`,
           `PlatformSecretName=${secretName}`,
           '--capabilities', 'CAPABILITY_NAMED_IAM',
           '--no-fail-on-empty-changeset',
