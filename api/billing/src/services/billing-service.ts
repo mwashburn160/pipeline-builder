@@ -169,7 +169,7 @@ class BillingService {
     });
 
     if (!subscription) {
-      return this.error(404, 'Active subscription not found', 'NOT_FOUND') as any;
+      this.error(404, 'Active subscription not found', 'NOT_FOUND');
     }
 
     subscription.cancelAtPeriodEnd = true;
@@ -208,7 +208,7 @@ class BillingService {
     });
 
     if (!subscription) {
-      return this.error(404, 'No canceled subscription found to reactivate', 'NOT_FOUND') as any;
+      this.error(404, 'No canceled subscription found to reactivate', 'NOT_FOUND');
     }
 
     subscription.cancelAtPeriodEnd = false;

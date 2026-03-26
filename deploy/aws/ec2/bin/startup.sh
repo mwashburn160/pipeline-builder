@@ -322,9 +322,6 @@ echo "  grafana datasources + dashboards"
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== Pre-pulling container images ==="
-run_as_mk minikube ssh --profile="$PROFILE" -- 'docker pull docker:27.5.1-dind' 2>/dev/null \
-  && echo "  docker:27.5.1-dind pulled" || echo "  WARNING: Could not pre-pull docker:27.5.1-dind"
-
 echo ""
 echo "=== Applying Kubernetes manifests ==="
 run_as_mk kubectl apply -k "$K8S_DIR"

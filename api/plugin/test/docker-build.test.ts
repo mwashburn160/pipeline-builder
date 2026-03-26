@@ -389,7 +389,7 @@ describe('docker-build', () => {
       mockSpawn.mockImplementation(() => createMockChild(1));
 
       const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await expect(buildAndPush(req)).rejects.toThrow('Docker build failed with exit code 1');
+      await expect(buildAndPush(req)).rejects.toThrow('Build failed with exit code 1');
 
       // No teardown rm after create
       const syncCalls = mockExecFileSync.mock.calls.map((c: any) => c[1] as string[]);
@@ -497,7 +497,7 @@ describe('docker-build', () => {
       mockSpawn.mockImplementation(() => createMockChild(1));
 
       await expect(buildAndPush(makeRequest())).rejects.toThrow(
-        'Docker build failed with exit code 1',
+        'Build failed with exit code 1',
       );
     });
 

@@ -512,6 +512,23 @@ Resources:
         - Key: Name
           Value: !Sub "${StackPrefix}-efs-pgadmin"
 
+  KanikoCacheAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      PosixUser:
+        Uid: "0"
+        Gid: "0"
+      RootDirectory:
+        Path: /kaniko-cache
+        CreationInfo:
+          OwnerUid: "0"
+          OwnerGid: "0"
+          Permissions: "0755"
+      AccessPointTags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-efs-kaniko-cache"
+
   # ---------------------------------------------------------------------------
   # Config Storage - S3 Bucket
   # ---------------------------------------------------------------------------
@@ -661,6 +678,12 @@ Outputs:
     Value: !GetAtt PgadminAccessPoint.Arn
     Export:
       Name: !Sub "${StackPrefix}-PgadminAccessPointArn"
+
+  KanikoCacheAccessPointArn:
+    Description: EFS Access Point ARN for Kaniko build cache
+    Value: !GetAtt KanikoCacheAccessPoint.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-KanikoCacheAccessPointArn"
 
   # S3
   ConfigBucketName:

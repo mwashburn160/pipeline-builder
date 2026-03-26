@@ -356,38 +356,6 @@ services:
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
-  docker-dind:
-    image: 'docker:27-dind'
-    container_name: docker-dind
-    restart: always
-    privileged: true
-    command:
-      - "--host=tcp://0.0.0.0:2375"
-      - "--host=unix:///var/run/docker.sock"
-      - "--insecure-registry=registry:5000"
-      - "--max-concurrent-downloads=3"
-      - "--max-concurrent-uploads=3"
-    environment:
-      DOCKER_TLS_CERTDIR: ''
-    volumes:
-      - 'dind-storage:/var/lib/docker'
-    networks:
-      - backend-network
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
-
   plugin:
     image: 'ghcr.io/mwashburn160/plugin:1.37.41'
     container_name: plugin
@@ -397,28 +365,21 @@ services:
       SERVICE_NAME: plugin
       COMPLIANCE_SERVICE_HOST: compliance
       COMPLIANCE_SERVICE_PORT: '3000'
-      DOCKER_HOST: tcp://docker-dind:2375
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
-      DOCKER_NETWORK: ${DOCKER_NETWORK:-host}
-      DOCKER_REGISTRY_HTTP: ${DOCKER_REGISTRY_HTTP:-false}
+      DOCKER_REGISTRY_HTTP: ${DOCKER_REGISTRY_HTTP:-true}
       DOCKER_REGISTRY_INSECURE: ${DOCKER_REGISTRY_INSECURE:-true}
-      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/tmp/plugin-builds}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-2}
     tmpfs:
       - /app/uploads:uid=1000,gid=1000
-    volumes:
-      - '${DOCKER_BUILD_TEMP_ROOT:-/tmp/plugin-builds}:${DOCKER_BUILD_TEMP_ROOT:-/tmp/plugin-builds}:rw'
     networks:
       - backend-network
     depends_on:
-      docker-dind:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       quota:
@@ -858,9 +819,7 @@ services:
 # =============================================================================
 # Volumes
 # =============================================================================
-volumes:
-  dind-storage:
-    name: dind-storage
+volumes: {}
 
 # =============================================================================
 # Networks

@@ -101,4 +101,8 @@ app.use('/messages', ...createAuthenticatedWithOrgRoute(), createDeleteMessageRo
 
 logger.info('All /messages routes registered');
 
-void runServer(app, { name: 'Message Service', sseManager });
+void runServer(app, {
+  name: 'Message Service',
+  sseManager,
+  onShutdown: async () => { clearInterval(ticketCleanup); },
+});

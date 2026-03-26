@@ -13,6 +13,7 @@ import { z } from 'zod';
 const ScanCreateSchema = z.object({
   target: z.enum(['plugin', 'pipeline', 'all']),
   filter: z.record(z.string(), z.unknown()).optional(),
+  dryRun: z.boolean().optional(),
 });
 
 export function createScanRoutes(): Router {
@@ -76,6 +77,8 @@ export function createScanRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
+    const triggeredBy = validation.value.dryRun ? 'rule-dry-run' : 'manual';
+
     const [scan] = await db
       .insert(schema.complianceScan)
       .values({
@@ -83,7 +86,7 @@ export function createScanRoutes(): Router {
         target: validation.value.target,
         filter: validation.value.filter as Record<string, unknown> ?? null,
         status: 'pending',
-        triggeredBy: 'manual',
+        triggeredBy,
         userId,
       })
       .returning();

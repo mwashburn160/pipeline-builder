@@ -207,6 +207,20 @@ export class ComplianceRuleService extends CrudService<
     return allRules;
   }
 
+  /**
+   * Fire-and-forget: create a pending scan triggered by a rule change.
+   * The scan scheduler picks it up and executes it automatically.
+   */
+  private async triggerRuleChangeScan(orgId: string, target: string): Promise<void> {
+    await db.insert(schema.complianceScan).values({
+      orgId,
+      target: target as 'plugin' | 'pipeline',
+      status: 'pending',
+      triggeredBy: 'rule-change',
+      userId: 'system',
+    });
+  }
+
   /** Fetch all rules belonging to a policy. */
   async findByPolicy(policyId: string, orgId: string): Promise<ComplianceRule[]> {
     return this.find({ policyId, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
@@ -238,6 +252,7 @@ export class ComplianceRuleService extends CrudService<
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+    this.triggerRuleChangeScan(created.orgId, created.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     if (created.scope === 'published') {
       this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     }
@@ -255,6 +270,7 @@ export class ComplianceRuleService extends CrudService<
     if (updated && existing) {
       this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.triggerRuleChangeScan(orgId, existing.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
         notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
@@ -269,6 +285,7 @@ export class ComplianceRuleService extends CrudService<
     if (deleted && existing) {
       this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.triggerRuleChangeScan(orgId, existing.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
         notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));

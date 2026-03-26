@@ -4,10 +4,8 @@ import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
 import { db } from '../database/postgres-connection';
 
-/** Cast raw SQL result rows to a typed array. */
-function sqlRows<T>(result: { rows: unknown[] }): T[] {
-  return drizzleRows<T>(result.rows);
-}
+/** Cast raw SQL result rows to a typed array. Alias for drizzleRows. */
+const sqlRows = <T>(result: { rows: unknown[] }): T[] => drizzleRows<T>(result.rows);
 
 /**
  * Cache for reporting aggregations. Two tiers:

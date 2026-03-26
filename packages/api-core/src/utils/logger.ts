@@ -34,7 +34,12 @@ const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) =
  */
 export function createLogger(serviceName: string): winston.Logger {
   const logLevel = process.env.LOG_LEVEL || 'info';
-  const useJson = (process.env.LOG_FORMAT || 'json') !== 'text';
+  const logFormat = process.env.LOG_FORMAT || 'json';
+  if (logFormat !== 'json' && logFormat !== 'text') {
+    // eslint-disable-next-line no-console -- startup warning before logger is available
+    console.warn(`Invalid LOG_FORMAT="${logFormat}", expected "json" or "text". Defaulting to "json".`);
+  }
+  const useJson = logFormat !== 'text';
 
   const baseFormats = [
     errors({ stack: true }),

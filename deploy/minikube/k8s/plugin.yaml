@@ -63,64 +63,7 @@ spec:
               echo "Waiting for quota..."
               until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
               echo "Dependencies ready"
-        - name: fix-permissions
-          image: busybox
-          resources:
-            limits:
-              cpu: "100m"
-              memory: 64Mi
-            requests:
-              cpu: "25m"
-              memory: 32Mi
-          command: ["sh", "-c", "chown -R 1000:1000 /mnt/data/tmp"]
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: build-temp
-              mountPath: /mnt/data/tmp
       containers:
-        # --- Docker-in-Docker sidecar ---
-        - name: docker-dind
-          image: docker:27-dind
-          securityContext:
-            privileged: true
-          args:
-            - "--host=tcp://0.0.0.0:2375"
-            - "--host=unix:///var/run/docker.sock"
-            - "--insecure-registry=registry:5000"
-            - "--max-concurrent-downloads=3"
-            - "--max-concurrent-uploads=3"
-            - "--storage-driver=overlay2"
-            - "--tls=false"
-          env:
-            - name: DOCKER_TLS_CERTDIR
-              value: ""
-          volumeMounts:
-            - name: docker-graph
-              mountPath: /var/lib/docker
-          resources:
-            limits:
-              cpu: "1000m"
-              memory: 2Gi
-            requests:
-              cpu: "200m"
-              memory: 512Mi
-          readinessProbe:
-            exec:
-              command: ["docker", "info"]
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 5
-          livenessProbe:
-            exec:
-              command: ["docker", "info"]
-            initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 3
-        # --- Plugin service ---
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:1.37.41
           securityContext:
@@ -146,27 +89,19 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "plugin"
-            - name: DOCKER_HOST
-              value: "tcp://localhost:2375"
             - name: IMAGE_REGISTRY_HOST
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
-            - name: DOCKER_NETWORK
-              value: "host"
             - name: DOCKER_REGISTRY_HTTP
-              value: "false"
+              value: "true"
             - name: DOCKER_REGISTRY_INSECURE
               value: "true"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT
               value: "6379"
-            - name: DOCKER_BUILD_TEMP_ROOT
-              value: "/mnt/data/tmp"
           volumeMounts:
-            - name: build-temp
-              mountPath: /mnt/data/tmp
             - name: tmp
               mountPath: /tmp
             - name: uploads
@@ -195,13 +130,6 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 5
       volumes:
-        - name: docker-graph
-          emptyDir:
-            sizeLimit: 10Gi
-        - name: build-temp
-          hostPath:
-            path: /mnt/data/tmp
-            type: DirectoryOrCreate
         - name: tmp
           emptyDir:
             medium: Memory

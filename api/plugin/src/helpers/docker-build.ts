@@ -5,6 +5,8 @@ import path from 'path';
 import { createLogger, errorMessage, ValidationError } from '@mwashburn160/api-core';
 import { CoreConstants } from '@mwashburn160/pipeline-core';
 
+import { resolveStrategy } from './build-strategy';
+
 const logger = createLogger('docker-build');
 
 /** Registry configuration needed for build + push. */
@@ -49,6 +51,12 @@ export const BUILD_TEMP_ROOT = process.env.DOCKER_BUILD_TEMP_ROOT || path.join(p
 
 const BUILDER_NAME = CoreConstants.DOCKER_BUILDER_NAME;
 
+/** Path to the Kaniko executor binary. */
+const KANIKO_EXECUTOR = process.env.KANIKO_EXECUTOR_PATH || '/kaniko/executor';
+
+/** Kaniko layer cache directory. */
+const KANIKO_CACHE_DIR = process.env.KANIKO_CACHE_DIR || '/kaniko/cache';
+
 // Validation patterns for Docker build inputs
 const VALID_NETWORK_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const VALID_IMAGE_TAG_RE = /^[a-z0-9][a-z0-9._-]*$/;
@@ -77,34 +85,78 @@ function validateBuildInputs(registry: RegistryInfo, imageTag: string): void {
   }
 }
 
+function validateBuildArgs(buildArgs: Record<string, string>): void {
+  for (const [key, value] of Object.entries(buildArgs)) {
+    if (!VALID_BUILD_ARG_KEY.test(key)) {
+      throw new ValidationError(`Invalid build arg key: ${key}`);
+    }
+    if (typeof value !== 'string' || value.length > MAX_BUILD_ARG_VALUE_LENGTH) {
+      throw new ValidationError(`Invalid build arg value for ${key}`);
+    }
+  }
+}
+
 /**
  * Build a Docker image and push it to the configured registry.
  *
- * Uses a persistent buildx builder with the `docker-container` driver when a
- * network is configured. The builder is created lazily on first use and reused
- * across builds. It is only recreated when the network changes or the builder
- * is unhealthy.
+ * Supports two strategies selected via DOCKER_BUILD_STRATEGY env var:
+ * - `docker` — Uses Docker buildx with a persistent builder (requires dind)
+ * - `kaniko` — Uses Kaniko executor (daemonless, works on Fargate)
+ * - `auto`   — Probes for Docker daemon; falls back to Kaniko (default)
  */
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   const { contextDir, dockerfile, imageTag, registry, buildArgs } = req;
 
   validateBuildInputs(registry, imageTag);
+  if (buildArgs) validateBuildArgs(buildArgs);
 
   const registryAddr = `${registry.host}:${registry.port}`;
   const fullImage = `${registryAddr}/plugin:${imageTag}`;
+  const strategy = resolveStrategy();
 
-  // --- Docker config dir (auth + builder state live here) ------------------
+  let binary: string;
+  let args: string[];
+
+  if (strategy === 'docker') {
+    ({ binary, args } = await buildDockerArgs(contextDir, dockerfile, fullImage, registry, buildArgs));
+  } else {
+    ({ binary, args } = buildKanikoArgs(contextDir, dockerfile, fullImage, registry, buildArgs));
+  }
+
+  logger.info('Building and pushing image', {
+    strategy,
+    fullImage,
+    network: registry.network || 'default',
+  });
+
+  await spawnProcess(binary, args, CoreConstants.DOCKER_BUILD_TIMEOUT_MS);
+
+  return { fullImage };
+}
+
+// ---------------------------------------------------------------------------
+// Docker strategy
+// ---------------------------------------------------------------------------
+
+async function buildDockerArgs(
+  contextDir: string,
+  dockerfile: string,
+  fullImage: string,
+  registry: RegistryInfo,
+  buildArgs?: Record<string, string>,
+): Promise<{ binary: string; args: string[] }> {
+  // Auth config for Docker
   const configDir = path.join(contextDir, '.docker');
   fs.mkdirSync(configDir, { recursive: true });
 
+  const registryAddr = `${registry.host}:${registry.port}`;
   const authToken = Buffer.from(`${registry.user}:${registry.token}`).toString('base64');
   fs.writeFileSync(
     path.join(configDir, 'config.json'),
     JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
   );
 
-  // --- Ensure persistent buildx builder (only when network is configured) --
-  // Serialise builder creation so concurrent builds don't race on `buildx create`.
+  // Ensure persistent buildx builder (only when network is configured)
   if (registry.network) {
     await new Promise<void>((resolve, reject) => {
       builderMutex = builderMutex
@@ -118,7 +170,6 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
     });
   }
 
-  // --- Build + push in one step ------------------------------------------
   const args = [
     '--config', configDir,
     'buildx', 'build', '--push',
@@ -131,12 +182,6 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
   if (buildArgs) {
     for (const [key, value] of Object.entries(buildArgs)) {
-      if (!VALID_BUILD_ARG_KEY.test(key)) {
-        throw new ValidationError(`Invalid build arg key: ${key}`);
-      }
-      if (typeof value !== 'string' || value.length > MAX_BUILD_ARG_VALUE_LENGTH) {
-        throw new ValidationError(`Invalid build arg value for ${key}`);
-      }
       args.push('--build-arg', `${key}=${value}`);
     }
   }
@@ -147,14 +192,55 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
     contextDir,
   );
 
-  logger.info('Building and pushing image', {
-    fullImage,
-    network: registry.network || 'default',
-  });
+  return { binary: 'docker', args };
+}
 
-  await spawnDocker(args, CoreConstants.DOCKER_BUILD_TIMEOUT_MS);
+// ---------------------------------------------------------------------------
+// Kaniko strategy
+// ---------------------------------------------------------------------------
 
-  return { fullImage };
+function buildKanikoArgs(
+  contextDir: string,
+  dockerfile: string,
+  fullImage: string,
+  registry: RegistryInfo,
+  buildArgs?: Record<string, string>,
+): { binary: string; args: string[] } {
+  // Auth config for Kaniko — writes to /kaniko/.docker/config.json
+  const kanikoDockerDir = '/kaniko/.docker';
+  fs.mkdirSync(kanikoDockerDir, { recursive: true });
+
+  const registryAddr = `${registry.host}:${registry.port}`;
+  const authToken = Buffer.from(`${registry.user}:${registry.token}`).toString('base64');
+  fs.writeFileSync(
+    path.join(kanikoDockerDir, 'config.json'),
+    JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
+  );
+
+  const args = [
+    `--context=${contextDir}`,
+    `--dockerfile=${path.join(contextDir, dockerfile)}`,
+    `--destination=${fullImage}`,
+    '--verbosity=info',
+    `--cache=true`,
+    `--cache-dir=${KANIKO_CACHE_DIR}`,
+  ];
+
+  if (registry.insecure) {
+    args.push(
+      `--insecure`,
+      `--insecure-pull`,
+      `--skip-tls-verify`,
+    );
+  }
+
+  if (buildArgs) {
+    for (const [key, value] of Object.entries(buildArgs)) {
+      args.push(`--build-arg=${key}=${value}`);
+    }
+  }
+
+  return { binary: KANIKO_EXECUTOR, args };
 }
 
 /**
@@ -178,12 +264,12 @@ export function destroyBuilder(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Spawn `docker` with real-time output streaming to the logger.
+ * Spawn a process with real-time output streaming to the logger.
  * Rejects if the process exits non-zero or the timeout is exceeded.
  */
-function spawnDocker(args: string[], timeoutMs: number): Promise<void> {
+function spawnProcess(binary: string, args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -206,9 +292,9 @@ function spawnDocker(args: string[], timeoutMs: number): Promise<void> {
     child.on('close', (code) => {
       clearTimeout(timer);
       if (timedOut) {
-        reject(new Error(`Docker build timed out after ${timeoutMs}ms`));
+        reject(new Error(`Build timed out after ${timeoutMs}ms`));
       } else if (code !== 0) {
-        reject(new Error(`Docker build failed with exit code ${code}`));
+        reject(new Error(`Build failed with exit code ${code}`));
       } else {
         resolve();
       }
@@ -302,10 +388,14 @@ function ensureBuilder(
 function removeBuilder(configDir: string): void {
   try {
     dockerExec(configDir, ['buildx', 'rm', '--force', BUILDER_NAME]);
-  } catch { /* builder doesn't exist — fine */ }
+  } catch (err) {
+    logger.debug('Builder removal skipped', { error: errorMessage(err) });
+  }
   try {
     execFileSync('docker', ['rm', '-f', `buildx_buildkit_${BUILDER_NAME}0`], { stdio: 'ignore' });
-  } catch { /* container doesn't exist — fine */ }
+  } catch (err) {
+    logger.debug('Builder container removal skipped', { error: errorMessage(err) });
+  }
 }
 
 /**

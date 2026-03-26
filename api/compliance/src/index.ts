@@ -6,6 +6,7 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
 } from '@mwashburn160/api-server';
+import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
 import { createAuditRoutes } from './routes/audit';
 import { createCreatePolicyRoutes } from './routes/create-policies';
 import { createCreateRuleRoutes } from './routes/create-rules';
@@ -15,6 +16,7 @@ import { createEntityEventRoutes } from './routes/entity-events';
 import { createExemptionRoutes } from './routes/exemptions';
 import { createReadPolicyRoutes } from './routes/read-policies';
 import { createReadRuleRoutes } from './routes/read-rules';
+import { createScanScheduleRoutes } from './routes/scan-schedules';
 import { createScanRoutes } from './routes/scans';
 import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions';
 import { createTemplateRoutes } from './routes/templates';
@@ -53,6 +55,9 @@ app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createEx
 // Compliance scans (auth + org)
 app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRoutes());
 
+// Scan schedules (auth + org)
+app.use('/compliance/scan-schedules', ...createAuthenticatedWithOrgRoute(), createScanScheduleRoutes());
+
 // Policy CRUD routes
 app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPolicyRoutes());
 app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createCreatePolicyRoutes());
@@ -70,6 +75,9 @@ logger.info('All /compliance routes registered');
 void runServer(app, {
   name: 'Compliance Service',
   sseManager,
+  onShutdown: async () => { stopScanScheduler(); },
 });
+
+startScanScheduler();
 
 export { app };

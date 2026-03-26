@@ -13,7 +13,14 @@ import { Plan } from '../models/plan';
 const logger = createLogger('billing-plans');
 
 /** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS (default 4 hours). */
-const planCache = createCacheService('billing:plans:', parseInt(process.env.CACHE_TTL_BILLING_PLANS || '14400', 10));
+/** Parse a positive integer from an env var, falling back to the default on invalid input. */
+function safeParseInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const planCache = createCacheService('billing:plans:', safeParseInt(process.env.CACHE_TTL_BILLING_PLANS, 14400));
 
 /**
  * Create the public plan-listing router (no auth required).

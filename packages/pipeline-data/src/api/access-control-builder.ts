@@ -137,9 +137,9 @@ export class AccessControlQueryBuilder<
    * @returns SQL condition or null if no ID filter
    */
   protected buildIdFilter(id: unknown): SQL | null {
-    if (id === undefined) return null;
+    if (id === undefined || id === null) return null;
 
-    const idString = (id as string).toLowerCase();
+    const idString = String(id).toLowerCase();
     if (FULL_UUID.test(idString)) {
       return eq(this.schema.id, idString);
     } else {
