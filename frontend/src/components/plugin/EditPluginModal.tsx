@@ -4,6 +4,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
 import api from '@/lib/api';
+import { formatJSON, safeJSONParse } from '@/lib/constants';
 import { Plugin } from '@/types';
 
 /** Props for the EditPluginModal component. */
@@ -26,10 +27,10 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const [description, setDescription] = useState(plugin.description || '');
   const [keywords, setKeywords] = useState(plugin.keywords?.join(', ') || '');
   const [version, setVersion] = useState(plugin.version);
-  const [metadata, setMetadata] = useState(JSON.stringify(plugin.metadata || {}, null, 2));
+  const [metadata, setMetadata] = useState(formatJSON(plugin.metadata || {}));
   const [pluginType, setPluginType] = useState(plugin.pluginType);
   const [computeType, setComputeType] = useState(plugin.computeType);
-  const [env, setEnv] = useState(JSON.stringify(plugin.env || {}, null, 2));
+  const [env, setEnv] = useState(formatJSON(plugin.env || {}));
   const [installCommands, setInstallCommands] = useState(plugin.installCommands?.join('\n') || '');
   const [commands, setCommands] = useState(plugin.commands?.join('\n') || '');
   const [isActive, setIsActive] = useState(plugin.isActive);
@@ -37,7 +38,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
   const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState(plugin.primaryOutputDirectory || '');
   const [timeout, setPluginTimeout] = useState<string>(plugin.timeout != null ? String(plugin.timeout) : '');
   const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
-  const [secrets, setSecrets] = useState(JSON.stringify(plugin.secrets || [], null, 2));
+  const [secrets, setSecrets] = useState(formatJSON(plugin.secrets || []));
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -60,10 +61,10 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
             setDescription(fetched.description || '');
             setKeywords(fetched.keywords?.join(', ') || '');
             setVersion(fetched.version);
-            setMetadata(JSON.stringify(fetched.metadata || {}, null, 2));
+            setMetadata(formatJSON(fetched.metadata || {}));
             setPluginType(fetched.pluginType);
             setComputeType(fetched.computeType);
-            setEnv(JSON.stringify(fetched.env || {}, null, 2));
+            setEnv(formatJSON(fetched.env || {}));
             setInstallCommands(fetched.installCommands?.join('\n') || '');
             setCommands(fetched.commands?.join('\n') || '');
             setIsActive(fetched.isActive);
@@ -71,7 +72,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
             setPrimaryOutputDirectory(fetched.primaryOutputDirectory || '');
             setPluginTimeout(fetched.timeout != null ? String(fetched.timeout) : '');
             setFailureBehavior(fetched.failureBehavior || 'fail');
-            setSecrets(JSON.stringify(fetched.secrets || [], null, 2));
+            setSecrets(formatJSON(fetched.secrets || []));
             setAccessModifier(fetched.accessModifier);
           } else {
             setFullPlugin(plugin);
@@ -93,30 +94,14 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
     setValidationError(null);
     setSuccess(null);
 
-    let parsedMetadata: Record<string, string | number | boolean> = {};
-    let parsedEnv: Record<string, string> = {};
+    const parsedMetadata = metadata.trim() ? safeJSONParse<Record<string, string | number | boolean> | null>(metadata, null) : {};
+    if (parsedMetadata === null) { setValidationError('Invalid JSON in metadata field'); return; }
 
-    try {
-      parsedMetadata = metadata.trim() ? JSON.parse(metadata) : {};
-    } catch {
-      setValidationError('Invalid JSON in metadata field');
-      return;
-    }
+    const parsedEnv = env.trim() ? safeJSONParse<Record<string, string> | null>(env, null) : {};
+    if (parsedEnv === null) { setValidationError('Invalid JSON in env field'); return; }
 
-    try {
-      parsedEnv = env.trim() ? JSON.parse(env) : {};
-    } catch {
-      setValidationError('Invalid JSON in env field');
-      return;
-    }
-
-    let parsedSecrets: Array<{ name: string; required: boolean; description?: string }> = [];
-    try {
-      parsedSecrets = secrets.trim() ? JSON.parse(secrets) : [];
-    } catch {
-      setValidationError('Invalid JSON in secrets field');
-      return;
-    }
+    const parsedSecrets = secrets.trim() ? safeJSONParse<Array<{ name: string; required: boolean; description?: string }> | null>(secrets, null) : [];
+    if (parsedSecrets === null) { setValidationError('Invalid JSON in secrets field'); return; }
 
     const response = await saveAsync({
       name,

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Copy, Check, X } from 'lucide-react';
+import { COPY_FEEDBACK_RESET_MS } from '@/lib/constants';
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
@@ -23,7 +24,7 @@ export function CopyButton({ text }: { text: string }) {
     } catch {
       setState('failed');
     }
-    timerRef.current = setTimeout(() => setState('idle'), 2000);
+    timerRef.current = setTimeout(() => setState('idle'), COPY_FEEDBACK_RESET_MS);
   };
 
   return (

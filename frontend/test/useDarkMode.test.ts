@@ -19,6 +19,7 @@ jest.mock('react', () => ({
 }));
 
 import { getInitialDark } from '../src/hooks/useDarkMode';
+import { THEME_STORAGE_KEY } from '../src/lib/constants';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,7 +77,7 @@ describe('getInitialDark', () => {
     (globalThis as any).localStorage = storage;
 
     expect(getInitialDark()).toBe(true);
-    expect(storage.getItem).toHaveBeenCalledWith('theme');
+    expect(storage.getItem).toHaveBeenCalledWith(THEME_STORAGE_KEY);
   });
 
   it('should return false when localStorage has theme = "light"', () => {
@@ -88,7 +89,7 @@ describe('getInitialDark', () => {
     (globalThis as any).localStorage = storage;
 
     expect(getInitialDark()).toBe(false);
-    expect(storage.getItem).toHaveBeenCalledWith('theme');
+    expect(storage.getItem).toHaveBeenCalledWith(THEME_STORAGE_KEY);
   });
 
   it('should return OS preference (true) when no localStorage value exists', () => {
@@ -101,7 +102,7 @@ describe('getInitialDark', () => {
     (globalThis as any).localStorage = storage;
 
     expect(getInitialDark()).toBe(true);
-    expect(storage.getItem).toHaveBeenCalledWith('theme');
+    expect(storage.getItem).toHaveBeenCalledWith(THEME_STORAGE_KEY);
     expect(media).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
   });
 

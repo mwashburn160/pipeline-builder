@@ -194,8 +194,6 @@ export default function QuotasPage() {
   const [saving, setSaving] = useState(false);
 
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0 });
-  const [editName, setEditName] = useState('');
-  const [editSlug, setEditSlug] = useState('');
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
 
@@ -245,8 +243,6 @@ export default function QuotasPage() {
       pipelines: resolved.quotas.pipelines.limit,
       apiCalls: resolved.quotas.apiCalls.limit,
     });
-    setEditName(resolved.name);
-    setEditSlug(resolved.slug);
     setEditTier(resolved.tier || 'developer');
     setDirty(false);
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));
@@ -286,8 +282,6 @@ export default function QuotasPage() {
     setSaving(true);
 
     const body: Record<string, unknown> = {};
-    if (editName !== orgData.name) body.name = editName;
-    if (editSlug !== orgData.slug) body.slug = editSlug;
     if (editTier !== (orgData.tier || 'developer')) body.tier = editTier;
 
     const qc: Record<string, number> = {};
@@ -306,11 +300,6 @@ export default function QuotasPage() {
       const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
       applyOrgData(updated);
 
-      if (body.name || body.slug) {
-        setPlatformOrgs((prev) =>
-          prev.map((o) => (o.id === updated.orgId ? { ...o, name: updated.name, slug: updated.slug } : o)),
-        );
-      }
       toast.success('Saved');
     } catch (error) {
       toast.error(formatError(error, 'Failed to save'));
@@ -326,6 +315,61 @@ export default function QuotasPage() {
   });
 
   if (!isReady || !user) return <LoadingPage />;
+
+  // ── Simple read-only view for regular users ──
+  if (!isSysAdmin) {
+    const tier = orgData?.tier || 'developer';
+    const tierPreset = TIER_PRESETS[tier];
+    return (
+      <DashboardLayout
+        title="Quotas"
+        subtitle="Usage limits and consumption"
+        titleExtra={orgData ? (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            tier === 'unlimited'
+              ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
+              : tier === 'pro'
+                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
+                : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${tierPreset.color}`} />
+            {tierPreset.label}
+          </span>
+        ) : undefined}
+      >
+        <div className="page-section max-w-4xl">
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="card">
+                  <div className="h-4 skeleton w-1/2 mb-4" />
+                  <div className="h-8 skeleton w-1/3 mb-3" />
+                  <div className="h-1.5 skeleton rounded-full mb-3" />
+                  <div className="h-3 skeleton w-2/3" />
+                </div>
+              ))}
+            </div>
+          ) : orgData ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {QUOTA_KEYS.map((key) => (
+                <QuotaCard
+                  key={key}
+                  quotaKey={key}
+                  quota={orgData.quotas[key]}
+                  isAdmin={false}
+                  editVal={orgData.quotas[key].limit}
+                  onEditChange={() => {}}
+                />
+              ))}
+            </div>
+          ) : null}
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+            Contact a system administrator to change quota limits.
+          </p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   const titleExtra = !loading && orgData ? (
     <div className="hidden sm:flex items-center gap-2">
@@ -407,38 +451,6 @@ export default function QuotasPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
                 {orgData.name} &middot; <span className="font-mono">{orgData.slug}</span>
               </p>
-            )}
-
-            {!loading && orgData && isSysAdmin && (
-              <div className="mb-8">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
-                  Organization
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="label">Name</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={editName}
-                      onChange={(e) => { setEditName(e.target.value); setDirty(true); }}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Slug</label>
-                    <input
-                      type="text"
-                      className="input font-mono"
-                      value={editSlug}
-                      onChange={(e) => { setEditSlug(e.target.value); setDirty(true); }}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Org ID</label>
-                    <p className="text-sm text-gray-900 dark:text-gray-100 font-mono pt-2">{orgData.orgId}</p>
-                  </div>
-                </div>
-              </div>
             )}
 
             {/* Tier selector — system admin only */}

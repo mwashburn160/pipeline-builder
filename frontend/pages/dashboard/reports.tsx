@@ -6,6 +6,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import ReportTabs from '@/components/reports/ReportTabs';
 import {
   fmtMs, fmtDate, ReportEmpty, SectionHeading,
   StatCardSkeleton, SectionCardSkeleton, TwoColumnSkeleton,
@@ -84,60 +85,83 @@ interface ActionFailure {
   failure_pct: number;
 }
 
+type ReportTab = 'overview' | 'performance' | 'failures';
+
+const TABS: { id: ReportTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'failures', label: 'Failures' },
+];
+
 // ─── Page ───────────────────────────────────────────────
 
-/** Pipeline reports page. Execution analytics, duration stats, bottlenecks, and failure insights. */
+/** Pipeline reports page with tabbed layout: Overview, Performance, and Failures. */
 export default function PipelineReportsPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
 
+  const [activeTab, setActiveTab] = useState<ReportTab>('overview');
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Overview data
   const [executions, setExecutions] = useState<ExecutionCount[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const [durations, setDurations] = useState<DurationStat[]>([]);
-  const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
-  const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
-  const [errors, setErrors] = useState<ErrorEntry[]>([]);
   const [successRateTrend, setSuccessRateTrend] = useState<SuccessRateEntry[]>([]);
-  const [actionFailures, setActionFailures] = useState<ActionFailure[]>([]);
 
-  const fetchAll = useCallback(async () => {
+  // Performance data
+  const [durations, setDurations] = useState<DurationStat[]>([]);
+  const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
+
+  // Failures data
+  const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
+  const [actionFailures, setActionFailures] = useState<ActionFailure[]>([]);
+  const [errors, setErrors] = useState<ErrorEntry[]>([]);
+
+  const fetchTab = useCallback(async () => {
     setLoading(true);
     const dateParams: Record<string, string> = {};
     if (dateFrom) dateParams.from = dateFrom;
     if (dateTo) dateParams.to = dateTo;
 
     try {
-      const [execRes, timelineRes, durationRes, stageRes, bottleneckRes, errorRes, successRateRes, actionRes] = await Promise.allSettled([
-        api.getExecutionCount(),
-        api.getExecutionTimeline({ interval: timeInterval, ...dateParams }),
-        api.getPipelineDuration(dateParams),
-        api.getStageFailures(dateParams),
-        api.getStageBottlenecks(dateParams),
-        api.getExecutionErrors({ limit: 10, ...dateParams }),
-        api.getSuccessRate({ interval: timeInterval, ...dateParams }),
-        api.getActionFailures(dateParams),
-      ]);
-
-      if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-      if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.timeline || []);
-      if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
-      if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
-      if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
-      if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
-      if (successRateRes.status === 'fulfilled') setSuccessRateTrend(successRateRes.value.data?.timeline || []);
-      if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
+      if (activeTab === 'overview') {
+        const [execRes, timelineRes, successRateRes] = await Promise.allSettled([
+          api.getExecutionCount(),
+          api.getExecutionTimeline({ interval: timeInterval, ...dateParams }),
+          api.getSuccessRate({ interval: timeInterval, ...dateParams }),
+        ]);
+        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
+        if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.timeline || []);
+        if (successRateRes.status === 'fulfilled') setSuccessRateTrend(successRateRes.value.data?.timeline || []);
+      } else if (activeTab === 'performance') {
+        const [execRes, durationRes, bottleneckRes] = await Promise.allSettled([
+          api.getExecutionCount(),
+          api.getPipelineDuration(dateParams),
+          api.getStageBottlenecks(dateParams),
+        ]);
+        if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
+        if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
+        if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
+      } else {
+        const [stageRes, actionRes, errorRes] = await Promise.allSettled([
+          api.getStageFailures(dateParams),
+          api.getActionFailures(dateParams),
+          api.getExecutionErrors({ limit: 10, ...dateParams }),
+        ]);
+        if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
+        if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
+        if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
+      }
     } finally {
       setLoading(false);
     }
-  }, [timeInterval, dateFrom, dateTo]);
+  }, [activeTab, timeInterval, dateFrom, dateTo]);
 
   useEffect(() => {
-    if (isAuthenticated) fetchAll();
-  }, [isAuthenticated, fetchAll]);
+    if (isAuthenticated) fetchTab();
+  }, [isAuthenticated, fetchTab]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -146,7 +170,9 @@ export default function PipelineReportsPage() {
   const totalFail = executions.reduce((s, p) => s + p.failed, 0);
   const successRate = totalExec > 0 ? ((totalPass / totalExec) * 100).toFixed(1) : '—';
 
-  const hasData = executions.length > 0 || timeline.length > 0 || durations.length > 0;
+  const hasOverviewData = executions.length > 0 || timeline.length > 0;
+  const hasPerfData = executions.length > 0 || durations.length > 0;
+  const hasFailData = stageFailures.length > 0 || actionFailures.length > 0 || errors.length > 0;
 
   return (
     <DashboardLayout
@@ -165,271 +191,312 @@ export default function PipelineReportsPage() {
             <option value="week">Weekly</option>
             <option value="month">Monthly</option>
           </select>
-          <AutoRefresh onRefresh={fetchAll} loading={loading} />
+          <AutoRefresh onRefresh={fetchTab} loading={loading} />
         </div>
       }
     >
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
-        {/* Loading skeletons */}
-        {loading && !hasData && (
+        <ReportTabs tabs={TABS} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as ReportTab)} />
+
+        {/* ════════════════════════ Overview Tab ════════════════════════ */}
+        {activeTab === 'overview' && (
           <>
-            <StatCardSkeleton count={4} />
-            <SectionCardSkeleton lines={5} />
-            <TwoColumnSkeleton />
-            <TwoColumnSkeleton />
+            {loading && !hasOverviewData && (
+              <>
+                <StatCardSkeleton count={4} />
+                <SectionCardSkeleton lines={5} />
+              </>
+            )}
+
+            {!loading && !hasOverviewData && (
+              <EmptyState
+                icon={GitBranch}
+                title="No pipeline data yet"
+                description="Run some pipelines to see execution analytics here."
+                illustration="pipelines"
+              />
+            )}
+
+            {hasOverviewData && (
+              <>
+                {/* Summary row */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Executions', value: totalExec },
+                    { label: 'Success Rate', value: successRate === '—' ? '—' : `${successRate}%` },
+                    { label: 'Failures', value: totalFail },
+                    { label: 'Pipelines', value: executions.length },
+                  ].map((s) => (
+                    <div key={s.label} className="card py-4 text-center">
+                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{s.value}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Execution Timeline */}
+                <div className="card">
+                  <SectionHeading>Execution Timeline</SectionHeading>
+                  {timeline.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {timeline.map((entry) => {
+                        const total = entry.succeeded + entry.failed + entry.canceled;
+                        const sPct = total > 0 ? (entry.succeeded / total) * 100 : 0;
+                        const fPct = total > 0 ? (entry.failed / total) * 100 : 0;
+                        const cPct = total > 0 ? (entry.canceled / total) * 100 : 0;
+                        return (
+                          <div key={entry.period} className="flex items-center gap-3">
+                            <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
+                            <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
+                              {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} title={`${sPct.toFixed(1)}% passed`} />}
+                              {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} title={`${fPct.toFixed(1)}% failed`} />}
+                              {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} title={`${cPct.toFixed(1)}% canceled`} />}
+                            </div>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 w-12 text-right tabular-nums">{total}</span>
+                          </div>
+                        );
+                      })}
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge color="green">Pass</Badge>
+                        <Badge color="red">Fail</Badge>
+                        <Badge color="yellow">Canceled</Badge>
+                      </div>
+                    </div>
+                  ) : (
+                    <ReportEmpty text="No execution data for this period" />
+                  )}
+                </div>
+
+                {/* Success Rate Trend */}
+                {successRateTrend.length > 0 && (
+                  <div className="card">
+                    <SectionHeading>Success Rate Trend</SectionHeading>
+                    <div className="space-y-1.5">
+                      {successRateTrend.map((entry) => {
+                        const pct = Math.round(entry.success_pct);
+                        const color = pct >= 90 ? 'bg-green-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-red-500';
+                        return (
+                          <div key={entry.period} className="flex items-center gap-3">
+                            <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
+                            <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                              <div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} title={`${pct}%`} />
+                            </div>
+                            <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-green-600 dark:text-green-400' : pct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {pct}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
 
-        {/* Empty state when no data at all */}
-        {!loading && !hasData && (
-          <EmptyState
-            icon={GitBranch}
-            title="No pipeline data yet"
-            description="Run some pipelines to see execution analytics, duration stats, and failure insights here."
-            illustration="pipelines"
-          />
+        {/* ════════════════════════ Performance Tab ════════════════════════ */}
+        {activeTab === 'performance' && (
+          <>
+            {loading && !hasPerfData && <TwoColumnSkeleton />}
+
+            {!loading && !hasPerfData && (
+              <EmptyState
+                icon={GitBranch}
+                title="No performance data yet"
+                description="Run some pipelines to see duration and bottleneck analytics."
+                illustration="pipelines"
+              />
+            )}
+
+            {hasPerfData && (
+              <>
+                {/* Executions + Duration */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="card">
+                    <div className="flex items-center justify-between mb-3">
+                      <SectionHeading>Pipeline Executions</SectionHeading>
+                      <ExportCSVButton
+                        data={executions.map(p => ({ pipeline: p.pipeline_name || p.project, total: p.total, passed: p.succeeded, failed: p.failed, canceled: p.canceled }))}
+                        filename="pipeline-executions"
+                      />
+                    </div>
+                    {executions.length > 0 ? (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                            <th className="pb-2 font-medium">Pipeline</th>
+                            <th className="pb-2 font-medium text-right">Total</th>
+                            <th className="pb-2 font-medium text-right">Pass</th>
+                            <th className="pb-2 font-medium text-right">Fail</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                          {executions.slice(0, 10).map((p) => (
+                            <tr key={p.id}>
+                              <td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{p.pipeline_name || p.project}</td>
+                              <td className="py-1.5 text-right tabular-nums">{p.total}</td>
+                              <td className="py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">{p.succeeded}</td>
+                              <td className="py-1.5 text-right tabular-nums text-red-600 dark:text-red-400">{p.failed}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <ReportEmpty text="No execution data yet" />
+                    )}
+                  </div>
+
+                  <div className="card">
+                    <SectionHeading>Pipeline Duration</SectionHeading>
+                    {durations.length > 0 ? (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                            <th className="pb-2 font-medium">Pipeline</th>
+                            <th className="pb-2 font-medium text-right">Avg</th>
+                            <th className="pb-2 font-medium text-right">P95</th>
+                            <th className="pb-2 font-medium text-right">Runs</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                          {durations.slice(0, 10).map((d) => (
+                            <tr key={d.id}>
+                              <td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{d.pipeline_name || d.project}</td>
+                              <td className="py-1.5 text-right tabular-nums">{fmtMs(d.avg_ms)}</td>
+                              <td className="py-1.5 text-right tabular-nums">{fmtMs(d.p95_ms)}</td>
+                              <td className="py-1.5 text-right tabular-nums">{d.executions}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <ReportEmpty text="No duration data yet" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Bottlenecks */}
+                <div className="card">
+                  <SectionHeading>Stage Bottlenecks</SectionHeading>
+                  {bottlenecks.length > 0 ? (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                          <th className="pb-2 font-medium">Stage</th>
+                          <th className="pb-2 font-medium text-right">Avg</th>
+                          <th className="pb-2 font-medium text-right">Max</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {bottlenecks.slice(0, 8).map((b) => (
+                          <tr key={`${b.id}-${b.stage_name}`}>
+                            <td className="py-1.5">
+                              <span className="text-gray-900 dark:text-gray-100 truncate block max-w-[160px]">{b.stage_name}</span>
+                              {b.pipeline_name && <span className="text-xs text-gray-400 dark:text-gray-500">{b.pipeline_name}</span>}
+                            </td>
+                            <td className="py-1.5 text-right tabular-nums text-amber-600 dark:text-amber-400">{fmtMs(b.avg_ms)}</td>
+                            <td className="py-1.5 text-right tabular-nums">{fmtMs(b.max_ms)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <ReportEmpty text="No bottleneck data yet" />
+                  )}
+                </div>
+              </>
+            )}
+          </>
         )}
 
-        {/* Actual content */}
-        {hasData && (
+        {/* ════════════════════════ Failures Tab ════════════════════════ */}
+        {activeTab === 'failures' && (
           <>
-            {/* ── Summary row ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {[
-                { label: 'Executions', value: totalExec },
-                { label: 'Success Rate', value: successRate === '—' ? '—' : `${successRate}%` },
-                { label: 'Failures', value: totalFail },
-                { label: 'Pipelines', value: executions.length },
-              ].map((s) => (
-                <div key={s.label} className="card py-4 text-center">
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{s.value}</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{s.label}</p>
-                </div>
-              ))}
-            </div>
+            {loading && !hasFailData && <TwoColumnSkeleton />}
 
-            {/* ── Timeline ── */}
-            <div className="card">
-              <SectionHeading>Execution Timeline</SectionHeading>
-              {timeline.length > 0 ? (
-                <div className="space-y-1.5">
-                  {timeline.map((entry) => {
-                    const total = entry.succeeded + entry.failed + entry.canceled;
-                    const sPct = total > 0 ? (entry.succeeded / total) * 100 : 0;
-                    const fPct = total > 0 ? (entry.failed / total) * 100 : 0;
-                    const cPct = total > 0 ? (entry.canceled / total) * 100 : 0;
-                    return (
-                      <div key={entry.period} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
-                        <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
-                          {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} title={`${sPct.toFixed(1)}% passed`} />}
-                          {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} title={`${fPct.toFixed(1)}% failed`} />}
-                          {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} title={`${cPct.toFixed(1)}% canceled`} />}
-                        </div>
-                        <span className="text-xs text-gray-400 dark:text-gray-500 w-12 text-right tabular-nums">{total}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge color="green">Pass</Badge>
-                    <Badge color="red">Fail</Badge>
-                    <Badge color="yellow">Canceled</Badge>
-                  </div>
-                </div>
-              ) : (
-                <ReportEmpty text="No execution data for this period" />
-              )}
-            </div>
-
-            {/* ── Success Rate Trend ── */}
-            {successRateTrend.length > 0 && (
-              <div className="card">
-                <SectionHeading>Success Rate Trend</SectionHeading>
-                <div className="space-y-1.5">
-                  {successRateTrend.map((entry) => {
-                    const pct = Math.round(entry.success_pct);
-                    const color = pct >= 90 ? 'bg-green-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-red-500';
-                    return (
-                      <div key={entry.period} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
-                        <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
-                          <div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} title={`${pct}%`} />
-                        </div>
-                        <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-green-600 dark:text-green-400' : pct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {pct}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+            {!loading && !hasFailData && (
+              <EmptyState
+                icon={GitBranch}
+                title="No failure data"
+                description="No stage failures, action failures, or errors recorded for this period."
+                illustration="pipelines"
+              />
             )}
 
-            {/* ── Executions + Duration ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="card">
-                <div className="flex items-center justify-between mb-3">
-                  <SectionHeading>Pipeline Executions</SectionHeading>
-                  <ExportCSVButton
-                    data={executions.map(p => ({ pipeline: p.pipeline_name || p.project, total: p.total, passed: p.succeeded, failed: p.failed, canceled: p.canceled }))}
-                    filename="pipeline-executions"
-                  />
+            {hasFailData && (
+              <>
+                {/* Stage Failures */}
+                <div className="card">
+                  <SectionHeading>Stage Failures</SectionHeading>
+                  {stageFailures.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {stageFailures.slice(0, 8).map((s) => (
+                        <div key={s.stage_name}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-700 dark:text-gray-300 truncate">{s.stage_name}</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">{s.failure_pct}%</span>
+                          </div>
+                          <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(s.failure_pct, 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <ReportEmpty text="No stage failures" />
+                  )}
                 </div>
-                {executions.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                        <th className="pb-2 font-medium">Pipeline</th>
-                        <th className="pb-2 font-medium text-right">Total</th>
-                        <th className="pb-2 font-medium text-right">Pass</th>
-                        <th className="pb-2 font-medium text-right">Fail</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {executions.slice(0, 10).map((p) => (
-                        <tr key={p.id}>
-                          <td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{p.pipeline_name || p.project}</td>
-                          <td className="py-1.5 text-right tabular-nums">{p.total}</td>
-                          <td className="py-1.5 text-right tabular-nums text-green-600 dark:text-green-400">{p.succeeded}</td>
-                          <td className="py-1.5 text-right tabular-nums text-red-600 dark:text-red-400">{p.failed}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <ReportEmpty text="No execution data yet" />
-                )}
-              </div>
 
-              <div className="card">
-                <SectionHeading>Pipeline Duration</SectionHeading>
-                {durations.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                        <th className="pb-2 font-medium">Pipeline</th>
-                        <th className="pb-2 font-medium text-right">Avg</th>
-                        <th className="pb-2 font-medium text-right">P95</th>
-                        <th className="pb-2 font-medium text-right">Runs</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {durations.slice(0, 10).map((d) => (
-                        <tr key={d.id}>
-                          <td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{d.pipeline_name || d.project}</td>
-                          <td className="py-1.5 text-right tabular-nums">{fmtMs(d.avg_ms)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{fmtMs(d.p95_ms)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{d.executions}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <ReportEmpty text="No duration data yet" />
-                )}
-              </div>
-            </div>
-
-            {/* ── Stage Bottlenecks + Failures ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="card">
-                <SectionHeading>Stage Bottlenecks</SectionHeading>
-                {bottlenecks.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-                        <th className="pb-2 font-medium">Stage</th>
-                        <th className="pb-2 font-medium text-right">Avg</th>
-                        <th className="pb-2 font-medium text-right">Max</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                      {bottlenecks.slice(0, 8).map((b) => (
-                        <tr key={`${b.id}-${b.stage_name}`}>
-                          <td className="py-1.5">
-                            <span className="text-gray-900 dark:text-gray-100 truncate block max-w-[160px]">{b.stage_name}</span>
-                            {b.pipeline_name && <span className="text-xs text-gray-400 dark:text-gray-500">{b.pipeline_name}</span>}
-                          </td>
-                          <td className="py-1.5 text-right tabular-nums text-amber-600 dark:text-amber-400">{fmtMs(b.avg_ms)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{fmtMs(b.max_ms)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <ReportEmpty text="No bottleneck data yet" />
-                )}
-              </div>
-
-              <div className="card">
-                <SectionHeading>Stage Failures</SectionHeading>
-                {stageFailures.length > 0 ? (
-                  <div className="space-y-2.5">
-                    {stageFailures.slice(0, 8).map((s) => (
-                      <div key={s.stage_name}>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-700 dark:text-gray-300 truncate">{s.stage_name}</span>
-                          <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">{s.failure_pct}%</span>
+                {/* Action Failures */}
+                {actionFailures.length > 0 && (
+                  <div className="card">
+                    <SectionHeading>Action Failures</SectionHeading>
+                    <div className="space-y-2.5">
+                      {actionFailures.slice(0, 8).map((a) => (
+                        <div key={a.action_name}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-700 dark:text-gray-300 truncate font-mono text-xs">{a.action_name}</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">
+                              {a.failures}/{a.total} ({a.failure_pct}%)
+                            </span>
+                          </div>
+                          <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} />
+                          </div>
                         </div>
-                        <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(s.failure_pct, 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <ReportEmpty text="No stage failures" />
                 )}
-              </div>
-            </div>
 
-            {/* ── Action Failures ── */}
-            {actionFailures.length > 0 && (
-              <div className="card">
-                <SectionHeading>Action Failures</SectionHeading>
-                <div className="space-y-2.5">
-                  {actionFailures.slice(0, 8).map((a) => (
-                    <div key={a.action_name}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-700 dark:text-gray-300 truncate font-mono text-xs">{a.action_name}</span>
-                        <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">
-                          {a.failures}/{a.total} ({a.failure_pct}%)
-                        </span>
-                      </div>
-                      <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} />
-                      </div>
+                {/* Top Errors */}
+                <div className="card">
+                  <div className="flex items-center justify-between mb-3">
+                    <SectionHeading>Top Errors</SectionHeading>
+                    <ExportCSVButton
+                      data={errors.map(e => ({ pattern: e.error_pattern, occurrences: e.occurrences, pipelines: e.affected_pipelines, last_seen: e.last_seen }))}
+                      filename="pipeline-errors"
+                    />
+                  </div>
+                  {errors.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+                      {errors.slice(0, 8).map((e, i) => (
+                        <div key={i} className="border-l-2 border-red-400 pl-3">
+                          <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-1">{e.error_pattern}</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            {e.occurrences}x &middot; {e.affected_pipelines} pipeline{e.affected_pipelines !== 1 ? 's' : ''} &middot; {fmtDate(e.last_seen)}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <ReportEmpty text="No errors recorded" />
+                  )}
                 </div>
-              </div>
+              </>
             )}
-
-            {/* ── Top Errors ── */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <SectionHeading>Top Errors</SectionHeading>
-                <ExportCSVButton
-                  data={errors.map(e => ({ pattern: e.error_pattern, occurrences: e.occurrences, pipelines: e.affected_pipelines, last_seen: e.last_seen }))}
-                  filename="pipeline-errors"
-                />
-              </div>
-              {errors.length > 0 ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
-                  {errors.slice(0, 8).map((e, i) => (
-                    <div key={i} className="border-l-2 border-red-400 pl-3">
-                      <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-1">{e.error_pattern}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        {e.occurrences}x &middot; {e.affected_pipelines} pipeline{e.affected_pipelines !== 1 ? 's' : ''} &middot; {fmtDate(e.last_seen)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <ReportEmpty text="No errors recorded" />
-              )}
-            </div>
           </>
         )}
 

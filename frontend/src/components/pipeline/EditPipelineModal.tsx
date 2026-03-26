@@ -8,6 +8,7 @@ import { Pipeline, BuilderProps } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
+import { formatJSON } from '@/lib/constants';
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
@@ -88,7 +89,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
     clearError();
     const props = formRef.current?.getPropsPreview() ?? null;
     if (props) {
-      setPreviewJson(JSON.stringify(props, null, 2));
+      setPreviewJson(formatJSON(props));
       setShowPreview(true);
     }
   };

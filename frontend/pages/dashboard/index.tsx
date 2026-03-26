@@ -2,12 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2, Container } from 'lucide-react';
+import { GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Badge } from '@/components/ui/Badge';
-import { pct, fmtNum, barColor } from '@/lib/quota-helpers';
-import type { OrgQuotaResponse, QuotaType, Pipeline, BuilderProps } from '@/types';
+import type { BuilderProps } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
@@ -33,24 +31,7 @@ interface PluginSummary {
   active: number;
 }
 
-interface QueueStatus {
-  waiting: number;
-  active: number;
-}
-
 // ─── Helpers ────────────────────────────────────────────
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 
 const stagger = {
   container: { hidden: {}, show: { transition: { staggerChildren: 0.06 } } },
@@ -59,11 +40,9 @@ const stagger = {
 
 // ─── Page ───────────────────────────────────────────────
 
-/** Dashboard home page. Git URL hero input, stats overview, recent pipelines, execution timeline, and quota summary. */
+/** Dashboard home page. Git URL hero input, key stats, and execution timeline. */
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
-  const [quotaData, setQuotaData] = useState<OrgQuotaResponse | null>(null);
-  const [recentPipelines, setRecentPipelines] = useState<Pipeline[]>([]);
   const [gitUrl, setGitUrl] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [modalGitUrl, setModalGitUrl] = useState<string | undefined>();
@@ -75,24 +54,17 @@ export default function DashboardPage() {
   const [executions, setExecutions] = useState<ExecutionCount[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
-  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   const fetchData = useCallback(async () => {
-    const [quotaRes, pipelineRes, execRes, timelineRes, pluginRes, queueRes] = await Promise.allSettled([
-      api.getOwnQuotas(),
-      api.listPipelines({ sortBy: 'createdAt', sortOrder: 'desc', limit: '5' }),
+    const [execRes, timelineRes, pluginRes] = await Promise.allSettled([
       api.getExecutionCount(),
       api.getExecutionTimeline({ interval: 'day' }),
       api.getPluginSummary(),
-      api.getQueueStatus(),
     ]);
 
-    if (quotaRes.status === 'fulfilled') setQuotaData((quotaRes.value.data?.quota || quotaRes.value.data) as OrgQuotaResponse);
-    if (pipelineRes.status === 'fulfilled') setRecentPipelines(pipelineRes.value.data?.pipelines || []);
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
     if (timelineRes.status === 'fulfilled') setTimeline((timelineRes.value.data?.timeline || []).slice(-7));
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
-    if (queueRes.status === 'fulfilled') setQueueStatus(queueRes.value.data || null);
   }, []);
 
   useEffect(() => {
@@ -106,13 +78,11 @@ export default function DashboardPage() {
   const totalExec = executions.reduce((s, p) => s + p.total, 0);
   const totalPass = executions.reduce((s, p) => s + p.succeeded, 0);
   const successRate = totalExec > 0 ? Math.round((totalPass / totalExec) * 100) : null;
-  const queueActive = (queueStatus?.waiting ?? 0) + (queueStatus?.active ?? 0);
 
   const stats = [
-    { label: 'Pipelines', value: recentPipelines.length > 0 ? String(executions.length) : '0', icon: GitBranch, color: 'text-blue-500' },
+    { label: 'Pipelines', value: String(executions.length || 0), icon: GitBranch, color: 'text-blue-500' },
     { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-green-500' : successRate !== null && successRate >= 70 ? 'text-yellow-500' : 'text-red-500' },
     { label: 'Active Plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500' },
-    { label: 'Build Queue', value: String(queueActive), icon: Container, color: queueActive > 0 ? 'text-amber-500' : 'text-gray-400' },
   ];
 
   // ─── Handlers ───
@@ -149,8 +119,6 @@ export default function DashboardPage() {
     setCreateSuccess(null);
     setShowCreateModal(true);
   };
-
-  const QUOTA_LABELS: Record<QuotaType, string> = { plugins: 'Plugins', pipelines: 'Pipelines', apiCalls: 'API Calls' };
 
   // ─── Timeline chart helpers ───
 
@@ -204,8 +172,8 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Stats Overview */}
-        <motion.div variants={stagger.item} className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* Stats Overview — 3 cards */}
+        <motion.div variants={stagger.item} className="grid grid-cols-3 gap-4 mb-6">
           {stats.map((s) => {
             const Icon = s.icon;
             return (
@@ -222,151 +190,53 @@ export default function DashboardPage() {
           })}
         </motion.div>
 
-        {/* Main grid: Pipelines + Timeline | Quotas */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* Left column — Recent Pipelines + Timeline */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Recent Pipelines */}
-            <motion.div variants={stagger.item} className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Recent Pipelines</h3>
-                <Link href="/dashboard/pipelines" className="action-link text-xs">
-                  View all →
-                </Link>
-              </div>
-
-              {recentPipelines.length > 0 ? (
-                <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {recentPipelines.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                          {p.pipelineName || p.id}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                          {p.project} · {p.organization}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4 shrink-0">
-                        <Badge color={p.isActive ? 'green' : 'gray'}>
-                          {p.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                        {p.createdAt && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-                            {relativeTime(p.createdAt)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                  No pipelines yet. Paste a Git URL above to get started.
-                </p>
-              )}
-            </motion.div>
-
-            {/* Execution Timeline (last 7 days) */}
-            {timeline.length > 0 && (
-              <motion.div variants={stagger.item} className="card">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    <Activity className="w-4 h-4 inline mr-1.5 text-gray-400" />
-                    Execution Trend
-                  </h3>
-                  <Link href="/dashboard/reports" className="action-link text-xs">
-                    Full reports →
-                  </Link>
-                </div>
-
-                <div className="flex items-end gap-1.5 h-20">
-                  {timeline.map((entry) => {
-                    const total = entry.succeeded + entry.failed + entry.canceled;
-                    const height = total > 0 ? Math.max(8, (total / timelineMax) * 100) : 4;
-                    const failPct = total > 0 ? (entry.failed / total) * 100 : 0;
-                    const day = new Date(entry.period).toLocaleDateString(undefined, { weekday: 'short' });
-
-                    return (
-                      <div key={entry.period} className="flex-1 flex flex-col items-center gap-1">
-                        <div
-                          className="w-full rounded-md overflow-hidden relative"
-                          style={{ height: `${height}%` }}
-                          title={`${entry.succeeded} passed, ${entry.failed} failed`}
-                        >
-                          <div className="absolute inset-0 bg-green-500 dark:bg-green-400/80" />
-                          {failPct > 0 && (
-                            <div
-                              className="absolute bottom-0 inset-x-0 bg-red-500 dark:bg-red-400/80"
-                              style={{ height: `${failPct}%` }}
-                            />
-                          )}
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500">{day}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-400 dark:text-gray-500">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500 inline-block" /> Passed</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" /> Failed</span>
-                </div>
-              </motion.div>
-            )}
-          </div>
-
-          {/* Right column — Quota Usage */}
-          <motion.div variants={stagger.item} className="card h-fit">
+        {/* Execution Timeline (last 7 days) — full width */}
+        {timeline.length > 0 && (
+          <motion.div variants={stagger.item} className="card">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Quota Usage</h3>
-              <Link href="/dashboard/quotas" className="action-link text-xs">
-                Manage →
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <Activity className="w-4 h-4 inline mr-1.5 text-gray-400" />
+                Execution Trend
+              </h3>
+              <Link href="/dashboard/reports" className="action-link text-xs">
+                Full reports →
               </Link>
             </div>
 
-            {quotaData ? (
-              <div className="space-y-4">
-                {(['plugins', 'pipelines', 'apiCalls'] as QuotaType[]).map((key) => {
-                  const q = quotaData.quotas[key];
-                  const p = pct(q.used, q.limit);
-                  const pDisplay = q.unlimited ? 15 : p;
-                  const color = barColor(q.used, q.limit, q.unlimited);
+            <div className="flex items-end gap-1.5 h-20">
+              {timeline.map((entry) => {
+                const total = entry.succeeded + entry.failed + entry.canceled;
+                const height = total > 0 ? Math.max(8, (total / timelineMax) * 100) : 4;
+                const failPct = total > 0 ? (entry.failed / total) * 100 : 0;
+                const day = new Date(entry.period).toLocaleDateString(undefined, { weekday: 'short' });
 
-                  return (
-                    <div key={key}>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="font-medium text-gray-700 dark:text-gray-300">{QUOTA_LABELS[key]}</span>
-                        <span className="text-gray-500 dark:text-gray-400 tabular-nums text-xs">
-                          {fmtNum(q.used)} / {fmtNum(q.limit)}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                return (
+                  <div key={entry.period} className="flex-1 flex flex-col items-center gap-1">
+                    <div
+                      className="w-full rounded-md overflow-hidden relative"
+                      style={{ height: `${height}%` }}
+                      title={`${entry.succeeded} passed, ${entry.failed} failed`}
+                    >
+                      <div className="absolute inset-0 bg-green-500 dark:bg-green-400/80" />
+                      {failPct > 0 && (
                         <div
-                          className={`h-full rounded-full transition-all duration-700 ${color}`}
-                          style={{ width: `${pDisplay}%` }}
+                          className="absolute bottom-0 inset-x-0 bg-red-500 dark:bg-red-400/80"
+                          style={{ height: `${failPct}%` }}
                         />
-                      </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {[0, 1, 2].map((i) => (
-                  <div key={i}>
-                    <div className="h-4 skeleton w-1/3 mb-2 rounded" />
-                    <div className="h-1.5 skeleton rounded-full" />
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500">{day}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500 inline-block" /> Passed</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" /> Failed</span>
+            </div>
           </motion.div>
-        </div>
+        )}
       </motion.div>
 
       {/* Create Pipeline Modal */}

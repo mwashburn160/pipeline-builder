@@ -186,6 +186,7 @@ export default function PipelinesPage() {
     {
       id: 'pipelineId',
       header: 'Pipeline ID',
+      hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
       sortValue: (p) => p.id,
       render: (p) => <>{p.id}</>,
@@ -200,6 +201,7 @@ export default function PipelinesPage() {
     {
       id: 'organization',
       header: 'Organization',
+      hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.organization,
       render: (p) => <>{p.organization}</>,
@@ -219,6 +221,7 @@ export default function PipelinesPage() {
     {
       id: 'default',
       header: 'Default',
+      hidden: true,
       sortValue: (p) => p.isDefault,
       render: (p) => p.isDefault ? <Badge color="blue">Default</Badge> : null,
     },
@@ -279,11 +282,6 @@ export default function PipelinesPage() {
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </select>
-              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
-                <option value="all">All Default</option>
-                <option value="default">Default</option>
-                <option value="non-default">Non-Default</option>
-              </select>
               {canViewPublic && (
                 <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
                   <option value="all">All Access</option>
@@ -291,56 +289,12 @@ export default function PipelinesPage() {
                   <option value="private">Private</option>
                 </select>
               )}
-              <input type="text" value={list.filters.id} onChange={(e) => list.updateFilter('id', e.target.value)} placeholder="ID..." className="filter-input max-w-[160px]" />
-              <input type="text" value={list.filters.orgId} onChange={(e) => list.updateFilter('orgId', e.target.value)} placeholder="Org ID..." className="filter-input max-w-[140px]" />
             </>
           }
         />
 
-        {isAdmin && selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 p-3 mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <input
-              type="checkbox"
-              checked={selectedIds.size === filteredPipelines.filter(p => canModify(isSysAdmin, p.accessModifier)).length}
-              onChange={toggleSelectAll}
-              className="rounded border-gray-300 dark:border-gray-600"
-            />
-            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-              {selectedIds.size} selected
-            </span>
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                onClick={() => handleBulkActivate(true)}
-                disabled={bulkLoading}
-                className="btn btn-secondary text-xs px-3 py-1.5"
-              >
-                Activate Selected
-              </button>
-              <button
-                onClick={() => handleBulkActivate(false)}
-                disabled={bulkLoading}
-                className="btn btn-secondary text-xs px-3 py-1.5"
-              >
-                Deactivate Selected
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                disabled={bulkLoading}
-                className="btn btn-danger text-xs px-3 py-1.5 inline-flex items-center gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete Selected
-              </button>
-              <button
-                onClick={clearSelection}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                title="Clear selection"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Spacer when sticky bulk bar is visible */}
+        {isAdmin && selectedIds.size > 0 && <div className="h-16" />}
 
         {!list.isLoading && filteredPipelines.length === 0 && list.hasActiveFilters && list.data.length > 0 ? (
           <EmptyState
@@ -363,6 +317,7 @@ export default function PipelinesPage() {
               }}
               getRowKey={(p) => p.id}
               defaultSortColumn="name"
+              showColumnToggle
             />
             {!list.isLoading && list.pagination.total > 0 && (
               <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
@@ -387,6 +342,32 @@ export default function PipelinesPage() {
 
       {editPipeline && (
         <EditPipelineModal pipeline={editPipeline} isSysAdmin={isSysAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
+      )}
+
+      {/* Sticky bottom bulk actions bar */}
+      {isAdmin && selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
+          <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+                Activate
+              </button>
+              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+                Deactivate
+              </button>
+              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger text-xs px-3 py-1.5 inline-flex items-center gap-1">
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </button>
+              <button onClick={clearSelection} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear selection">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </DashboardLayout>
   );

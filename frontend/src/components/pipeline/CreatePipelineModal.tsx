@@ -7,6 +7,7 @@ import GitUrlTab, { GitUrlTabRef } from './GitUrlTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
+import { formatJSON } from '@/lib/constants';
 
 /** Props for {@link CreatePipelineModal}. */
 interface CreatePipelineModalProps {
@@ -83,7 +84,7 @@ export default function CreatePipelineModal({
         break;
     }
     if (props) {
-      setPreviewJson(JSON.stringify(props, null, 2));
+      setPreviewJson(formatJSON(props));
       setShowPreview(true);
     } else {
       setPreviewError('Fix validation errors above before previewing.');

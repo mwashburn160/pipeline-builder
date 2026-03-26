@@ -199,6 +199,39 @@ export interface BuilderProps {
 }
 
 /**
+ * Typed views for AI-generated BuilderProps structure.
+ * Used by GitUrlTab to safely access nested plugin references
+ * within the loosely-typed BuilderProps.synth / BuilderProps.stages.
+ */
+
+/** Plugin reference as it appears in AI-generated BuilderProps JSON. */
+export interface GeneratedPluginRef {
+  name: string;
+  alias?: string;
+  filter?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+/** Typed view of an AI-generated stage step. */
+export interface GeneratedStageStep {
+  plugin: GeneratedPluginRef;
+  [key: string]: unknown;
+}
+
+/** Typed view of an AI-generated stage. */
+export interface GeneratedStage {
+  stageName: string;
+  alias?: string;
+  steps: GeneratedStageStep[];
+}
+
+/** Typed view of the AI-generated synth section. */
+export interface GeneratedSynth {
+  plugin: GeneratedPluginRef;
+  [key: string]: unknown;
+}
+
+/**
  * Create pipeline request data
  * Only props (based on BuilderProps) and accessModifier are required
  */

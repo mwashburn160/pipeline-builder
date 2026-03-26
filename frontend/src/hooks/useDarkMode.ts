@@ -4,11 +4,12 @@
  * Falls back to the OS-level `prefers-color-scheme` media query if no preference is stored.
  */
 import { useState, useEffect } from 'react';
+import { THEME_STORAGE_KEY } from '@/lib/constants';
 
 /** Read initial dark mode preference synchronously to prevent flash of wrong theme. */
 export function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false;
-  const stored = localStorage.getItem('theme');
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === 'dark') return true;
   if (stored === 'light') return false;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -26,7 +27,7 @@ export function useDarkMode() {
   // Single source of truth: sync DOM class and localStorage whenever isDark changes
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light');
   }, [isDark]);
 
   const toggle = () => setIsDark(prev => !prev);

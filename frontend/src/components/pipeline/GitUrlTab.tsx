@@ -1,11 +1,13 @@
-import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import { BuilderProps } from '@/types';
+import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
+import { clearPluginCache } from '@/hooks/usePlugins';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
+import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { formatError, formatJSON } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -49,6 +51,71 @@ interface PluginCreationStatus {
   builds: Array<{ name: string; requestId?: string; error?: string }>;
 }
 
+/** Props for the inline plugin review section. */
+interface PluginReviewSectionProps {
+  props: BuilderProps;
+  onPluginChange: (path: string, pluginName: string, plugin: Plugin | null) => void;
+  disabled?: boolean;
+}
+
+/** Displays AI-selected plugins with combobox dropdowns for swapping. */
+function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSectionProps) {
+  const [expanded, setExpanded] = useState(true);
+  const synth = props.synth as unknown as GeneratedSynth;
+  const stages = (props.stages ?? []) as unknown as GeneratedStage[];
+
+  return (
+    <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Plug className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          Review Plugins
+        </span>
+        <ChevronDown className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
+          {/* Synth plugin */}
+          <div className="pt-3">
+            <PluginNameCombobox
+              value={synth?.plugin?.name ?? ''}
+              onChange={(name) => onPluginChange('synth', name, null)}
+              onSelectPlugin={(plugin) => onPluginChange('synth', plugin.name, plugin)}
+              disabled={disabled}
+              label="Synth Plugin"
+            />
+          </div>
+
+          {/* Stage step plugins */}
+          {stages.map((stage, si) => (
+            <div key={si}>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                Stage: {stage.stageName}
+              </p>
+              <div className="space-y-3 pl-3">
+                {(stage.steps ?? []).map((step, stepIdx) => (
+                  <PluginNameCombobox
+                    key={`${si}-${stepIdx}`}
+                    value={step.plugin?.name ?? ''}
+                    onChange={(name) => onPluginChange(`stages.${si}.steps.${stepIdx}`, name, null)}
+                    onSelectPlugin={(plugin) => onPluginChange(`stages.${si}.steps.${stepIdx}`, plugin.name, plugin)}
+                    disabled={disabled}
+                    label={`Step ${stepIdx + 1} Plugin`}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
   ({ disabled, initialUrl, autoGenerate }, ref) => {
     const [gitUrl, setGitUrl] = useState(initialUrl || '');
@@ -68,6 +135,42 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [organizationOverride, setOrganizationOverride] = useState('');
 
     const ai = useAIProviders(() => api.getAIProviders());
+
+    /** Update a plugin reference at the given path when the user swaps via combobox. */
+    const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
+      if (!generatedProps) return;
+      const updated = structuredClone(generatedProps);
+
+      // Locate the target plugin ref
+      let target: GeneratedPluginRef;
+      if (path === 'synth') {
+        target = (updated.synth as unknown as GeneratedSynth).plugin;
+      } else {
+        const [, stageIdx, , stepIdx] = path.split('.');
+        const stages = updated.stages as unknown as GeneratedStage[];
+        target = stages[Number(stageIdx)].steps[Number(stepIdx)].plugin;
+      }
+
+      // Always update name (covers both typing and dropdown selection)
+      target.name = pluginName;
+
+      // If a full Plugin record was provided (dropdown selection), update filter + clear alias
+      if (plugin) {
+        target.filter = {
+          id: plugin.id,
+          orgId: plugin.orgId,
+          version: plugin.version,
+          imageTag: plugin.imageTag,
+          accessModifier: plugin.accessModifier,
+          isDefault: plugin.isDefault,
+          isActive: plugin.isActive,
+        };
+        target.alias = undefined;
+      }
+
+      setGeneratedProps(updated);
+      setPreviewJson(formatJSON(updated));
+    }, [generatedProps]);
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
@@ -126,14 +229,14 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               break;
             case 'partial':
               if (event.data) {
-                setPreviewJson(JSON.stringify(event.data, null, 2));
+                setPreviewJson(formatJSON(event.data));
               }
               break;
             case 'done':
               if (event.data) {
                 const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
                 setGeneratedProps(data.props);
-                setPreviewJson(JSON.stringify(data.props, null, 2));
+                setPreviewJson(formatJSON(data.props));
                 setGeneratedDescription(data.description || '');
                 setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
                 setProjectOverride(data.props.project || '');
@@ -147,6 +250,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               setCheckingPlugins(false);
               if (event.data) {
                 setPluginStatus(event.data as PluginCreationStatus);
+                clearPluginCache();
               }
               break;
             case 'error':
@@ -393,6 +497,15 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               />
             </div>
           </div>
+        )}
+
+        {/* Plugin Review — lets user swap AI-selected plugins before submitting */}
+        {generatedProps && !generating && (
+          <PluginReviewSection
+            props={generatedProps}
+            onPluginChange={handlePluginChange}
+            disabled={disabled || generating}
+          />
         )}
 
         {/* Plugin Status */}

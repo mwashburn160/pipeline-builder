@@ -6,7 +6,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
-import { AI_MAX_PROMPT_LENGTH, formatError } from '@/lib/constants';
+import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -93,7 +93,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
         switch (event.type) {
           case 'partial':
             if (event.data) {
-              setStreamPreview(JSON.stringify(event.data, null, 2));
+              setStreamPreview(formatJSON(event.data));
             }
             break;
           case 'done':
@@ -340,7 +340,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
               </span>
             </div>
             <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
-              {JSON.stringify(generatedConfig, null, 2)}
+              {formatJSON(generatedConfig)}
             </pre>
           </div>
 

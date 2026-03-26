@@ -6,11 +6,6 @@
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "^30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/node",
       "version": "25.3.0",
       "type": "build"
@@ -32,7 +27,11 @@
     },
     {
       "name": "jest",
-      "version": "^30.2.0",
+      "type": "build"
+    },
+    {
+      "name": "jest-junit",
+      "version": "^16",
       "type": "build"
     },
     {
@@ -52,7 +51,7 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.43.2",
+      "version": "1.43.3",
       "type": "runtime"
     },
     {
@@ -62,7 +61,7 @@
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.44.48",
+      "version": "1.44.51",
       "type": "runtime"
     },
     {

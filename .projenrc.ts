@@ -24,9 +24,9 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* for local, or pin for npm
 //const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.43.2',
-  pipelineData:   '1.44.2',
-  pipelineCore:   '1.44.48',
+  apiCore:        '1.43.3',
+  pipelineData:   '1.44.3',
+  pipelineCore:   '1.44.51',
   apiServer:      '1.41.41',
   aiCore:         '1.16.39',
   eventIngestion: '1.4.39',
@@ -297,6 +297,13 @@ const frontend = new FrontEndProject({
   name: 'frontend',
   outdir: './frontend',
   gitignore: ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
+  jest: true,
+  jestOptions: {
+    jestConfig: {
+      testEnvironment: 'node',
+      testMatch: ['<rootDir>/test/**/*.test.ts'],
+    },
+  },
   deps: [
     `@mwashburn160/api-core@${pkg.apiCore}`,
     `@mwashburn160/api-server@${pkg.apiServer}`,
@@ -306,11 +313,18 @@ const frontend = new FrontEndProject({
   ],
   devDeps: [
     '@types/node@25.3.0', '@types/react@19.2.14', '@types/react-dom@19.2.3',
-    '@types/jest@^30.0.0', '@tailwindcss/postcss@4.2.1', 'autoprefixer@10.4.24',
-    'postcss@8.5.6', 'jest@^30.2.0', 'ts-jest@^29.4.6', `typescript@${typescriptVersion}`,
+    '@tailwindcss/postcss@4.2.1', 'autoprefixer@10.4.24',
+    'postcss@8.5.6', 'ts-jest@^29.4.6', `typescript@${typescriptVersion}`,
   ],
 });
-frontend.testTask.exec('jest --passWithNoTests --config jest.config.ts');
+configureJest(frontend);
+if (frontend.jest) {
+  frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json' }] };
+  frontend.jest.config.moduleNameMapper = {
+    ...frontend.jest.config.moduleNameMapper as Record<string, string>,
+    '^@/(.*)$': '<rootDir>/src/$1',
+  };
+}
 frontend.addScripts(dockerScripts('frontend'));
 
 // =============================================================================

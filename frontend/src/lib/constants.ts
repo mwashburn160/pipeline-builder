@@ -64,3 +64,26 @@ export const LOG_LEVEL_COLORS: Record<string, 'green' | 'yellow' | 'red' | 'gray
   error: 'red',
   debug: 'gray',
 };
+
+/** Default toast notification display duration in ms. */
+export const DEFAULT_TOAST_DURATION_MS = 4000;
+
+/** Delay before resetting copy button state in ms. */
+export const COPY_FEEDBACK_RESET_MS = 2000;
+
+/** localStorage key for dark mode theme preference. */
+export const THEME_STORAGE_KEY = 'theme';
+
+/** Pretty-print an object as indented JSON. */
+export function formatJSON(obj: unknown): string {
+  return JSON.stringify(obj, null, 2);
+}
+
+/** Parse a JSON string, returning `fallback` on failure. */
+export function safeJSONParse<T>(str: string, fallback: T): T {
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return fallback;
+  }
+}

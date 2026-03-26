@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { DEFAULT_TOAST_DURATION_MS } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const addToast = useCallback((type: ToastType, message: string, duration = 4000) => {
+  const addToast = useCallback((type: ToastType, message: string, duration = DEFAULT_TOAST_DURATION_MS) => {
     const id = String(++nextId);
     setToasts((prev) => [...prev, { id, type, message, duration }]);
     if (duration > 0) {

@@ -5,7 +5,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import api from '@/lib/api';
-import { AI_MAX_PROMPT_LENGTH, formatError } from '@/lib/constants';
+import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface AIBuilderTabRef {
@@ -70,14 +70,14 @@ const AIBuilderTab = forwardRef<AIBuilderTabRef, AIBuilderTabProps>(
           switch (event.type) {
             case 'partial':
               if (event.data) {
-                setPreviewJson(JSON.stringify(event.data, null, 2));
+                setPreviewJson(formatJSON(event.data));
               }
               break;
             case 'done':
               if (event.data) {
                 const data = event.data as { props: BuilderProps; description?: string; keywords?: string[] };
                 setGeneratedProps(data.props);
-                setPreviewJson(JSON.stringify(data.props, null, 2));
+                setPreviewJson(formatJSON(data.props));
                 setGeneratedDescription(data.description || '');
                 setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
               }
