@@ -80,7 +80,7 @@ export function loadAWSConfig(): AWSConfig {
     lambda: {
       runtime: parseRuntime(process.env.LAMBDA_RUNTIME || 'nodejs24.x'),
       timeout: Duration.seconds(parseInt(process.env.LAMBDA_TIMEOUT || '900', 10)),
-      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '256', 10),
+      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '512', 10),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64'
         ? Architecture.X86_64
         : Architecture.ARM_64,
@@ -111,7 +111,6 @@ export function loadAWSConfig(): AWSConfig {
  */
 function parseRuntime(runtime: string): Runtime {
   const runtimeMap: Record<string, Runtime> = {
-    'nodejs22.x': Runtime.NODEJS_24_X,
     'nodejs24.x': Runtime.NODEJS_24_X,
   };
   return runtimeMap[runtime] || Runtime.NODEJS_24_X;

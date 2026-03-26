@@ -9,7 +9,7 @@ import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types';
-import { CoreConstants } from '../config/app-config';
+import { Config, CoreConstants } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 
 const log = createLogger('Lookup');
@@ -84,7 +84,7 @@ export class PluginLookup extends Construct {
     this._orgId = props.orgId;
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
-    this._memorySize = props.memorySize ?? 512;
+    this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
     this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
 
     const onEventHandler = this.createLambdaFunction();
