@@ -1,3 +1,20 @@
+## 1.2.0 (2026-03-26)
+
+### 🚀 Features
+
+- added multi-org support ([44959cf4](https://github.com/mwashburn160/pipeline-builder/commit/44959cf4))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.45.0
+- Updated @mwashburn160/pipeline-data to 1.45.0
+- Updated @mwashburn160/api-server to 1.42.0
+- Updated @mwashburn160/api-core to 1.44.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.39 (2026-03-26)
 
 ### 🩹 Fixes
