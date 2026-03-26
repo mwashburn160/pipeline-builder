@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'yaml';
 import { Config } from '../types';
@@ -23,41 +24,52 @@ const defaultConfig: Omit<Config, 'auth'> = {
   },
 };
 
+/** User config file path: ~/.pipeline-manager/config.yml */
+const USER_CONFIG_PATH = path.join(os.homedir(), '.pipeline-manager', 'config.yml');
+
 /**
- * Load configuration from file and environment.
+ * Load a YAML config file and merge its `api` section into the config.
+ * Returns the merged config or the original if file doesn't exist or fails.
+ */
+function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Config, 'auth'> {
+  if (!fs.existsSync(filePath)) return config;
+
+  try {
+    printDebug('Loading configuration', { path: filePath });
+    const parsed = yaml.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (parsed?.auth) {
+      printWarning('Auth section in config file is ignored — use PLATFORM_TOKEN env var');
+    }
+    return { api: { ...config.api, ...parsed?.api } };
+  } catch (error) {
+    printWarning('Failed to load config file, using defaults', {
+      path: filePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return config;
+  }
+}
+
+/**
+ * Load configuration from files and environment.
  *
- * Priority: environment variables > config file > defaults.
+ * Priority (last wins):
+ * 1. Built-in defaults
+ * 2. User config file: ~/.pipeline-manager/config.yml
+ * 3. Project config file: CLI_CONFIG_PATH or ./config.yml
+ * 4. Environment variables
+ *
  * Auth token MUST come from PLATFORM_TOKEN env var (never from config file).
  */
 export function getConfig(): Config {
-  const configPath = process.env.CLI_CONFIG_PATH || path.join(__dirname, '../config.yml');
+  const projectConfigPath = process.env.CLI_CONFIG_PATH || path.join(__dirname, '../config.yml');
 
-  let config: Omit<Config, 'auth'> = { ...defaultConfig };
+  // Layer 1: defaults → Layer 2: user config → Layer 3: project config
+  let config = loadConfigFile(USER_CONFIG_PATH, { ...defaultConfig });
+  config = loadConfigFile(projectConfigPath, config);
 
-  // Load from file if exists
-  if (fs.existsSync(configPath)) {
-    try {
-      printDebug('Loading configuration', { path: configPath });
-      const fileContent = fs.readFileSync(configPath, 'utf-8');
-      const userConfig = yaml.parse(fileContent);
-
-      config = {
-        api: { ...defaultConfig.api, ...userConfig.api },
-      };
-
-      if (userConfig.auth) {
-        printWarning('Auth section in config file is ignored — use PLATFORM_TOKEN env var');
-      }
-    } catch (error) {
-      printWarning('Failed to load config file, using defaults', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  } else {
-    printDebug('No config file found, using defaults', { path: configPath });
-  }
-
-  // Override with environment variables
+  // Layer 4: environment variable overrides
+  // Layer 4: environment variable overrides
   if (process.env.PLATFORM_BASE_URL) {
     config.api.baseUrl = process.env.PLATFORM_BASE_URL;
     printDebug('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });
@@ -107,23 +119,6 @@ export function getConfig(): Config {
     ...config,
     auth: { token },
   };
-}
-
-/**
- * Get token from environment
- * @throws Error if PLATFORM_TOKEN is not set
- */
-export function getToken(): string {
-  const token = process.env.PLATFORM_TOKEN;
-  if (!token) throw new Error('PLATFORM_TOKEN environment variable is required');
-  return token;
-}
-
-/**
- * Check if token is set
- */
-export function hasToken(): boolean {
-  return !!process.env.PLATFORM_TOKEN;
 }
 
 /**

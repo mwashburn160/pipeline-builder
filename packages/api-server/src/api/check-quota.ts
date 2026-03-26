@@ -1,6 +1,7 @@
-import { ErrorCode, createLogger, getIdentity, sendError } from '@mwashburn160/api-core';
-import type { QuotaType, QuotaService, HttpRequest } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, sendError } from '@mwashburn160/api-core';
+import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
+import { getContext } from './get-context';
 
 const logger = createLogger('check-quota');
 
@@ -26,13 +27,23 @@ export function checkQuota(
   quotaType: QuotaType,
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const identity = req.context?.identity ?? getIdentity(req as HttpRequest);
-    const orgId = identity.orgId;
+    let orgId: string | undefined;
+    let authHeader = '';
+
+    try {
+      const ctx = getContext(req);
+      orgId = ctx.identity.orgId;
+      authHeader = req.headers.authorization || '';
+    } catch {
+      // Context middleware not applied — fail open (log and continue)
+      logger.warn('Quota check skipped: request context not initialized');
+      return next();
+    }
+
     if (!orgId) {
       sendError(res, 400, 'Organization ID is required for quota check', ErrorCode.VALIDATION_ERROR);
       return;
     }
-    const authHeader = req.headers.authorization || '';
 
     try {
       const quotaStatus = await quotaService.check(orgId, quotaType, authHeader);

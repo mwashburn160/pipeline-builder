@@ -39,6 +39,24 @@ jest.mock('@mwashburn160/api-core', () => ({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   validateBody: mockValidateBody,
+  createCacheService: () => ({ get: jest.fn(), set: jest.fn(), del: jest.fn(), invalidate: jest.fn() }),
+}));
+
+jest.mock('@mwashburn160/api-server', () => ({
+  withRoute: (handler: Function) => async (req: any, res: any) => {
+    const orgId = req.user?.organizationId || '';
+    const userId = req.user?.sub || '';
+    const ctx = { log: jest.fn(), identity: { orgId, userId }, requestId: 'req-1' };
+    if (!orgId) {
+      return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
+    }
+    try {
+      await handler({ req, res, ctx, orgId, userId });
+    } catch {
+      // withRoute catches unhandled errors and returns 500
+      mockSendError(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+    }
+  },
 }));
 
 const mockSubscriptionFindOne = jest.fn();
@@ -201,7 +219,7 @@ describe('GET /subscriptions', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to get subscription', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
   });
 });
 
@@ -281,7 +299,7 @@ describe('POST /subscriptions', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to create subscription', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
   });
 });
 
@@ -421,7 +439,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to cancel subscription', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
   });
 });
 
@@ -469,6 +487,6 @@ describe('POST /subscriptions/:id/reactivate', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Failed to reactivate subscription', 'INTERNAL_ERROR');
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
   });
 });

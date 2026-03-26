@@ -40,4 +40,8 @@ export interface Config {
   api: ApiConfig;
   /** Authentication credentials. */
   auth: AuthConfig;
+  /** Default AWS region (from user config or environment). */
+  region?: string;
+  /** Default AWS CLI profile (from user config or environment). */
+  profile?: string;
 }

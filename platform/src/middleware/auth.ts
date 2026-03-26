@@ -1,7 +1,7 @@
 import { sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { User, Organization } from '../models';
-import { UserRole } from '../types';
+import { AccessTokenPayload, UserRole } from '../types';
 import {
   verifyAccessToken,
   verifyRefreshToken,
@@ -36,7 +36,8 @@ async function populateRequestUser(req: Request, user: UserLike): Promise<void> 
     organizationName = org?.name;
   }
 
-  (req as unknown as Record<string, unknown>).user = {
+  const payload: AccessTokenPayload = {
+    type: 'access',
     sub: user._id.toString(),
     username: user.username,
     email: user.email,
@@ -47,6 +48,7 @@ async function populateRequestUser(req: Request, user: UserLike): Promise<void> 
     organizationName,
     tokenVersion: user.tokenVersion,
   };
+  (req as any).user = payload;
 }
 
 /**

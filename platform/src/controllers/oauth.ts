@@ -10,6 +10,7 @@ const logger = createLogger('OAuthController');
 
 // OAuth State (CSRF protection)
 
+const MAX_PENDING_STATES = 1000;
 const pendingOAuthStates = new Map<string, number>();
 
 setInterval(() => {
@@ -187,6 +188,16 @@ export async function getAuthUrl(req: Request, res: Response): Promise<void> {
 
   if (!provider) return sendError(res, 400, `Unsupported OAuth provider: ${providerName}`);
   if (!provider.enabled) return sendError(res, 400, `${providerName} OAuth is not configured`);
+
+  if (pendingOAuthStates.size >= MAX_PENDING_STATES) {
+    // Evict oldest entries to make room
+    const entriesToEvict = Math.max(1, Math.floor(MAX_PENDING_STATES * 0.1));
+    const iterator = pendingOAuthStates.keys();
+    for (let i = 0; i < entriesToEvict; i++) {
+      const key = iterator.next().value;
+      if (key) pendingOAuthStates.delete(key);
+    }
+  }
 
   const state = crypto.randomBytes(32).toString('hex');
   pendingOAuthStates.set(state, Date.now());

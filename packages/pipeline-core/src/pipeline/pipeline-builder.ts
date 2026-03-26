@@ -8,7 +8,7 @@ import { PluginLookup } from './plugin-lookup';
 import { SourceBuilder } from './source-builder';
 import { StageBuilder } from './stage-builder';
 import type { StageOptions, SynthOptions } from './step-types';
-import { Config } from '../config/app-config';
+import { Config, CoreConstants } from '../config/app-config';
 import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
 import { metadataForCodePipeline } from '../core/metadata-builder';
@@ -111,6 +111,7 @@ export class PipelineBuilder extends Construct {
         project: this.config.project,
         platformUrl: serverConfig.platformUrl,
         uniqueId,
+        orgId: props.orgId,
         runtime: awsConfig.lambda.runtime,
         timeout: awsConfig.lambda.timeout,
         reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
@@ -142,7 +143,12 @@ export class PipelineBuilder extends Construct {
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
-    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, serverConfig.platformUrl);
+    // Build the per-org platform secret name for CodeBuild env vars
+    const platformSecretName = props.orgId
+      ? `${CoreConstants.SECRETS_PATH_PREFIX}/${props.orgId}/platform`
+      : undefined;
+
+    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl);
 
     // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
     // the pipeline role with the correct codepipeline.amazonaws.com principal.
@@ -195,6 +201,7 @@ export class PipelineBuilder extends Construct {
     defaults: CodeBuildDefaults | undefined,
     id: UniqueId,
     pipelineId: string | undefined,
+    platformSecretName: string | undefined,
     platformUrl: string,
   ): CodeBuildOptions | undefined {
     const networkProps = defaults?.network
@@ -208,8 +215,9 @@ export class PipelineBuilder extends Construct {
     // Pipeline-level env vars available to all CodeBuild actions
     const pipelineEnvVars: Record<string, { value: string }> = {
       PLATFORM_BASE_URL: { value: platformUrl },
-      EXECUTION_ID: { value: '#{codepipeline.PipelineExecutionId}' },
+      PIPELINE_EXECUTION_ID: { value: '#{codepipeline.PipelineExecutionId}' },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
+      ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
     };
 
     return {

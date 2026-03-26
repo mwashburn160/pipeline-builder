@@ -1,6 +1,6 @@
-import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import path from 'path';
+import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants';
@@ -21,7 +21,7 @@ const { bold, cyan, dim } = pico;
  * For synthesis only, use `pipeline-manager synth`.
  *
  * Requires service credentials to be pre-stored in AWS Secrets Manager.
- * Create them first with: `pipeline-manager store-credentials`
+ * Create them first with: `pipeline-manager store-token`
  *
  * @param program - The root Commander program instance to attach the command to.
  */
@@ -33,8 +33,8 @@ export function deploy(program: Command): void {
     .option('--profile <profile>', 'AWS profile', 'default')
     .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
-    .option('--store-credentials', 'Authenticate using credentials from AWS Secrets Manager', false)
-    .option('--region <region>', 'AWS region (for --store-credentials)')
+    .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false)
+    .option('--region <region>', 'AWS region (for --store-tokens)')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .action(async (options) => {
@@ -64,7 +64,7 @@ export function deploy(program: Command): void {
 
         printSuccess('AWS CDK is available');
 
-        // Create authenticated API client (supports PLATFORM_TOKEN or --store-credentials)
+        // Create authenticated API client (supports PLATFORM_TOKEN or --store-tokens)
         const client = await createAuthenticatedClientAsync(options);
         const config = client.getConfig();
 
@@ -142,16 +142,10 @@ export function deploy(program: Command): void {
 
           // Register pipeline ARN for event reporting (non-blocking)
           try {
-            const stsArgs = ['sts', 'get-caller-identity', '--query', 'Account', '--output', 'text'];
-            const regionArgs = ['configure', 'get', 'region'];
-            if (options.profile) {
-              assertShellSafe(options.profile, 'profile');
-              stsArgs.push('--profile', options.profile);
-              regionArgs.push('--profile', options.profile);
-            }
-            const account = execFileSync('aws', stsArgs, { encoding: 'utf-8' }).trim();
-            const region = execFileSync('aws', regionArgs, { encoding: 'utf-8' }).trim()
-              || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION });
+            const identity = await stsClient.send(new GetCallerIdentityCommand({}));
+            const account = identity.Account ?? '';
+            const region = process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
 
             const pipelineName = pipeline.pipelineName
               || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();

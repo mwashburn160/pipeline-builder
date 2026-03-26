@@ -295,13 +295,14 @@ bash bin/init-platform.sh ec2
 
 ### 2. Store Service Credentials
 
-The plugin-lookup Lambda and event-ingestion Lambda use shared credentials stored in Secrets Manager. Store them using the CLI:
+The plugin-lookup Lambda and event-ingestion Lambda use a JWT token stored in Secrets Manager. Generate and store it using the CLI:
 
 ```bash
-pipeline-manager store-credentials \
-  --email admin@your-domain.com \
-  --password 'YourAdminPassword' \
-  --region us-east-1
+# First, login to get a PLATFORM_TOKEN
+eval $(pipeline-manager login -u admin@your-domain.com -p '***' --quiet --no-verify-ssl)
+
+# Then generate a long-lived token and store in Secrets Manager
+pipeline-manager store-token --days 30 --region us-east-1
 ```
 
 ### 3. Deploy EventBridge Reporting Infrastructure
@@ -479,7 +480,7 @@ Verify nginx is running. Check target group health and port 8080 accessibility.
 Ensure certbot has Route 53 permissions. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>`
 
 **No reporting data after deploy:**
-1. Verify `pipeline-manager store-credentials` was run
+1. Verify `pipeline-manager store-token` was run
 2. Check Lambda logs: `aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow`
 3. Check SQS DLQ for failed events
 4. Verify pipeline was deployed after `setup-events` (ARN must be registered)

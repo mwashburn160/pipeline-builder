@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import FormData from 'form-data';
+import ora from 'ora';
 import pico from 'picocolors';
 import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
 import { Plugin, PluginResponse } from '../types';
@@ -204,13 +205,19 @@ export function uploadPlugin(program: Command): void {
         });
 
         console.log('');
-        printWarning('Upload in progress...');
-        printInfo('This may take several minutes depending on plugin size and build complexity');
-        console.log('');
 
-        const startTime = Date.now();
-        const rawResponse = await client.postForm<PluginResponse>(endpoint, formData);
-        const duration = Date.now() - startTime;
+        const spinner = ora('Uploading plugin...').start();
+        let rawResponse: PluginResponse;
+        let duration: number;
+        try {
+          const startTime = Date.now();
+          rawResponse = await client.postForm<PluginResponse>(endpoint, formData);
+          duration = Date.now() - startTime;
+          spinner.succeed('Plugin uploaded');
+        } catch (error) {
+          spinner.fail('Upload failed');
+          throw error;
+        }
 
         const response = extractSingleResponse<Plugin>(rawResponse, 'plugin', 'name');
 

@@ -32,6 +32,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[ErrorBoundary] Uncaught error:', error);
+    console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
     this.props.onError?.(error, errorInfo);
   }
 
@@ -63,6 +65,18 @@ export class ErrorBoundary extends Component<Props, State> {
             >
               Try again
             </button>
+            {this.state.error && process.env.NODE_ENV !== 'production' && (
+              <details className="mt-4 text-left text-sm text-gray-500 dark:text-gray-400">
+                <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
+                  Error details
+                </summary>
+                <pre className="mt-2 overflow-auto rounded bg-gray-100 p-2 dark:bg-gray-800 text-xs">
+                  {this.state.error.message}
+                  {'\n'}
+                  {this.state.error.stack}
+                </pre>
+              </details>
+            )}
           </div>
         </div>
       );

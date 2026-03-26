@@ -99,6 +99,7 @@ export const plugin = pgTable('plugins', {
     .notNull(),
   timeout: integer('timeout'),
   failureBehavior: varchar('failure_behavior', { length: 10 })
+    .$type<'fail' | 'warn' | 'ignore'>()
     .default('fail')
     .notNull(),
   secrets: jsonb('secrets')

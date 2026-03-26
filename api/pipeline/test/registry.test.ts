@@ -13,6 +13,10 @@ jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   hashAccountInArn: (arn: string) => arn, // pass-through in tests
   hashId: (value: string) => value, // pass-through in tests
+  validateBody: (req: any, schema: any) => {
+    const result = schema.safeParse(req.body);
+    return result.success ? { ok: true, value: result.data } : { ok: false, error: result.error.message };
+  },
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({

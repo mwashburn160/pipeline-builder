@@ -1,14 +1,4 @@
-import {
-  sendSuccess,
-  sendError,
-  sendBadRequest,
-  ErrorCode,
-  createLogger,
-  getParam,
-  validateBody,
-} from '@mwashburn160/api-core';
-import { withRoute } from '@mwashburn160/api-server';
-import { Router } from 'express';
+import { createLogger } from '@mwashburn160/api-core';
 import {
   buildSubscriptionResponse,
   calculatePeriodEnd,
@@ -16,64 +6,54 @@ import {
   syncTierToQuotaService,
 } from '../helpers/billing-helpers';
 import { Plan } from '../models/plan';
-import { Subscription } from '../models/subscription';
+import { Subscription, type BillingInterval } from '../models/subscription';
 import { getPaymentProvider } from '../providers/provider-factory';
-import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas';
 
-const logger = createLogger('billing-subscriptions');
+const logger = createLogger('billing-service');
 
 /**
- * Create the subscription management router (authenticated).
- *
- * Registers:
- * - GET  /subscriptions                -- get current org subscription
- * - POST /subscriptions                -- create a new subscription (admin)
- * - PUT  /subscriptions/:id            -- change plan or interval (admin)
- * - POST /subscriptions/:id/cancel     -- cancel at period end (admin)
- * - POST /subscriptions/:id/reactivate -- undo pending cancellation (admin)
- * @returns Express Router
+ * Service layer for subscription management.
+ * Wraps Mongoose operations for subscriptions, keeping route handlers thin.
  */
-export function createSubscriptionRoutes(): Router {
-  const router: Router = Router();
-
-  // GET /billing/subscriptions — get current org subscription
-
-  router.get('/subscriptions', withRoute(async ({ res, orgId }) => {
+class BillingService {
+  /**
+   * Get the active subscription for an organization, including plan details.
+   * @returns Formatted subscription response or null if none exists.
+   */
+  async getSubscription(orgId: string): Promise<Record<string, unknown> | null> {
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
-
-    if (!subscription) {
-      return sendSuccess(res, 200, { subscription: null });
-    }
+    if (!subscription) return null;
 
     const plan = await Plan.findById(subscription.planId).lean();
+    return buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId, plan?.tier);
+  }
 
-    return sendSuccess(res, 200, {
-      subscription: buildSubscriptionResponse(subscription, plan?.name ?? subscription.planId, plan?.tier),
-    });
-  }));
-
-  // POST /billing/subscriptions — create a new subscription
-
-  router.post('/subscriptions', withRoute(async ({ req, res, orgId }) => {
-    const validation = validateBody(req, SubscriptionCreateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { planId, interval } = validation.value;
-
+  /**
+   * Create a new subscription for an organization.
+   * Validates the plan, checks for duplicates, calls the payment provider,
+   * and syncs the tier to the quota service.
+   *
+   * @throws Error with code property for known error conditions
+   */
+  async createSubscription(
+    orgId: string,
+    planId: string,
+    interval: BillingInterval,
+    authHeader: string,
+  ): Promise<{ subscription: Record<string, unknown>; status: number }> {
     // Verify plan exists
     const plan = await Plan.findOne({ _id: planId, isActive: true });
     if (!plan) {
-      return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+      return this.error(404, 'Plan not found', 'NOT_FOUND');
     }
 
     // Check for existing active subscription
     const existing = await Subscription.findOne({ orgId, status: 'active' });
     if (existing) {
-      return sendError(
-        res, 409,
+      return this.error(
+        409,
         'Organization already has an active subscription. Use PUT to change plans.',
-        ErrorCode.DUPLICATE_ENTRY,
+        'DUPLICATE_ENTRY',
       );
     }
 
@@ -97,7 +77,6 @@ export function createSubscriptionRoutes(): Router {
     });
 
     // Sync tier to quota service
-    const authHeader = req.headers.authorization || '';
     await syncTierToQuotaService(orgId, plan.tier, authHeader);
 
     // Log billing event
@@ -107,23 +86,25 @@ export function createSubscriptionRoutes(): Router {
 
     logger.info('Subscription created', { orgId, planId, interval });
 
-    return sendSuccess(res, 201, {
+    return {
       subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
-    });
-  }));
+      status: 201,
+    };
+  }
 
-  // PUT /billing/subscriptions/:id — change plan or interval
-
-  router.put('/subscriptions/:id', withRoute(async ({ req, res, orgId }) => {
-    const subscriptionId = getParam(req.params, 'id');
-    const validation = validateBody(req, SubscriptionUpdateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { planId, interval } = validation.value;
+  /**
+   * Update an existing subscription (change plan and/or interval).
+   */
+  async updateSubscription(
+    orgId: string,
+    subscriptionId: string,
+    updates: { planId?: string; interval?: BillingInterval },
+    authHeader: string,
+  ): Promise<{ subscription: Record<string, unknown>; status: number }> {
+    const { planId, interval } = updates;
 
     if (!planId && !interval) {
-      return sendError(res, 400, 'At least planId or interval is required', ErrorCode.VALIDATION_ERROR);
+      return this.error(400, 'At least planId or interval is required', 'VALIDATION_ERROR');
     }
 
     const subscription = await Subscription.findOne({
@@ -131,7 +112,7 @@ export function createSubscriptionRoutes(): Router {
     });
 
     if (!subscription) {
-      return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
+      return this.error(404, 'Active subscription not found', 'NOT_FOUND');
     }
 
     // If changing plan, verify new plan exists
@@ -139,7 +120,7 @@ export function createSubscriptionRoutes(): Router {
     if (planId && planId !== subscription.planId) {
       plan = await Plan.findOne({ _id: planId, isActive: true });
       if (!plan) {
-        return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+        return this.error(404, 'Plan not found', 'NOT_FOUND');
       }
       const oldPlanId = subscription.planId;
       subscription.planId = planId;
@@ -168,28 +149,27 @@ export function createSubscriptionRoutes(): Router {
 
     // Sync tier if plan changed
     if (plan) {
-      const authHeader = req.headers.authorization || '';
       await syncTierToQuotaService(orgId, plan.tier, authHeader);
     }
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
-    return sendSuccess(res, 200, {
+    return {
       subscription: buildSubscriptionResponse(subscription),
-    });
-  }));
+      status: 200,
+    };
+  }
 
-  // POST /billing/subscriptions/:id/cancel — cancel at period end
-
-  router.post('/subscriptions/:id/cancel', withRoute(async ({ req, res, orgId }) => {
-    const subscriptionId = getParam(req.params, 'id');
-
+  /**
+   * Cancel a subscription at the end of the current billing period.
+   */
+  async cancelSubscription(orgId: string, subscriptionId: string): Promise<{ result: Record<string, unknown>; status: number }> {
     const subscription = await Subscription.findOne({
       _id: subscriptionId, orgId, status: 'active',
     });
 
     if (!subscription) {
-      return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
+      return this.error(404, 'Active subscription not found', 'NOT_FOUND') as any;
     }
 
     subscription.cancelAtPeriodEnd = true;
@@ -205,32 +185,30 @@ export function createSubscriptionRoutes(): Router {
 
     logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
 
-    return sendSuccess(res, 200, {
-      message: 'Subscription will be canceled at the end of the current billing period.',
-      subscription: {
-        id: subscription._id.toString(),
-        status: subscription.status,
-        cancelAtPeriodEnd: true,
-        currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+    return {
+      result: {
+        message: 'Subscription will be canceled at the end of the current billing period.',
+        subscription: {
+          id: subscription._id.toString(),
+          status: subscription.status,
+          cancelAtPeriodEnd: true,
+          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+        },
       },
-    });
-  }));
+      status: 200,
+    };
+  }
 
-  // POST /billing/subscriptions/:id/reactivate — undo cancellation
-
-  router.post('/subscriptions/:id/reactivate', withRoute(async ({ req, res, orgId }) => {
-    const subscriptionId = getParam(req.params, 'id');
-
+  /**
+   * Reactivate a subscription that was marked for cancellation.
+   */
+  async reactivateSubscription(orgId: string, subscriptionId: string): Promise<{ result: Record<string, unknown>; status: number }> {
     const subscription = await Subscription.findOne({
       _id: subscriptionId, orgId, status: 'active', cancelAtPeriodEnd: true,
     });
 
     if (!subscription) {
-      return sendError(
-        res, 404,
-        'No canceled subscription found to reactivate',
-        ErrorCode.NOT_FOUND,
-      );
+      return this.error(404, 'No canceled subscription found to reactivate', 'NOT_FOUND') as any;
     }
 
     subscription.cancelAtPeriodEnd = false;
@@ -244,16 +222,27 @@ export function createSubscriptionRoutes(): Router {
 
     logger.info('Subscription reactivated', { orgId, subscriptionId });
 
-    return sendSuccess(res, 200, {
-      message: 'Subscription has been reactivated.',
-      subscription: {
-        id: subscription._id.toString(),
-        status: subscription.status,
-        cancelAtPeriodEnd: false,
-        currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+    return {
+      result: {
+        message: 'Subscription has been reactivated.',
+        subscription: {
+          id: subscription._id.toString(),
+          status: subscription.status,
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+        },
       },
-    });
-  }));
+      status: 200,
+    };
+  }
 
-  return router;
+  /** Helper to build a structured error return. */
+  private error(status: number, message: string, code: string): never {
+    const err = new Error(message) as Error & { status: number; code: string };
+    err.status = status;
+    err.code = code;
+    throw err;
+  }
 }
+
+export const billingService = new BillingService();

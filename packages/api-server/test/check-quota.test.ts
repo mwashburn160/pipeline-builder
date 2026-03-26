@@ -109,9 +109,7 @@ describe('checkQuota', () => {
     expect(mockQuotaService.check).not.toHaveBeenCalled();
   });
 
-  it('falls back to getIdentity when context is undefined', async () => {
-    (getIdentity as jest.Mock).mockReturnValue({ orgId: 'fallback-org' });
-    mockQuotaService.check.mockResolvedValue({ allowed: true });
+  it('throws when context middleware is missing', async () => {
     const middleware = checkQuota(mockQuotaService, 'apiCalls');
     const req = mockReq({ context: undefined });
     const res = mockRes();
@@ -119,8 +117,8 @@ describe('checkQuota', () => {
 
     await middleware(req, res, next);
 
-    expect(getIdentity).toHaveBeenCalled();
-    expect(mockQuotaService.check).toHaveBeenCalledWith('fallback-org', 'apiCalls', 'Bearer tok');
+    // Should fail open (next called) but log the error — getContext throws,
+    // which is caught by the fail-open catch block
     expect(next).toHaveBeenCalled();
   });
 

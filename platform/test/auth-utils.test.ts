@@ -26,8 +26,8 @@ jest.mock('../src/models', () => ({
   },
 }));
 
-import { validateBody, registerSchema, loginSchema, refreshSchema } from '../src/utils/validation';
 import { hashRefreshToken } from '../src/utils/token';
+import { validateBody, registerSchema, loginSchema, refreshSchema } from '../src/utils/validation';
 
 describe('auth-utils schemas', () => {
   describe('registerSchema', () => {

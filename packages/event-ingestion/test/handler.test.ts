@@ -2,9 +2,9 @@
  * Tests for event-ingestion Lambda handler.
  */
 
-// Mock Secrets Manager
+// Mock Secrets Manager — returns stored JWT token
 const mockSend = jest.fn().mockResolvedValue({
-  SecretString: JSON.stringify({ email: 'admin@test.com', password: 'test-pass' }),
+  SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
 });
 jest.mock('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -22,6 +22,7 @@ let handler: (event: SQSEvent) => Promise<void>;
 
 beforeAll(async () => {
   process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+  process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
   const mod = await import('../src/index');
   handler = mod.handler;
 });
@@ -59,15 +60,12 @@ const MOCK_CODEPIPELINE_EVENT = {
 describe('event-ingestion handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSend.mockResolvedValue({
+      SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
+    });
 
-    // Default: login succeeds
+    // Default: API calls succeed
     mockFetch.mockImplementation((url: string, _opts?: unknown) => {
-      if (url.includes('/api/auth/login')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ data: { accessToken: 'test-jwt', expiresIn: 7200 } }),
-        });
-      }
       if (url.includes('/api/reports/events')) {
         return Promise.resolve({
           ok: true,
@@ -78,24 +76,21 @@ describe('event-ingestion handler', () => {
     });
   });
 
-  it('should authenticate and POST events to reporting API', async () => {
+  it('should use stored JWT token and POST events to reporting API', async () => {
     const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
 
     await handler(event);
 
-    // Should have called login
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.example.com/api/auth/login',
-      expect.objectContaining({ method: 'POST' }),
-    );
+    // Should have fetched token from Secrets Manager
+    expect(mockSend).toHaveBeenCalled();
 
-    // Should have POSTed events
+    // Should have POSTed events with stored token
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/api/reports/events',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Authorization: 'Bearer test-jwt',
+          Authorization: 'Bearer mock-jwt-token',
         }),
       }),
     );
@@ -180,13 +175,7 @@ describe('event-ingestion handler', () => {
   });
 
   it('should throw if reporting API returns error', async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (url.includes('/api/auth/login')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ data: { accessToken: 'test-jwt', expiresIn: 7200 } }),
-        });
-      }
+    mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: false,
         status: 500,

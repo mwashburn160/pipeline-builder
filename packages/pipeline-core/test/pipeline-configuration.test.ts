@@ -16,7 +16,7 @@ function validProps(overrides: Partial<BuilderProps> = {}): BuilderProps {
     organization: 'my-org',
     synth: {
       source: { type: 's3', options: { bucketName: 'my-bucket' } },
-      plugin: { name: 'cdk-synth', version: '1.0.0' },
+      plugin: { name: 'cdk-synth' },
     },
     ...overrides,
   } as BuilderProps;
@@ -47,7 +47,7 @@ describe('PipelineConfiguration', () => {
         () =>
           new PipelineConfiguration(
             validProps({
-              synth: { plugin: { name: 'cdk-synth', version: '1.0.0' } } as any,
+              synth: { plugin: { name: 'cdk-synth' } } as any,
             }),
           ),
       ).toThrow('BuilderProps.synth.source is required');
@@ -71,7 +71,7 @@ describe('PipelineConfiguration', () => {
             validProps({
               synth: {
                 source: { type: 's3', options: { bucketName: 'b' } },
-                plugin: { name: '  ', version: '1.0.0' },
+                plugin: { name: '  ' },
               },
             } as any),
           ),
@@ -94,7 +94,7 @@ describe('PipelineConfiguration', () => {
             validProps({
               synth: {
                 source: { type: 'github', options: { repo: 'invalid-repo' } },
-                plugin: { name: 'cdk-synth', version: '1.0.0' },
+                plugin: { name: 'cdk-synth' },
               },
             } as any),
           ),
@@ -108,7 +108,7 @@ describe('PipelineConfiguration', () => {
             validProps({
               synth: {
                 source: { type: 'codestar', options: { repo: 'invalid-repo', connectionArn: 'arn:...' } },
-                plugin: { name: 'cdk-synth', version: '1.0.0' },
+                plugin: { name: 'cdk-synth' },
               },
             } as any),
           ),
@@ -120,7 +120,7 @@ describe('PipelineConfiguration', () => {
         validProps({
           synth: {
             source: { type: 'github', options: { repo: 'owner/repo' } },
-            plugin: { name: 'cdk-synth', version: '1.0.0' },
+            plugin: { name: 'cdk-synth' },
           },
         } as any),
       );
@@ -133,8 +133,8 @@ describe('PipelineConfiguration', () => {
           new PipelineConfiguration(
             validProps({
               stages: [
-                { stageName: 'build', steps: [{ plugin: { name: 'p1', version: '1' } }] },
-                { stageName: 'build', steps: [{ plugin: { name: 'p2', version: '1' } }] },
+                { stageName: 'build', steps: [{ plugin: { name: 'p1' } }] },
+                { stageName: 'build', steps: [{ plugin: { name: 'p2' } }] },
               ],
             } as any),
           ),
@@ -183,7 +183,7 @@ describe('PipelineConfiguration', () => {
           defaults: { metadata: { DEFAULT_KEY: 'default', GLOBAL_KEY: 'overridden' } },
           synth: {
             source: { type: 's3', options: { bucketName: 'b' } },
-            plugin: { name: 'cdk-synth', version: '1.0.0' },
+            plugin: { name: 'cdk-synth' },
             metadata: { SYNTH_KEY: 'synth', DEFAULT_KEY: 'synth-override' },
           },
         } as any),
@@ -214,7 +214,7 @@ describe('PipelineConfiguration', () => {
         validProps({
           synth: {
             source: { type: 'github', options: { repo: 'owner/repo' } },
-            plugin: { name: 'cdk-synth', version: '1.0.0' },
+            plugin: { name: 'cdk-synth' },
           },
         } as any),
       );
@@ -227,7 +227,7 @@ describe('PipelineConfiguration', () => {
         validProps({
           synth: {
             source: { type: 'github', options: { repo: 'owner/repo' } },
-            plugin: { name: 'cdk-synth', version: '1.0.0' },
+            plugin: { name: 'cdk-synth' },
           },
         } as any),
       );
@@ -243,7 +243,7 @@ describe('PipelineConfiguration', () => {
         validProps({
           synth: {
             source: { type: 'codestar', options: { repo: 'owner/repo', connectionArn: 'arn:aws:codestar:...' } },
-            plugin: { name: 'cdk-synth', version: '1.0.0' },
+            plugin: { name: 'cdk-synth' },
           },
         } as any),
       );

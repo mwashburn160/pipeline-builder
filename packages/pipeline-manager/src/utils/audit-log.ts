@@ -22,7 +22,7 @@ interface AuditEntry {
 /**
  * Log a sensitive operation to the local audit file.
  *
- * @param command - The command name (e.g., 'store-credentials', 'deploy', 'bootstrap')
+ * @param command - The command name (e.g., 'store-token', 'deploy', 'bootstrap')
  * @param details - Non-sensitive metadata about the operation
  */
 export function auditLog(command: string, details?: Record<string, unknown>): void {

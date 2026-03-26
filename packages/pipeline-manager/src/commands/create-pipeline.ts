@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
+import ora from 'ora';
 import pico from 'picocolors';
 import { formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
 import { Pipeline, PipelineResponse, CreatePipelineRequest } from '../types';
@@ -190,14 +191,22 @@ export function createPipeline(program: Command): void {
         // Create pipeline
         console.log('');
         printSection('Creating Pipeline');
-        printInfo('Sending request to API...');
 
-        const requestStart = Date.now();
-        const rawResponse = await client.post<PipelineResponse>(
-          config.api.pipelinePostUrl,
-          payload,
-        );
-        const requestDuration = Date.now() - requestStart;
+        const spinner = ora('Creating pipeline...').start();
+        let rawResponse: PipelineResponse;
+        let requestDuration: number;
+        try {
+          const requestStart = Date.now();
+          rawResponse = await client.post<PipelineResponse>(
+            config.api.pipelinePostUrl,
+            payload,
+          );
+          requestDuration = Date.now() - requestStart;
+          spinner.succeed('Pipeline created');
+        } catch (error) {
+          spinner.fail('Pipeline creation failed');
+          throw error;
+        }
 
         const pipeline = extractSingleResponse<Pipeline>(rawResponse, 'pipeline', 'id');
 

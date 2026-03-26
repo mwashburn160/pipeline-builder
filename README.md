@@ -275,7 +275,7 @@ pipeline-manager deploy --id <pipeline-id> --profile production
 | `list-pipelines` | List pipelines |
 | `get-pipeline --id <id>` | Get pipeline by ID |
 | `deploy --id <id>` | Deploy pipeline to AWS via CDK |
-| `store-credentials -e <email> -p <pass>` | Store service credentials in Secrets Manager |
+| `store-token --days 30 --region <r>` | Generate JWT token and store in Secrets Manager |
 | `setup-events` | Deploy EventBridge reporting infrastructure |
 | `bootstrap --account <id> --region <r>` | Bootstrap CDK toolkit stack |
 | `version` | Show version info |

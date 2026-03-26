@@ -191,59 +191,6 @@ export interface PluginUploadRequest {
 }
 
 /**
- * Query parameters for the plugin list API endpoint.
- */
-export interface PluginListParams {
-  /**
-   * Filter by organization name
-   */
-  organization?: string;
-
-  /**
-   * Filter by plugin name (exact match)
-   */
-  name?: string;
-
-  /**
-   * Search plugin names (partial match)
-   */
-  search?: string;
-
-  /**
-   * Filter by active status
-   */
-  isActive?: boolean;
-
-  /**
-   * Filter by public status
-   */
-  isPublic?: boolean;
-
-  /**
-   * Page number for pagination
-   * @default 1
-   */
-  page?: number;
-
-  /**
-   * Number of items per page
-   * @default 20
-   */
-  limit?: number;
-
-  /**
-   * Sort field
-   */
-  sortBy?: 'createdAt' | 'updatedAt' | 'name' | 'version';
-
-  /**
-   * Sort order
-   * @default 'desc'
-   */
-  sortOrder?: 'asc' | 'desc';
-}
-
-/**
  * Response returned by single-plugin API endpoints (get, upload).
  */
 export interface PluginResponse {

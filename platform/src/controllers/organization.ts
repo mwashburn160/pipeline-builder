@@ -2,6 +2,7 @@ import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@mwashburn1
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
+import { audit } from '../helpers/audit';
 import {
   isSystemAdmin,
   requireAuth,
@@ -202,6 +203,7 @@ export async function deleteOrganization(req: Request, res: Response): Promise<v
     });
 
     logger.info(`[DELETE ORG] Organization ${id} deleted by system admin ${req.user!.sub}`);
+    audit(req, 'admin.org.delete', { targetType: 'organization', targetId: String(id) });
     sendSuccess(res, 200, undefined, 'Organization deleted successfully');
   } catch (error) {
     if (error instanceof Error && error.message === 'ORG_NOT_FOUND') {

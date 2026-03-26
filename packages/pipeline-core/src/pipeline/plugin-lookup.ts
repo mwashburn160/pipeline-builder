@@ -27,6 +27,8 @@ export interface PluginLookupProps {
   readonly project: string;
   readonly platformUrl: string;
   readonly uniqueId: UniqueId;
+  /** Organization ID for resolving per-org secrets from Secrets Manager */
+  readonly orgId?: string;
   readonly runtime?: Runtime;
   /** Lambda timeout (default: 30s) */
   readonly timeout?: Duration;
@@ -50,13 +52,13 @@ export interface PluginLookupProps {
  *
  * ## Prerequisites
  *
- * Before deploying, store the service credentials in Secrets Manager:
+ * Before deploying, store a JWT token in Secrets Manager:
  * ```sh
- * pipeline-manager store-credentials --email <email> --password <password> --region <region>
+ * pipeline-manager store-token --days 30 --region <region>
  * ```
  *
  * The Lambda resolves the secret by name at runtime:
- * `{SECRETS_PATH_PREFIX}/system/credentials` (default: `pipeline-builder/system/credentials`)
+ * `{SECRETS_PATH_PREFIX}/{orgId}/platform`
  *
  * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
  */
@@ -68,6 +70,7 @@ export class PluginLookup extends Construct {
   private readonly _timeout: Duration;
   private readonly _memorySize: number;
   private readonly _reservedConcurrentExecutions?: number;
+  private readonly _orgId?: string;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
@@ -78,6 +81,7 @@ export class PluginLookup extends Construct {
 
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
+    this._orgId = props.orgId;
     this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? 512;
@@ -134,17 +138,24 @@ export class PluginLookup extends Construct {
   /**
    * Creates the Lambda function that serves as the event handler for the custom resource provider.
    *
-   * Service credentials are stored in a pre-existing Secrets Manager secret at
-   * `{SECRETS_PATH_PREFIX}/system/credentials`. The Lambda resolves the
-   * secret by name at runtime using the same `CoreConstants.SECRETS_PATH_PREFIX`.
+   * JWT token is stored in a pre-existing Secrets Manager secret at
+   * `{SECRETS_PATH_PREFIX}/{orgId}/platform`. The Lambda resolves the
+   * secret by name at runtime using `CoreConstants.SECRETS_PATH_PREFIX`.
    *
    * Create the secret before deploying with:
-   *   pipeline-manager store-credentials --email <email> --password <password>
+   *   pipeline-manager store-token --days 30 --region <region>
    */
   private createLambdaFunction(): NodejsFunction {
     const lockfile = join(__dirname, '/../handlers/pnpm-lock.yaml');
     const entrypoint = join(__dirname, '/../handlers/plugin-lookup-handler.js');
     const handlerId = this._uniqueId.generate('onevent:handler');
+
+    // Secret name: {prefix}/{orgId}/platform (orgId required)
+    const orgId = this._orgId;
+    if (!orgId) {
+      throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
+    }
+    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/platform`;
 
     const fn = new NodejsFunction(this, handlerId, {
       runtime: this._runtime,
@@ -154,6 +165,9 @@ export class PluginLookup extends Construct {
       entry: entrypoint,
       depsLockFilePath: lockfile,
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
+      environment: {
+        PLATFORM_SECRET_NAME: secretName,
+      },
       bundling: {
         minify: true,
         sourceMap: false,
@@ -162,10 +176,8 @@ export class PluginLookup extends Construct {
       },
     });
 
-    // Grant the Lambda permission to read the credentials secret by name.
-    // The secret name follows the standard format: {prefix}/system/credentials
+    // Grant the Lambda permission to read the per-org platform secret.
     // The wildcard suffix handles the 6-char random ID that Secrets Manager appends.
-    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/system/credentials`;
     fn.addToRolePolicy(new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],

@@ -9,15 +9,15 @@ import type { SQSEvent, SQSRecord } from 'aws-lambda';
  * parses them into a normalized format, and POSTs them to the reporting service
  * via PLATFORM_BASE_URL.
  *
- * Authentication uses service credentials from Secrets Manager
- * at `pipeline-builder/system/credentials` (same secret as plugin-lookup).
+ * Authentication:
+ * - PLATFORM_TOKEN env var (preferred — no Secrets Manager call)
+ * - PLATFORM_SECRET_NAME env var → reads accessToken from Secrets Manager
  *
  * Environment variables:
- * - PLATFORM_BASE_URL — Base URL of the platform (e.g. https://app.example.com)
+ * - PLATFORM_BASE_URL — Base URL of the platform
+ * - PLATFORM_TOKEN — JWT token (set directly, or)
+ * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { accessToken }
  */
-
-const SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
-const CREDENTIALS_SECRET_NAME = `${SECRETS_PATH_PREFIX}/system/credentials`;
 
 /**
  * One-way SHA-256 hash of a sensitive identifier.
@@ -44,51 +44,38 @@ const log = {
 
 // ─── Auth ───────────────────────────────────────────────
 
-let cachedToken: { jwt: string; expiresAt: number } | null = null;
-let cachedCredentials: { email: string; password: string } | null = null;
+let cachedToken: string | null = null;
 
-async function getCredentials(): Promise<{ email: string; password: string }> {
-  if (cachedCredentials) return cachedCredentials;
+async function getAuthToken(): Promise<string> {
+  if (cachedToken) return cachedToken;
 
+  // Path 1: PLATFORM_TOKEN env var (no Secrets Manager call)
+  if (process.env.PLATFORM_TOKEN) {
+    cachedToken = process.env.PLATFORM_TOKEN;
+    log.info('Using PLATFORM_TOKEN from environment');
+    return cachedToken;
+  }
+
+  // Path 2: PLATFORM_SECRET_NAME → read from Secrets Manager
+  const secretName = process.env.PLATFORM_SECRET_NAME;
+  if (!secretName) {
+    throw new Error('PLATFORM_TOKEN or PLATFORM_SECRET_NAME environment variable is required');
+  }
+
+  log.info(`Fetching token from Secrets Manager: ${secretName}`);
   const client = new SecretsManagerClient({});
-  const response = await client.send(new GetSecretValueCommand({ SecretId: CREDENTIALS_SECRET_NAME }));
+  const response = await client.send(new GetSecretValueCommand({ SecretId: secretName }));
 
-  if (!response.SecretString) throw new Error(`Credentials secret "${CREDENTIALS_SECRET_NAME}" is empty`);
+  if (!response.SecretString) throw new Error(`Secret "${secretName}" is empty`);
 
-  const parsed = JSON.parse(response.SecretString) as { email?: string; password?: string };
-  if (!parsed.email || !parsed.password) throw new Error('Credentials secret missing email or password');
-
-  cachedCredentials = { email: parsed.email, password: parsed.password };
-  return cachedCredentials;
-}
-
-async function getAuthToken(baseUrl: string): Promise<string> {
-  // Reuse token if it has at least 60s remaining
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
-    return cachedToken.jwt;
+  const secret = JSON.parse(response.SecretString) as Record<string, string>;
+  if (!secret.accessToken) {
+    throw new Error('Secret missing accessToken — run "pipeline-manager store-token" to generate');
   }
 
-  const { email, password } = await getCredentials();
-
-  const res = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier: email, password }),
-  });
-
-  const data = await res.json() as Record<string, unknown>;
-  const tokenData = (data.data || data) as Record<string, unknown>;
-
-  if (!res.ok || !tokenData.accessToken) {
-    throw new Error(`Authentication failed: ${res.status} ${data.message || ''}`);
-  }
-
-  const jwt = tokenData.accessToken as string;
-  const expiresIn = (tokenData.expiresIn as number) || 7200;
-  cachedToken = { jwt, expiresAt: Date.now() + expiresIn * 1000 };
-
-  log.info('Authenticated with platform API');
-  return jwt;
+  cachedToken = secret.accessToken;
+  log.info('Using stored JWT token from Secrets Manager');
+  return cachedToken;
 }
 
 // ─── Event Parsing ──────────────────────────────────────
@@ -179,7 +166,7 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   const events = event.Records.map(parseRecord);
 
   // Authenticate
-  const token = await getAuthToken(baseUrl);
+  const token = await getAuthToken();
 
   // POST batch to reporting service
   const res = await fetch(`${baseUrl}/api/reports/events`, {

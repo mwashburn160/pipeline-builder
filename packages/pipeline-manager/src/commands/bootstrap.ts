@@ -83,6 +83,7 @@ export function bootstrap(program: Command): void {
     .option('--qualifier <qualifier>', 'Bootstrap qualifier for environment isolation')
     .option('--trust <accounts>', 'Comma-separated account IDs to trust for cross-account deployments')
     .option('--cloudformation-execution-policies <arns>', 'IAM policy ARNs for CloudFormation execution role')
+    .option('--json', 'Output result as JSON', false)
     .action(async (options) => {
       const executionId = printCommandHeader('CDK Bootstrap');
 
@@ -147,13 +148,23 @@ export function bootstrap(program: Command): void {
         printSection('Bootstrap Complete');
 
         if (result.success) {
-          printKeyValue({
-            'Execution ID': executionId,
-            'Account': account,
-            'Region': region,
-            'Duration': `${result.duration}ms`,
-            'Status': '✓ Success',
-          });
+          if (options.json) {
+            console.log(JSON.stringify({
+              success: true,
+              executionId,
+              account,
+              region,
+              duration: result.duration,
+            }, null, 2));
+          } else {
+            printKeyValue({
+              'Execution ID': executionId,
+              'Account': account,
+              'Region': region,
+              'Duration': `${result.duration}ms`,
+              'Status': '✓ Success',
+            });
+          }
         }
 
       } catch (error) {

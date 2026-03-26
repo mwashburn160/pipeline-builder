@@ -1,6 +1,4 @@
 import { createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
-
-const logger = createLogger('compliance-rule-service');
 import {
   CoreConstants,
   CrudService,
@@ -16,6 +14,8 @@ import { SQL, eq, and, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
+
+const logger = createLogger('compliance-rule-service');
 
 /** Cache for active rules per org+target. Rules change infrequently. */
 const rulesCache = createCacheService('compliance:rules:', CoreConstants.CACHE_TTL_COMPLIANCE_RULES);

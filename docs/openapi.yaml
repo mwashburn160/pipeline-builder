@@ -1,0 +1,332 @@
+openapi: 3.0.3
+info:
+  title: Pipeline Builder API
+  version: 1.0.0
+  description: REST API for managing CI/CD pipelines and plugins
+
+servers:
+  - url: https://localhost:8443
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Pipeline:
+      type: object
+      properties:
+        id:
+          type: string
+        project:
+          type: string
+        organization:
+          type: string
+        pipelineName:
+          type: string
+        accessModifier:
+          type: string
+          enum: [public, private]
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+        props:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Plugin:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        pluginType:
+          type: string
+          enum: [CodeBuildStep, ShellStep, ManualApprovalStep]
+        computeType:
+          type: string
+          enum: [SMALL, MEDIUM, LARGE, X2_LARGE]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        statusCode:
+          type: integer
+        error:
+          type: string
+
+    PaginatedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+            pagination:
+              type: object
+              properties:
+                total:
+                  type: integer
+                limit:
+                  type: integer
+                offset:
+                  type: integer
+                hasMore:
+                  type: boolean
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login and obtain JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '401':
+          description: Invalid credentials
+
+  /api/pipelines:
+    get:
+      tags: [Pipelines]
+      summary: List pipelines with filters
+      parameters:
+        - name: project
+          in: query
+          schema:
+            type: string
+        - name: organization
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          schema:
+            type: string
+            example: createdAt:desc
+      responses:
+        '200':
+          description: Pipeline list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedResponse'
+
+  /api/pipeline:
+    post:
+      tags: [Pipelines]
+      summary: Create a new pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project, organization, props]
+              properties:
+                project:
+                  type: string
+                organization:
+                  type: string
+                props:
+                  type: object
+      responses:
+        '201':
+          description: Pipeline created
+        '400':
+          description: Validation error
+
+  /api/pipeline/{id}:
+    get:
+      tags: [Pipelines]
+      summary: Get pipeline by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pipeline details
+        '404':
+          description: Pipeline not found
+
+  /api/plugins:
+    get:
+      tags: [Plugins]
+      summary: List plugins with filters
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Plugin list
+
+  /api/plugin/{id}:
+    get:
+      tags: [Plugins]
+      summary: Get plugin by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Plugin details
+        '404':
+          description: Plugin not found
+
+  /api/plugin/upload:
+    post:
+      tags: [Plugins]
+      summary: Upload a plugin ZIP file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                name:
+                  type: string
+                version:
+                  type: string
+      responses:
+        '201':
+          description: Plugin uploaded
+
+  /api/user/generate-token:
+    post:
+      tags: [Authentication]
+      summary: Generate long-lived JWT token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expiresIn:
+                  type: integer
+                  description: Token lifetime in seconds (max 30 days)
+                  default: 7200
+      responses:
+        '200':
+          description: Token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+                      expiresIn:
+                        type: integer
+
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is healthy

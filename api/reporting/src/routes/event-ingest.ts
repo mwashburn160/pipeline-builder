@@ -80,7 +80,7 @@ export function createEventIngestRoutes(): Router {
       const affectedOrgs = new Set(rows.map(r => r.orgId));
       for (const org of affectedOrgs) {
         reportingService.invalidateOrg(org).catch((err) => {
-          logger.debug('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
+          logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
         });
       }
     }

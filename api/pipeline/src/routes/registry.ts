@@ -1,8 +1,19 @@
-import { sendSuccess, sendBadRequest, ErrorCode, hashAccountInArn, hashId } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, hashAccountInArn, hashId, validateBody } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { db, schema } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
+import { z } from 'zod';
 
+const PipelineRegistrySchema = z.object({
+  pipelineId: z.string().min(1, 'pipelineId is required'),
+  pipelineArn: z.string().min(1, 'pipelineArn is required'),
+  pipelineName: z.string().min(1, 'pipelineName is required'),
+  accountId: z.string().optional(),
+  region: z.string().optional(),
+  project: z.string().optional(),
+  organization: z.string().optional(),
+  stackName: z.string().optional(),
+});
 
 /**
  * Register pipeline registry routes.
@@ -12,11 +23,12 @@ export function createRegistryRoutes(): Router {
   const router = Router();
 
   router.post('/registry', withRoute(async ({ req, res, ctx, orgId }) => {
-    const { pipelineId, pipelineArn, pipelineName, accountId, region, project, organization, stackName } = req.body;
-
-    if (!pipelineId || !pipelineArn || !pipelineName) {
-      return sendBadRequest(res, 'pipelineId, pipelineArn, and pipelineName are required', ErrorCode.VALIDATION_ERROR);
+    const validation = validateBody(req, PipelineRegistrySchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+
+    const { pipelineId, pipelineArn, pipelineName, accountId, region, project, organization, stackName } = validation.value;
 
     // Ensure account is hashed before storing (defense in depth)
     const safeArn = hashAccountInArn(pipelineArn);

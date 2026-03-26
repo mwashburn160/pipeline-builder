@@ -2,6 +2,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
+import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
+import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
 import { printCommandHeader } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
@@ -102,17 +104,14 @@ export function setupEvents(program: Command): void {
           const zipPath = path.join(tmpDir, 'index.zip');
           execFileSync('zip', ['-j', zipPath, 'index.js'], { cwd: path.dirname(handlerSrc), stdio: 'pipe' });
 
-          // Upload directly to Lambda (no S3 needed)
+          // Upload directly to Lambda via SDK (no S3 needed)
           printInfo('Uploading code to Lambda', { function: LAMBDA_NAME, version });
 
-          const lambdaArgs = [
-            'lambda', 'update-function-code',
-            '--function-name', LAMBDA_NAME,
-            '--zip-file', `fileb://${zipPath}`,
-            '--region', region,
-          ];
-          if (options.profile) lambdaArgs.push('--profile', options.profile);
-          execFileSync('aws', lambdaArgs, { stdio: 'pipe' });
+          const lambdaClient = new LambdaClient({ region });
+          await lambdaClient.send(new UpdateFunctionCodeCommand({
+            FunctionName: LAMBDA_NAME,
+            ZipFile: fs.readFileSync(zipPath),
+          }));
 
           printSuccess(`Lambda code deployed (${PACKAGE_NAME}@${version})`);
 
@@ -120,18 +119,11 @@ export function setupEvents(program: Command): void {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         }
 
-        // Step 3: Show outputs
-        const describeArgs = [
-          'cloudformation', 'describe-stacks',
-          '--stack-name', STACK_NAME,
-          '--region', region,
-          '--query', 'Stacks[0].Outputs',
-          '--output', 'json',
-        ];
-        if (options.profile) describeArgs.push('--profile', options.profile);
-        const outputsRaw = execFileSync('aws', describeArgs, { encoding: 'utf-8' });
-        const outputs = JSON.parse(outputsRaw) as Array<{ OutputKey: string; OutputValue: string }>;
-        const outputMap = Object.fromEntries(outputs.map(o => [o.OutputKey, o.OutputValue]));
+        // Step 3: Show outputs via SDK
+        const cfnClient = new CloudFormationClient({ region });
+        const describeResult = await cfnClient.send(new DescribeStacksCommand({ StackName: STACK_NAME }));
+        const outputs = describeResult.Stacks?.[0]?.Outputs ?? [];
+        const outputMap = Object.fromEntries(outputs.map(o => [o.OutputKey ?? '', o.OutputValue ?? '']));
 
         console.log('');
         printSection('Event Ingestion Ready');

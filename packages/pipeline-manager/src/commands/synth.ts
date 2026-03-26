@@ -16,7 +16,7 @@ const { dim } = pico;
  */
 async function fetchPipelineConfig(
   pipelineId: string,
-  options: { storeCredentials?: boolean; verifySsl?: boolean; region?: string; profile?: string },
+  options: { storeTokens?: boolean; verifySsl?: boolean; region?: string; profile?: string },
 ): Promise<void> {
   const client = await createAuthenticatedClientAsync(options);
   const config = client.getConfig();
@@ -54,12 +54,12 @@ async function fetchPipelineConfig(
  *
  * Authentication methods (in priority order):
  * - PLATFORM_TOKEN env var
- * - --store-credentials → fetch from AWS Secrets Manager
+ * - --store-tokens → fetch from AWS Secrets Manager
  *
  * @example
  * ```bash
  * pipeline-manager synth --id <pipeline-id> --no-verify-ssl
- * pipeline-manager synth --id <pipeline-id> --store-credentials
+ * pipeline-manager synth --id <pipeline-id> --store-tokens
  * pipeline-manager synth --quiet --no-notices          # CodePipeline (uses env vars)
  * ```
  */
@@ -68,13 +68,14 @@ export function synth(program: Command): void {
     .command('synth')
     .description('Run CDK synthesis using pipeline configuration')
     .option('-i, --id <id>', 'Pipeline ID (or set PIPELINE_ID env var)')
-    .option('--store-credentials', 'Authenticate using credentials from AWS Secrets Manager', false)
+    .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false)
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
     .option('--profile <profile>', 'AWS profile')
-    .option('--region <region>', 'AWS region (for --store-credentials)')
+    .option('--region <region>', 'AWS region (for --store-tokens)')
     .option('--quiet', 'Suppress CDK output', false)
     .option('--no-notices', 'Suppress CDK notices')
     .option('--verbose', 'Show verbose CDK output', false)
+    .option('--json', 'Output result as JSON', false)
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .action(async (options) => {
@@ -133,12 +134,21 @@ export function synth(program: Command): void {
         printSection('Synthesis Complete');
 
         if (result.success) {
-          printKeyValue({
-            'Execution ID': executionId,
-            'Duration': `${result.duration}ms`,
-            'Output': options.output,
-            'Status': '✓ Success',
-          });
+          if (options.json) {
+            console.log(JSON.stringify({
+              success: true,
+              executionId,
+              duration: result.duration,
+              output: options.output,
+            }, null, 2));
+          } else {
+            printKeyValue({
+              'Execution ID': executionId,
+              'Duration': `${result.duration}ms`,
+              'Output': options.output,
+              'Status': '✓ Success',
+            });
+          }
         }
 
       } catch (error) {

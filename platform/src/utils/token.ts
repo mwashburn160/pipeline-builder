@@ -74,8 +74,13 @@ export interface IssuedTokens {
 /**
  * Generate a new token pair and persist the hashed refresh token in the database.
  * Resolves the organization name for inclusion in the access token payload.
+ *
+ * @param user - User document to generate tokens for
+ * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
  */
-export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
+export async function issueTokens(user: UserDocument, expiresIn?: number): Promise<IssuedTokens> {
+  const tokenExpiresIn = expiresIn ?? config.auth.jwt.expiresIn;
+
   let organizationName: string | undefined;
   if (user.organizationId) {
     try {
@@ -89,7 +94,7 @@ export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
   const accessToken = jwt.sign(
     createAccessTokenPayload(user, organizationName),
     config.auth.jwt.secret,
-    { algorithm: config.auth.jwt.algorithm, expiresIn: config.auth.jwt.expiresIn },
+    { algorithm: config.auth.jwt.algorithm, expiresIn: tokenExpiresIn },
   );
 
   const refreshToken = generateRefreshToken(user);
@@ -97,7 +102,7 @@ export async function issueTokens(user: UserDocument): Promise<IssuedTokens> {
 
   await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
 
-  return { accessToken, refreshToken, expiresIn: config.auth.jwt.expiresIn };
+  return { accessToken, refreshToken, expiresIn: tokenExpiresIn };
 }
 
 /** Verify and decode a JWT access token. */

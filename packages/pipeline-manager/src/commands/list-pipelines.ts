@@ -1,23 +1,18 @@
 import { Command } from 'commander';
-import { formatDuration, validateBoolean, validateNumber, validateSort } from '../config/cli.constants';
+import { formatDuration, validateBoolean } from '../config/cli.constants';
 import { PipelineListResponse, Pipeline } from '../types';
 import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
+import { buildCommonFilters, CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils';
 import { outputData, extractListResponse, printInfo, printKeyValue, printSection } from '../utils/output-utils';
 
 /**
  * Query parameters for the pipeline list API endpoint.
  * Combines common filters (pagination, sort, access) with pipeline-specific filters.
  */
-interface PipelineFilterParams {
-  // Common filters
-  id?: string | string[];
+interface PipelineFilterParams extends CommonFilterParams {
   accessModifier?: string;
   isDefault?: boolean;
-  isActive?: boolean;
-  limit?: number;
-  offset?: number;
-  sort?: string;
 
   // Pipeline-specific filters
   project?: string;
@@ -74,14 +69,12 @@ export function listPipelines(program: Command): void {
 
       try {
 
-        // Build filter parameters
-        const filterParams: PipelineFilterParams = {};
+        // Build filter parameters (common + pipeline-specific)
+        const filterParams: PipelineFilterParams = {
+          ...buildCommonFilters(options),
+        };
 
-        // Common filters
-        if (options.id) {
-          filterParams.id = options.id.includes(',') ? options.id.split(',').map((s: string) => s.trim()) : options.id;
-        }
-
+        // Pipeline-specific filters
         if (options.accessModifier) {
           filterParams.accessModifier = options.accessModifier;
         }
@@ -90,19 +83,6 @@ export function listPipelines(program: Command): void {
           filterParams.isDefault = validateBoolean(options.isDefault, 'is-default');
         }
 
-        if (options.isActive !== undefined) {
-          filterParams.isActive = validateBoolean(options.isActive, 'is-active');
-        }
-
-        // Pagination
-        filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
-        filterParams.offset = validateNumber(options.offset, 'offset', 0);
-
-        // Sort
-        const sort = validateSort(options.sort);
-        if (sort) filterParams.sort = sort;
-
-        // Pipeline-specific filters
         if (options.project) {
           filterParams.project = options.project;
         }
@@ -132,13 +112,7 @@ export function listPipelines(program: Command): void {
           printInfo('No filters applied - fetching all pipelines');
         }
 
-        console.log('');
-        printInfo('Pagination Settings');
-        printKeyValue({
-          Limit: (filterParams.limit ?? 50).toString(),
-          Offset: (filterParams.offset ?? 0).toString(),
-          Sort: filterParams.sort || 'createdAt:desc',
-        });
+        displayPaginationInfo(filterParams);
 
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
@@ -166,22 +140,7 @@ export function listPipelines(program: Command): void {
         printSection('✓ Query Complete');
 
         // Display results summary
-        printKeyValue({
-          'Pipelines Found': pipelines.length.toString(),
-          'Total Available': total !== undefined ? total.toString() : 'Unknown',
-          'Has More': hasMore ? 'Yes' : 'No',
-          'Request Duration': formatDuration(requestDuration),
-        });
-
-        // Show pagination info
-        if (hasMore) {
-          const currentOffset = filterParams.offset || 0;
-          const nextOffset = currentOffset + (filterParams.limit || 50);
-          console.log('');
-          printInfo('More results available', {
-            hint: `Use --offset ${nextOffset} to see next page`,
-          });
-        }
+        displayListResults(pipelines, total, hasMore, 'Pipelines', requestDuration, filterParams);
 
         // Display statistics
         if (pipelines.length > 0 && options.format === 'table') {

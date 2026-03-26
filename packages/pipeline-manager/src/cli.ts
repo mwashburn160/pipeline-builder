@@ -9,9 +9,9 @@ import { getPlugin } from './commands/get-plugin';
 import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
 import { login } from './commands/login';
-import { refresh } from './commands/refresh';
 import { setupEvents } from './commands/setup-events';
-import { storeCredentials } from './commands/store-credentials';
+import { status } from './commands/status';
+import { storeToken } from './commands/store-token';
 import { synth } from './commands/synth';
 import { uploadPlugin } from './commands/upload-plugin';
 import { version } from './commands/version';
@@ -155,7 +155,7 @@ Examples:
   $ ${APP_NAME} version
   $ ${APP_NAME} list-pipelines --project my-app
   $ ${APP_NAME} get-pipeline --id pipe-123 --format json
-  $ ${APP_NAME} store-credentials --email admin@example.com --password '***'
+  $ ${APP_NAME} store-token --days 30 --region us-east-1
   $ ${APP_NAME} bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} deploy --id pipe-123 --profile production
 
@@ -166,8 +166,7 @@ Examples:
 
   // Authentication commands
   printDebug('Registering authentication commands');
-  login(program); // Login and obtain PLATFORM_TOKEN
-  refresh(program); // Refresh an expired PLATFORM_TOKEN
+  login(program); // Login and obtain PLATFORM_TOKEN (also supports --refresh)
 
   // Query commands
   printDebug('Registering query commands');
@@ -181,9 +180,13 @@ Examples:
   createPipeline(program); // Create pipeline configuration
   uploadPlugin(program); // Upload and deploy plugin
 
+  // Status command
+  printDebug('Registering status command');
+  status(program); // Show environment and connectivity status
+
   // Deployment commands
   printDebug('Registering deployment commands');
-  storeCredentials(program); // Store service credentials in Secrets Manager
+  storeToken(program); // Generate JWT token and store in Secrets Manager
   setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)

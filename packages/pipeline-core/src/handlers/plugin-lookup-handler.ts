@@ -30,76 +30,45 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Service credentials secret following the standard {prefix}/{orgId}/{secretName} pattern. */
-const CREDENTIALS_SECRET_NAME = `${CoreConstants.SECRETS_PATH_PREFIX}/system/credentials`;
-
-/** Cached credentials to avoid repeated Secrets Manager calls within a single invocation. */
-let cachedCredentials: { email: string; password: string } | null = null;
-
-/** @internal Reset cached credentials (for testing only). */
-export function _resetCredentialsCache(): void { cachedCredentials = null; }
-
-/**
- * Fetch service credentials from AWS Secrets Manager using the standard secret name.
- * Caches the result for the lifetime of the Lambda execution context.
- *
- * The secret is expected at: `{SECRETS_PATH_PREFIX}/system/credentials`
- * Create it with: `pipeline-manager store-credentials`
- */
-async function getCredentials(): Promise<{ email: string; password: string }> {
-  if (cachedCredentials) return cachedCredentials;
-
-  lambdaLog.info('AUTH', `Fetching credentials from Secrets Manager: ${CREDENTIALS_SECRET_NAME}`);
-
-  const client = new SecretsManagerClient({});
-  const response = await client.send(new GetSecretValueCommand({ SecretId: CREDENTIALS_SECRET_NAME }));
-
-  if (!response.SecretString) {
-    throw new Error(`Credentials secret "${CREDENTIALS_SECRET_NAME}" is empty`);
-  }
-
-  const parsed = JSON.parse(response.SecretString) as { email?: string; password?: string };
-  if (!parsed.email || !parsed.password) {
-    throw new Error(`Credentials secret "${CREDENTIALS_SECRET_NAME}" missing email or password fields`);
-  }
-
-  cachedCredentials = { email: parsed.email, password: parsed.password };
-  return cachedCredentials;
+/** Platform secret name — injected as PLATFORM_SECRET_NAME env var by PluginLookup construct. */
+const PLATFORM_SECRET_NAME = process.env.PLATFORM_SECRET_NAME;
+if (!PLATFORM_SECRET_NAME) {
+  throw new Error('PLATFORM_SECRET_NAME environment variable is required');
 }
 
+/** Cached token to avoid repeated Secrets Manager calls within a single invocation. */
+let cachedToken: string | null = null;
+
+/** @internal Reset cached token (for testing only). */
+export function _resetCredentialsCache(): void { cachedToken = null; }
+
 /**
- * Authenticates with the platform API using service credentials from Secrets Manager
- * and returns a fresh JWT.
+ * Fetch JWT token from AWS Secrets Manager.
+ * Caches the result for the lifetime of the Lambda execution context.
  *
- * @param baseURL - Base URL of the target API
- * @returns Fresh JWT token
- * @throws Error if authentication fails or no credentials are available
+ * The secret name is set via PLATFORM_SECRET_NAME env var (e.g. `{prefix}/{orgId}/platform`)
+ * Create it with: `pipeline-manager store-token`
  */
-async function authenticate(baseURL: string): Promise<string> {
-  const { email, password } = await getCredentials();
+async function getToken(): Promise<string> {
+  if (cachedToken) return cachedToken;
 
-  lambdaLog.info('AUTH', 'Authenticating with service credentials');
-  try {
-    const { data } = await axios.post(`${baseURL}/api/auth/login`, {
-      email,
-      password,
-    }, {
-      timeout: CoreConstants.HANDLER_TIMEOUT_MS,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  lambdaLog.info('AUTH', `Fetching token from Secrets Manager: ${PLATFORM_SECRET_NAME}`);
 
-    if (!data?.token) {
-      throw new Error('Login response missing token');
-    }
+  const client = new SecretsManagerClient({});
+  const response = await client.send(new GetSecretValueCommand({ SecretId: PLATFORM_SECRET_NAME }));
 
-    lambdaLog.info('AUTH', 'Authentication successful');
-    return data.token;
-  } catch (error) {
-    const msg = error instanceof AxiosError
-      ? `${error.response?.status || error.code}: ${error.response?.statusText || error.message}`
-      : error instanceof Error ? error.message : 'Unknown error';
-    throw new Error(`Authentication failed: ${msg}`);
+  if (!response.SecretString) {
+    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" is empty`);
   }
+
+  const parsed = JSON.parse(response.SecretString) as Record<string, string>;
+  if (!parsed.accessToken) {
+    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing accessToken — run "pipeline-manager store-token" to generate`);
+  }
+
+  cachedToken = parsed.accessToken;
+  lambdaLog.info('AUTH', 'Token retrieved from Secrets Manager');
+  return cachedToken;
 }
 
 /**
@@ -214,9 +183,8 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
 /**
  * Lambda handler for CloudFormation Custom Resource that performs plugin lookup.
  *
- * Authenticates using service credentials stored in AWS Secrets Manager
- * at `{SECRETS_PATH_PREFIX}/system/credentials` (resolved by name).
- * Create the secret with: `pipeline-manager store-credentials`
+ * Authenticates using JWT token from AWS Secrets Manager (PLATFORM_SECRET_NAME env var).
+ * Create the secret with: `pipeline-manager store-token`
  *
  * Request Types:
  * - Create/Update: fetches and returns plugin configuration from API
@@ -281,8 +249,8 @@ export const handler = async (
 
     validatePluginFilter(pluginFilter);
 
-    // Authenticate and create API client
-    const token = await authenticate(baseURL);
+    // Get token from Secrets Manager and create API client
+    const token = await getToken();
     const api = create(baseURL, token);
 
     // Fetch plugin

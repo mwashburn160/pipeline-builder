@@ -1,4 +1,4 @@
-import { createHealthRouter, createLogger, sendError } from '@mwashburn160/api-core';
+import { createHealthRouter, createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
 import { createApp, runServer } from '@mwashburn160/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -60,7 +60,7 @@ if (config.enabled) {
 
   // Return 503 for all billing routes when disabled
   app.use('/billing', (_req, res) => {
-    sendError(res, 503, 'Billing is disabled');
+    sendError(res, 503, 'Billing is disabled', ErrorCode.SERVICE_UNAVAILABLE);
   });
 
   runServer(app, {

@@ -4,7 +4,7 @@ jest.mock('yaml');
 
 import * as fs from 'fs';
 import * as yaml from 'yaml';
-import { getConfig, getToken, hasToken } from '../src/utils/config-loader';
+import { getConfig } from '../src/utils/config-loader';
 
 // Environment helpers
 const ENV_KEYS = [
@@ -141,32 +141,4 @@ describe('config.loader', () => {
     });
   });
 
-  describe('getToken', () => {
-    it('should return token from env', () => {
-      process.env.PLATFORM_TOKEN = 'test-token';
-      expect(getToken()).toBe('test-token');
-    });
-
-    it('should throw when token is not set', () => {
-      delete process.env.PLATFORM_TOKEN;
-      expect(() => getToken()).toThrow('PLATFORM_TOKEN environment variable is required');
-    });
-  });
-
-  describe('hasToken', () => {
-    it('should return true when token is set', () => {
-      process.env.PLATFORM_TOKEN = 'some-token';
-      expect(hasToken()).toBe(true);
-    });
-
-    it('should return false when token is not set', () => {
-      delete process.env.PLATFORM_TOKEN;
-      expect(hasToken()).toBe(false);
-    });
-
-    it('should return false for empty string', () => {
-      process.env.PLATFORM_TOKEN = '';
-      expect(hasToken()).toBe(false);
-    });
-  });
 });

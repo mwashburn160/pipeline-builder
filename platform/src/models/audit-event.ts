@@ -28,7 +28,9 @@ export type AuditAction =
   | 'plugin.delete'
   | 'billing.subscribe'
   | 'billing.cancel'
-  | 'billing.change_plan';
+  | 'billing.change_plan'
+  | 'admin.user.delete'
+  | 'admin.org.delete';
 
 /**
  * Audit event document stored in MongoDB.

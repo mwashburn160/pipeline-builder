@@ -88,6 +88,7 @@ describe('PluginLookup', () => {
     it('should create construct with valid props', () => {
       expect(() => new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -106,6 +107,7 @@ describe('PluginLookup', () => {
     it('should throw if project is missing', () => {
       expect(() => new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: '',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -117,6 +119,7 @@ describe('PluginLookup', () => {
     it('should not embed plaintext credentials in Lambda environment', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -132,6 +135,7 @@ describe('PluginLookup', () => {
     it('should grant Secrets Manager read access via IAM policy', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -149,6 +153,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -167,6 +172,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -191,6 +197,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -215,6 +222,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://my-platform.example.com',
         uniqueId: createUniqueId(),
@@ -248,6 +256,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -271,6 +280,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -290,6 +300,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -306,6 +317,7 @@ describe('PluginLookup', () => {
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -319,6 +331,7 @@ describe('PluginLookup', () => {
     it('should use ARM_64 architecture', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),
@@ -336,6 +349,7 @@ describe('PluginLookup', () => {
     it('should enable minification and exclude AWS SDK from bundle', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
+        orgId: 'test-org',
         project: 'my-project',
         platformUrl: 'https://api.example.com',
         uniqueId: createUniqueId(),

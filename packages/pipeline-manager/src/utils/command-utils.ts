@@ -1,15 +1,11 @@
-import { execFileSync } from 'child_process';
-import axios from 'axios';
 import pico from 'picocolors';
 import { ApiClient } from './api-client';
+import { getSecretValue } from './aws-secrets';
 import { Config, getConfigWithOptions } from './config-loader';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils';
 import { formatDuration, generateExecutionId } from '../config/cli.constants';
 
 const { bold, cyan, green, magenta } = pico;
-
-/** Default secret name for stored credentials. */
-const DEFAULT_CREDENTIALS_SECRET = 'pipeline-builder/system/credentials';
 
 /**
  * Print command header with section title and execution ID.
@@ -49,12 +45,12 @@ export function printSslWarning(verifySsl?: boolean): void {
  * Resolve a platform auth token using two methods (in priority order):
  *
  * 1. PLATFORM_TOKEN env var
- * 2. --store-credentials flag → fetch credentials from AWS Secrets Manager, then authenticate
+ * 2. --store-tokens flag → fetch credentials from AWS Secrets Manager, then authenticate
  *
  * @returns JWT token string
  */
 export async function resolveToken(options: {
-  storeCredentials?: boolean;
+  storeTokens?: boolean;
   verifySsl?: boolean;
   region?: string;
   profile?: string;
@@ -65,31 +61,31 @@ export async function resolveToken(options: {
     return process.env.PLATFORM_TOKEN;
   }
 
-  const baseUrl = process.env.PLATFORM_BASE_URL || 'https://localhost:8443';
+  // Path 2: --store-tokens → read PLATFORM_SECRET_NAME from Secrets Manager
+  if (options.storeTokens) {
+    const secretName = process.env.PLATFORM_SECRET_NAME;
+    if (!secretName) {
+      throw new Error('PLATFORM_SECRET_NAME env var is required with --store-tokens');
+    }
 
-  // Path 2: --store-credentials → read from Secrets Manager
-  if (options.storeCredentials) {
-    printInfo('Fetching credentials from Secrets Manager', { secret: DEFAULT_CREDENTIALS_SECRET });
+    printInfo('Fetching secret from Secrets Manager', { secret: secretName });
 
-    const smArgs = [
-      'secretsmanager', 'get-secret-value',
-      '--secret-id', DEFAULT_CREDENTIALS_SECRET,
-      '--query', 'SecretString',
-      '--output', 'text',
-    ];
-    if (options.region) smArgs.push('--region', options.region);
-    if (options.profile) smArgs.push('--profile', options.profile);
+    const secretJson = await getSecretValue(secretName, { region: options.region, profile: options.profile });
+    const secret = JSON.parse(secretJson) as Record<string, string>;
+    printSuccess('Secret retrieved from Secrets Manager');
 
-    const credentialsJson = execFileSync('aws', smArgs, { encoding: 'utf-8' }).trim();
-    printSuccess('Credentials retrieved from Secrets Manager');
+    if (!secret.accessToken) {
+      throw new Error('Secret missing accessToken — run "pipeline-manager store-token" to generate');
+    }
 
-    return authenticateWithCredentials(baseUrl, credentialsJson);
+    printInfo('Using stored JWT token');
+    return secret.accessToken;
   }
 
   throw new Error(
     'Authentication required. Use one of:\n' +
     '  - Set PLATFORM_TOKEN environment variable\n' +
-    '  - Pass --store-credentials to fetch from AWS Secrets Manager',
+    '  - Pass --store-tokens with PLATFORM_SECRET_NAME env var',
   );
 }
 
@@ -98,10 +94,10 @@ export async function resolveToken(options: {
  *
  * Supports two auth methods:
  * 1. PLATFORM_TOKEN env var
- * 2. --store-credentials → fetch from Secrets Manager, authenticate, set PLATFORM_TOKEN
+ * 2. --store-tokens + PLATFORM_SECRET_NAME env var → fetch token from Secrets Manager
  */
 export async function createAuthenticatedClientAsync(options: {
-  storeCredentials?: boolean;
+  storeTokens?: boolean;
   verifySsl?: boolean;
   region?: string;
   profile?: string;
@@ -117,7 +113,7 @@ export async function createAuthenticatedClientAsync(options: {
 
 /**
  * Initialize and return an authenticated API client (sync — requires PLATFORM_TOKEN).
- * Use createAuthenticatedClientAsync for --store-credentials support.
+ * Use createAuthenticatedClientAsync for --store-tokens support.
  */
 export function createAuthenticatedClient(options: { verifySsl?: boolean }): ApiClient {
   const config: Config = getConfigWithOptions(options);
@@ -125,7 +121,7 @@ export function createAuthenticatedClient(options: { verifySsl?: boolean }): Api
   const client = new ApiClient(config);
 
   if (!client.isAuthenticated()) {
-    printError('Not authenticated', { hint: 'Set PLATFORM_TOKEN or use --store-credentials' });
+    printError('Not authenticated', { hint: 'Set PLATFORM_TOKEN or use --store-tokens' });
     throw new Error('Authentication required');
   }
 
@@ -158,29 +154,3 @@ export function validateEntityId(id: string | undefined, entityName: string): st
   return trimmed;
 }
 
-/**
- * Authenticate using credentials JSON (email/password from Secrets Manager).
- *
- * @param baseUrl - Platform API base URL
- * @param credentialsJson - JSON string with { email, password }
- * @returns JWT token
- */
-export async function authenticateWithCredentials(baseUrl: string, credentialsJson: string): Promise<string> {
-  const creds = JSON.parse(credentialsJson) as { email?: string; password?: string };
-  if (!creds.email || !creds.password) {
-    throw new Error('Credentials missing email or password fields');
-  }
-
-  printInfo('Authenticating with platform', { baseUrl });
-
-  const { data } = await axios.post(`${baseUrl}/api/auth/login`, {
-    email: creds.email,
-    password: creds.password,
-  }, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
-
-  const token = data?.data?.accessToken || data?.token;
-  if (!token) throw new Error('Authentication failed — no token in response');
-
-  printSuccess('Authenticated');
-  return token;
-}

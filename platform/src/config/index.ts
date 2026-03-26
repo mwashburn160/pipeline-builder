@@ -6,9 +6,6 @@ const isDev = (process.env.NODE_ENV || 'development') === 'development';
 /** Default platform URL used as fallback for PLATFORM_BASE_URL, CORS, OAuth callbacks, and service URLs. */
 const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
 
-/** Default MongoDB connection URI for local development only. */
-const DEV_MONGODB_URI = 'mongodb://mongo:password@mongodb:27017/platform?replicaSet=rs0&authSource=admin';
-
 /**
  * Require an environment variable in production, allow a dev-only fallback.
  * @internal
@@ -90,7 +87,11 @@ export const config = {
   mongodb: {
     // MONGODB_URI must be set via environment; no credentials in source code.
     // Example: mongodb://mongo:<password>@mongodb:27017/platform?replicaSet=rs0&authSource=admin
-    uri: process.env.MONGODB_URI || (isDev ? DEV_MONGODB_URI : ''),
+    uri: (() => {
+      const uri = process.env.MONGODB_URI;
+      if (!uri) throw new Error('MONGODB_URI environment variable is required');
+      return uri;
+    })(),
   },
 
   email: {

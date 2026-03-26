@@ -71,8 +71,28 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-cloudformation",
+      "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-lambda",
+      "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-secrets-manager",
+      "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-sts",
+      "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.44.40",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

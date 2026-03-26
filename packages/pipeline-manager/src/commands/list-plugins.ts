@@ -1,24 +1,16 @@
 import { Command } from 'commander';
-import { formatDuration, formatFileSize, validateBoolean, validateNumber, validateSort } from '../config/cli.constants';
+import { formatDuration, formatFileSize } from '../config/cli.constants';
 import { PluginListResponse, Plugin } from '../types';
 import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
+import { buildCommonFilters, CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils';
 import { outputData, extractListResponse, printInfo, printKeyValue, printSection, printWarning } from '../utils/output-utils';
 
 /**
  * Query parameters for the plugin list API endpoint.
- * Combines common filters (pagination, sort, access) with plugin-specific filters.
+ * Combines common filters (pagination, sort) with plugin-specific filters.
  */
-interface PluginFilterParams {
-  // Common filters
-  id?: string | string[];
-  accessModifier?: string;
-  isDefault?: boolean;
-  isActive?: boolean;
-  limit?: number;
-  offset?: number;
-  sort?: string;
-
+interface PluginFilterParams extends CommonFilterParams {
   // Plugin-specific filters
   name?: string;
   version?: string;
@@ -29,7 +21,7 @@ interface PluginFilterParams {
  * Registers the `list-plugins` command with the CLI program.
  *
  * Queries plugins with filters for name, version, image tag,
- * access modifier, active/default status, plus pagination and sorting.
+ * active status, plus pagination and sorting.
  *
  * @param program - The root Commander program instance to attach the command to.
  *
@@ -49,8 +41,6 @@ export function listPlugins(program: Command): void {
 
     // Common filter options
     .option('--id <id>', 'Filter by plugin ID (can specify multiple with commas)')
-    .option('--access-modifier <modifier>', 'Filter by access modifier (public/private)')
-    .option('--is-default <boolean>', 'Filter by default status (true/false)')
     .option('--is-active <boolean>', 'Filter by active status (true/false)')
     .option('--limit <number>', 'Maximum number of results (1-1000)', parseInt, 50)
     .option('--offset <number>', 'Number of results to skip', parseInt, 0)
@@ -74,33 +64,10 @@ export function listPlugins(program: Command): void {
 
       try {
 
-        // Build filter parameters
-        const filterParams: PluginFilterParams = {};
-
-        // Common filters
-        if (options.id) {
-          filterParams.id = options.id.includes(',') ? options.id.split(',').map((s: string) => s.trim()) : options.id;
-        }
-
-        if (options.accessModifier) {
-          filterParams.accessModifier = options.accessModifier;
-        }
-
-        if (options.isDefault !== undefined) {
-          filterParams.isDefault = validateBoolean(options.isDefault, 'is-default');
-        }
-
-        if (options.isActive !== undefined) {
-          filterParams.isActive = validateBoolean(options.isActive, 'is-active');
-        }
-
-        // Pagination
-        filterParams.limit = validateNumber(options.limit, 'limit', 1, 1000);
-        filterParams.offset = validateNumber(options.offset, 'offset', 0);
-
-        // Sort
-        const sort = validateSort(options.sort);
-        if (sort) filterParams.sort = sort;
+        // Build filter parameters (common + plugin-specific)
+        const filterParams: PluginFilterParams = {
+          ...buildCommonFilters(options),
+        };
 
         // Plugin-specific filters
         if (options.name) {
@@ -123,8 +90,6 @@ export function listPlugins(program: Command): void {
         // Display active filters
         const activeFilters: Record<string, unknown> = {};
         if (filterParams.id) activeFilters.ID = filterParams.id;
-        if (filterParams.accessModifier) activeFilters['Access Modifier'] = filterParams.accessModifier;
-        if (filterParams.isDefault !== undefined) activeFilters['Is Default'] = filterParams.isDefault;
         if (filterParams.isActive !== undefined) activeFilters['Is Active'] = filterParams.isActive;
         if (filterParams.name) activeFilters.Name = filterParams.name;
         if (filterParams.version) activeFilters.Version = filterParams.version;
@@ -137,13 +102,7 @@ export function listPlugins(program: Command): void {
           printInfo('No filters applied - fetching all plugins');
         }
 
-        console.log('');
-        printInfo('Pagination Settings');
-        printKeyValue({
-          Limit: (filterParams.limit ?? 50).toString(),
-          Offset: (filterParams.offset ?? 0).toString(),
-          Sort: filterParams.sort || 'createdAt:desc',
-        });
+        displayPaginationInfo(filterParams);
 
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
@@ -171,22 +130,7 @@ export function listPlugins(program: Command): void {
         printSection('✓ Query Complete');
 
         // Display results summary
-        printKeyValue({
-          'Plugins Found': plugins.length.toString(),
-          'Total Available': total !== undefined ? total.toString() : 'Unknown',
-          'Has More': hasMore ? 'Yes' : 'No',
-          'Request Duration': formatDuration(requestDuration),
-        });
-
-        // Show pagination info
-        if (hasMore) {
-          const currentOffset = filterParams.offset || 0;
-          const nextOffset = currentOffset + (filterParams.limit || 50);
-          console.log('');
-          printInfo('More results available', {
-            hint: `Use --offset ${nextOffset} to see next page`,
-          });
-        }
+        displayListResults(plugins, total, hasMore, 'Plugins', requestDuration, filterParams);
 
         // Display statistics
         if (plugins.length > 0 && options.format === 'table') {

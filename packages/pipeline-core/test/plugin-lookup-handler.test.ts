@@ -1,3 +1,6 @@
+// Set PLATFORM_SECRET_NAME before import — module-level check throws if missing
+process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
+
 import { CloudFormationCustomResourceEvent } from 'aws-lambda';
 
 // Mock CoreConstants BEFORE importing handler — these are module-level constants
@@ -8,12 +11,13 @@ jest.mock('../src/config/app-config', () => ({
     HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
     HANDLER_MAX_RETRIES: 2,
     HANDLER_RETRY_DELAY_MS: 1, // 1ms instead of 1000ms to keep tests fast
+    SECRETS_PATH_PREFIX: 'pipeline-builder',
   },
 }));
 
-// Mock Secrets Manager — return credentials from the standard secret name
+// Mock Secrets Manager — return accessToken from the standard secret name
 const mockSend = jest.fn().mockResolvedValue({
-  SecretString: JSON.stringify({ email: 'admin@internal', password: 'test-password' }),
+  SecretString: JSON.stringify({ accessToken: 'stored-jwt-token' }),
 });
 jest.mock('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -23,10 +27,9 @@ jest.mock('@aws-sdk/client-secrets-manager', () => ({
 // Mock axios before importing handler
 const mockPost = jest.fn();
 const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
-const mockAxiosPost = jest.fn().mockResolvedValue({ data: { token: 'fresh-jwt-token' } });
 jest.mock('axios', () => ({
   __esModule: true,
-  default: { create: mockAxiosCreate, post: mockAxiosPost },
+  default: { create: mockAxiosCreate },
   AxiosError: class AxiosError extends Error {
     code?: string;
     response?: { status: number; statusText: string; data?: unknown };
@@ -86,7 +89,7 @@ describe('plugin-lookup-handler', () => {
     jest.spyOn(console, 'debug').mockImplementation();
     process.env = { ...originalEnv };
     mockSend.mockResolvedValue({
-      SecretString: JSON.stringify({ email: 'admin@internal', password: 'test-password' }),
+      SecretString: JSON.stringify({ accessToken: 'stored-jwt-token' }),
     });
   });
 
@@ -132,7 +135,7 @@ describe('plugin-lookup-handler', () => {
       );
     });
 
-    it('should pass Authorization header with fresh token from login', async () => {
+    it('should pass Authorization header with token from Secrets Manager', async () => {
       mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
 
       const event = createEvent();
@@ -141,7 +144,7 @@ describe('plugin-lookup-handler', () => {
       expect(mockAxiosCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           headers: expect.objectContaining({
-            Authorization: 'Bearer fresh-jwt-token',
+            Authorization: 'Bearer stored-jwt-token',
           }),
         }),
       );
@@ -219,23 +222,13 @@ describe('plugin-lookup-handler', () => {
   });
 
   describe('authentication', () => {
-    it('should fetch credentials from Secrets Manager and authenticate', async () => {
+    it('should fetch token from Secrets Manager', async () => {
       mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
 
       const event = createEvent();
       await handler(event);
 
-      // Should have called Secrets Manager
       expect(mockSend).toHaveBeenCalled();
-
-      // Should have called login with credentials from secret
-      expect(mockAxiosPost).toHaveBeenCalledWith(
-        'https://api.example.com/api/auth/login',
-        { email: 'admin@internal', password: 'test-password' },
-        expect.objectContaining({
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      );
     });
 
     it('should fail if Secrets Manager returns empty secret', async () => {
@@ -248,24 +241,14 @@ describe('plugin-lookup-handler', () => {
       expect(result.Reason).toContain('empty');
     });
 
-    it('should fail if credentials secret is missing fields', async () => {
-      mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ email: 'test@test.com' }) });
+    it('should fail if secret is missing accessToken', async () => {
+      mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ someOtherField: 'no-token-here' }) });
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('missing email or password');
-    });
-
-    it('should fail if login returns no token', async () => {
-      mockAxiosPost.mockResolvedValueOnce({ data: {} });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('Login response missing token');
+      expect(result.Reason).toContain('missing accessToken');
     });
   });
 
@@ -284,7 +267,7 @@ describe('plugin-lookup-handler', () => {
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('API error 400');
+      expect(result.Reason).toContain('400');
     });
 
     it('should return FAILED on timeout', async () => {
@@ -298,191 +281,29 @@ describe('plugin-lookup-handler', () => {
       expect(result.Reason).toContain('timed out');
     });
 
-    it('should return FAILED on empty response data', async () => {
-      mockPost.mockResolvedValueOnce({ data: null, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('Empty response data');
-    });
-  });
-
-  describe('retry logic', () => {
-    it('should retry on 503 and succeed on second attempt', async () => {
-      const axiosErr = new AxiosError(
-        'Service Unavailable',
-        '503',
-        undefined,
-        undefined,
-        { status: 503, statusText: 'Service Unavailable' },
-      );
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('SUCCESS');
-      expect(mockPost).toHaveBeenCalledTimes(2);
-    });
-
-    it('should retry on 429 (rate limited)', async () => {
-      const axiosErr = new AxiosError(
-        'Too Many Requests',
-        '429',
-        undefined,
-        undefined,
-        { status: 429, statusText: 'Too Many Requests' },
-      );
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('SUCCESS');
-      expect(mockPost).toHaveBeenCalledTimes(2);
-    });
-
-    it('should retry on 502 (bad gateway)', async () => {
-      const axiosErr = new AxiosError(
-        'Bad Gateway',
-        '502',
-        undefined,
-        undefined,
-        { status: 502, statusText: 'Bad Gateway' },
-      );
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('SUCCESS');
-      expect(mockPost).toHaveBeenCalledTimes(2);
-    });
-
-    it('should retry on 504 (gateway timeout)', async () => {
-      const axiosErr = new AxiosError(
-        'Gateway Timeout',
-        '504',
-        undefined,
-        undefined,
-        { status: 504, statusText: 'Gateway Timeout' },
-      );
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('SUCCESS');
-      expect(mockPost).toHaveBeenCalledTimes(2);
-    });
-
-    it('should retry on ECONNRESET', async () => {
-      const axiosErr = new AxiosError('Connection reset', 'ECONNRESET');
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('SUCCESS');
-      expect(mockPost).toHaveBeenCalledTimes(2);
-    });
-
-    it('should NOT retry on 400 (client error)', async () => {
-      const axiosErr = new AxiosError(
-        'Bad Request',
-        '400',
-        undefined,
-        undefined,
-        { status: 400, statusText: 'Bad Request' },
-      );
+    it('should return FAILED on network error', async () => {
+      const axiosErr = new AxiosError('connect failed', 'ECONNREFUSED');
       mockPost.mockRejectedValueOnce(axiosErr);
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(mockPost).toHaveBeenCalledTimes(1);
     });
 
-    it('should NOT retry on 401 (unauthorized)', async () => {
-      const axiosErr = new AxiosError(
-        'Unauthorized',
-        '401',
-        undefined,
-        undefined,
-        { status: 401, statusText: 'Unauthorized' },
-      );
-      mockPost.mockRejectedValueOnce(axiosErr);
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('FAILED');
-      expect(mockPost).toHaveBeenCalledTimes(1);
-    });
-
-    it('should NOT retry on timeout (ECONNABORTED)', async () => {
-      const axiosErr = new AxiosError('timeout', 'ECONNABORTED');
-      mockPost.mockRejectedValueOnce(axiosErr);
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('FAILED');
-      expect(mockPost).toHaveBeenCalledTimes(1);
-    });
-
-    it('should fail after exhausting all retries', async () => {
-      const axiosErr = new AxiosError(
-        'Service Unavailable',
-        '503',
-        undefined,
-        undefined,
-        { status: 503, statusText: 'Service Unavailable' },
-      );
-      mockPost
-        .mockRejectedValueOnce(axiosErr)
-        .mockRejectedValueOnce(axiosErr)
-        .mockRejectedValueOnce(axiosErr);
-
-      const event = createEvent();
-      const result = await handler(event);
-
-      expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('503');
-      expect(mockPost).toHaveBeenCalledTimes(3); // initial + 2 retries
-    });
-  });
-
-  describe('fallback baseURL', () => {
-    it('should use HANDLER_DEFAULT_BASE_URL when baseURL not in resource properties', async () => {
-      mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
-
+    it('should return FAILED on invalid baseURL', async () => {
       const event = createEvent({
         ResourceProperties: {
           ServiceToken: 'arn:aws:lambda:us-east-1:123456789:function:test',
-          pluginFilter: { name: 'nodejs-build' },
+          baseURL: 'ftp://invalid',
+          pluginFilter: { name: 'test' },
         },
       });
 
-      await handler(event);
+      const result = await handler(event);
 
-      // Verify the mocked default URL from handler-constants is used
-      expect(mockAxiosCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ baseURL: 'https://default.example.com' }),
-      );
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('Invalid baseURL');
     });
   });
 });

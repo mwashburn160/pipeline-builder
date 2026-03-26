@@ -10,7 +10,7 @@ import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../uti
 const { bold, cyan, green, magenta } = pico;
 
 /**
- * Expected shape of the login API response.
+ * Expected shape of the login/refresh API response.
  */
 interface LoginResponse {
   success: boolean;
@@ -35,37 +35,49 @@ interface LoginResponse {
  * pipeline-manager login -u admin@example.com -p secret
  * pipeline-manager login -u admin@example.com -p secret --url https://myhost:8443
  * eval $(pipeline-manager login -u admin@example.com -p secret --quiet)
+ * pipeline-manager login --refresh <refresh-token>
  * ```
  */
 export function login(program: Command): void {
   program
     .command('login')
     .description('Authenticate with the platform and obtain a PLATFORM_TOKEN')
-    .requiredOption('-u, --identifier <identifier>', 'Username or email')
-    .requiredOption('-p, --password <password>', 'Password')
+    .option('-u, --identifier <identifier>', 'Username or email')
+    .option('-p, --password <password>', 'Password')
+    .option('--refresh <refreshToken>', 'Use a refresh token instead of login credentials')
     .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
       const executionId = generateExecutionId();
+      const isRefresh = !!options.refresh;
 
       try {
-        // Rate limiting — prevent brute force
-        const rateLimitMsg = checkAuthRateLimit();
-        if (rateLimitMsg) {
-          printError(rateLimitMsg);
+
+        // Validate required options
+        if (!isRefresh && (!options.identifier || !options.password)) {
+          printError('Login requires --identifier and --password, or --refresh <token>');
           process.exit(ERROR_CODES.AUTHENTICATION);
+        }
+
+        // Rate limiting — prevent brute force (login only)
+        if (!isRefresh) {
+          const rateLimitMsg = checkAuthRateLimit();
+          if (rateLimitMsg) {
+            printError(rateLimitMsg);
+            process.exit(ERROR_CODES.AUTHENTICATION);
+          }
         }
 
         const quiet = options.quiet ?? false;
 
         if (!quiet) {
-          printSection('Login');
-          console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold('Platform Authentication'))}`);
+          printSection(isRefresh ? 'Token Refresh' : 'Login');
+          console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(isRefresh ? 'Token Refresh' : 'Platform Authentication'))}`);
           console.log('');
-          printInfo('Authenticating', {
-            identifier: options.identifier,
+          printInfo(isRefresh ? 'Refreshing access token' : 'Authenticating', {
+            ...(options.identifier ? { identifier: options.identifier } : {}),
             url: options.url,
             verifySsl: options.verifySsl,
           });
@@ -75,35 +87,54 @@ export function login(program: Command): void {
           rejectUnauthorized: options.verifySsl ?? true,
         });
 
-        const loginUrl = `${options.url}/api/auth/login`;
-        printDebug('POST', { url: loginUrl });
+        let token: string | undefined;
 
-        const response = await axios.post<LoginResponse>(
-          loginUrl,
-          {
-            identifier: options.identifier,
-            password: options.password,
-          },
-          {
-            headers: { 'Content-Type': 'application/json' },
-            httpsAgent,
-            timeout: 30000,
-          },
-        );
+        if (isRefresh) {
+          const refreshUrl = `${options.url}/api/auth/refresh`;
+          printDebug('POST', { url: refreshUrl });
 
-        const token = response.data?.data?.accessToken;
+          const response = await axios.post<LoginResponse>(
+            refreshUrl,
+            { refreshToken: options.refresh },
+            {
+              headers: { 'Content-Type': 'application/json' },
+              httpsAgent,
+              timeout: 30000,
+            },
+          );
+
+          token = response.data?.data?.accessToken;
+        } else {
+          const loginUrl = `${options.url}/api/auth/login`;
+          printDebug('POST', { url: loginUrl });
+
+          const response = await axios.post<LoginResponse>(
+            loginUrl,
+            {
+              identifier: options.identifier,
+              password: options.password,
+            },
+            {
+              headers: { 'Content-Type': 'application/json' },
+              httpsAgent,
+              timeout: 30000,
+            },
+          );
+
+          token = response.data?.data?.accessToken;
+        }
 
         if (!token) {
-          recordAuthFailure();
-          printError('Login failed: no access token in response');
+          if (!isRefresh) recordAuthFailure();
+          printError(`${isRefresh ? 'Token refresh' : 'Login'} failed: no access token in response`);
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
 
-        recordAuthSuccess();
+        if (!isRefresh) recordAuthSuccess();
 
         if (!quiet) {
           console.log('');
-          printSuccess('Login successful');
+          printSuccess(isRefresh ? 'Token refreshed successfully' : 'Login successful');
           console.log('');
         }
 
@@ -112,16 +143,20 @@ export function login(program: Command): void {
         if (!quiet) {
           console.log('');
           printInfo('Tip: Run the following to set the token in your shell:');
-          console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***' --quiet)`));
+          if (isRefresh) {
+            console.log(green("  eval $(pipeline-manager login --refresh '<refresh-token>' --quiet)"));
+          } else {
+            console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***' --quiet)`));
+          }
         }
       } catch (error) {
-        recordAuthFailure();
-        // Provide a clear "Login failed" message for auth errors
+        if (!isRefresh) recordAuthFailure();
+        // Provide a clear failure message for auth errors
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;
           const message = (error.response?.data as { message?: string })?.message;
 
-          printError('Login failed', {
+          printError(`${isRefresh ? 'Token refresh' : 'Login'} failed`, {
             status: status ?? 'no response',
             ...(message ? { message } : {}),
           });
