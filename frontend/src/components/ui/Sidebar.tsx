@@ -32,6 +32,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
 import { useFeatures } from '@/hooks/useFeatures';
 import { Tooltip } from './Tooltip';
+import { OrgSwitcher } from './OrgSwitcher';
 
 // ---------------------------------------------------------------------------
 // Navigation data
@@ -344,17 +345,15 @@ export function Sidebar({
           </button>
         )}
 
-        {/* User info */}
+        {/* Org switcher + User info */}
         {!collapsed && (
-          <div className="px-1">
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-              {user.username}
-            </p>
-            {user.organizationName && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {user.organizationName}
+          <div className="space-y-2">
+            <OrgSwitcher />
+            <div className="px-1">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                {user.username}
               </p>
-            )}
+            </div>
           </div>
         )}
 
