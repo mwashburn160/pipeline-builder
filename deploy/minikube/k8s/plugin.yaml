@@ -66,14 +66,10 @@ spec:
       containers:
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:1.39.6
+          # Runs as root — Kaniko requires root to chown files during image builds
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
           ports:
             - containerPort: 3000
               name: http
