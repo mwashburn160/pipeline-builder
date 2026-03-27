@@ -1,3 +1,13 @@
+## 1.39.8 (2026-03-27)
+
+### 🩹 Fixes
+
+- updated kaniko args ([a061df5c](https://github.com/mwashburn160/pipeline-builder/commit/a061df5c))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.7 (2026-03-27)
 
 ### 🩹 Fixes
