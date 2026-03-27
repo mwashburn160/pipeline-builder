@@ -78,8 +78,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Insights',
     items: [
-      { title: 'Pipeline Reports', href: '/dashboard/reports', icon: FileBarChart },
-      { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: BarChart3 },
+      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
