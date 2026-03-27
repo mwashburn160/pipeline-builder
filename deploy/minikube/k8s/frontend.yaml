@@ -58,9 +58,6 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
           resources:
             limits:
               cpu: "300m"
@@ -84,12 +81,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
-      volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
-
 ---
 # =============================================================================
 # Frontend HorizontalPodAutoscaler

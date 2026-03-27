@@ -88,9 +88,6 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "reporting"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
           resources:
             limits:
               cpu: "500m"
@@ -114,12 +111,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-      volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
-
 ---
 # =============================================================================
 # Reporting HorizontalPodAutoscaler

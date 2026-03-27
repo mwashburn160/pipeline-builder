@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

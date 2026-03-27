@@ -19,8 +19,8 @@ require_auth
 
 TOTAL=0
 SUCCEEDED=0
-FAIL_COUNT=0
-SKIP_COUNT=0
+FAILED=0
+SKIPPED=0
 START_TIME=$(date +%s)
 
 # ---------------------------------------------------------------------------
@@ -54,11 +54,11 @@ post_with_retry() {
         ;;
       exists)
         echo -e "  ${YELLOW}SKIP${NC}  $_name (already exists)"
-        SKIP_COUNT=$((SKIP_COUNT + 1))
+        SKIPPED=$((SKIPPED + 1))
         ;;
       *)
         echo -e "  ${RED}FAIL${NC}  $_name (HTTP $STATUS)"
-        FAIL_COUNT=$((FAIL_COUNT + 1))
+        FAILED=$((FAILED + 1))
         ;;
     esac
     break
@@ -105,4 +105,4 @@ done
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
-print_summary "$TOTAL" "$SUCCEEDED" "$FAIL_COUNT" "$SKIP_COUNT" "$DURATION"
+print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"

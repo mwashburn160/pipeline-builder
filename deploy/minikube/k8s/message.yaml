@@ -90,9 +90,6 @@ spec:
               value: "message"
             - name: SUPPORT_ALIASES
               value: "support@pipeline-builder,help@pipeline-builder"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
           resources:
             limits:
               cpu: "500m"
@@ -116,12 +113,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-      volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
-
 ---
 # =============================================================================
 # Message HorizontalPodAutoscaler

@@ -102,8 +102,6 @@ spec:
             - name: REDIS_PORT
               value: "6379"
           volumeMounts:
-            - name: tmp
-              mountPath: /tmp
             - name: uploads
               mountPath: /app/uploads
           resources:
@@ -130,10 +128,6 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 5
       volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
         - name: uploads
           emptyDir:
             sizeLimit: 512Mi

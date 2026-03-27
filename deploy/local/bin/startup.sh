@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -74,11 +74,15 @@ fi
 echo "=== Ensuring data directories exist ==="
 mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/postgres" \
+         "$DEPLOY_DIR/data/db-data/redis" \
          "$DEPLOY_DIR/data/db-data/grafana" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
+         "$DEPLOY_DIR/data/ollama-data" \
          "$DEPLOY_DIR/data/registry-data" \
-         "$DEPLOY_DIR/data/pgadmin-data"
+         "$DEPLOY_DIR/data/pgadmin-data" \
+         "$DEPLOY_DIR/data/uploads" \
+         "$DEPLOY_DIR/data/cache"
 
 # Docker build temp dir — must be the SAME absolute path on both host and
 # container so buildkitd.toml bind mounts resolve correctly.

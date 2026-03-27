@@ -40,9 +40,9 @@ while [ $# -gt 0 ]; do
     --dry-run)   DRY_RUN=true; shift ;;
     --rebuild)   REBUILD=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
-    --parallel)  PARALLEL_JOBS="$2"; shift 2 ;;
+    --parallel)  PARALLEL_JOBS="$2"; [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }; shift 2 ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
-    --timeout)   UPLOAD_TIMEOUT="$2"; shift 2 ;;
+    --timeout)   UPLOAD_TIMEOUT="$2"; [[ "$UPLOAD_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }; shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
       echo ""

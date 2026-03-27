@@ -88,9 +88,6 @@ spec:
               value: "quota"
             - name: PORT
               value: "3000"
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
           resources:
             limits:
               cpu: "500m"
@@ -114,12 +111,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-      volumes:
-        - name: tmp
-          emptyDir:
-            medium: Memory
-            sizeLimit: 256Mi
-
 ---
 # =============================================================================
 # Quota HorizontalPodAutoscaler

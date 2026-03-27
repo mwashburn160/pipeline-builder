@@ -65,7 +65,7 @@ fi
 mkdir -p "$DATA_DIR" 2>/dev/null || true
 mkdir -p "$DATA_DIR/db-data/postgres" "$DATA_DIR/db-data/mongodb" \
          "$DATA_DIR/db-data/grafana" "$DATA_DIR/db-data/loki" \
-         "$DATA_DIR/db-data/prometheus" \
+         "$DATA_DIR/db-data/prometheus" "$DATA_DIR/db-data/ollama" \
          "$DATA_DIR/registry-data" "$DATA_DIR/pgadmin-data" "$DATA_DIR/tmp"
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
 

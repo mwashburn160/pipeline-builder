@@ -77,7 +77,7 @@ if [ -n "$EXISTING_ARN" ] && [ "$EXISTING_ARN" != "None" ]; then
       echo "  Valid certificate found: $EXISTING_ARN"
       echo "  Expires in $DAYS_LEFT days. Skipping renewal."
       echo ""
-      echo "CERTIFICATE_ARN=$EXISTING_ARN"
+      echo "CERTIFICATE_ARN=${EXISTING_ARN}"
       exit 0
     else
       echo "  Certificate expires in $DAYS_LEFT days. Renewing..."
@@ -152,7 +152,7 @@ rm -rf "$CERT_DIR"
 echo ""
 echo "=== Certificate import complete ==="
 echo ""
-echo "  CERTIFICATE_ARN=$CERT_ARN"
+echo "CERTIFICATE_ARN=${CERT_ARN}"
 echo ""
 echo "  Pass this ARN to deploy.sh:"
 echo "    bash bin/deploy.sh --domain $DOMAIN --certificate-arn $CERT_ARN ..."

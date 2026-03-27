@@ -375,8 +375,10 @@ services:
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-2}
-    tmpfs:
-      - /app/uploads:uid=1000,gid=1000
+    volumes:
+      - './data/tmp:/app/tmp:rw'
+      - './data/cache:/kaniko/cache:rw'
+      - './data/uploads:/app/uploads:rw'
     networks:
       - backend-network
     depends_on:
@@ -501,7 +503,7 @@ services:
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
-  billing:  
+  billing:
     image: 'ghcr.io/mwashburn160/billing:1.23.5'
     container_name: billing
     restart: always

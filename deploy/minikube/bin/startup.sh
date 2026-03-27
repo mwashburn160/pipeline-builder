@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Resolve script directory so this works from any working directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -44,7 +44,7 @@ fi
 # Ensure local data directories exist (host-side mount source)
 mkdir -p "$DATA_DIR/db-data/postgres" "$DATA_DIR/db-data/mongodb" \
          "$DATA_DIR/db-data/grafana" "$DATA_DIR/db-data/loki" \
-         "$DATA_DIR/db-data/prometheus" \
+         "$DATA_DIR/db-data/prometheus" "$DATA_DIR/db-data/ollama" \
          "$DATA_DIR/registry-data" "$DATA_DIR/pgadmin-data"
 
 # Docker build temp dir — must be under /mnt/data so both the pod
@@ -74,16 +74,33 @@ docker network rm "$PROFILE" 2>/dev/null || true
 docker network prune -f >/dev/null 2>&1 || true
 
 echo ""
+echo "=== Detecting system resources ==="
+if command -v nproc >/dev/null 2>&1; then
+  TOTAL_CPU=$(nproc)
+  TOTAL_MEM_MB=$(( $(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 ))
+else
+  TOTAL_CPU=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+  TOTAL_MEM_MB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 8589934592) / 1048576 ))
+fi
+MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
+MK_MEMORY=$((TOTAL_MEM_MB * 75 / 100))
+MK_DISK="30g"
+echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM_MB} MiB RAM"
+echo "  Minikube: ${MK_CPUS} CPUs, ${MK_MEMORY} MiB RAM, ${MK_DISK} disk"
+
+MK_START_ARGS=(
+  --profile="$PROFILE"
+  --cpus="$MK_CPUS"
+  --memory="$MK_MEMORY"
+  --disk-size="$MK_DISK"
+  --driver=docker
+  --mount --mount-string="$DATA_DIR:/mnt/data"
+)
+
+echo ""
 echo "=== Starting Minikube ==="
 echo "  Mounting $DATA_DIR -> /mnt/data"
-if ! minikube start \
-  --profile="$PROFILE" \
-  --cpus=6 \
-  --memory=7839 \
-  --disk-size=30g \
-  --driver=docker \
-  --mount --mount-string="$DATA_DIR:/mnt/data"; then
-
+if ! minikube start "${MK_START_ARGS[@]}"; then
   echo ""
   echo "  Start failed — deleting stale profile and retrying..."
   minikube delete --profile="$PROFILE" 2>/dev/null || true
@@ -91,13 +108,7 @@ if ! minikube start \
   docker network rm "$PROFILE" 2>/dev/null || true
   docker network prune -f >/dev/null 2>&1 || true
 
-  minikube start \
-    --profile="$PROFILE" \
-    --cpus=6 \
-    --memory=7839 \
-    --disk-size=30g \
-    --driver=docker \
-    --mount --mount-string="$DATA_DIR:/mnt/data"
+  minikube start "${MK_START_ARGS[@]}"
 fi
 
 echo ""
@@ -142,8 +153,8 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 echo ""
 echo "=== Creating app-env ConfigMap from .env ==="
 # Process .env: remove comments/empty lines, expand variable references
-CLEAN_ENV=$(mktemp -t "app-env.XXXXXX")
-FILTERED=$(mktemp -t "filtered.XXXXXX")
+CLEAN_ENV=$(mktemp "${TMPDIR:-/tmp}/app-env.XXXXXX")
+FILTERED=$(mktemp "${TMPDIR:-/tmp}/filtered.XXXXXX")
 trap 'rm -f "$CLEAN_ENV" "$FILTERED"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' > "$FILTERED"
 while IFS='=' read -r key value; do
