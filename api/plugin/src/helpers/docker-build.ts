@@ -227,10 +227,14 @@ function buildKanikoArgs(
     '--log-format=json',
     '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
+    '--cleanup',
     '--reproducible',
     '--push-retry=2',
     '--image-fs-extract-retry=2',
     '--image-download-retry=3',
+    // Prevent dpkg interactive prompts in Debian/Ubuntu-based plugin builds
+    '--build-arg=DEBIAN_FRONTEND=noninteractive',
+    '--build-arg=DPKG_FORCE=confnew',
   ];
 
   if (registry.http) {
