@@ -1,3 +1,13 @@
+## 1.23.6 (2026-03-27)
+
+### 🩹 Fixes
+
+- removed warning for duplicate certs ([a1ad6649](https://github.com/mwashburn160/pipeline-builder/commit/a1ad6649))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.23.5 (2026-03-27)
 
 ### 🩹 Fixes
