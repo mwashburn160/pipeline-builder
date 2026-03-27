@@ -1,3 +1,19 @@
+## 1.39.1 (2026-03-27)
+
+### 🩹 Fixes
+
+- upgraded apiCore=1.44.0 ([cfcbe440](https://github.com/mwashburn160/pipeline-builder/commit/cfcbe440))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.45.1
+- Updated @mwashburn160/api-server to 1.42.1
+- Updated @mwashburn160/ai-core to 1.17.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.0 (2026-03-26)
 
 ### 🚀 Features

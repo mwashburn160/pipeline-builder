@@ -1,3 +1,13 @@
+## 1.44.1 (2026-03-27)
+
+### 🩹 Fixes
+
+- upgraded apiCore=1.44.0 ([cfcbe440](https://github.com/mwashburn160/pipeline-builder/commit/cfcbe440))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.0 (2026-03-26)
 
 ### 🚀 Features
