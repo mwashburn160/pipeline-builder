@@ -207,9 +207,10 @@ function buildKanikoArgs(
   registry: RegistryInfo,
   buildArgs?: Record<string, string>,
 ): { binary: string; args: string[] } {
-  // Auth config for Kaniko — writes to /kaniko/.docker/config.json
-  const kanikoDockerDir = '/kaniko/.docker';
+  // Auth config for Kaniko — kaniko reads from DOCKER_CONFIG or $HOME/.docker/
+  const kanikoDockerDir = process.env.DOCKER_CONFIG || '/kaniko/.docker';
   fs.mkdirSync(kanikoDockerDir, { recursive: true });
+  process.env.DOCKER_CONFIG = kanikoDockerDir;
 
   const registryAddr = `${registry.host}:${registry.port}`;
   const authToken = Buffer.from(`${registry.user}:${registry.token}`).toString('base64');

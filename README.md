@@ -15,26 +15,14 @@
 
 Pipeline Builder turns plugin definitions and pipeline configs into fully deployed AWS CodePipeline infrastructure — inside the client's AWS account with zero lock-in.
 
-## Why Pipeline Builder
+**Why teams use it:**
 
-**For engineering organizations** that need standardized, repeatable CI/CD without the overhead of maintaining bespoke pipeline definitions per team:
-
-- **Self-service pipeline creation** — developers create pipelines through a dashboard, CLI, API, or AI prompt without needing AWS expertise
+- **Self-service CI/CD** — developers create pipelines through a dashboard, CLI, API, or AI prompt without needing AWS expertise
 - **Organizational governance** — per-org compliance rules enforce security standards, naming conventions, and resource limits before anything gets deployed
-- **Reusable plugin ecosystem** — 125 pre-built plugins cover builds, tests, security scans, deploys, and monitoring; teams share and version plugins across projects
-- **Multi-tenant isolation** — every resource (pipelines, plugins, quotas, secrets) is scoped to an organization with RBAC access control
-- **No vendor lock-in** — pipelines deploy as native AWS CodePipeline + CodeBuild resources in the client's own account; removing Pipeline Builder leaves working infrastructure
-- **Cost visibility** — per-org quotas, billing integration, and execution analytics give leadership insight into CI/CD spend and usage patterns
-
-## Use Cases
-
-| Who | How they use it |
-|-----|-----------------|
-| **Platform team** | Defines approved plugins, sets compliance rules, manages org quotas — gives developers guardrails without bottlenecking them |
-| **Application developer** | Pastes a Git URL, gets a working pipeline in minutes — AI analyzes the repo and generates the right stages and plugins |
-| **DevOps engineer** | Uses CDK constructs or the CLI to define pipelines as code, version-controlled alongside application repos |
-| **Security team** | Creates compliance rules that block non-compliant plugins (no public access, required secrets, banned commands) with full audit trail |
-| **Engineering manager** | Uses reporting dashboards to track deployment frequency, failure rates, and build times across teams |
+- **Reusable plugins** — 125 pre-built plugins for builds, tests, security scans, deploys, and monitoring; teams share and version plugins across projects
+- **Multi-tenant isolation** — every resource is scoped to an organization with RBAC access control
+- **No vendor lock-in** — pipelines deploy as native AWS CodePipeline + CodeBuild in the client's own account
+- **Cost visibility** — per-org quotas, billing integration, and execution analytics
 
 ## Quick Start
 
@@ -42,82 +30,12 @@ Pipeline Builder turns plugin definitions and pipeline configs into fully deploy
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 pnpm install && pnpm build
 
-# Launch full local stack (frontend, APIs, databases, observability)
 cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh
 ```
 
 Open **https://localhost:8443** — register, create an org, and start building pipelines.
 
 > **Prerequisites:** Node.js >= 24.9, pnpm >= 10.25, Docker
-
----
-
-## Organizations
-
-Organizations are the core isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization.
-
-### Creating an Organization
-
-Register an account, then create one or more organizations from the dashboard or API. The creator becomes the **owner**.
-
-```bash
-# Register
-curl -X POST https://localhost:8443/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","email":"admin@example.com","password":"..."}'
-
-# Create an organization
-curl -X POST https://localhost:8443/api/organization \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
-```
-
-### Roles
-
-| Role | Capabilities |
-|------|-------------|
-| **Owner** | Full control — manage members, transfer ownership, delete org |
-| **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
-| **Member** | Create and manage their own pipelines and plugins |
-
-Invite members via email from the dashboard or API. Invitees join with the role specified at invite time.
-
-### Team Structures
-
-Different teams use separate organizations to maintain isolation while sharing the same platform:
-
-| Organization | Team | Purpose |
-|-------------|------|---------|
-| `acme-platform` | Platform / DevOps | Approved base plugins, org-wide compliance rules, shared pipeline templates |
-| `acme-backend` | Backend engineering | Java/Go service pipelines, internal plugins, team-specific quotas |
-| `acme-frontend` | Frontend engineering | Node.js/React pipelines, Cypress testing plugins, deploy-to-CDN workflows |
-| `acme-data` | Data engineering | Python/Spark pipelines, notebook linting, S3 artifact publishing |
-| `acme-security` | Security | Strict compliance rules (required scans, no public plugins), audit trail review |
-
-### Org-Level Controls
-
-Each organization independently configures:
-
-- **Plugins** — upload private plugins or use shared public ones; control which versions are available
-- **Compliance rules** — enforce security standards, naming conventions, resource limits, and banned commands
-- **Quotas** — set limits on pipelines, plugins, and API calls per org
-- **Billing** — per-org subscription plans and usage tracking
-- **Secrets** — stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`, injected at build time
-
-A user can belong to multiple organizations and switch between them. Each org sees only its own resources.
-
----
-
-## Five Ways to Create a Pipeline
-
-| Method | Example |
-|--------|---------|
-| **CDK Construct** | `new PipelineBuilder(stack, 'P', { ... })` |
-| **CLI** | `pipeline-manager create-pipeline --file props.json` |
-| **REST API** | `POST /api/pipelines` |
-| **Dashboard** | Point, click, deploy |
-| **AI Prompt** | *"Build and deploy a Next.js app from GitHub"* |
 
 ---
 
@@ -171,7 +89,95 @@ flowchart TB
 
 ---
 
-## CDK Construct
+## Organizations
+
+Organizations are the core isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization.
+
+### Creating an Organization
+
+Register an account, then create one or more organizations. The creator becomes the **owner**.
+
+**From the dashboard** — navigate to **Settings > Organizations** and click **Create Organization**. Available to any user with an admin or owner role in an existing organization.
+
+**From the API:**
+
+```bash
+curl -X POST https://localhost:8443/api/organization \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
+```
+
+### Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **Owner** | Full control — manage members, transfer ownership, delete org |
+| **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
+| **Member** | Create and manage their own pipelines and plugins |
+
+Invite members via email from the dashboard or API. Invitees join with the role specified at invite time. A user can belong to multiple organizations and switch between them.
+
+### Team Structures
+
+Different teams use separate organizations to maintain isolation while sharing the same platform:
+
+| Organization | Team | Purpose |
+|-------------|------|---------|
+| `acme-platform` | Platform / DevOps | Approved base plugins, org-wide compliance rules, shared pipeline templates |
+| `acme-backend` | Backend engineering | Java/Go service pipelines, internal plugins, team-specific quotas |
+| `acme-frontend` | Frontend engineering | Node.js/React pipelines, Cypress testing plugins, deploy-to-CDN workflows |
+| `acme-data` | Data engineering | Python/Spark pipelines, notebook linting, S3 artifact publishing |
+| `acme-security` | Security | Strict compliance rules (required scans, no public plugins), audit trail review |
+
+### What Each Org Controls
+
+- **Plugins** — upload private plugins or use shared public ones; control which versions are available
+- **Compliance rules** — enforce security standards, naming conventions, resource limits, and banned commands
+- **Quotas** — set limits on pipelines, plugins, and API calls
+- **Billing** — per-org subscription plans and usage tracking
+- **Secrets** — stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`, injected at build time
+
+---
+
+## Creating Pipelines
+
+Five ways to create a pipeline — pick the one that fits your workflow:
+
+| Method | Best for |
+|--------|----------|
+| **Dashboard** | Visual pipeline creation — point, click, deploy |
+| **AI Prompt** | Paste a Git URL, get a complete pipeline generated from your repo |
+| **CLI** | Scripted workflows and CI integration |
+| **REST API** | Programmatic pipeline management |
+| **CDK Construct** | Infrastructure-as-code, version-controlled alongside your app |
+
+### Dashboard and AI
+
+The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository and generates the right stages and plugins automatically — powered by local (Ollama) or cloud AI providers:
+
+| Provider | Models |
+|----------|--------|
+| Ollama (local) | Llama 3, Code Llama, Mistral, DeepSeek, Qwen |
+| Anthropic | Claude Sonnet 4, Claude Haiku 4.5 |
+| OpenAI | GPT-4o, GPT-4o Mini |
+| Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
+| xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
+| Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
+
+Ollama runs locally with no API key. Cloud providers available when API keys are configured.
+
+### CLI
+
+```bash
+npm install -g @mwashburn160/pipeline-manager
+export PLATFORM_TOKEN=<jwt-from-login>
+
+pipeline-manager upload-plugin --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
+pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app --organization my-org
+pipeline-manager deploy --id <pipeline-id> --profile production
+```
+
+### CDK Construct
 
 ```typescript
 import { App, Stack } from 'aws-cdk-lib';
@@ -206,36 +212,6 @@ new PipelineBuilder(stack, 'MyPipeline', {
   ],
 });
 ```
-
----
-
-## CLI
-
-```bash
-npm install -g @mwashburn160/pipeline-manager
-export PLATFORM_TOKEN=<jwt-from-login>
-
-pipeline-manager upload-plugin --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
-pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app --organization my-org
-pipeline-manager deploy --id <pipeline-id> --profile production
-```
-
-Full command reference: [API Reference](docs/api-reference.md)
-
----
-
-## AI Providers
-
-| Provider | Models |
-|----------|--------|
-| Ollama (local) | Llama 3, Code Llama, Mistral, DeepSeek, Qwen |
-| Anthropic | Claude Sonnet 4, Claude Haiku 4.5 |
-| OpenAI | GPT-4o, GPT-4o Mini |
-| Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
-| xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
-| Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
-
-Ollama runs locally with no API key. Cloud providers available when API keys are configured.
 
 ---
 
