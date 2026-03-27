@@ -1,3 +1,13 @@
+## 1.44.11 (2026-03-27)
+
+### 🩹 Fixes
+
+- frontend ux cleanup ([b9875b74](https://github.com/mwashburn160/pipeline-builder/commit/b9875b74))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.10 (2026-03-27)
 
 ### 🩹 Fixes
