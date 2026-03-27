@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.39.19",
+  "version": "1.39.20",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
