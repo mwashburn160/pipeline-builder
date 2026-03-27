@@ -29,7 +29,7 @@ WORKDIR /app
 RUN apk update && \
     apk add ca-certificates --no-cache
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates
+RUN update-ca-certificates 2>/dev/null
 
 ENV NEXT_TELEMETRY_DISABLED=1
 

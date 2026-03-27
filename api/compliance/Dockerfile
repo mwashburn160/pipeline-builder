@@ -11,7 +11,7 @@ FROM node:${NODE_VERSION}-alpine
 RUN apk update && \
     apk add ca-certificates curl --no-cache
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates
+RUN update-ca-certificates 2>/dev/null
 
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules

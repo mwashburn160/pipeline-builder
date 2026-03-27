@@ -17,7 +17,7 @@ FROM node:${NODE_VERSION}-alpine
 RUN apk update && \
     apk add ca-certificates curl docker-cli docker-cli-buildx --no-cache
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates
+RUN update-ca-certificates 2>/dev/null
 COPY --from=kaniko /kaniko/executor /kaniko/executor
 COPY --from=kaniko /kaniko/ssl/certs/ca-certificates.crt /kaniko/ssl/certs/
 RUN mkdir -p /kaniko/cache /kaniko/.docker
