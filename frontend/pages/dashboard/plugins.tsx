@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X, Upload } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
@@ -15,6 +15,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { FilterBar } from '@/components/ui/FilterBar';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
+import UploadPluginModal from '@/components/plugin/UploadPluginModal';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import type { Plugin } from '@/types';
@@ -125,6 +126,7 @@ export default function PluginsPage() {
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
 
   // ── Columns ──
@@ -227,10 +229,16 @@ export default function PluginsPage() {
       subtitle="Manage build and deploy plugins"
       actions={
         isAdmin ? (
-          <button onClick={() => setShowCreateModal(true)} className="btn btn-secondary">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Plugin
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowUploadModal(true)} className="btn btn-secondary">
+              <Upload className="w-4 h-4 mr-1.5" />
+              Upload Plugin
+            </button>
+            <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+              <Plus className="w-4 h-4 mr-1.5" />
+              Create Plugin
+            </button>
+          </div>
         ) : undefined
       }
     >
@@ -314,6 +322,10 @@ export default function PluginsPage() {
 
       {showCreateModal && (
         <CreatePluginModal canUploadPublic={isSysAdmin} onClose={() => setShowCreateModal(false)} onCreated={list.refresh} />
+      )}
+
+      {showUploadModal && (
+        <UploadPluginModal canUploadPublic={isSysAdmin} onClose={() => setShowUploadModal(false)} onUploaded={list.refresh} />
       )}
 
       {del.target && (
