@@ -1,3 +1,13 @@
+## 1.39.19 (2026-03-27)
+
+### 🩹 Fixes
+
+- kaniko concurrency ([6d8407e6](https://github.com/mwashburn160/pipeline-builder/commit/6d8407e6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.18 (2026-03-27)
 
 ### 🩹 Fixes
