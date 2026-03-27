@@ -234,13 +234,12 @@ function buildKanikoArgs(
     '--image-fs-extract-retry=2',
   ];
 
+  if (registry.http) {
+    args.push('--insecure', '--insecure-pull');
+  }
+
   if (registry.insecure) {
-    args.push(
-      '--insecure',
-      '--insecure-pull',
-      '--skip-tls-verify',
-      '--skip-tls-verify-pull',
-    );
+    args.push('--skip-tls-verify', '--skip-tls-verify-pull');
   }
 
   if (buildArgs) {
