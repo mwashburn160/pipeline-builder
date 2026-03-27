@@ -28,7 +28,7 @@ Parameters:
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:1.39.5
+    Default: ghcr.io/mwashburn160/plugin:1.39.6
     Description: Docker image for the Plugin service
 
   QuotaImage:
