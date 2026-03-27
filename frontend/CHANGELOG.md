@@ -1,3 +1,13 @@
+## 1.44.6 (2026-03-27)
+
+### 🩹 Fixes
+
+- kaniko rebuild ([5a8116e6](https://github.com/mwashburn160/pipeline-builder/commit/5a8116e6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.5 (2026-03-27)
 
 ### 🩹 Fixes
