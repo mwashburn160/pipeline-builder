@@ -1,3 +1,13 @@
+## 1.37.7 (2026-03-27)
+
+### 🩹 Fixes
+
+- request context not initialized ([16612666](https://github.com/mwashburn160/pipeline-builder/commit/16612666))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.37.6 (2026-03-27)
 
 ### 🩹 Fixes
