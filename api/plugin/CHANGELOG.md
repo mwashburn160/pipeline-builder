@@ -1,3 +1,14 @@
+## 1.39.7 (2026-03-27)
+
+### 🩹 Fixes
+
+- updated chown for plugin dockerfile ([6ebd1ac4](https://github.com/mwashburn160/pipeline-builder/commit/6ebd1ac4))
+- updated chown for plugin dockerfile ([9fd1f2ac](https://github.com/mwashburn160/pipeline-builder/commit/9fd1f2ac))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.6 (2026-03-27)
 
 ### 🩹 Fixes
