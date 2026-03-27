@@ -17,7 +17,7 @@ COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
 RUN update-ca-certificates
 COPY --from=kaniko /kaniko/executor /kaniko/executor
 COPY --from=kaniko /kaniko/ssl/certs/ca-certificates.crt /kaniko/ssl/certs/
-RUN mkdir -p /kaniko/cache /kaniko/.docker
+RUN mkdir -p /kaniko/cache /kaniko/.docker && chown -R node:node /kaniko/cache /kaniko/.docker
 
 WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
