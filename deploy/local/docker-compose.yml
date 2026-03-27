@@ -256,7 +256,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.42.45'
+    image: 'ghcr.io/mwashburn160/frontend:1.44.5'
     container_name: frontend
     restart: always
     environment:
@@ -279,7 +279,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.38.40'
+    image: 'ghcr.io/mwashburn160/platform:1.39.5'
     container_name: platform
     restart: always
     environment:
@@ -357,7 +357,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.37.41'
+    image: 'ghcr.io/mwashburn160/plugin:1.39.5'
     container_name: plugin
     restart: always
     environment:
@@ -399,7 +399,7 @@ services:
           memory: 768M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.37.40'
+    image: 'ghcr.io/mwashburn160/pipeline:1.38.5'
     container_name: pipeline
     restart: always
     environment:
@@ -421,7 +421,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.19.40'
+    image: 'ghcr.io/mwashburn160/message:1.21.5'
     container_name: message
     restart: always
     environment:
@@ -439,7 +439,7 @@ services:
     deploy: *api-deploy
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:1.1.35'
+    image: 'ghcr.io/mwashburn160/reporting:1.2.5'
     container_name: reporting
     restart: always
     environment:
@@ -454,7 +454,7 @@ services:
     deploy: *api-deploy
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:1.3.39'
+    image: 'ghcr.io/mwashburn160/compliance:1.5.5'
     container_name: compliance
     restart: always
     environment:
@@ -477,7 +477,7 @@ services:
     deploy: *api-deploy
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.36.39'
+    image: 'ghcr.io/mwashburn160/quota:1.37.5'
     container_name: quota
     restart: always
     environment:
@@ -502,7 +502,7 @@ services:
     deploy: *api-deploy
 
   billing:  
-    image: 'ghcr.io/mwashburn160/billing:1.21.40'
+    image: 'ghcr.io/mwashburn160/billing:1.23.5'
     container_name: billing
     restart: always
     environment:

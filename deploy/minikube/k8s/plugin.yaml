@@ -65,7 +65,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.37.41
+          image: ghcr.io/mwashburn160/plugin:1.39.5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
