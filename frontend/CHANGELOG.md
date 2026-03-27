@@ -1,3 +1,13 @@
+## 1.44.7 (2026-03-27)
+
+### 🩹 Fixes
+
+- rebuild frontend ([40d43d65](https://github.com/mwashburn160/pipeline-builder/commit/40d43d65))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.6 (2026-03-27)
 
 ### 🩹 Fixes
