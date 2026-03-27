@@ -65,7 +65,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.39.6
+          image: ghcr.io/mwashburn160/plugin:1.39.16
           # Runs as root — Kaniko requires root to chown files during image builds
           securityContext:
             readOnlyRootFilesystem: false

@@ -28,7 +28,7 @@ Parameters:
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:1.39.6
+    Default: ghcr.io/mwashburn160/plugin:1.39.16
     Description: Docker image for the Plugin service
 
   QuotaImage:
@@ -58,7 +58,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.44.5
+    Default: ghcr.io/mwashburn160/frontend:1.44.6
     Description: Docker image for the Frontend service
 
   OllamaImage:
