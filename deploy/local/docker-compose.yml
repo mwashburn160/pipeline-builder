@@ -361,6 +361,10 @@ services:
     image: 'ghcr.io/mwashburn160/plugin:1.39.14'
     container_name: plugin
     restart: always
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: plugin

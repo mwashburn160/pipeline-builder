@@ -10,9 +10,9 @@ COPY package.json .
 RUN --mount=type=secret,id=npmrc,target=.npmrc npm install --omit=dev
 
 # Production stage
-# NOTE: Runs as root because Kaniko requires root to manipulate filesystem
-# ownership during image builds (chown to root). This is the only service
-# that requires root — all others run as non-root (node).
+# Runs as non-root (node) with targeted capabilities (CHOWN, FOWNER, DAC_OVERRIDE)
+# granted via docker-compose / k8s securityContext. Kaniko needs these to
+# manipulate file ownership during image builds.
 FROM node:${NODE_VERSION}-alpine
 RUN apk update && \
     apk add ca-certificates curl docker-cli docker-cli-buildx --no-cache
@@ -20,15 +20,16 @@ COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
 RUN update-ca-certificates
 COPY --from=kaniko /kaniko/executor /kaniko/executor
 COPY --from=kaniko /kaniko/ssl/certs/ca-certificates.crt /kaniko/ssl/certs/
-RUN mkdir -p /kaniko/cache /kaniko/.docker
+RUN mkdir -p /kaniko/cache /kaniko/.docker && chown -R node:node /kaniko
 
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json .
-COPY lib/ /app
-RUN mkdir -p /app/tmp /app/uploads
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --chown=node:node package.json .
+COPY --chown=node:node lib/ /app
+RUN mkdir -p /app/tmp /app/uploads && chown -R node:node /app/tmp /app/uploads
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
+USER node
 CMD ["node", "index.js"]

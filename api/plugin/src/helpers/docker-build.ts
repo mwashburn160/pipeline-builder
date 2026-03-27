@@ -227,7 +227,6 @@ function buildKanikoArgs(
     '--log-format=json',
     '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
-    '--cleanup',
     '--snapshot-mode=redo',
     '--reproducible',
     '--use-new-run',
