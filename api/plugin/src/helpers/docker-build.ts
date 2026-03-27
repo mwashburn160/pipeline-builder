@@ -217,20 +217,20 @@ function buildKanikoArgs(
     JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
   );
 
+  const registryFlag = `${registry.host}:${registry.port}`;
   const args = [
     `--context=${contextDir}`,
     `--dockerfile=${path.join(contextDir, dockerfile)}`,
     `--destination=${fullImage}`,
     '--verbosity=info',
-    '--cache=true',
+    '--cache',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
   ];
 
   if (registry.insecure) {
     args.push(
-      '--insecure',
-      '--insecure-pull',
-      '--skip-tls-verify',
+      `--insecure-registry=${registryFlag}`,
+      `--skip-tls-verify-registry=${registryFlag}`,
     );
   }
 

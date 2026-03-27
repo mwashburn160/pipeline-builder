@@ -35,6 +35,7 @@ x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
   JWT_SECRET: ${JWT_SECRET}
+  REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
   PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://localhost:8443}
 
 # -- Env shared by Postgres-backed services (platform, plugin, pipeline) --
@@ -47,7 +48,6 @@ x-postgres-env: &postgres-env
   DRIZZLE_MAX_POOL_SIZE: ${DRIZZLE_MAX_POOL_SIZE:-20}
   DRIZZLE_IDLE_TIMEOUT_MILLIS: ${DRIZZLE_IDLE_TIMEOUT_MILLIS:-30000}
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: ${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}
-  REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
 
 # -- Env shared by Express server services --
 x-server-env: &server-env
@@ -284,6 +284,7 @@ services:
     restart: always
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
+      SERVICE_NAME: platform
       # Billing
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       BILLING_SERVICE_HOST: ${BILLING_SERVICE_HOST:-billing}
@@ -357,7 +358,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.39.6'
+    image: 'ghcr.io/mwashburn160/plugin:1.39.7'
     container_name: plugin
     restart: always
     environment:
@@ -485,7 +486,6 @@ services:
     environment:
       <<: *common-env
       SERVICE_NAME: quota
-      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
       LIMITER_MAX: ${LIMITER_MAX:-2000}
@@ -508,14 +508,11 @@ services:
     container_name: billing
     restart: always
     environment:
-      <<: [*common-env, *postgres-env]
+      <<: [*common-env, *postgres-env, *quota-client-env]
       SERVICE_NAME: billing
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
-      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
-      QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
-      QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       # Billing provider (stub | aws-marketplace)
@@ -660,7 +657,8 @@ services:
     networks:
       - backend-network
     depends_on:
-      - registry
+      registry:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
       interval: 30s
@@ -817,11 +815,6 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
-
-# =============================================================================
-# Volumes
-# =============================================================================
-volumes: {}
 
 # =============================================================================
 # Networks
