@@ -223,8 +223,15 @@ function buildKanikoArgs(
     `--dockerfile=${path.join(contextDir, dockerfile)}`,
     `--destination=${fullImage}`,
     '--verbosity=info',
+    '--log-format=json',
     '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
+    '--cleanup',
+    '--snapshot-mode=redo',
+    '--reproducible',
+    '--use-new-run',
+    '--push-retry=2',
+    '--image-fs-extract-retry=2',
   ];
 
   if (registry.insecure) {
