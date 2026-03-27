@@ -126,6 +126,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   logger.info('Building and pushing image', {
     strategy,
     fullImage,
+    command: `${binary} ${args.join(' ')}`,
     network: registry.network || 'default',
   });
 
@@ -217,20 +218,21 @@ function buildKanikoArgs(
     JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
   );
 
-  const registryFlag = `${registry.host}:${registry.port}`;
   const args = [
     `--context=${contextDir}`,
     `--dockerfile=${path.join(contextDir, dockerfile)}`,
     `--destination=${fullImage}`,
     '--verbosity=info',
-    '--cache',
+    '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
   ];
 
   if (registry.insecure) {
     args.push(
-      `--insecure-registry=${registryFlag}`,
-      `--skip-tls-verify-registry=${registryFlag}`,
+      '--insecure',
+      '--insecure-pull',
+      '--skip-tls-verify',
+      '--skip-tls-verify-pull',
     );
   }
 
