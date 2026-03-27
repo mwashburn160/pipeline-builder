@@ -1,3 +1,13 @@
+## 1.39.9 (2026-03-27)
+
+### 🩹 Fixes
+
+- updated kaniko ([e0661feb](https://github.com/mwashburn160/pipeline-builder/commit/e0661feb))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.8 (2026-03-27)
 
 ### 🩹 Fixes
