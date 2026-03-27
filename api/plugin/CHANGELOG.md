@@ -1,3 +1,13 @@
+## 1.39.14 (2026-03-27)
+
+### 🩹 Fixes
+
+- updated kaniko docker config ([08a06ed8](https://github.com/mwashburn160/pipeline-builder/commit/08a06ed8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.13 (2026-03-27)
 
 ### 🩹 Fixes
