@@ -480,7 +480,7 @@ services:
     deploy: *api-deploy
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.37.5'
+    image: 'mwashburn160/quota:local'
     container_name: quota
     restart: always
     environment:
@@ -504,7 +504,7 @@ services:
     deploy: *api-deploy
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:1.23.5'
+    image: 'mwashburn160/billing:local'
     container_name: billing
     restart: always
     environment:

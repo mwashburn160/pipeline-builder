@@ -1,5 +1,5 @@
 import { createHealthRouter, createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
-import { createApp, runServer } from '@mwashburn160/api-server';
+import { createApp, runServer, attachRequestContext } from '@mwashburn160/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
 
@@ -17,7 +17,9 @@ const logger = createLogger('billing');
 
 // -- Express app ---------------------------------------------------------------
 
-const { app } = createApp({ skipDefaultHealthCheck: true });
+const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
+
+app.use(attachRequestContext(sseManager));
 
 if (config.enabled) {
   app.use(createHealthRouter({
