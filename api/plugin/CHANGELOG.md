@@ -1,3 +1,13 @@
+## 1.39.16 (2026-03-27)
+
+### 🩹 Fixes
+
+- kaniko cleanup ([a5619cfe](https://github.com/mwashburn160/pipeline-builder/commit/a5619cfe))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.15 (2026-03-27)
 
 ### 🩹 Fixes
