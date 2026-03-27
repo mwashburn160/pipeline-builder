@@ -227,11 +227,10 @@ function buildKanikoArgs(
     '--log-format=json',
     '--cache=true',
     `--cache-dir=${KANIKO_CACHE_DIR}`,
-    '--snapshot-mode=redo',
     '--reproducible',
-    '--use-new-run',
     '--push-retry=2',
     '--image-fs-extract-retry=2',
+    '--image-download-retry=3',
   ];
 
   if (registry.http) {
