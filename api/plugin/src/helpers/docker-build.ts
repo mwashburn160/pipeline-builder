@@ -219,9 +219,24 @@ function buildKanikoArgs(
     JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
   );
 
+  // Inject ENV directives at the start of the Dockerfile to prevent dpkg
+  // interactive prompts. --build-arg only works if the Dockerfile declares ARG,
+  // but user-submitted Dockerfiles often don't. Injecting ENV ensures all RUN
+  // commands (including apt-get) inherit these settings regardless.
+  const dockerfilePath = path.join(contextDir, dockerfile);
+  const originalContent = fs.readFileSync(dockerfilePath, 'utf-8');
+  const firstFromMatch = originalContent.match(/^FROM\s+/m);
+  if (firstFromMatch && firstFromMatch.index !== undefined) {
+    const insertPos = originalContent.indexOf('\n', firstFromMatch.index);
+    if (insertPos !== -1) {
+      const injected = '\nENV DEBIAN_FRONTEND=noninteractive\n';
+      fs.writeFileSync(dockerfilePath, originalContent.slice(0, insertPos + 1) + injected + originalContent.slice(insertPos + 1));
+    }
+  }
+
   const args = [
     `--context=${contextDir}`,
-    `--dockerfile=${path.join(contextDir, dockerfile)}`,
+    `--dockerfile=${dockerfilePath}`,
     `--destination=${fullImage}`,
     '--verbosity=info',
     '--log-format=json',
@@ -232,9 +247,6 @@ function buildKanikoArgs(
     '--push-retry=2',
     '--image-fs-extract-retry=2',
     '--image-download-retry=3',
-    // Prevent dpkg interactive prompts in Debian/Ubuntu-based plugin builds
-    '--build-arg=DEBIAN_FRONTEND=noninteractive',
-    '--build-arg=DPKG_FORCE=confnew',
   ];
 
   if (registry.http) {
