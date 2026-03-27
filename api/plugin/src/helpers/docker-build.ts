@@ -219,20 +219,22 @@ function buildKanikoArgs(
     JSON.stringify({ auths: { [registryAddr]: { auth: authToken } } }),
   );
 
-  // Inject ENV directives at the start of the Dockerfile to prevent dpkg
-  // interactive prompts. --build-arg only works if the Dockerfile declares ARG,
-  // but user-submitted Dockerfiles often don't. Injecting ENV ensures all RUN
-  // commands (including apt-get) inherit these settings regardless.
+  // Inject directives after every FROM to prevent dpkg interactive prompts and
+  // config file conflicts. Kaniko runs sequentially in a shared container, so
+  // stale /etc files from previous builds can cause dpkg conffile errors.
+  // - DEBIAN_FRONTEND=noninteractive: suppresses dialog prompts
+  // - force-confnew in dpkg.cfg: auto-accepts new config files (overwrite stale ones)
   const dockerfilePath = path.join(contextDir, dockerfile);
   const originalContent = fs.readFileSync(dockerfilePath, 'utf-8');
-  const firstFromMatch = originalContent.match(/^FROM\s+/m);
-  if (firstFromMatch && firstFromMatch.index !== undefined) {
-    const insertPos = originalContent.indexOf('\n', firstFromMatch.index);
-    if (insertPos !== -1) {
-      const injected = '\nENV DEBIAN_FRONTEND=noninteractive\n';
-      fs.writeFileSync(dockerfilePath, originalContent.slice(0, insertPos + 1) + injected + originalContent.slice(insertPos + 1));
-    }
-  }
+  const injected = [
+    'ENV DEBIAN_FRONTEND=noninteractive',
+    'RUN echo "force-confnew" > /etc/dpkg/dpkg.cfg.d/kaniko-force-confnew 2>/dev/null || true',
+  ].join('\n');
+  const patched = originalContent.replace(
+    /^(FROM\s+[^\n]+)/gm,
+    `$1\n${injected}`,
+  );
+  fs.writeFileSync(dockerfilePath, patched);
 
   const args = [
     `--context=${contextDir}`,
