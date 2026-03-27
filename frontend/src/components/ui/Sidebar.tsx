@@ -64,47 +64,42 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Overview',
     items: [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
     ],
   },
   {
-    label: 'Resources',
+    label: 'Build',
     items: [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
+      { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
     ],
   },
   {
-    label: 'Operations',
+    label: 'Insights',
     items: [
-      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
+      { title: 'Pipeline Reports', href: '/dashboard/reports', icon: FileBarChart },
+      { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: BarChart3 },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
-      {
-        title: 'Reports', href: '/dashboard/reports', icon: FileBarChart,
-        children: [
-          { title: 'Pipelines', href: '/dashboard/reports', icon: GitBranch },
-          { title: 'Plugins', href: '/dashboard/plugin-reports', icon: Puzzle },
-        ],
-      },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
-      { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
     ],
   },
   {
-    label: 'Team',
+    label: 'Organization',
     items: [
-      { title: 'Team', href: '/dashboard/team', icon: UsersRound, adminOnly: true },
-      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
+      { title: 'Members', href: '/dashboard/team', icon: UsersRound, adminOnly: true },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
-      { title: 'Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
+      { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
+      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
+      { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
     ],
   },
   {
-    label: 'Account',
+    label: 'Settings',
     items: [
-      { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
-      { title: 'Settings', href: '/dashboard/settings', icon: Settings },
+      { title: 'Profile', href: '/dashboard/settings', icon: Settings },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },

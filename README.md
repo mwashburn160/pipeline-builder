@@ -97,7 +97,7 @@ Organizations are the core isolation boundary. Every resource — pipelines, plu
 
 Register an account, then create one or more organizations. The creator becomes the **owner**.
 
-**From the dashboard** — use the **organization switcher** in the header to create a new organization. Available to org admins, org owners, and system admins.
+**From the dashboard** — navigate to **Team** and click **Create Organization**. Available to org admins, org owners, and system admins. You can also use the **org switcher** in the sidebar to switch between organizations.
 
 **From the API:**
 

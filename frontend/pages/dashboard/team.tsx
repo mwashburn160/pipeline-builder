@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { UserPlus, Users, Shield, ShieldOff, UserMinus, UserCheck, UserX, Crown, Search, KeyRound } from 'lucide-react';
+import { UserPlus, Users, Shield, ShieldOff, UserMinus, UserCheck, UserX, Crown, Search, KeyRound, Building2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useAuth } from '@/hooks/useAuth';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -15,6 +16,7 @@ import type { OrganizationMember } from '@/types';
 
 export default function TeamPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { refreshUser } = useAuth();
 
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +32,12 @@ export default function TeamPage() {
   // Role change
   const [roleChangeTarget, setRoleChangeTarget] = useState<OrganizationMember | null>(null);
   const [roleChangeLoading, setRoleChangeLoading] = useState(false);
+
+  // Create organization
+  const [createOrgOpen, setCreateOrgOpen] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
+  const createOrgForm = useFormState();
 
   // Password reset
   const [passwordTarget, setPasswordTarget] = useState<OrganizationMember | null>(null);
@@ -133,6 +141,19 @@ export default function TeamPage() {
     }
   };
 
+  const handleCreateOrg = async () => {
+    if (!newOrgName.trim()) return;
+    const result = await createOrgForm.run(
+      () => api.createOrganization({ name: newOrgName.trim(), tier: newOrgTier }),
+    );
+    if (result !== null) {
+      setNewOrgName('');
+      setNewOrgTier('developer');
+      setCreateOrgOpen(false);
+      await refreshUser();
+    }
+  };
+
   const columns: Column<OrganizationMember>[] = useMemo(() => [
     {
       id: 'username',
@@ -231,9 +252,14 @@ export default function TeamPage() {
       subtitle="Manage team members and roles"
       maxWidth="4xl"
       actions={
-        <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary text-sm">
-          <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary text-sm">
+            <Building2 className="w-4 h-4 mr-1.5" /> Create Organization
+          </button>
+          <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary text-sm">
+            <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
+          </button>
+        </div>
       }
     >
       <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
@@ -333,6 +359,46 @@ export default function TeamPage() {
               <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary text-sm" disabled={passwordForm.loading}>Cancel</button>
               <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary text-sm">
                 {passwordForm.loading ? 'Updating...' : 'Reset Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create organization modal */}
+      {createOrgOpen && (
+        <div className="modal-backdrop" onClick={() => setCreateOrgOpen(false)}>
+          <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Create Organization</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Create a new organization. You will be the owner.</p>
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Organization name"
+                value={newOrgName}
+                onChange={(e) => setNewOrgName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
+                className="input text-sm"
+                autoFocus
+                disabled={createOrgForm.loading}
+              />
+              <select
+                value={newOrgTier}
+                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
+                className="input text-sm"
+                disabled={createOrgForm.loading}
+              >
+                <option value="developer">Developer</option>
+                <option value="pro">Pro</option>
+                <option value="unlimited">Unlimited</option>
+              </select>
+            </div>
+            {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
+            {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary text-sm" disabled={createOrgForm.loading}>Cancel</button>
+              <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary text-sm">
+                {createOrgForm.loading ? 'Creating...' : 'Create Organization'}
               </button>
             </div>
           </div>
