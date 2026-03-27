@@ -1,3 +1,13 @@
+## 1.39.6 (2026-03-27)
+
+### 🩹 Fixes
+
+- updated plugin dockerfile ([f3567e97](https://github.com/mwashburn160/pipeline-builder/commit/f3567e97))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.39.5 (2026-03-27)
 
 ### 🩹 Fixes
