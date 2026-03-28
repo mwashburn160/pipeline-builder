@@ -1,3 +1,13 @@
+## 1.45.6 (2026-03-28)
+
+### 🩹 Fixes
+
+- set kaniko snapshot-mode=redo ([36f0b6d7](https://github.com/mwashburn160/pipeline-builder/commit/36f0b6d7))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.45.5 (2026-03-28)
 
 ### 🩹 Fixes
