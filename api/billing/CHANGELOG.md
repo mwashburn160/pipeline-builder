@@ -1,3 +1,13 @@
+## 1.23.12 (2026-03-28)
+
+### 🩹 Fixes
+
+- upgraded aiCore=1.17.9 ([78fdf59b](https://github.com/mwashburn160/pipeline-builder/commit/78fdf59b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.23.11 (2026-03-28)
 
 ### 🩹 Fixes
