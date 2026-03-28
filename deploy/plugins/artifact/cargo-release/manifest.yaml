@@ -5,6 +5,7 @@ keywords:
   - binary
   - cross-compilation
   - release
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -28,8 +29,8 @@ commands:
     if [ -n "${TARGET}" ]; then
       TARGET_ARG="--target ${TARGET}"
     fi
-    cargo build --${CARGO_PROFILE} --all-features ${TARGET_ARG} \
-      2>&1 | tee target/release/cargo-build.log || true
+    cargo build --profile ${CARGO_PROFILE} --all-features ${TARGET_ARG} \
+      2>&1 | tee target/release/cargo-build.log
   - "echo \"Cargo build complete. Binaries available in target/release/\""
 env:
   RUST_VERSION: stable

@@ -11,12 +11,12 @@ Slack notification plugin for sending pipeline status alerts, build results, and
 
 ## Keywords
 
-`slack`, `notification`, `alert`, `webhook`, `pipeline-status`, `teams`
+`slack`, `webhook`, `notification`, `alert`
 
 ## Requirements
 
-- Python
-- 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
+- curl and jq (included in container image)
+- 1 required secret configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets
 
@@ -54,11 +54,11 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOTIFICATION_TYPE` | `pipeline-status` | Notification Type |
-| `PIPELINE_NAME` | _none_ | Pipeline Name |
-| `PIPELINE_STATUS` | _none_ | Pipeline Status |
-| `CUSTOM_MESSAGE` | _none_ | Custom Message |
-| `MENTION_ON_FAILURE` | _none_ | Mention On Failure |
+| `NOTIFICATION_TYPE` | `pipeline-status` | Message type: `pipeline-status` or `custom` |
+| `PIPELINE_NAME` | _none_ | Name of the pipeline for status messages |
+| `PIPELINE_STATUS` | _none_ | Current pipeline status (e.g., success, failure) |
+| `CUSTOM_MESSAGE` | _none_ | Custom message text (required when type is `custom`) |
+| `MENTION_ON_FAILURE` | _none_ | Slack user/group mention on failure (e.g., `@oncall`) |
 
 ## Output
 

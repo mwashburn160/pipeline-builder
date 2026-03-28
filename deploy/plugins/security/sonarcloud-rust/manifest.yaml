@@ -5,6 +5,7 @@ keywords:
   - code-quality
   - security-analysis
   - coverage
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

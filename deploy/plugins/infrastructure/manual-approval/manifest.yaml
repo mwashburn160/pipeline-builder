@@ -5,6 +5,7 @@ keywords:
   - gate
   - manual
   - pause
+category: infrastructure
 version: 1.0.0
 pluginType: ManualApprovalStep
 computeType: SMALL

@@ -1,7 +1,7 @@
 # CDK Synth Plugin — Build environment for AWS CDK pipeline synthesis
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 
-FROM public.ecr.aws/docker/library/node:22-slim
+FROM public.ecr.aws/docker/library/node:24-slim
 
 # System dependencies for CDK, Docker assets, and native builds
 RUN apt-get update && apt-get install -y --no-install-recommends \

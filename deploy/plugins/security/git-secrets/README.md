@@ -11,7 +11,7 @@ Secret detection plugin using Gitleaks and TruffleHog to scan code repositories 
 
 ## Keywords
 
-`secrets`, `gitleaks`, `trufflehog`, `security`, `credentials`, `api-keys`, `passwords`, `leaks`
+`gitleaks`, `trufflehog`, `secret-detection`, `credentials`
 
 ## Configuration
 

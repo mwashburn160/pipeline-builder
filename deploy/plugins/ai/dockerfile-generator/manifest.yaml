@@ -5,6 +5,7 @@ keywords:
   - ai
   - ollama
   - code-generation
+category: ai
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE

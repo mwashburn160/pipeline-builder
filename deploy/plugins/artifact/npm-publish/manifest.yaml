@@ -5,6 +5,7 @@ keywords:
   - npm
   - package
   - publish
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -42,7 +43,7 @@ commands:
       --tag "${NPM_TAG}" \
       --access "${NPM_ACCESS}" \
       ${DRY_RUN_FLAG} \
-      2>&1 | tee publish-output/npm-publish.log || true
+      2>&1 | tee publish-output/npm-publish.log
   - |
     # Save publish metadata
     if [ -f package.json ]; then

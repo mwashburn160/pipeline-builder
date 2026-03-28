@@ -165,6 +165,8 @@ export class PluginService extends CrudService<
           target: [schema.plugin.name, schema.plugin.version, schema.plugin.orgId],
           set: {
             description: data.description,
+            ...((data as Record<string, unknown>).category !== undefined
+              ? { category: (data as Record<string, unknown>).category as string } : {}),
             keywords: data.keywords,
             metadata: data.metadata,
             pluginType: data.pluginType as PluginType,

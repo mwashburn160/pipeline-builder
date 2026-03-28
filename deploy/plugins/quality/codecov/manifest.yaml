@@ -5,6 +5,7 @@ keywords:
   - reporting
   - badge
   - threshold
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -5,6 +5,7 @@ keywords:
   - release
   - error-tracking
   - sourcemap
+category: monitoring
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

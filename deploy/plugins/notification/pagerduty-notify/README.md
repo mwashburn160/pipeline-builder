@@ -11,12 +11,12 @@ PagerDuty incident trigger plugin for alerting on-call teams about pipeline fail
 
 ## Keywords
 
-`pagerduty`, `incident`, `alert`, `notification`, `oncall`
+`pagerduty`, `on-call`, `incident`, `alert`
 
 ## Requirements
 
-- Python
-- 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
+- curl and jq (included in container image)
+- 1 required secret configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets
 
@@ -54,11 +54,11 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOTIFICATION_TYPE` | `trigger` | Notification Type |
-| `PIPELINE_NAME` | _none_ | Pipeline Name |
-| `PIPELINE_STATUS` | _none_ | Pipeline Status |
-| `PD_SEVERITY` | `critical` | Pd Severity |
-| `PD_SOURCE` | _none_ | Pd Source |
+| `NOTIFICATION_TYPE` | `trigger` | Event action type: `trigger` or `resolve` |
+| `PIPELINE_NAME` | _none_ | Name of the pipeline for incident context |
+| `PIPELINE_STATUS` | _none_ | Current pipeline status (e.g., failed, success) |
+| `PD_SEVERITY` | `critical` | Incident severity: `critical`, `error`, `warning`, or `info` |
+| `PD_SOURCE` | _none_ | Source identifier for the incident (defaults to pipeline name) |
 
 ## Output
 

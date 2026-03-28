@@ -11,7 +11,7 @@ Checkmarx enterprise SAST and KICS infrastructure-as-code scanning plugin for de
 
 ## Keywords
 
-`checkmarx`, `sast`, `kics`, `iac`, `security`, `enterprise`, `compliance`
+`sast`, `kics`, `enterprise`, `vulnerability`
 
 ## Requirements
 

@@ -11,7 +11,7 @@ Native CDK pipeline approval gate that pauses execution and waits for manual con
 
 ## Keywords
 
-`approval`, `gate`, `manual`, `pipeline`, `infrastructure`
+`approval`, `gate`, `manual`, `pause`
 
 ## Configuration
 
@@ -21,7 +21,7 @@ Native CDK pipeline approval gate that pauses execution and waits for manual con
 
 ## Usage
 
-This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platform. Add it as a step in your pipeline configuration:
+This plugin runs as an AWS CDK `ManualApprovalStep` within the Pipeline Builder platform. Add it as a step in your pipeline configuration:
 
 ```json
 {
@@ -38,6 +38,5 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 | File | Description |
 |------|-------------|
 | `manifest.yaml` | Plugin configuration and build commands |
-| `Dockerfile` | Container image definition |
 | `plugin.zip` | Packaged plugin archive |
 | `README.md` | This documentation file |

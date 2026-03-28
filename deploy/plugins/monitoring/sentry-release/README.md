@@ -11,7 +11,7 @@ Sentry release tracking plugin for creating releases, associating commits, final
 
 ## Keywords
 
-`sentry`, `release`, `error-tracking`, `sourcemaps`, `monitoring`
+`sentry`, `release`, `error-tracking`, `sourcemap`
 
 ## Requirements
 
@@ -55,8 +55,8 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 |----------|---------|-------------|
 | `SENTRY_ORG` | _none_ | Sentry organization slug |
 | `SENTRY_PROJECT` | _none_ | Sentry project slug |
-| `SENTRY_RELEASE` | _none_ | Sentry Release |
-| `SENTRY_SOURCEMAPS_PATH` | _none_ | Sentry Sourcemaps Path |
+| `SENTRY_RELEASE` | _none_ | Release version string (auto-detected if not set) |
+| `SENTRY_SOURCEMAPS_PATH` | _none_ | Path to source maps directory for upload |
 
 ## Output
 

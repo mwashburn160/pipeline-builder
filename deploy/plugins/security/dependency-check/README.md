@@ -11,7 +11,7 @@ OWASP Dependency-Check software composition analysis (SCA) plugin for scanning p
 
 ## Keywords
 
-`owasp`, `dependency-check`, `sca`, `security`, `vulnerability`, `cve`, `nvd`, `license`
+`owasp`, `sca`, `dependency-scan`, `cve`
 
 ## Requirements
 

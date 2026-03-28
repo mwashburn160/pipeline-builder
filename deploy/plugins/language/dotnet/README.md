@@ -11,17 +11,17 @@
 
 ## Keywords
 
-`dotnet`, `csharp`, `fsharp`, `nuget`
+`dotnet`, `csharp`, `fsharp`, `build`
 
 ## Requirements
 
-- .NET SDK 8.0
+- .NET SDK 9.0
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOTNET_VERSION` | `8.0` | .NET SDK version to use |
+| `DOTNET_VERSION` | `9.0` | .NET SDK version to use |
 
 ## Output
 
@@ -36,7 +36,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "dotnet",
   "plugin": "dotnet",
   "env": {
-    "DOTNET_VERSION": "8.0"
+    "DOTNET_VERSION": "9.0"
   }
 }
 ```

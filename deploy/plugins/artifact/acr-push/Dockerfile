@@ -14,12 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     unzip \
     curl \
-    wget \
     jq \
     ca-certificates \
     gnupg \
     lsb-release \
-    apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Docker CLI + Buildx ───

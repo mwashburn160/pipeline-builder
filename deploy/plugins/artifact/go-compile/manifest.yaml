@@ -5,6 +5,7 @@ keywords:
   - binary
   - cross-compilation
   - compile
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

@@ -11,16 +11,12 @@ AI-powered Dockerfile generator that analyzes project source code and produces a
 
 ## Keywords
 
-`dockerfile`, `ai`, `generator`, `docker`, `codegen`, `anthropic`, `openai`, `gemini`
+`dockerfile`, `ai`, `anthropic`, `openai`, `code-generation`
 
 ## Requirements
 
-- AWS CLI configured with appropriate permissions
-- Node.js
-- Python
-- Java
-- C++ build tools (gcc, cmake, make)
-- 1 optional secret(s) for additional features (see [Secrets](#secrets) below)
+- An API key for the chosen AI provider (except when using the `bedrock` provider with IAM credentials)
+- AWS CLI configured with appropriate permissions (required only for the `bedrock` provider)
 
 ## Secrets
 
@@ -58,8 +54,8 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_PROVIDER` | `anthropic` | Ai Provider |
-| `AI_MODEL` | `claude-sonnet-4-20250514` | Ai Model |
+| `AI_PROVIDER` | `anthropic` | AI provider (anthropic, openai, google, xai, bedrock) |
+| `AI_MODEL` | `claude-sonnet-4-20250514` | AI model identifier for the chosen provider |
 
 ## Output
 

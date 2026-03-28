@@ -5,6 +5,7 @@ keywords:
   - cross-browser
   - ui-test
   - chromium
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE
@@ -52,5 +53,5 @@ commands:
 env:
   NODE_VERSION: "24"
   PLAYWRIGHT_PROJECT: ""
-  PLAYWRIGHT_WORKERS: auto
-  PLAYWRIGHT_REPORTER: html
+  PLAYWRIGHT_WORKERS: "auto"
+  PLAYWRIGHT_REPORTER: "html"

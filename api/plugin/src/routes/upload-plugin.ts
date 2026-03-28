@@ -146,27 +146,37 @@ export function createUploadPluginRoutes(
             registry,
             buildArgs: m.buildArgs || {},
           },
-          pluginRecord: {
-            orgId,
-            name: m.name,
-            description: m.description || null,
-            version: m.version || '0.0.0',
-            metadata: (m.metadata || {}) as Record<string, string | number | boolean>,
-            pluginType: m.pluginType || 'CodeBuildStep',
-            computeType: m.computeType || 'SMALL',
-            primaryOutputDirectory: m.primaryOutputDirectory || null,
-            dockerfile: plugin.dockerfileContent,
-            env: m.env || {},
-            buildArgs: m.buildArgs || {},
-            keywords: m.keywords || [],
-            installCommands: m.installCommands || [],
-            commands: m.commands || [],
-            imageTag: plugin.imageTag,
-            accessModifier,
-            timeout: m.timeout ?? null,
-            failureBehavior: m.failureBehavior || 'fail',
-            secrets: m.secrets || [],
-          },
+          pluginRecord: (() => {
+            const manifest = m as unknown as Record<string, unknown>;
+            const category = typeof manifest.category === 'string' ? manifest.category : undefined;
+            const baseMetadata = (m.metadata || {}) as Record<string, string | number | boolean>;
+            const metadata = category && !baseMetadata.category
+              ? { ...baseMetadata, category }
+              : baseMetadata;
+
+            return {
+              orgId,
+              name: m.name,
+              description: m.description || null,
+              version: m.version || '0.0.0',
+              category: category || 'unknown',
+              metadata,
+              pluginType: m.pluginType || 'CodeBuildStep',
+              computeType: m.computeType || 'SMALL',
+              primaryOutputDirectory: m.primaryOutputDirectory || null,
+              dockerfile: plugin.dockerfileContent,
+              env: m.env || {},
+              buildArgs: m.buildArgs || {},
+              keywords: m.keywords || [],
+              installCommands: m.installCommands || [],
+              commands: m.commands || [],
+              imageTag: plugin.imageTag,
+              accessModifier,
+              timeout: m.timeout ?? null,
+              failureBehavior: m.failureBehavior || 'fail',
+              secrets: m.secrets || [],
+            };
+          })(),
         });
 
         try {

@@ -11,7 +11,7 @@ Azure infrastructure deployment plugin supporting Web App, Container Instances, 
 
 ## Keywords
 
-`azure`, `microsoft`, `cloud`, `deploy`, `infrastructure`
+`azure`, `webapp`, `aks`, `deploy`
 
 ## Requirements
 

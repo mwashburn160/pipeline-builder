@@ -11,7 +11,7 @@ Kubernetes deployment plugin using kubectl for applying, deleting, and rolling o
 
 ## Keywords
 
-`kubernetes`, `kubectl`, `deploy`, `k8s`, `eks`, `rollout`
+`kubernetes`, `kubectl`, `manifest`, `deploy`
 
 ## Requirements
 

@@ -11,7 +11,7 @@ Maven artifact publish plugin for deploying Java/Kotlin packages to Maven Centra
 
 ## Keywords
 
-`maven`, `publish`, `java`, `central`, `sonatype`, `ossrh`
+`java`, `maven`, `maven-central`, `publish`
 
 ## Requirements
 

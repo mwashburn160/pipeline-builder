@@ -11,17 +11,17 @@ Post-deployment health check and smoke testing plugin for verifying application 
 
 ## Keywords
 
-`health-check`, `smoke-test`, `deploy-verify`, `endpoint`, `http`, `uptime`
+`smoke-test`, `endpoint`, `http`, `post-deploy`
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HEALTH_ENDPOINTS` | _none_ | Health Endpoints |
-| `HEALTH_TIMEOUT` | `10` | Health Timeout |
-| `HEALTH_RETRIES` | `3` | Health Retries |
-| `HEALTH_RETRY_DELAY` | `5` | Health Retry Delay |
-| `EXPECTED_STATUS` | `200` | Expected Status |
+| `HEALTH_ENDPOINTS` | _none_ | Comma-separated list of URLs to check |
+| `HEALTH_TIMEOUT` | `10` | Maximum seconds to wait per request |
+| `HEALTH_RETRIES` | `3` | Number of retry attempts per endpoint |
+| `HEALTH_RETRY_DELAY` | `5` | Seconds to wait between retries |
+| `EXPECTED_STATUS` | `200` | HTTP status code that indicates a healthy endpoint |
 
 ## Output
 

@@ -5,6 +5,7 @@ keywords:
   - csharp
   - fsharp
   - build
+category: language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

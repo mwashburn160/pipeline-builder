@@ -5,6 +5,7 @@ keywords:
   - crate
   - crates-io
   - publish
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -36,7 +37,7 @@ commands:
     echo "Publishing crate to crates.io..."
     cargo publish \
       ${DRY_RUN_FLAG} \
-      2>&1 | tee publish-output/cargo-publish.log || true
+      2>&1 | tee publish-output/cargo-publish.log
   - |
     # Save publish metadata
     if [ -f Cargo.toml ]; then

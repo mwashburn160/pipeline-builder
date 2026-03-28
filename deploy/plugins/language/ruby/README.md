@@ -11,17 +11,17 @@ Ruby plugin for building and testing Ruby applications using Bundler with AWS CD
 
 ## Keywords
 
-`ruby`, `bundler`, `rake`, `rspec`, `minitest`
+`ruby`, `bundler`, `build`, `test`
 
 ## Requirements
 
-- Ruby 3.3.6
+- Ruby 4.0.1
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `3.3.6` | Ruby version to use |
+| `RUBY_VERSION` | `4.0.1` | Ruby version to use |
 
 ## Output
 
@@ -36,7 +36,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "ruby",
   "plugin": "ruby",
   "env": {
-    "RUBY_VERSION": "3.3.6"
+    "RUBY_VERSION": "4.0.1"
   }
 }
 ```

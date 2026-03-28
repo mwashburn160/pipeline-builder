@@ -5,13 +5,13 @@ SonarCloud code quality and security analysis plugin for Node.js continuous insp
 **Version:** 1.0.0  
 **Category:** security  
 **Plugin Type:** CodeBuildStep  
-**Compute:** MEDIUM  
-**Timeout:** 30 minutes  
+**Compute:** SMALL
+**Timeout:** 15 minutes  
 **Failure Behavior:** fail  
 
 ## Keywords
 
-`sonarcloud-nodejs`, `sonarcloud`, `sonar`, `security`, `code-quality`, `sast`, `static-analysis`, `nodejs`
+`nodejs`, `code-quality`, `security-analysis`, `coverage`
 
 ## Requirements
 
@@ -57,8 +57,6 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | `SONAR_SCANNER_VERSION` | `12.0` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | _none_ | Sonar Organization |
 | `SONAR_PROJECT_KEY` | _none_ | Sonar Project Key |
-| `LANGUAGE` | `nodejs` | Target language for scanning |
-| `LANGUAGE_VERSION` | _none_ | Language runtime version |
 
 ## Output
 
@@ -75,9 +73,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "env": {
     "SONAR_SCANNER_VERSION": "12.0",
     "SONAR_ORGANIZATION": "<your-sonar_organization>",
-    "SONAR_PROJECT_KEY": "<your-sonar_project_key>",
-    "LANGUAGE": "nodejs",
-    "LANGUAGE_VERSION": "<your-language_version>"
+    "SONAR_PROJECT_KEY": "<your-sonar_project_key>"
   }
 }
 ```

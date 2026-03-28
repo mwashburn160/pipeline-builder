@@ -5,6 +5,7 @@ keywords:
   - docker
   - azure
   - registry
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -67,8 +68,8 @@ commands:
   - |
     FULL_IMAGE=$(cat registry-output/image-name.txt)
     echo "Pushing image: ${FULL_IMAGE}"
-    docker push "${FULL_IMAGE}" || true
-    echo "Image push attempted: ${FULL_IMAGE}"
+    docker push "${FULL_IMAGE}"
+    echo "Image pushed successfully: ${FULL_IMAGE}"
   - "echo \"ACR push complete.\""
 env:
   ACR_REGISTRY: ""

@@ -5,6 +5,7 @@ keywords:
   - linter
   - formatter
   - code-quality
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

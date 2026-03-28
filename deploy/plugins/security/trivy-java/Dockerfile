@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates build-essential gnupg \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 ENV SDKMAN_DIR=/opt/sdkman
@@ -29,6 +29,6 @@ RUN ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
 ENV TRIVY_VERSION=${TRIVY_VERSION}
 ENV TRIVY_SEVERITY=HIGH,CRITICAL
 ENV TRIVY_FORMAT=json
+ENV JAVA_VERSION=21.0.10-tem
 WORKDIR /app
 CMD ["bash"]
-ENV JAVA_VERSION=21.0.10-tem

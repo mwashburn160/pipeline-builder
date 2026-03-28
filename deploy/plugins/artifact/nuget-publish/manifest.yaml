@@ -5,6 +5,7 @@ keywords:
   - nuget
   - package
   - publish
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -39,7 +40,7 @@ commands:
           --api-key "${NUGET_API_KEY}" \
           --source "${NUGET_SOURCE}" \
           --skip-duplicate \
-          2>&1 | tee -a publish-output/nuget-push.log || true
+          2>&1 | tee -a publish-output/nuget-push.log
       fi
     done
   - |

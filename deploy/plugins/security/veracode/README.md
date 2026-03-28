@@ -11,7 +11,7 @@ Veracode enterprise SAST and DAST security scanning plugin for static analysis o
 
 ## Keywords
 
-`veracode`, `sast`, `dast`, `security`, `enterprise`, `compliance`, `vulnerability`
+`sast`, `dast`, `enterprise`, `vulnerability`
 
 ## Requirements
 

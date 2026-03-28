@@ -5,6 +5,7 @@ keywords:
   - type-checking
   - static-analysis
   - types
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

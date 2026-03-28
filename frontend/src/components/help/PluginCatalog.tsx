@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
-import { PLUGIN_CATALOG, PLUGIN_CATEGORIES } from '@/lib/help';
+import { PLUGIN_CATALOG, PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
+import type { PluginCategory } from '@/lib/help';
 
 /** Searchable, filterable plugin catalog table. */
 export function PluginCatalog() {
@@ -37,7 +38,7 @@ export function PluginCatalog() {
         >
           <option value="">All Categories</option>
           {PLUGIN_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
+            <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
           ))}
         </select>
       </div>
@@ -64,7 +65,7 @@ export function PluginCatalog() {
                 <td className="px-4 py-2 text-gray-900 dark:text-gray-100 font-mono text-xs">{plugin.name}</td>
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                    {plugin.category}
+                    {CATEGORY_DISPLAY_NAMES[plugin.category as PluginCategory] || plugin.category}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-gray-600 dark:text-gray-400 hidden sm:table-cell">{plugin.description}</td>

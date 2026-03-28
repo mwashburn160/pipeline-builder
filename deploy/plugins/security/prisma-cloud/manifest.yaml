@@ -5,6 +5,7 @@ keywords:
   - iac
   - checkov
   - compliance
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

@@ -5,6 +5,7 @@ keywords:
   - pytest
   - unit-test
   - junit
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

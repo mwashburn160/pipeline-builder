@@ -11,7 +11,7 @@ AWS CloudFormation infrastructure provisioning plugin with template validation (
 
 ## Keywords
 
-`cloudformation`, `aws`, `infrastructure`, `iac`, `deploy`, `cfn-lint`, `stack`
+`aws`, `cloudformation`, `stack`, `infrastructure`
 
 ## Requirements
 

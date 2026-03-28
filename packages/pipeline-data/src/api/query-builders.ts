@@ -108,6 +108,10 @@ export function buildPluginConditions(
     conditions.push(buildJsonbKeywordCondition(schema.plugin.keywords, normalizeStringFilter(filter.keyword)));
   }
 
+  if (filter.category !== undefined) {
+    conditions.push(eq(schema.plugin.category, filter.category as string));
+  }
+
   return conditions;
 }
 

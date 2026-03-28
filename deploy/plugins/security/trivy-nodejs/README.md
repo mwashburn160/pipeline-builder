@@ -5,13 +5,13 @@ Trivy security scanning plugin for Node.js vulnerability detection in dependenci
 **Version:** 1.0.0  
 **Category:** security  
 **Plugin Type:** CodeBuildStep  
-**Compute:** MEDIUM  
-**Timeout:** 30 minutes  
+**Compute:** SMALL
+**Timeout:** 15 minutes  
 **Failure Behavior:** fail  
 
 ## Keywords
 
-`trivy-nodejs`, `trivy`, `security`, `vulnerability`, `sca`, `sast`, `iac`, `nodejs`
+`nodejs`, `container`, `vulnerability`, `dependency-scan`
 
 ## Requirements
 
@@ -21,11 +21,9 @@ Trivy security scanning plugin for Node.js vulnerability detection in dependenci
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TRIVY_VERSION` | `0.59.1` | Trivy Version |
+| `TRIVY_VERSION` | `0.69.3` | Trivy Version |
 | `TRIVY_SEVERITY` | `HIGH,CRITICAL` | Trivy Severity |
 | `TRIVY_FORMAT` | `json` | Trivy Format |
-| `LANGUAGE` | `nodejs` | Target language for scanning |
-| `LANGUAGE_VERSION` | _none_ | Language runtime version |
 
 ## Output
 
@@ -40,11 +38,9 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "trivy-nodejs",
   "plugin": "trivy-nodejs",
   "env": {
-    "TRIVY_VERSION": "0.59.1",
+    "TRIVY_VERSION": "0.69.3",
     "TRIVY_SEVERITY": "HIGH,CRITICAL",
-    "TRIVY_FORMAT": "json",
-    "LANGUAGE": "nodejs",
-    "LANGUAGE_VERSION": "<your-language_version>"
+    "TRIVY_FORMAT": "json"
   }
 }
 ```

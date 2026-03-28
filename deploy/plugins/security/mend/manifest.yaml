@@ -5,6 +5,7 @@ keywords:
   - dependency-scan
   - license
   - cve
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -5,6 +5,7 @@ keywords:
   - maven
   - maven-central
   - publish
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -62,7 +63,7 @@ commands:
       -Dgpg.passphrase="${GPG_PASSPHRASE}" \
       ${REPO_ARGS} \
       -B \
-      2>&1 | tee publish-output/maven-deploy.log || true
+      2>&1 | tee publish-output/maven-deploy.log
   - |
     # Save publish metadata
     if [ -f pom.xml ]; then

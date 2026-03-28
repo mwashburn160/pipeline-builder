@@ -29,12 +29,12 @@
 dockerfile_generator:
   plugin: ai/dockerfile-generator
   install_type: apt
-  note: "Node.js 20 via NodeSource + Ollama runtime. Model set via env var."
+  note: "Node.js 24 via NodeSource + Ollama runtime. Model set via env var."
   tools:
     nodejs:
       install_type: apt
-      versions: ["20"]
-      default: "20"
+      versions: ["24"]
+      default: "24"
     ollama_model:
       install_type: script
       versions: ["codellama:7b"]
@@ -107,15 +107,15 @@ nodejs_bundle:
   plugin: artifact/nodejs-bundle
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 npm_publish:
   plugin: artifact/npm-publish
   install_type: apt
-  note: "Node.js 22 via NodeSource."
-  versions: ["22"]
-  default: "22"
+  note: "Node.js 24 via NodeSource."
+  versions: ["24"]
+  default: "24"
 
 nuget_publish:
   plugin: artifact/nuget-publish
@@ -172,7 +172,7 @@ pulumi:
     nodejs:
       install_type: nvm
       nvm_version: "0.40.1"
-      versions: ["22", "24"]
+      versions: ["24"]
       default: "24"
     go:
       install_type: goenv
@@ -189,7 +189,7 @@ serverless_framework:
   nvm_version: "0.40.1"
   tools:
     nodejs:
-      versions: ["22", "24"]
+      versions: ["24"]
       default: "24"
     serverless:
       install_type: npm
@@ -345,7 +345,7 @@ nodejs:
   plugin: language/nodejs
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 python:
@@ -523,14 +523,14 @@ eslint:
   plugin: quality/eslint
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 prettier:
   plugin: quality/prettier
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 codacy:
@@ -648,7 +648,7 @@ typescript_check:
   plugin: quality/typescript-check
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 # ═══════════════════════════════════════════════════════════════
@@ -1066,7 +1066,7 @@ npm_audit:
   plugin: security/npm-audit
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 # ═══════════════════════════════════════════════════════════════
@@ -1095,7 +1095,7 @@ artillery:
   nvm_version: "0.40.1"
   tools:
     nodejs:
-      versions: ["22", "24"]
+      versions: ["24"]
       default: "24"
     artillery:
       install_type: npm
@@ -1120,7 +1120,7 @@ cypress:
   plugin: testing/cypress
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
   note: "Cypress browser deps from apt. Cypress itself installed per-project."
 
@@ -1141,7 +1141,7 @@ jest:
   plugin: testing/jest
   install_type: nvm
   nvm_version: "0.40.1"
-  versions: ["22", "24"]
+  versions: ["24"]
   default: "24"
 
 minitest_coverage:
@@ -1156,7 +1156,7 @@ playwright:
   nvm_version: "0.40.1"
   tools:
     nodejs:
-      versions: ["22", "24"]
+      versions: ["24"]
       default: "24"
     playwright:
       install_type: npm

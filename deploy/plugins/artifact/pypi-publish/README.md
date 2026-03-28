@@ -11,7 +11,7 @@ PyPI package publish plugin for deploying Python packages to PyPI or custom repo
 
 ## Keywords
 
-`pypi`, `publish`, `python`, `package`, `twine`
+`python`, `pypi`, `twine`, `publish`
 
 ## Requirements
 
@@ -57,8 +57,8 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYPI_REPOSITORY` | _none_ | Pypi Repository |
-| `TWINE_USERNAME` | `__token__` | Twine Username |
+| `PYPI_REPOSITORY` | _none_ | Custom PyPI repository URL (defaults to official PyPI) |
+| `TWINE_USERNAME` | `__token__` | PyPI upload username (use `__token__` for API token auth) |
 
 ## Output
 

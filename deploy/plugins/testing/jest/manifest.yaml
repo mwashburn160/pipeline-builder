@@ -5,6 +5,7 @@ keywords:
   - typescript
   - unit-test
   - coverage
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -48,4 +49,4 @@ commands:
 env:
   NODE_VERSION: "24"
   JEST_CONFIG: ""
-  JEST_JUNIT_OUTPUT_DIR: test-reports
+  JEST_JUNIT_OUTPUT_DIR: "test-reports"

@@ -11,7 +11,7 @@ RubyGems package publish plugin for deploying Ruby gems to RubyGems.org with dry
 
 ## Keywords
 
-`gem`, `publish`, `ruby`, `rubygems`, `package`
+`ruby`, `gem`, `rubygems`, `publish`
 
 ## Requirements
 
@@ -53,7 +53,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GEM_DRY_RUN` | `false` | Gem Dry Run |
+| `GEM_DRY_RUN` | `false` | Enable dry-run mode (validate without publishing) |
 
 ## Output
 

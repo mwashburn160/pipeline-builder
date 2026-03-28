@@ -11,12 +11,12 @@ AWS CDK single-region deployment plugin for synthesizing and deploying CDK stack
 
 ## Keywords
 
-`aws`, `cdk`, `deploy`, `cloudformation`, `typescript`, `infrastructure`, `iac`
+`aws`, `cdk`, `cloudformation`, `deploy`
 
 ## Requirements
 
 - AWS CLI configured with appropriate permissions
-- Node.js
+- Node.js 24
 
 ## Configuration
 

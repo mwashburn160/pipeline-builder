@@ -5,6 +5,7 @@ keywords:
   - shell
   - linter
   - bug-detection
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

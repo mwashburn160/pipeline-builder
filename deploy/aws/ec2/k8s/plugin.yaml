@@ -102,11 +102,11 @@ spec:
               mountPath: /app/uploads
           resources:
             limits:
-              cpu: "750m"
-              memory: 1536Mi
+              cpu: "1500m"
+              memory: 2048Mi
             requests:
-              cpu: "100m"
-              memory: 384Mi
+              cpu: "750m"
+              memory: 1024Mi
           readinessProbe:
             httpGet:
               path: /health

@@ -11,7 +11,7 @@ Build cache restore and save plugin using S3 for faster pipeline runs with zstd 
 
 ## Keywords
 
-`cache`, `s3`, `build`, `performance`, `infrastructure`
+`cache`, `s3`, `build-cache`, `performance`
 
 ## Requirements
 
@@ -21,11 +21,11 @@ Build cache restore and save plugin using S3 for faster pipeline runs with zstd 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CACHE_BUCKET` | _none_ | Cache Bucket |
+| `CACHE_BUCKET` | _none_ | S3 bucket name for storing cache archives |
 | `CACHE_KEY` | `${CODEBUILD_BUILD_ID}` | Cache key identifier |
 | `CACHE_PATHS` | `node_modules,.cache` | Paths to cache (comma-separated) |
-| `CACHE_ACTION` | `auto` | Cache Action |
-| `CACHE_COMPRESSION` | `zstd` | Cache Compression |
+| `CACHE_ACTION` | `auto` | Cache action: `restore`, `save`, or `auto` |
+| `CACHE_COMPRESSION` | `zstd` | Compression format: `zstd`, `gzip`, or `none` |
 
 ## Output
 

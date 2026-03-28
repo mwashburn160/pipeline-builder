@@ -11,7 +11,7 @@ Cargo crate publish plugin for deploying Rust packages to crates.io with dry-run
 
 ## Keywords
 
-`cargo`, `publish`, `rust`, `crates`, `package`
+`rust`, `crate`, `crates-io`, `publish`
 
 ## Requirements
 
@@ -54,7 +54,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CARGO_DRY_RUN` | `false` | Cargo Dry Run |
+| `CARGO_DRY_RUN` | `false` | Enable dry-run mode (validate without publishing) |
 
 ## Output
 

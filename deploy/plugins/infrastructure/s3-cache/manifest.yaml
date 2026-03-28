@@ -5,6 +5,7 @@ keywords:
   - s3
   - build-cache
   - performance
+category: infrastructure
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

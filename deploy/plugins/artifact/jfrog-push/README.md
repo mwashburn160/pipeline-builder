@@ -11,7 +11,7 @@ Push container images to JFrog Artifactory Docker registry with JFrog CLI authen
 
 ## Keywords
 
-`jfrog`, `artifactory`, `container`, `registry`, `push`, `docker`
+`container`, `docker`, `jfrog`, `artifactory`
 
 ## Requirements
 

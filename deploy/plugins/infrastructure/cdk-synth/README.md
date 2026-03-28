@@ -11,11 +11,11 @@ Synthesizes AWS CDK applications into CloudFormation templates using CodeBuildSt
 
 ## Keywords
 
-`aws`, `cdk`, `synth`, `cloudformation`, `typescript`, `codebuild`
+`aws`, `cdk`, `cloudformation`, `synthesize`
 
 ## Requirements
 
-- Node.js
+- Node.js 24
 
 ## Configuration
 

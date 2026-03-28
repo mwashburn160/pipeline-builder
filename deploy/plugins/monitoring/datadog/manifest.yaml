@@ -5,6 +5,7 @@ keywords:
   - deploy-tracking
   - apm
   - observability
+category: monitoring
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

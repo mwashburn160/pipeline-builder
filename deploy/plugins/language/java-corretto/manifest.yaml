@@ -5,6 +5,7 @@ keywords:
   - kotlin
   - corretto
   - aws
+category: language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -18,7 +19,7 @@ installCommands:
   - |
     export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
     if [ ! -d "${JAVA_HOME}" ]; then
-      echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 11, 17, 21"
+      echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 17, 21"
       exit 1
     fi
     export PATH="${JAVA_HOME}/bin:${PATH}"

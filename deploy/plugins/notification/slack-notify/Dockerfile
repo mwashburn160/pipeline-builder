@@ -10,9 +10,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
     curl \
     jq \
     ca-certificates \

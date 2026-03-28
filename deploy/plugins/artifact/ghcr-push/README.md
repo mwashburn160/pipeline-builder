@@ -11,7 +11,7 @@ Push container images to GitHub Container Registry (ghcr.io) with GitHub CLI aut
 
 ## Keywords
 
-`github`, `ghcr`, `container`, `registry`, `push`, `docker`
+`container`, `docker`, `github`, `registry`
 
 ## Requirements
 
@@ -54,8 +54,8 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_USERNAME` | _none_ | Github Username |
-| `GITHUB_OWNER` | _none_ | Github Owner |
+| `GITHUB_USERNAME` | _none_ | GitHub username for registry authentication |
+| `GITHUB_OWNER` | _none_ | GitHub owner (organization or username) for image namespace |
 | `IMAGE_NAME` | _none_ | Name for the container image |
 | `IMAGE_TAG` | `latest` | Tag for the container image |
 | `DOCKERFILE_PATH` | `Dockerfile` | Path to the Dockerfile |

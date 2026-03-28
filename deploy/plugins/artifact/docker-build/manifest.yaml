@@ -5,6 +5,7 @@ keywords:
   - docker
   - build
   - multi-stage
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

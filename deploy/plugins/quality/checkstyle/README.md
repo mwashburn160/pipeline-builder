@@ -11,11 +11,11 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 
 ## Keywords
 
-`checkstyle`, `java`, `lint`, `code-style`, `google`, `sun`, `code-quality`
+`java`, `code-style`, `linter`, `formatting`
 
 ## Requirements
 
-- Java 17.0.13-tem
+- Java (via SDKMAN, default 21.0.10-tem)
 
 ## Configuration
 
@@ -23,7 +23,7 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 |----------|---------|-------------|
 | `CHECKSTYLE_VERSION` | `10.21.1` | Checkstyle Version |
 | `CHECKSTYLE_CONFIG` | `google` | Checkstyle Config |
-| `JAVA_VERSION` | `17.0.13-tem` | Java SDK version to use |
+| `JAVA_VERSION` | `21.0.10-tem` | Java SDK version to use |
 
 ## Output
 
@@ -40,7 +40,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "env": {
     "CHECKSTYLE_VERSION": "10.21.1",
     "CHECKSTYLE_CONFIG": "google",
-    "JAVA_VERSION": "17.0.13-tem"
+    "JAVA_VERSION": "21.0.10-tem"
   }
 }
 ```

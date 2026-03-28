@@ -5,6 +5,7 @@ keywords:
   - newman
   - contract-test
   - collection
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -14,6 +15,9 @@ secrets: []
 primaryOutputDirectory: postman-reports
 dockerfile: Dockerfile
 installCommands:
+  - |
+    source ${NVM_DIR}/nvm.sh
+    nvm use ${NODE_VERSION}
   - newman --version
   - |
     if [ -z "${COLLECTION_FILE}" ]; then
@@ -60,6 +64,7 @@ commands:
       ${BAIL_ARG} || true
   - "echo \"Postman tests complete. Reports available in postman-reports/\""
 env:
+  NODE_VERSION: "24"
   COLLECTION_FILE: ""
   ENVIRONMENT_FILE: ""
   GLOBALS_FILE: ""

@@ -24,13 +24,11 @@ ENV NVM_DIR=/opt/nvm
 RUN mkdir -p ${NVM_DIR} \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 
-# Pre-install current + previous LTS Node.js versions
+# Pre-install current LTS Node.js version
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 22 && \
     nvm install 24 && \
     nvm alias default 24" \
-    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v24') ${NVM_DIR}/versions/node/v24 \
-    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v22') ${NVM_DIR}/versions/node/v22
+    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v24') ${NVM_DIR}/versions/node/v24
 
 # Add nvm to PATH
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"

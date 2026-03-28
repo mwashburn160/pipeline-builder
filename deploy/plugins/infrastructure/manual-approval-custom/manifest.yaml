@@ -5,6 +5,7 @@ keywords:
   - gate
   - sns
   - ssm
+category: infrastructure
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

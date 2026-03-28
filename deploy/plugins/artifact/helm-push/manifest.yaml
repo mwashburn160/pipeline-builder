@@ -5,6 +5,7 @@ keywords:
   - chart
   - oci
   - registry
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

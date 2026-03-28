@@ -11,12 +11,12 @@ Datadog deployment tracking plugin for sending deploy events and markers to Data
 
 ## Keywords
 
-`datadog`, `monitoring`, `deploy`, `apm`, `metrics`, `observability`
+`datadog`, `deploy-tracking`, `apm`, `observability`
 
 ## Requirements
 
-- Python
-- 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
+- curl and jq (included in container image)
+- 1 required secret configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets
 
@@ -55,9 +55,9 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DD_SITE` | `datadoghq.com` | Datadog site (e.g., datadoghq.com) |
-| `DD_SERVICE` | _none_ | Dd Service |
-| `DD_ENV` | `production` | Dd Env |
-| `DD_VERSION` | _none_ | Dd Version |
+| `DD_SERVICE` | _none_ | Datadog service name for tagging |
+| `DD_ENV` | `production` | Deployment environment name |
+| `DD_VERSION` | _none_ | Application version being deployed |
 
 ## Output
 

@@ -11,7 +11,7 @@ Helm chart deployment plugin for Kubernetes with install, upgrade, uninstall, an
 
 ## Keywords
 
-`helm`, `kubernetes`, `deploy`, `k8s`, `chart`, `eks`
+`kubernetes`, `helm`, `chart`, `deploy`
 
 ## Requirements
 

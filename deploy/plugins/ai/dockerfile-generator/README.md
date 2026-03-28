@@ -11,14 +11,12 @@ AI-powered Dockerfile generator that analyzes project source code and produces a
 
 ## Keywords
 
-`dockerfile`, `ai`, `ollama`, `generator`, `docker`, `codegen`
+`dockerfile`, `ai`, `ollama`, `code-generation`
 
 ## Requirements
 
-- Node.js
-- Python
-- Java
-- C++ build tools (gcc, cmake, make)
+- Ollama (installed automatically in the container image)
+- GPU recommended but not required (auto-detected at runtime)
 
 ## Configuration
 
@@ -54,5 +52,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 |------|-------------|
 | `manifest.yaml` | Plugin configuration and build commands |
 | `Dockerfile` | Container image definition |
+| `detect-gpu.sh` | GPU auto-detection entrypoint script |
 | `plugin.zip` | Packaged plugin archive |
 | `README.md` | This documentation file |

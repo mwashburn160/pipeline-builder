@@ -11,7 +11,7 @@ Flyway database migration plugin supporting migrate, repair, info, validate, and
 
 ## Keywords
 
-`flyway`, `database`, `migration`, `sql`, `schema`, `deploy`
+`database`, `migration`, `flyway`, `schema`
 
 ## Requirements
 

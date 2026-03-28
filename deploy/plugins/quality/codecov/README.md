@@ -11,11 +11,11 @@ Codecov coverage reporting plugin for uploading and tracking code coverage with 
 
 ## Keywords
 
-`codecov`, `coverage`, `reporting`, `pr-comments`
+`coverage`, `reporting`, `badge`, `threshold`
 
 ## Requirements
 
-- Node.js
+- Node.js 24
 - 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets

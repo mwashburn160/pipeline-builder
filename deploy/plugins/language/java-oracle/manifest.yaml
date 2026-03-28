@@ -5,6 +5,7 @@ keywords:
   - kotlin
   - graalvm
   - native-image
+category: language
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE
@@ -65,7 +66,7 @@ commands:
       esac
     fi
 env:
-  JAVA_VERSION: 21.0.5-graal
+  JAVA_VERSION: 21.0.10-graal
   KOTLIN_VERSION: 2.1.0
   BUILD_TOOL: auto
   NATIVE_BUILD: "false"

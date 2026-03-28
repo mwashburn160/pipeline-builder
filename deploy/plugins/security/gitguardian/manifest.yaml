@@ -5,6 +5,7 @@ keywords:
   - credentials
   - enterprise
   - api-keys
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

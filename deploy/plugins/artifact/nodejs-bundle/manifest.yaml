@@ -5,6 +5,7 @@ keywords:
   - javascript
   - typescript
   - bundle
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

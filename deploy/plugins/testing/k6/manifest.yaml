@@ -5,6 +5,7 @@ keywords:
   - performance
   - virtual-users
   - threshold
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -60,5 +61,5 @@ env:
   K6_VERSION: "0.56.0"
   K6_SCRIPT: ""
   K6_VUS: "10"
-  K6_DURATION: 30s
+  K6_DURATION: "30s"
   K6_THRESHOLDS: ""

@@ -5,6 +5,7 @@ keywords:
   - helm
   - chart
   - deploy
+category: deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

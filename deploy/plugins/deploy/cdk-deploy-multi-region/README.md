@@ -11,13 +11,12 @@ AWS CDK multi-region deployment plugin for deploying CDK stacks across multiple 
 
 ## Keywords
 
-`aws`, `cdk`, `deploy`, `multi-region`, `cloudformation`, `typescript`, `infrastructure`, `iac`, `global`
+`aws`, `cdk`, `multi-region`, `deploy`
 
 ## Requirements
 
 - AWS CLI configured with appropriate permissions
-- Node.js
-- Python
+- Node.js 24
 
 ## Configuration
 

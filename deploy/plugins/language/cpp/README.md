@@ -11,7 +11,7 @@ C/C++ plugin for building and testing C/C++ applications using CMake, Make, or M
 
 ## Keywords
 
-`cpp`, `c`, `cmake`, `make`, `meson`
+`c++`, `cpp`, `c`, `cmake`, `make`, `meson`
 
 ## Requirements
 

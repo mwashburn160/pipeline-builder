@@ -9,6 +9,9 @@ FROM public.ecr.aws/docker/library/ubuntu:24.04
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Accept default config for any package prompts
+RUN echo 'Dpkg::Options { "--force-confnew"; }' > /etc/apt/apt.conf.d/99force-confnew
+
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

@@ -11,7 +11,7 @@ Rust plugin for building and testing Rust applications using Cargo with AWS CDK 
 
 ## Keywords
 
-`rust`, `cargo`, `rustup`
+`rust`, `cargo`, `build`, `test`
 
 ## Requirements
 

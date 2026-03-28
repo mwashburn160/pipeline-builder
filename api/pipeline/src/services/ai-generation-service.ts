@@ -17,7 +17,7 @@ const logger = createLogger('ai-generation');
 // Service-Specific Types
 
 /** Summary of an available plugin, used as context for AI generation. */
-interface PluginSummary {
+export interface PluginSummary {
   name: string;
   description: string | null;
   version: string;
@@ -25,6 +25,9 @@ interface PluginSummary {
   computeType: string;
   commands: string[];
   installCommands: string[];
+  keywords: string[];
+  metadata: Record<string, string | number | boolean>;
+  env: Record<string, string>;
 }
 
 /** Parameters for pipeline configuration generation. */
@@ -127,6 +130,14 @@ const PipelineGenerationSchema = z.object({
   global: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Global metadata inherited by all steps'),
 });
 
+// Plugin Context Helpers
+
+/** Extract category from plugin metadata or top-level field. Defaults to 'unknown'. */
+function getCategory(plugin: PluginSummary): string {
+  const category = (plugin.metadata ?? {}).category;
+  return typeof category === 'string' && category.trim().length > 0 ? category.trim().toLowerCase() : 'unknown';
+}
+
 // System Prompt
 
 /**
@@ -137,9 +148,31 @@ const PipelineGenerationSchema = z.object({
  */
 function buildSystemPrompt(plugins: PluginSummary[]): string {
   const pluginList = plugins.length > 0
-    ? plugins.map((p) =>
-      `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`,
-    ).join('\n')
+    ? plugins.map((p) => {
+      let line = `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
+
+      const parts: string[] = [];
+
+      const keywords = p.keywords ?? [];
+      if (keywords.length > 0) {
+        parts.push(`keywords: ${keywords.join(', ')}`);
+      }
+
+      const category = getCategory(p);
+      if (category) {
+        parts.push(`category: ${category}`);
+      }
+
+      const envKeys = Object.keys(p.env ?? {});
+      if (envKeys.length > 0) {
+        parts.push(`env: ${envKeys.join(', ')}`);
+      }
+
+      if (parts.length > 0) {
+        line += `\n  ${parts.join(' | ')}`;
+      }
+      return line;
+    }).join('\n')
     : '(No plugins available — use a reasonable default plugin name and note it may need to be created)';
 
   return `You are a pipeline configuration assistant for an AWS CDK Pipelines platform.
@@ -164,7 +197,7 @@ ${pluginList}
 7. Only include fields the user explicitly or implicitly requested. Omit optional fields with no value.
 8. If the user mentions environment variables, include them in the env field of the relevant step.
 9. If the user does not specify a pipeline name, omit it (the system will auto-generate one).
-10. Choose the most appropriate plugin based on the description (e.g., if building Node.js, pick a Node.js plugin).
+10. Choose the most appropriate plugin based on description, keywords, category, and env vars. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages).
 11. If the user's description is too vague, make reasonable assumptions and proceed.`;
 }
 

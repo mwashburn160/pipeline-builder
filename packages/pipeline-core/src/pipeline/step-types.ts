@@ -89,6 +89,13 @@ export interface PluginManifest {
   readonly keywords?: string[];
 
   /**
+   * Plugin category for AI-assisted selection and organization.
+   * One of: language, security, quality, testing, deploy, artifact,
+   *         infrastructure, monitoring, notification, ai
+   */
+  readonly category?: string;
+
+  /**
    * Semantic version of the plugin
    * @example '1.0.0'
    */

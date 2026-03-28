@@ -4,7 +4,7 @@
 # Supports sequential and parallel deployment strategies
 # Includes rollback-on-failure for safe multi-region rollouts
 
-FROM public.ecr.aws/docker/library/node:22-slim
+FROM public.ecr.aws/docker/library/node:24-slim
 
 # System dependencies for CDK, Docker assets, and native builds
 RUN apt-get update && apt-get install -y --no-install-recommends \

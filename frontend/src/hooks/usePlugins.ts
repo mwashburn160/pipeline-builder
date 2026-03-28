@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plugin } from '@/types';
 import api from '@/lib/api';
 import { CACHE_TTL_MS } from '@/lib/constants';
+import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 
 /**
  * Module-level cache for plugin data, shared across all usePlugins instances.
@@ -25,7 +26,7 @@ export function clearPluginCache() {
   cacheTimestamp = 0;
 }
 
-/** A group of plugins under a shared category label (e.g. "Organization", "Public"). */
+/** A group of plugins under a shared category label. */
 export interface PluginGroup {
   category: string;
   plugins: Plugin[];
@@ -77,12 +78,13 @@ export function usePlugins(enabled = true) {
 }
 
 /**
- * Filters plugins by a search query and groups them by access modifier.
- * Matches against name, description, and version fields.
+ * Filters plugins by a search query and groups them by category.
+ * Plugins with a `category` field are grouped by their category with display names.
+ * Plugins without a category fall back to access modifier grouping.
  *
  * @param plugins - Full list of plugins to filter and group
  * @param filter - Search query string (case-insensitive); empty string skips filtering
- * @returns Grouped plugins split into "Organization" (private) and "Public" categories
+ * @returns Grouped plugins organized by category
  */
 export function groupPlugins(plugins: Plugin[], filter: string): PluginGroup[] {
   const query = filter.toLowerCase();
@@ -92,15 +94,35 @@ export function groupPlugins(plugins: Plugin[], filter: string): PluginGroup[] {
         (p) =>
           p.name.toLowerCase().includes(query) ||
           (p.description || '').toLowerCase().includes(query) ||
-          p.version.toLowerCase().includes(query),
+          p.version.toLowerCase().includes(query) ||
+          (p.category || '').toLowerCase().includes(query),
       )
     : plugins;
 
-  const orgPlugins = filtered.filter((p) => p.accessModifier === 'private');
-  const publicPlugins = filtered.filter((p) => p.accessModifier === 'public');
+  // Group by category (with fallback to access modifier for legacy plugins)
+  const categoryMap = new Map<string, Plugin[]>();
 
+  for (const plugin of filtered) {
+    const cat = plugin.category ?? 'unknown';
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat)!.push(plugin);
+  }
+
+  // Build groups in defined category order, then append any remaining
   const groups: PluginGroup[] = [];
-  if (orgPlugins.length > 0) groups.push({ category: 'Organization', plugins: orgPlugins });
-  if (publicPlugins.length > 0) groups.push({ category: 'Public', plugins: publicPlugins });
+  for (const cat of PLUGIN_CATEGORIES) {
+    const plugins = categoryMap.get(cat);
+    if (plugins && plugins.length > 0) {
+      groups.push({ category: CATEGORY_DISPLAY_NAMES[cat], plugins });
+      categoryMap.delete(cat);
+    }
+  }
+
+  // Append any remaining categories not in the defined order (includes 'unknown')
+  for (const [cat, plugins] of categoryMap) {
+    const label = cat.charAt(0).toUpperCase() + cat.slice(1);
+    groups.push({ category: label, plugins });
+  }
+
   return groups;
 }

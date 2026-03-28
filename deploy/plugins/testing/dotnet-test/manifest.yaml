@@ -5,6 +5,7 @@ keywords:
   - unit-test
   - integration-test
   - trx
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -32,4 +33,4 @@ commands:
   - "echo \"dotnet test complete. Reports available in test-reports/\""
 env:
   DOTNET_VERSION: "8.0"
-  CONFIGURATION: Release
+  CONFIGURATION: "Release"

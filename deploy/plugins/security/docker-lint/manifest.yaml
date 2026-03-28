@@ -5,6 +5,7 @@ keywords:
   - hadolint
   - dockle
   - best-practices
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

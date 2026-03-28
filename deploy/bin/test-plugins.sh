@@ -43,12 +43,13 @@ done
 
 # ---- Validation constants ----
 
-REQUIRED_FIELDS=("name" "description" "keywords" "version" "pluginType" "computeType")
+REQUIRED_FIELDS=("name" "description" "keywords" "category" "version" "pluginType" "computeType")
 CODEBUILD_FIELDS=("primaryOutputDirectory" "dockerfile" "installCommands" "commands")
 V2_FIELDS=("timeout" "failureBehavior" "secrets")
 VALID_COMPUTE_TYPES=("SMALL" "MEDIUM" "LARGE")
 VALID_PLUGIN_TYPES=("CodeBuildStep" "ManualApprovalStep")
 VALID_FAILURE_BEHAVIORS=("fail" "warn" "ignore")
+VALID_CATEGORIES=("language" "security" "quality" "monitoring" "artifact" "deploy" "infrastructure" "testing" "notification" "ai" "unknown")
 
 # ---- Validation functions ----
 
@@ -147,6 +148,21 @@ validate_manifest() {
       all_pass=false
     else
       log_pass "Valid timeout: ${timeout_val}m"
+    fi
+  fi
+
+  # Valid category
+  if grep -q "^category:" "$manifest" 2>/dev/null; then
+    local cat_val
+    cat_val=$(get_manifest_field category "$manifest")
+    if [[ ! " ${VALID_CATEGORIES[*]} " =~ " ${cat_val} " ]]; then
+      log_fail "Invalid category: ${cat_val} (expected: ${VALID_CATEGORIES[*]})" "$fqn"
+      all_pass=false
+    elif [ "$cat_val" != "$category" ]; then
+      log_fail "Category mismatch: manifest='${cat_val}' directory='${category}'" "$fqn"
+      all_pass=false
+    else
+      log_pass "Valid category: ${cat_val}"
     fi
   fi
 

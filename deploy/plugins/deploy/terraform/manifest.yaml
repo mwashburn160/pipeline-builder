@@ -5,6 +5,7 @@ keywords:
   - terraform
   - hcl
   - provision
+category: deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

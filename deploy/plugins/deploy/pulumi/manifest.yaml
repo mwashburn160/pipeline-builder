@@ -5,6 +5,7 @@ keywords:
   - pulumi
   - multi-cloud
   - deploy
+category: deploy
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM

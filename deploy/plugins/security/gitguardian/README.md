@@ -11,7 +11,7 @@ GitGuardian enterprise secret detection plugin for scanning code repositories fo
 
 ## Keywords
 
-`gitguardian`, `secrets`, `credentials`, `security`, `enterprise`, `ggshield`
+`secret-detection`, `credentials`, `enterprise`, `api-keys`
 
 ## Requirements
 

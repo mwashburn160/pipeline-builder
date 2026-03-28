@@ -11,7 +11,7 @@ Docker image build and push plugin supporting ECR, DockerHub, and custom registr
 
 ## Keywords
 
-`docker`, `build`, `push`, `ecr`, `dockerhub`, `container`, `image`, `artifact`
+`container`, `docker`, `build`, `multi-stage`
 
 ## Requirements
 
@@ -59,10 +59,10 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 |----------|---------|-------------|
 | `DOCKERFILE_PATH` | `Dockerfile` | Path to the Dockerfile |
 | `DOCKER_CONTEXT` | `.` | Docker build context directory |
-| `DOCKER_BUILD_ARGS` | _none_ | Docker Build Args |
-| `DOCKER_TARGET` | _none_ | Docker Target |
-| `DOCKER_CACHE_FROM` | _none_ | Docker Cache From |
-| `REGISTRY_TYPE` | `ecr` | Registry Type |
+| `DOCKER_BUILD_ARGS` | _none_ | Space-separated build arguments (e.g., `KEY=VALUE`) |
+| `DOCKER_TARGET` | _none_ | Target build stage for multi-stage builds |
+| `DOCKER_CACHE_FROM` | _none_ | External cache source for the build |
+| `REGISTRY_TYPE` | `ecr` | Registry type (`ecr`, `dockerhub`, `custom`, or `none`) |
 | `IMAGE_NAME` | _none_ | Name for the container image |
 | `IMAGE_TAG` | `latest` | Tag for the container image |
 

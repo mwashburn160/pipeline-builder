@@ -90,11 +90,11 @@ spec:
               value: "pipeline"
           resources:
             limits:
-              cpu: "500m"
-              memory: 768Mi
+              cpu: "1000m"
+              memory: 1024Mi
             requests:
-              cpu: "75m"
-              memory: 384Mi
+              cpu: "500m"
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /health

@@ -11,7 +11,7 @@ Mend (formerly WhiteSource) SCA plugin for scanning dependencies for known CVEs 
 
 ## Keywords
 
-`mend`, `whitesource`, `sca`, `license`, `vulnerability`, `compliance`, `dependency`
+`sca`, `dependency-scan`, `license`, `cve`
 
 ## Requirements
 

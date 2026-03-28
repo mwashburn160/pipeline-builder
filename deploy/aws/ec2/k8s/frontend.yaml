@@ -60,10 +60,10 @@ spec:
                 name: app-env
           resources:
             limits:
-              cpu: "300m"
+              cpu: "500m"
               memory: 512Mi
             requests:
-              cpu: "50m"
+              cpu: "250m"
               memory: 256Mi
           readinessProbe:
             httpGet:

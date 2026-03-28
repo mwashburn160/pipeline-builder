@@ -11,22 +11,22 @@ Postman API testing plugin using Newman CLI to run collection-based API contract
 
 ## Keywords
 
-`postman`, `newman`, `api`, `testing`, `contract`, `integration`, `rest`
+`api-test`, `newman`, `contract-test`, `collection`
 
 ## Requirements
 
-- Node.js
+- Node.js 24
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COLLECTION_FILE` | _none_ | Collection File |
-| `ENVIRONMENT_FILE` | _none_ | Environment File |
-| `GLOBALS_FILE` | _none_ | Globals File |
-| `ITERATION_COUNT` | `1` | Iteration Count |
-| `NEWMAN_TIMEOUT` | `60000` | Newman Timeout |
-| `BAIL_ON_FAILURE` | `false` | Bail On Failure |
+| `COLLECTION_FILE` | _none_ | Path to the Postman collection JSON file (auto-detected if not set) |
+| `ENVIRONMENT_FILE` | _none_ | Path to Postman environment file |
+| `GLOBALS_FILE` | _none_ | Path to Postman globals file |
+| `ITERATION_COUNT` | `1` | Number of times to run the collection |
+| `NEWMAN_TIMEOUT` | `60000` | Request timeout in milliseconds |
+| `BAIL_ON_FAILURE` | `false` | Stop the run on first test failure |
 
 ## Output
 

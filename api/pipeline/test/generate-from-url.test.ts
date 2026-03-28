@@ -98,6 +98,8 @@ const mockDbChain = {
   from: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
   limit: jest.fn().mockResolvedValue([]),
+  // Make the chain thenable so `await db.select().from().where()` resolves to []
+  then: jest.fn((resolve: Function) => resolve([])),
 };
 
 jest.mock('@mwashburn160/pipeline-core', () => ({

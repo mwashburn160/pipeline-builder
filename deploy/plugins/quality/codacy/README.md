@@ -11,13 +11,10 @@ Codacy code quality and coverage reporting plugin for automated code review and 
 
 ## Keywords
 
-`codacy`, `coverage`, `code-quality`, `reporting`
+`code-quality`, `coverage`, `multi-language`, `review`
 
 ## Requirements
 
-- Node.js
-- Python
-- Java
 - 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets

@@ -11,17 +11,17 @@ k6 performance and load testing plugin for running configurable load tests with 
 
 ## Keywords
 
-`k6`, `load-testing`, `performance`, `stress-test`, `grafana`, `api`, `benchmark`
+`load-test`, `performance`, `virtual-users`, `threshold`
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `K6_VERSION` | `0.56.0` | K6 Version |
-| `K6_SCRIPT` | _none_ | K6 test script path |
-| `K6_VUS` | `10` | K6 Vus |
-| `K6_DURATION` | `30s` | K6 Duration |
-| `K6_THRESHOLDS` | _none_ | K6 performance thresholds |
+| `K6_VERSION` | `0.56.0` | k6 binary version to use |
+| `K6_SCRIPT` | _none_ | Path to the k6 test script (auto-detected if not set) |
+| `K6_VUS` | `10` | Number of virtual users to simulate |
+| `K6_DURATION` | `30s` | Duration of the load test (e.g., 30s, 5m) |
+| `K6_THRESHOLDS` | _none_ | Custom performance thresholds |
 
 ## Output
 

@@ -5,6 +5,7 @@ keywords:
   - static-analysis
   - bug-detection
   - bytecode
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

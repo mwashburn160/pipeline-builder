@@ -5,6 +5,7 @@ keywords:
   - rails
   - minitest
   - rspec
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -28,5 +29,5 @@ commands:
   - "echo \"Rails test complete. Reports available in test-reports/\""
 env:
   RUBY_VERSION: "4.0.1"
-  RAILS_ENV: test
-  DATABASE_ADAPTER: sqlite3
+  RAILS_ENV: "test"
+  DATABASE_ADAPTER: "sqlite3"

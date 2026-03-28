@@ -98,10 +98,10 @@ spec:
               value: "3000"
           resources:
             limits:
-              cpu: "500m"
+              cpu: "750m"
               memory: 768Mi
             requests:
-              cpu: "75m"
+              cpu: "400m"
               memory: 384Mi
           readinessProbe:
             httpGet:

@@ -5,13 +5,13 @@ Snyk security scanning plugin for Node.js vulnerability detection in dependencie
 **Version:** 1.0.0  
 **Category:** security  
 **Plugin Type:** CodeBuildStep  
-**Compute:** MEDIUM  
-**Timeout:** 30 minutes  
+**Compute:** SMALL
+**Timeout:** 15 minutes  
 **Failure Behavior:** fail  
 
 ## Keywords
 
-`snyk-nodejs`, `snyk`, `security`, `vulnerability`, `sca`, `sast`, `nodejs`
+`nodejs`, `sca`, `vulnerability`, `dependency-scan`
 
 ## Requirements
 
@@ -54,10 +54,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SNYK_VERSION` | `latest` | Snyk CLI version |
 | `SNYK_SEVERITY_THRESHOLD` | `high` | Minimum severity level to report (low, medium, high, critical) |
-| `LANGUAGE` | `nodejs` | Target language for scanning |
-| `LANGUAGE_VERSION` | _none_ | Language runtime version |
 
 ## Output
 
@@ -72,10 +69,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "snyk-nodejs",
   "plugin": "snyk-nodejs",
   "env": {
-    "SNYK_VERSION": "latest",
-    "SNYK_SEVERITY_THRESHOLD": "high",
-    "LANGUAGE": "nodejs",
-    "LANGUAGE_VERSION": "<your-language_version>"
+    "SNYK_SEVERITY_THRESHOLD": "high"
   }
 }
 ```

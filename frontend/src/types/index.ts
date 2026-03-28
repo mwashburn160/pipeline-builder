@@ -170,6 +170,7 @@ export interface Plugin {
   name: string;
   description?: string;
   keywords: string[];
+  category?: string;
   version: string;
   
   // Plugin configuration

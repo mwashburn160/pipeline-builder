@@ -105,6 +105,12 @@ export interface PluginFilter extends CommonFilter {
    * Keyword to search within the keywords JSONB array (case-insensitive contains)
    */
   readonly keyword?: string;
+
+  /**
+   * Plugin category to filter by
+   * @example "language", "security", "testing"
+   */
+  readonly category?: string;
 }
 
 /**

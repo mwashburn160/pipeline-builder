@@ -5,6 +5,7 @@ keywords:
   - browser
   - ui-test
   - video
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: LARGE
@@ -52,6 +53,6 @@ commands:
   - "echo \"Cypress tests complete. Reports available in cypress-reports/\""
 env:
   NODE_VERSION: "24"
-  CYPRESS_BROWSER: electron
+  CYPRESS_BROWSER: "electron"
   CYPRESS_SPEC: ""
   CYPRESS_RECORD_KEY: ""

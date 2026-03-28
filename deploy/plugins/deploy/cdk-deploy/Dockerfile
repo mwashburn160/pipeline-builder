@@ -3,7 +3,7 @@
 # Synthesizes and deploys CDK stacks to a single AWS region
 # Supports TypeScript, JavaScript, Python, Java, and Go CDK apps
 
-FROM public.ecr.aws/docker/library/node:22-slim
+FROM public.ecr.aws/docker/library/node:24-slim
 
 # System dependencies for CDK, Docker assets, and native builds
 RUN apt-get update && apt-get install -y --no-install-recommends \

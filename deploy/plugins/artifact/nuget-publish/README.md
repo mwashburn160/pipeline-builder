@@ -11,7 +11,7 @@ NuGet package publish plugin for deploying .NET packages to NuGet Gallery or cus
 
 ## Keywords
 
-`nuget`, `publish`, `dotnet`, `csharp`, `package`
+`dotnet`, `nuget`, `package`, `publish`
 
 ## Requirements
 

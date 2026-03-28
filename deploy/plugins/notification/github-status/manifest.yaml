@@ -5,6 +5,7 @@ keywords:
   - commit-status
   - check-run
   - notification
+category: notification
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

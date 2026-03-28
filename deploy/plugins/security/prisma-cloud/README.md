@@ -11,7 +11,7 @@ Prisma Cloud (Palo Alto) container image and IaC security scanning plugin with C
 
 ## Keywords
 
-`prisma`, `twistlock`, `palo-alto`, `container`, `iac`, `security`, `compliance`, `checkov`
+`container`, `iac`, `checkov`, `compliance`
 
 ## Requirements
 

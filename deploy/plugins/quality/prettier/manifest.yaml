@@ -5,6 +5,7 @@ keywords:
   - typescript
   - formatting
   - code-style
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

@@ -11,7 +11,7 @@ Docker linting and container security plugin using Hadolint for Dockerfile best 
 
 ## Keywords
 
-`docker`, `dockerfile`, `hadolint`, `dockle`, `lint`, `security`, `cis-benchmark`, `container`
+`docker`, `hadolint`, `dockle`, `best-practices`
 
 ## Requirements
 

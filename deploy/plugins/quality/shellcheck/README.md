@@ -11,11 +11,11 @@ ShellCheck shell script linting plugin for detecting bugs, syntax issues, and po
 
 ## Keywords
 
-`shellcheck`, `shell`, `bash`, `lint`, `script`, `code-quality`
+`bash`, `shell`, `linter`, `bug-detection`
 
 ## Requirements
 
-- Node.js
+- ShellCheck (pre-installed in container)
 
 ## Configuration
 

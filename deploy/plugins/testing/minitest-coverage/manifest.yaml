@@ -5,6 +5,7 @@ keywords:
   - minitest
   - coverage
   - simplecov
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

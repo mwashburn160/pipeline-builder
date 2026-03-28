@@ -11,6 +11,7 @@ export const PluginFilterSchema = BaseFilterSchema.extend({
   imageTag: z.string().min(1).optional(),
   pluginType: z.string().optional(),
   keyword: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
 });
 
 /**
@@ -24,6 +25,7 @@ export const PluginCreateSchema = z.object({
   version: z.string().min(1, 'Version is required'),
   imageTag: z.string().min(1, 'Image tag is required'),
   accessModifier: AccessModifierSchema.optional(),
+  category: z.string().min(1).optional(),
   pluginType: z.string().optional(),
   computeType: z.string().optional(),
   primaryOutputDirectory: z.string().nullable().optional(),
@@ -50,6 +52,7 @@ export const PluginUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
+  category: z.string().min(1).optional(),
   version: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   pluginType: z.string().optional(),

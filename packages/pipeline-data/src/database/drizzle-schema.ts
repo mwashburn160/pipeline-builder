@@ -84,6 +84,11 @@ export const plugin = pgTable('plugins', {
     .default('1.0.0')
     .notNull(),
 
+  // Plugin classification
+  category: varchar('category', { length: 50 })
+    .default('unknown')
+    .notNull(),
+
   // Plugin configuration
   metadata: jsonb('metadata')
     .$type<Record<string, string | number | boolean>>()
@@ -155,6 +160,9 @@ export const plugin = pgTable('plugins', {
   activeIdx: index('plugin_active_idx').on(table.isActive),
   createdAtIdx: index('plugin_created_at_idx').on(table.createdAt),
   updatedAtIdx: index('plugin_updated_at_idx').on(table.updatedAt),
+
+  // Category index for filtering
+  categoryIdx: index('plugin_category_idx').on(table.category),
 
   // Composite index for common access pattern (orgId + isActive)
   orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),

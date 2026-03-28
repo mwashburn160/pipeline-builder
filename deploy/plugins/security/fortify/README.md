@@ -11,7 +11,7 @@ Micro Focus Fortify enterprise SAST plugin supporting Fortify on Demand (FoD) an
 
 ## Keywords
 
-`fortify`, `sast`, `security`, `enterprise`, `micro-focus`, `fod`, `compliance`
+`sast`, `enterprise`, `fortify`, `vulnerability`
 
 ## Requirements
 

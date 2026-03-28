@@ -11,7 +11,7 @@ Push container images to Azure Container Registry with Azure CLI service princip
 
 ## Keywords
 
-`azure`, `acr`, `container`, `registry`, `push`, `docker`
+`container`, `docker`, `azure`, `registry`
 
 ## Requirements
 

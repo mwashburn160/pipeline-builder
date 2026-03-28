@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl jq ca-certificates gnupg \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
@@ -28,6 +28,6 @@ RUN ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
 ENV TRIVY_VERSION=${TRIVY_VERSION}
 ENV TRIVY_SEVERITY=HIGH,CRITICAL
 ENV TRIVY_FORMAT=json
+ENV DOTNET_VERSION=9.0
 WORKDIR /app
 CMD ["bash"]
-ENV DOTNET_VERSION=9.0

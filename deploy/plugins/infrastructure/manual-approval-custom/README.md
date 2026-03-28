@@ -11,12 +11,11 @@ Custom pipeline approval gate using SNS/SSM polling — publishes an SNS notific
 
 ## Keywords
 
-`approval`, `gate`, `manual`, `pipeline`, `infrastructure`, `sns`
+`approval`, `gate`, `sns`, `ssm`
 
 ## Requirements
 
 - AWS CLI configured with appropriate permissions
-- Python
 
 ## Configuration
 
@@ -24,7 +23,7 @@ Custom pipeline approval gate using SNS/SSM polling — publishes an SNS notific
 |----------|---------|-------------|
 | `APPROVAL_TOPIC_ARN` | _none_ | Approval Topic Arn |
 | `APPROVAL_MESSAGE` | `Pipeline requires manual approval` | Message shown during manual approval |
-| `APPROVAL_TIMEOUT` | `3600` | Manual approval timeout in minutes |
+| `APPROVAL_TIMEOUT` | `3600` | Manual approval timeout in seconds |
 | `APPROVAL_URL` | _none_ | Approval Url |
 
 ## Output

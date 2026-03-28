@@ -11,7 +11,7 @@ OSS license compliance scanning plugin to detect restricted or incompatible lice
 
 ## Keywords
 
-`license`, `compliance`, `oss`, `dependency`, `legal`, `gpl`, `mit`, `apache`
+`license`, `compliance`, `oss`, `dependency-scan`
 
 ## Requirements
 

@@ -11,7 +11,7 @@ Google Cloud Platform deployment plugin supporting App Engine, Cloud Run, GKE, a
 
 ## Keywords
 
-`gcp`, `google`, `cloud`, `deploy`, `gcloud`, `infrastructure`
+`gcp`, `cloud-run`, `gke`, `deploy`
 
 ## Requirements
 

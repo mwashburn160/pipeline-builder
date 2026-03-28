@@ -11,12 +11,12 @@ New Relic deployment marker plugin for recording deployments and correlating rel
 
 ## Keywords
 
-`newrelic`, `monitoring`, `deploy`, `apm`, `observability`
+`newrelic`, `deploy-marker`, `apm`, `observability`
 
 ## Requirements
 
-- Python
-- 1 required secret(s) configured in AWS Secrets Manager (see [Secrets](#secrets) below)
+- curl and jq (included in container image)
+- 1 required secret configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets
 
@@ -54,10 +54,10 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NR_APP_ID` | _none_ | Nr App Id |
-| `NR_REVISION` | _none_ | Nr Revision |
-| `NR_DESCRIPTION` | _none_ | Nr Description |
-| `NR_USER` | _none_ | Nr User |
+| `NR_APP_ID` | _none_ | New Relic application ID to record the deployment against |
+| `NR_REVISION` | _none_ | Revision or version string for the deployment |
+| `NR_DESCRIPTION` | _none_ | Description of the deployment |
+| `NR_USER` | _none_ | User or service account performing the deployment |
 
 ## Output
 

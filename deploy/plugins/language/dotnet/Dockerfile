@@ -34,7 +34,7 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 ENV DOTNET_NOLOGO=1
 
 # Default .NET version (overridden by DOTNET_VERSION env var at runtime)
-ENV DOTNET_VERSION=8.0
+ENV DOTNET_VERSION=9.0
 
 # Working directory for pipeline source
 WORKDIR /app

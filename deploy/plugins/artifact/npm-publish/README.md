@@ -11,7 +11,7 @@ NPM package publish plugin for deploying Node.js packages to the npm registry wi
 
 ## Keywords
 
-`npm`, `publish`, `registry`, `nodejs`, `package`
+`nodejs`, `npm`, `package`, `publish`
 
 ## Requirements
 
@@ -54,9 +54,9 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NPM_DRY_RUN` | `false` | Npm Dry Run |
-| `NPM_TAG` | `latest` | Npm Tag |
-| `NPM_ACCESS` | `public` | Npm Access |
+| `NPM_DRY_RUN` | `false` | Enable dry-run mode (validate without publishing) |
+| `NPM_TAG` | `latest` | Distribution tag for the published package |
+| `NPM_ACCESS` | `public` | Package access level (`public` or `restricted`) |
 
 ## Output
 

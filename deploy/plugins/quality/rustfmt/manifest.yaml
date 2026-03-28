@@ -5,6 +5,7 @@ keywords:
   - formatting
   - code-style
   - consistency
+category: quality
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL

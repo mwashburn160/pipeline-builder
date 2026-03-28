@@ -11,7 +11,7 @@ Terraform infrastructure provisioning plugin with multi-version support, linting
 
 ## Keywords
 
-`terraform`, `infrastructure`, `iac`, `deploy`, `aws`, `tflint`, `tfsec`
+`infrastructure-as-code`, `terraform`, `hcl`, `provision`
 
 ## Requirements
 

@@ -5,6 +5,7 @@ keywords:
   - unit-test
   - integration-test
   - cargo
+category: testing
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
@@ -25,4 +26,4 @@ commands:
       2>&1 | tee test-reports/cargo-test.log || true
   - "echo \"Cargo test complete. Reports available in test-reports/\""
 env:
-  RUST_VERSION: stable
+  RUST_VERSION: "stable"

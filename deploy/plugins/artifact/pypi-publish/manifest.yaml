@@ -5,6 +5,7 @@ keywords:
   - pypi
   - twine
   - publish
+category: artifact
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
@@ -47,7 +48,7 @@ commands:
       --username "${TWINE_USERNAME}" \
       ${REPO_FLAG} \
       dist/* \
-      2>&1 | tee publish-output/twine-upload.log || true
+      2>&1 | tee publish-output/twine-upload.log
   - |
     # Save publish metadata
     if [ -f setup.py ] || [ -f setup.cfg ] || [ -f pyproject.toml ]; then

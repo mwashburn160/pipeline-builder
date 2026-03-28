@@ -11,7 +11,7 @@ Push container images to Google Artifact Registry with gcloud service account au
 
 ## Keywords
 
-`google`, `gar`, `artifact-registry`, `gcp`, `container`, `docker`
+`container`, `docker`, `gcp`, `registry`
 
 ## Requirements
 
@@ -56,7 +56,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GAR_LOCATION` | `us-central1` | Google Artifact Registry location |
-| `GAR_PROJECT` | _none_ | Gar Project |
+| `GAR_PROJECT` | _none_ | Google Cloud project ID |
 | `GAR_REPOSITORY` | _none_ | Google Artifact Registry repository name |
 | `IMAGE_NAME` | _none_ | Name for the container image |
 | `IMAGE_TAG` | `latest` | Tag for the container image |

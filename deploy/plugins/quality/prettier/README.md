@@ -11,17 +11,17 @@ Prettier code formatting verification plugin for checking consistent formatting 
 
 ## Keywords
 
-`prettier`, `format`, `code-style`, `javascript`, `typescript`, `css`, `html`
+`javascript`, `typescript`, `formatting`, `code-style`
 
 ## Requirements
 
-- Node.js 20
+- Node.js 24
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `20` | Node.js version to use |
+| `NODE_VERSION` | `24` | Node.js version to use |
 | `PRETTIER_GLOB` | `.` | Prettier Glob |
 
 ## Output
@@ -37,7 +37,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "prettier",
   "plugin": "prettier",
   "env": {
-    "NODE_VERSION": "20",
+    "NODE_VERSION": "24",
     "PRETTIER_GLOB": "."
   }
 }
