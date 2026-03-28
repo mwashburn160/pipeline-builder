@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS plugins (
     name                VARCHAR(150) NOT NULL,
     description         TEXT,
     keywords            JSONB NOT NULL DEFAULT '{}',
+    category            VARCHAR(50) NOT NULL DEFAULT 'unknown',
     version             VARCHAR(20) NOT NULL DEFAULT '1.0.0',
     metadata            JSONB NOT NULL DEFAULT '{}',
     
@@ -198,6 +199,7 @@ CREATE TABLE IF NOT EXISTS pipeline_events (
 -- ============================================================================
 
 -- Plugins table - add missing columns
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'unknown';
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
@@ -256,6 +258,9 @@ CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier
 
 CREATE INDEX IF NOT EXISTS idx_plugins_is_default
     ON plugins(name, is_default) WHERE is_default = true AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_plugins_category
+    ON plugins(category);
 
 CREATE INDEX IF NOT EXISTS idx_plugins_is_active
     ON plugins(is_active) WHERE deleted_at IS NULL;
@@ -687,7 +692,8 @@ SELECT
     indexname,
     indexdef
 FROM pg_indexes
-WHERE tablename IN ('plugins', 'pipelines', 'messages', 'pipeline_registry', 'pipeline_events')
+WHERE tablename IN ('plugins', 'pipelines', 'messages', 'pipeline_registry', 'pipeline_events',
+    'compliance_policies', 'compliance_rules', 'compliance_scans', 'compliance_exemptions')
 ORDER BY tablename, indexname;
 
 \echo ''

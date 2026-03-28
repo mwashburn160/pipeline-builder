@@ -246,6 +246,7 @@ function buildKanikoArgs(
     `--cache-dir=${KANIKO_CACHE_DIR}`,
     '--cleanup',
     '--reproducible',
+    '--snapshot-mode=redo',
     '--push-retry=2',
     '--image-fs-extract-retry=2',
     '--image-download-retry=3',
