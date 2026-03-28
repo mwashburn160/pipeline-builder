@@ -1,3 +1,13 @@
+## 1.39.0 (2026-03-28)
+
+### 🚀 Features
+
+- refactored ai generation ([4c0436ff](https://github.com/mwashburn160/pipeline-builder/commit/4c0436ff))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.38.6 (2026-03-27)
 
 ### 🩹 Fixes
