@@ -42,6 +42,15 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: frontend
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
           image: ghcr.io/mwashburn160/frontend:1.44.12
@@ -81,6 +90,14 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
 ---
 # =============================================================================
 # Frontend HorizontalPodAutoscaler
@@ -97,7 +114,7 @@ spec:
     kind: Deployment
     name: frontend
   minReplicas: 1
-  maxReplicas: 2
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
@@ -105,6 +122,11 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
 
 ---
 # =============================================================================

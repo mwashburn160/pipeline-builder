@@ -114,6 +114,14 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
       volumes:
         - name: ollama-data
           persistentVolumeClaim:
@@ -132,6 +140,22 @@ spec:
   resources:
     requests:
       storage: 20Gi
+  selector:
+    matchLabels:
+      app: ollama
+
+---
+# =============================================================================
+# Ollama PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ollama
+  labels:
+    app: ollama
+spec:
+  minAvailable: 1
   selector:
     matchLabels:
       app: ollama

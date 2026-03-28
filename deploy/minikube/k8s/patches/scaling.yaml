@@ -2,14 +2,14 @@
 # Minikube scaling overrides
 # =============================================================================
 
-# --- Plugin KEDA ScaledObject (maxReplicaCount 3 → 5) ---
+# --- Plugin KEDA ScaledObject (align with EC2/Fargate) ---
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
   name: plugin
 spec:
-  maxReplicaCount: 5
+  maxReplicaCount: 4
 
 # --- ResourceQuota (adjusted for minikube cluster) ---
 ---

@@ -253,6 +253,7 @@ export class PluginLookup extends Construct {
       name: 'no_pluginname',
       description: null,
       keywords: [],
+      category: 'unknown',
       version: '1.0.0',
       metadata: {},
       pluginType: 'CodeBuildStep',

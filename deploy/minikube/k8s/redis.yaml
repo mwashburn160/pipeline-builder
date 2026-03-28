@@ -80,3 +80,19 @@ spec:
       volumes:
         - name: redis-data
           emptyDir: {}
+
+---
+# =============================================================================
+# Redis PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: redis

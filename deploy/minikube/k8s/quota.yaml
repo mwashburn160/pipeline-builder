@@ -27,7 +27,7 @@ metadata:
     app: quota
     app.kubernetes.io/component: backend
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -46,6 +46,15 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: quota
+                topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-mongodb
           image: busybox
@@ -111,6 +120,14 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
 ---
 # =============================================================================
 # Quota HorizontalPodAutoscaler
@@ -126,7 +143,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: quota
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 5
   metrics:
     - type: Resource
@@ -134,7 +151,12 @@ spec:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 70
+          averageUtilization: 40
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
 
 ---
 # =============================================================================

@@ -216,6 +216,35 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ---------------------------------------------------------------------------
+  # Nginx - Auto Scaling
+  # ---------------------------------------------------------------------------
+  NginxScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt NginxService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  NginxScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-nginx-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref NginxScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Platform Service
   # ===========================================================================
@@ -298,7 +327,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -363,6 +392,35 @@ Resources:
             TTL: 10
       HealthCheckCustomConfig:
         FailureThreshold: 1
+
+  # ---------------------------------------------------------------------------
+  # Platform - Auto Scaling
+  # ---------------------------------------------------------------------------
+  PlatformScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt PlatformService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  PlatformScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-platform-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PlatformScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
 
   # ===========================================================================
   # Pipeline Service
@@ -454,7 +512,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -519,6 +577,35 @@ Resources:
             TTL: 10
       HealthCheckCustomConfig:
         FailureThreshold: 1
+
+  # ---------------------------------------------------------------------------
+  # Pipeline - Auto Scaling
+  # ---------------------------------------------------------------------------
+  PipelineScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt PipelineService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  PipelineScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-pipeline-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PipelineScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
 
   # ===========================================================================
   # Plugin Service
@@ -639,7 +726,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -730,9 +817,9 @@ Resources:
       TargetTrackingScalingPolicyConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
-        TargetValue: 60
+        TargetValue: 50
         ScaleInCooldown: 300
-        ScaleOutCooldown: 120
+        ScaleOutCooldown: 60
 
   # ===========================================================================
   # Quota Service
@@ -816,7 +903,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -850,7 +937,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref QuotaTaskDefinition
-      DesiredCount: !Ref DefaultDesiredCount
+      DesiredCount: 2
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -881,6 +968,35 @@ Resources:
             TTL: 10
       HealthCheckCustomConfig:
         FailureThreshold: 1
+
+  # ---------------------------------------------------------------------------
+  # Quota - Auto Scaling
+  # ---------------------------------------------------------------------------
+  QuotaScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 5
+      MinCapacity: 2
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt QuotaService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  QuotaScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-quota-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref QuotaScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 50
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
 
   # ===========================================================================
   # Billing Service
@@ -968,7 +1084,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -1033,6 +1149,35 @@ Resources:
             TTL: 10
       HealthCheckCustomConfig:
         FailureThreshold: 1
+
+  # ---------------------------------------------------------------------------
+  # Billing - Auto Scaling
+  # ---------------------------------------------------------------------------
+  BillingScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt BillingService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  BillingScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-billing-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref BillingScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
 
   # ===========================================================================
   # Message Service
@@ -1114,7 +1259,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -1180,6 +1325,35 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ---------------------------------------------------------------------------
+  # Message - Auto Scaling
+  # ---------------------------------------------------------------------------
+  MessageScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt MessageService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  MessageScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-message-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref MessageScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 50
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Reporting Service
   # ===========================================================================
@@ -1244,7 +1418,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -1309,6 +1483,35 @@ Resources:
             TTL: 10
       HealthCheckCustomConfig:
         FailureThreshold: 1
+
+  # ---------------------------------------------------------------------------
+  # Reporting - Auto Scaling
+  # ---------------------------------------------------------------------------
+  ReportingScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt ReportingService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ReportingScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-reporting-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ReportingScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
 
   # ===========================================================================
   # Compliance Service
@@ -1390,7 +1593,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -1456,6 +1659,35 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ---------------------------------------------------------------------------
+  # Compliance - Auto Scaling
+  # ---------------------------------------------------------------------------
+  ComplianceScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt ComplianceService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ComplianceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-compliance-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ComplianceScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Frontend Service
   # ===========================================================================
@@ -1495,7 +1727,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 180
           LogConfiguration:
             LogDriver: awsfirelens
             Options:
@@ -1561,6 +1793,35 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ---------------------------------------------------------------------------
+  # Frontend - Auto Scaling
+  # ---------------------------------------------------------------------------
+  FrontendScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Sub
+        - "service/${ClusterName}/${ServiceName}"
+        - ClusterName:
+            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+          ServiceName: !GetAtt FrontendService.Name
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  FrontendScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-frontend-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref FrontendScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Ollama Service (Local LLM)
   # ===========================================================================
@@ -1610,7 +1871,7 @@ Resources:
             Interval: 30
             Timeout: 10
             Retries: 5
-            StartPeriod: 60
+            StartPeriod: 320
           LogConfiguration:
             LogDriver: awslogs
             Options:
