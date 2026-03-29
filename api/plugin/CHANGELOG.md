@@ -1,3 +1,17 @@
+## 1.41.4 (2026-03-29)
+
+### 🩹 Fixes
+
+- upgraded apiServer=1.43.3 ([ea61d69e](https://github.com/mwashburn160/pipeline-builder/commit/ea61d69e))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/ai-core to 1.18.4
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.3 (2026-03-29)
 
 ### 🩹 Fixes
