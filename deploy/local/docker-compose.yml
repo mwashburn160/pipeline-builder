@@ -256,7 +256,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.46.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.46.6'
     container_name: frontend
     restart: always
     environment:
@@ -279,7 +279,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.40.5'
+    image: 'ghcr.io/mwashburn160/platform:1.40.6'
     container_name: platform
     restart: always
     environment:
@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.5'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.6-docker'
     container_name: plugin
     restart: always
     environment:
@@ -378,13 +378,17 @@ services:
       DOCKER_REGISTRY_INSECURE: ${DOCKER_REGISTRY_INSECURE:-true}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      DOCKER_BUILD_STRATEGY: ${DOCKER_BUILD_STRATEGY:-podman}
+      DOCKER_BUILD_STRATEGY: ${DOCKER_BUILD_STRATEGY:-docker}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://plugin-dind:2376}
+      DOCKER_TLS_VERIFY: ${DOCKER_TLS_VERIFY:-1}
+      DOCKER_CERT_PATH: ${DOCKER_CERT_PATH:-/certs/client}
     volumes:
       - './data/tmp:/app/tmp:rw'
       - './data/uploads:/app/uploads:rw'
+      - './certs:/certs/client:ro'
     networks:
       - backend-network
     depends_on:
@@ -396,6 +400,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      plugin-dind:
+        condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
       resources:
@@ -406,8 +412,38 @@ services:
           cpus: '0.75'
           memory: 1024M
 
+  # ---------------------------------------------------------------------------
+  # Docker-in-Docker sidecar for isolated plugin builds
+  # ---------------------------------------------------------------------------
+  plugin-dind:
+    image: 'docker:27-dind'
+    container_name: plugin-dind
+    restart: always
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      - './certs:/certs'
+      - './data/tmp:/app/tmp:rw'
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.40.5'
+    image: 'ghcr.io/mwashburn160/pipeline:1.40.6'
     container_name: pipeline
     restart: always
     environment:
@@ -439,7 +475,7 @@ services:
           memory: 512M
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.22.5'
+    image: 'ghcr.io/mwashburn160/message:1.22.6'
     container_name: message
     restart: always
     environment:
@@ -464,7 +500,7 @@ services:
           memory: 256M
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:1.3.5'
+    image: 'ghcr.io/mwashburn160/reporting:1.3.6'
     container_name: reporting
     restart: always
     environment:
@@ -486,7 +522,7 @@ services:
           memory: 256M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:1.6.5'
+    image: 'ghcr.io/mwashburn160/compliance:1.6.6'
     container_name: compliance
     restart: always
     environment:
@@ -513,7 +549,7 @@ services:
     deploy: *api-deploy
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.38.5'
+    image: 'ghcr.io/mwashburn160/quota:1.38.6'
     container_name: quota
     restart: always
     environment:
@@ -544,7 +580,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:1.24.5'
+    image: 'ghcr.io/mwashburn160/billing:1.24.6'
     container_name: billing
     restart: always
     environment:

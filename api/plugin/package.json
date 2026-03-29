@@ -13,9 +13,9 @@
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
     "start": "node lib/index.js",
-    "docker:build": "docker buildx build --no-cache --pull --load --target ${BUILD_TARGET:-podman-target} --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-plugin}:$(jq -r .version package.json) .",
-    "docker:tag": "docker image tag ${PROJECT_NAME:-plugin}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)",
-    "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)"
+    "docker:build": "docker buildx build --no-cache --pull --load --target podman-target --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-podman . && docker buildx build --no-cache --pull --load --target kaniko-target --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-kaniko . && docker buildx build --no-cache --pull --load --target docker-target --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-docker .",
+    "docker:tag": "docker image tag ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-podman ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-podman && docker image tag ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-kaniko ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-kaniko && docker image tag ${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-docker ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-docker",
+    "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-podman && docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-kaniko && docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-plugin}:$(jq -r .version package.json)-docker"
   },
   "devDependencies": {
     "@jest/globals": "30.2.0",
@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.41.6",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

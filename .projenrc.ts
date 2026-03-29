@@ -104,16 +104,33 @@ function configureJest(project: { jest?: { config: Record<string, unknown> } }, 
   if (opts?.maxWorkers) project.jest.config.maxWorkers = opts.maxWorkers;
 }
 
-function dockerScripts(name: string, defaultTarget?: string) {
-  const target = defaultTarget
-    ? ` --target \${BUILD_TARGET:-${defaultTarget}}`
-    : ' \${BUILD_TARGET:+--target $BUILD_TARGET}';
-  return {
-    'start': 'node lib/index.js',
-    'docker:build': `docker buildx build --no-cache --pull --load${target} --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
-    'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
-    'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
-  };
+function dockerScripts(name: string, targets?: string[]) {
+  const scripts: Record<string, string> = { 'start': 'node lib/index.js' };
+
+  if (targets && targets.length > 0) {
+    // Multi-target: only publish target-suffixed tags (e.g., 1.41.6-podman, 1.41.6-kaniko)
+    const buildCmds = targets.map(t => {
+      const suffix = t.replace(/-target$/, '');
+      return `docker buildx build --no-cache --pull --load --target ${t} --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json)-${suffix} .`;
+    });
+    const tagCmds = targets.map(t => {
+      const suffix = t.replace(/-target$/, '');
+      return `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json)-${suffix} \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)-${suffix}`;
+    });
+    const pushCmds = targets.map(t => {
+      const suffix = t.replace(/-target$/, '');
+      return `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)-${suffix}`;
+    });
+    scripts['docker:build'] = buildCmds.join(' && ');
+    scripts['docker:tag'] = tagCmds.join(' && ');
+    scripts['docker:push'] = pushCmds.join(' && ');
+  } else {
+    // Single target: standard build/tag/push
+    scripts['docker:build'] = `docker buildx build --no-cache --pull --load\${BUILD_TARGET:+ --target $BUILD_TARGET} --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`;
+    scripts['docker:tag'] = `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`;
+    scripts['docker:push'] = `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`;
+  }
+  return scripts;
 }
 
 // Common deps shared by all FunctionProject API services
@@ -391,7 +408,7 @@ for (const svc of services) {
     deps: [...commonServiceDeps, ...svc.deps],
     devDeps: [...commonServiceDevDeps, ...(svc.devDeps ?? [])],
   });
-  project.addScripts(dockerScripts(svc.name, svc.name === 'plugin' ? 'podman-target' : undefined));
+  project.addScripts(dockerScripts(svc.name, svc.name === 'plugin' ? ['podman-target', 'kaniko-target', 'docker-target'] : undefined));
   project.eslint?.addRules(rules);
   configureJest(project);
 }

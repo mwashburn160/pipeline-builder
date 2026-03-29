@@ -92,6 +92,9 @@ mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
 chmod 777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
 
+# Docker-in-Docker TLS certs (dind auto-generates certs on first start into certs/)
+mkdir -p "$DEPLOY_DIR/certs"
+
 # -----------------------------------------------------------------------
 # Start services
 # -----------------------------------------------------------------------
