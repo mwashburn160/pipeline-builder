@@ -1,3 +1,13 @@
+## 1.41.9 (2026-03-29)
+
+### 🩹 Fixes
+
+- debugging ([ec6520f3](https://github.com/mwashburn160/pipeline-builder/commit/ec6520f3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.8 (2026-03-29)
 
 ### 🩹 Fixes
