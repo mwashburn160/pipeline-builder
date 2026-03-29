@@ -383,12 +383,11 @@ services:
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
       DOCKER_HOST: ${DOCKER_HOST:-tcp://plugin-dind:2376}
-      DOCKER_TLS_VERIFY: ${DOCKER_TLS_VERIFY:-1}
       DOCKER_CERT_PATH: ${DOCKER_CERT_PATH:-/certs/client}
     volumes:
       - './data/tmp:/app/tmp:rw'
       - './data/uploads:/app/uploads:rw'
-      - './certs:/certs/client:ro'
+      - './certs/dind:/certs:ro'
     networks:
       - backend-network
     depends_on:
@@ -423,7 +422,7 @@ services:
     environment:
       DOCKER_TLS_CERTDIR: /certs
     volumes:
-      - './certs:/certs'
+      - './certs/dind:/certs'
       - './data/tmp:/app/tmp:rw'
     networks:
       - backend-network

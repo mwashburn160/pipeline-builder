@@ -320,6 +320,50 @@ echo "  grafana datasources + dashboards"
 # ---------------------------------------------------------------------------
 # Deploy
 # ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# Plugin build target selection
+# -----------------------------------------------------------------------
+set -a; . "$DEPLOY_DIR/.env" 2>/dev/null; set +a
+CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-podman}"
+
+echo ""
+echo "=== Plugin Build Strategy ==="
+echo "  Current: $CURRENT_STRATEGY"
+echo ""
+echo "  1) podman  — Podman rootless (default for K8s)"
+echo "  2) docker  — Docker daemon via dind sidecar"
+echo "  3) kaniko  — Kaniko executor (daemonless)"
+echo ""
+read -rp "Select strategy [1-3] or press Enter to keep '$CURRENT_STRATEGY': " choice
+
+case "$choice" in
+  1) SELECTED_STRATEGY="podman" ;;
+  2) SELECTED_STRATEGY="docker" ;;
+  3) SELECTED_STRATEGY="kaniko" ;;
+  *) SELECTED_STRATEGY="$CURRENT_STRATEGY" ;;
+esac
+
+if [ "$SELECTED_STRATEGY" != "$CURRENT_STRATEGY" ]; then
+  sed -i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY/" "$DEPLOY_DIR/.env"
+  echo "  Updated .env: DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY"
+fi
+
+# Update plugin image tag in K8s manifest to match selected strategy
+PLUGIN_YAML="$K8S_DIR/plugin.yaml"
+if [ -f "$PLUGIN_YAML" ]; then
+  PLUGIN_VERSION=$(grep 'ghcr.io/mwashburn160/plugin:' "$PLUGIN_YAML" | head -1 | sed 's/.*plugin:\([0-9.]*\).*/\1/')
+  if [ -n "$PLUGIN_VERSION" ]; then
+    sed -i "s|ghcr.io/mwashburn160/plugin:[0-9.]*-[a-z]*|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$PLUGIN_YAML"
+    echo "  Plugin image: plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}"
+  fi
+  sed -i "s/value: \"podman\"/value: \"$SELECTED_STRATEGY\"/; s/value: \"docker\"/value: \"$SELECTED_STRATEGY\"/; s/value: \"kaniko\"/value: \"$SELECTED_STRATEGY\"/" "$PLUGIN_YAML"
+fi
+
+if [ "$SELECTED_STRATEGY" = "docker" ]; then
+  echo "  Note: docker strategy requires Docker CLI inside the plugin container image"
+fi
+echo ""
+
 echo ""
 echo "=== Pre-pulling container images ==="
 echo ""

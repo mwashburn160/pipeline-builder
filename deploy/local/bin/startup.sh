@@ -92,8 +92,52 @@ mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
 chmod 777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
 
-# Docker-in-Docker TLS certs (dind auto-generates certs on first start into certs/)
-mkdir -p "$DEPLOY_DIR/certs"
+# Docker-in-Docker TLS certs (dind auto-generates certs on first start)
+mkdir -p "$DEPLOY_DIR/certs/dind"
+
+# -----------------------------------------------------------------------
+# Plugin build target selection
+# -----------------------------------------------------------------------
+set -a; . "$DEPLOY_DIR/.env"; set +a
+CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
+
+echo ""
+echo "=== Plugin Build Strategy ==="
+echo "  Current: $CURRENT_STRATEGY"
+echo ""
+echo "  1) docker  — Docker daemon via dind sidecar (Docker Desktop / macOS)"
+echo "  2) podman  — Podman rootless (Linux only)"
+echo "  3) kaniko  — Kaniko executor (daemonless, Fargate)"
+echo ""
+read -rp "Select strategy [1-3] or press Enter to keep '$CURRENT_STRATEGY': " choice
+
+case "$choice" in
+  1) SELECTED_STRATEGY="docker" ;;
+  2) SELECTED_STRATEGY="podman" ;;
+  3) SELECTED_STRATEGY="kaniko" ;;
+  *) SELECTED_STRATEGY="$CURRENT_STRATEGY" ;;
+esac
+
+if [ "$SELECTED_STRATEGY" != "$CURRENT_STRATEGY" ]; then
+  sed -i '' "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY/" "$DEPLOY_DIR/.env"
+  echo "  Updated .env: DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY"
+fi
+
+# Note: docker strategy uses a dind sidecar — the Docker daemon starts with docker-compose.
+# Host Docker CLI is already verified at the top of this script (required for docker-compose).
+if [ "$SELECTED_STRATEGY" = "docker" ]; then
+  echo "  Using dind sidecar for isolated Docker builds"
+elif [ "$SELECTED_STRATEGY" = "podman" ]; then
+  echo "  Note: podman requires Linux kernel with user namespace support (not Docker Desktop)"
+fi
+
+# Update plugin image tag to match selected strategy
+PLUGIN_VERSION=$(grep 'ghcr.io/mwashburn160/plugin:' "$DEPLOY_DIR/docker-compose.yml" | head -1 | sed 's/.*plugin:\([0-9.]*\).*/\1/')
+if [ -n "$PLUGIN_VERSION" ]; then
+  sed -i '' "s|ghcr.io/mwashburn160/plugin:[0-9.]*-[a-z]*|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$DEPLOY_DIR/docker-compose.yml"
+  echo "  Plugin image: plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}"
+fi
+echo ""
 
 # -----------------------------------------------------------------------
 # Start services

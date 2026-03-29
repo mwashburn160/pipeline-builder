@@ -211,7 +211,13 @@ function maskSecrets(line: string): string {
 
 function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // Pass Docker TLS env vars only to spawned processes (not set globally to avoid startup failures)
+    const env = { ...process.env };
+    if (binary === 'docker' && process.env.DOCKER_CERT_PATH) {
+      env.DOCKER_TLS_VERIFY = '1';
+      env.DOCKER_CERT_PATH = process.env.DOCKER_CERT_PATH;
+    }
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
 
