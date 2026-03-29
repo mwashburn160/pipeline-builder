@@ -97,6 +97,16 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "pipeline"
+            - name: COMPLIANCE_SERVICE_HOST
+              value: "compliance"
+            - name: COMPLIANCE_SERVICE_PORT
+              value: "3000"
+            - name: COMPLIANCE_BYPASS
+              value: "false"
+            - name: PLUGIN_SERVICE_HOST
+              value: "plugin"
+            - name: PLUGIN_SERVICE_PORT
+              value: "3000"
           resources:
             limits:
               cpu: "1000m"

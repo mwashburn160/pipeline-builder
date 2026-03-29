@@ -98,6 +98,8 @@ spec:
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
+            - name: DOCKER_BUILD_STRATEGY
+              value: "podman"
             - name: DOCKER_REGISTRY_HTTP
               value: "true"
             - name: DOCKER_REGISTRY_INSECURE
@@ -106,6 +108,12 @@ spec:
               value: "redis"
             - name: REDIS_PORT
               value: "6379"
+            - name: COMPLIANCE_SERVICE_HOST
+              value: "compliance"
+            - name: COMPLIANCE_SERVICE_PORT
+              value: "3000"
+            - name: COMPLIANCE_BYPASS
+              value: "false"
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads

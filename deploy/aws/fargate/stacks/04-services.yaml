@@ -488,6 +488,16 @@ Resources:
               Value: pipeline
             - Name: OLLAMA_BASE_URL
               Value: http://ollama.pipeline-builder.local:11434/v1
+            - Name: COMPLIANCE_SERVICE_HOST
+              Value: compliance.pipeline-builder.local
+            - Name: COMPLIANCE_SERVICE_PORT
+              Value: "3000"
+            - Name: COMPLIANCE_BYPASS
+              Value: "false"
+            - Name: PLUGIN_SERVICE_HOST
+              Value: plugin.pipeline-builder.local
+            - Name: PLUGIN_SERVICE_PORT
+              Value: "3000"
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
@@ -687,6 +697,8 @@ Resources:
               Value: "5000"
             - Name: PLUGIN_BUILD_CONCURRENCY
               Value: "2"
+            - Name: DOCKER_BUILD_STRATEGY
+              Value: "kaniko"
             - Name: DOCKER_BUILD_TIMEOUT_MS
               Value: "1800000"
             - Name: OLLAMA_BASE_URL
@@ -695,6 +707,12 @@ Resources:
               Value: "true"
             - Name: DOCKER_REGISTRY_INSECURE
               Value: "true"
+            - Name: COMPLIANCE_SERVICE_HOST
+              Value: compliance.pipeline-builder.local
+            - Name: COMPLIANCE_SERVICE_PORT
+              Value: "3000"
+            - Name: COMPLIANCE_BYPASS
+              Value: "false"
           MountPoints:
             - ContainerPath: /kaniko/cache
               SourceVolume: kaniko-cache
