@@ -74,7 +74,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.41.10-podman
+          image: ghcr.io/mwashburn160/plugin:1.41.11-podman
           # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false

@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.10-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.11-docker'
     container_name: plugin
     restart: always
     environment:
