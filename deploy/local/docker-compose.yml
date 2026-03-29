@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.9-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.10-docker'
     container_name: plugin
     restart: always
     environment:
@@ -386,7 +386,7 @@ services:
     volumes:
       - './data/tmp:/app/tmp:rw'
       - './data/uploads:/app/uploads:rw'
-      - './certs/dind:/certs:ro'
+      - './certs/dind:/app/dind-certs:ro'
     networks:
       - backend-network
     depends_on:

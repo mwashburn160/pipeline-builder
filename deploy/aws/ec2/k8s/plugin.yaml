@@ -74,7 +74,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.41.8-podman
+          image: ghcr.io/mwashburn160/plugin:1.41.10-podman
           # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false
@@ -125,7 +125,7 @@ spec:
             - name: uploads
               mountPath: /app/uploads
             - name: dind-certs
-              mountPath: /certs
+              mountPath: /app/dind-certs
               readOnly: true
           resources:
             limits:

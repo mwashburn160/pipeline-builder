@@ -215,7 +215,7 @@ function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
     // (not set globally to avoid TLS validation at Node.js startup before dind generates certs)
     const env = { ...process.env };
     if (binary === 'docker' && !env.DOCKER_HOST) {
-      const certPath = env.DOCKER_CERT_PATH || '/certs/client';
+      const certPath = env.DOCKER_CERT_PATH || '/app/dind-certs/client';
       if (fs.existsSync(path.join(certPath, 'ca.pem'))) {
         const dindHost = env.DIND_HOST || 'localhost';
         env.DOCKER_HOST = `tcp://${dindHost}:2376`;
