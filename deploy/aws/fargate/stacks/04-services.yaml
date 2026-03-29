@@ -634,6 +634,8 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       Volumes:
+        - Name: plugin-tmp
+        - Name: plugin-uploads
         - Name: kaniko-cache
           EFSVolumeConfiguration:
             FilesystemId:
@@ -716,6 +718,10 @@ Resources:
           MountPoints:
             - ContainerPath: /kaniko/cache
               SourceVolume: kaniko-cache
+            - ContainerPath: /app/tmp
+              SourceVolume: plugin-tmp
+            - ContainerPath: /app/uploads
+              SourceVolume: plugin-uploads
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"

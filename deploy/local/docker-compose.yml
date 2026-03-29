@@ -384,7 +384,6 @@ services:
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
     volumes:
       - './data/tmp:/app/tmp:rw'
-      - './data/cache:/kaniko/cache:rw'
       - './data/uploads:/app/uploads:rw'
     networks:
       - backend-network

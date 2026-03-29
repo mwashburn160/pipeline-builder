@@ -115,6 +115,8 @@ spec:
             - name: COMPLIANCE_BYPASS
               value: "false"
           volumeMounts:
+            - name: tmp
+              mountPath: /app/tmp
             - name: uploads
               mountPath: /app/uploads
           resources:
@@ -149,6 +151,9 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
         - name: uploads
           emptyDir:
             sizeLimit: 512Mi
