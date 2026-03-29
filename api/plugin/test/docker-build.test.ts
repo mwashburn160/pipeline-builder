@@ -241,16 +241,10 @@ describe('docker-build', () => {
       expect(pushArgs).toContain('registry:5000/plugin:p-test-abc123');
     });
 
-    it('includes --config in build and push args for docker', async () => {
+    it('sets DOCKER_CONFIG env var for docker auth', async () => {
       await buildAndPush(makeRequest());
 
-      const buildArgs = mockSpawn.mock.calls[0][1];
-      expect(buildArgs).toContain('--config');
-      expect(buildArgs).toContain('/tmp/build-ctx/.docker');
-
-      const pushArgs = mockSpawn.mock.calls[1][1];
-      expect(pushArgs).toContain('--config');
-      expect(pushArgs).toContain('/tmp/build-ctx/.docker');
+      expect(process.env.DOCKER_CONFIG).toBe('/tmp/build-ctx/.docker');
     });
 
     it('calls execFileSync for rmi cleanup after push', async () => {
@@ -414,16 +408,14 @@ describe('docker-build', () => {
       expect(buildArgs).not.toContain('--tls-verify=false');
     });
 
-    it('uses --authfile instead of --config', async () => {
+    it('uses --authfile for podman auth', async () => {
       await buildAndPush(makeRequest());
 
       const buildArgs = mockSpawn.mock.calls[0][1];
       expect(buildArgs).toContain('--authfile=/tmp/build-ctx/.docker/config.json');
-      expect(buildArgs).not.toContain('--config');
 
       const pushArgs = mockSpawn.mock.calls[1][1];
       expect(pushArgs).toContain('--authfile=/tmp/build-ctx/.docker/config.json');
-      expect(pushArgs).not.toContain('--config');
     });
 
     it('calls execFileSync for rmi cleanup with podman binary', async () => {
