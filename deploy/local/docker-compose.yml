@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.8-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.9-docker'
     container_name: plugin
     restart: always
     environment:
@@ -382,8 +382,7 @@ services:
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-1800000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
-      DOCKER_HOST: ${DOCKER_HOST:-tcp://plugin-dind:2376}
-      # DOCKER_CERT_PATH set per-process by docker-build.ts (avoids TLS failure at startup)
+      DIND_HOST: plugin-dind
     volumes:
       - './data/tmp:/app/tmp:rw'
       - './data/uploads:/app/uploads:rw'

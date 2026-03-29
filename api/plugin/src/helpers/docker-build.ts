@@ -214,12 +214,13 @@ function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
     // Set Docker TLS env vars per-process when dind certs are available
     // (not set globally to avoid TLS validation at Node.js startup before dind generates certs)
     const env = { ...process.env };
-    if (binary === 'docker') {
-      const certPath = process.env.DOCKER_CERT_PATH || '/certs/client';
+    if (binary === 'docker' && !env.DOCKER_HOST) {
+      const certPath = env.DOCKER_CERT_PATH || '/certs/client';
       if (fs.existsSync(path.join(certPath, 'ca.pem'))) {
+        const dindHost = env.DIND_HOST || 'localhost';
+        env.DOCKER_HOST = `tcp://${dindHost}:2376`;
         env.DOCKER_TLS_VERIFY = '1';
         env.DOCKER_CERT_PATH = certPath;
-        if (!env.DOCKER_HOST) env.DOCKER_HOST = 'tcp://localhost:2376';
       }
     }
     const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
