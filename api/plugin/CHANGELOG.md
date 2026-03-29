@@ -1,3 +1,13 @@
+## 1.41.8 (2026-03-29)
+
+### 🩹 Fixes
+
+- docker build ([15dd9b56](https://github.com/mwashburn160/pipeline-builder/commit/15dd9b56))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.7 (2026-03-29)
 
 ### 🩹 Fixes
