@@ -13,7 +13,6 @@ const logger = createLogger('docker-build');
 
 export type BuildStrategy = 'docker' | 'kaniko' | 'podman';
 
-/** Local mirror of pipeline-core's DockerBuildCfg (cast needed for pnpm workspace compatibility). */
 interface DockerBuildCfg {
   strategy: BuildStrategy;
   tempRoot: string;
@@ -50,70 +49,102 @@ export interface BuildResult {
 // -----------------------------------------------------------------------------
 
 interface StrategyDef {
-  binary: string;
-  setupAuth: (contextDir: string, registry: RegistryInfo) => void;
-  tlsArgs: (registry: RegistryInfo) => string[];
-  buildArgs: (contextDir: string, dockerfile: string, image: string, registry: RegistryInfo, buildArgs?: Record<string, string>) => string[];
-  pushArgs: (image: string, registry: RegistryInfo) => string[];
+  binary: (cfg: DockerBuildCfg) => string;
+  setupAuth: (contextDir: string, registry: RegistryInfo) => string[];
+  buildCli: (cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) => string[];
+  pushCli: (image: string, registry: RegistryInfo, authArgs: string[]) => string[] | null;
   cleanup: (binary: string, image: string) => void;
   patchConfnew: boolean;
 }
 
-/** Auth file path set by setupAuth, reused by pushArgs for podman. */
-let authFilePath = '';
+function ociAuthDir(contextDir: string, registry: RegistryInfo): string {
+  const dir = path.join(contextDir, '.docker');
+  fs.mkdirSync(dir, { recursive: true });
+  writeAuthJson(dir, registry);
+  return dir;
+}
 
-const strategies: Record<Exclude<BuildStrategy, 'kaniko'>, StrategyDef> = {
+function ociCleanup(binary: string, image: string) {
+  try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
+}
+
+function podmanTls(registry: RegistryInfo): string[] {
+  return (registry.insecure || registry.http) ? ['--tls-verify=false'] : [];
+}
+
+const strategies: Record<BuildStrategy, StrategyDef> = {
   docker: {
-    binary: 'docker',
+    binary: () => 'docker',
     setupAuth(contextDir: string, registry: RegistryInfo) {
-      const dir = path.join(contextDir, '.docker');
-      fs.mkdirSync(dir, { recursive: true });
-      writeAuthJson(dir, registry);
+      const dir = ociAuthDir(contextDir, registry);
       process.env.DOCKER_CONFIG = dir;
-      authFilePath = '';
+      // Detect dind sidecar via DIND_HOST env var (set by docker-compose/K8s)
+      const dindHost = process.env.DIND_HOST;
+      if (dindHost && !process.env.DOCKER_HOST) {
+        process.env.DOCKER_HOST = `tcp://${dindHost}:2375`;
+      }
+      return [];
     },
-    tlsArgs: () => [],
-    buildArgs(contextDir: string, dockerfile: string, image: string, registry: RegistryInfo, args?: Record<string, string>) {
+    buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string) {
       return [
         'build', '--progress', 'plain',
-        ...(registry.network ? [`--network=${registry.network}`] : []),
-        ...flagBuildArgs(args),
-        '-f', path.join(contextDir, dockerfile), '-t', image, contextDir,
+        ...(req.registry.network ? [`--network=${req.registry.network}`] : []),
+        ...flagBuildArgs(req.buildArgs),
+        '-f', path.join(req.contextDir, req.dockerfile), '-t', image, req.contextDir,
       ];
     },
-    pushArgs: (image: string) => ['push', image],
-    cleanup(binary: string, image: string) {
-      try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
-    },
+    pushCli: (image: string) => ['push', image],
+    cleanup: ociCleanup,
     patchConfnew: true,
   },
+
   podman: {
-    binary: 'podman',
+    binary: () => 'podman',
     setupAuth(contextDir: string, registry: RegistryInfo) {
-      const dir = path.join(contextDir, '.docker');
-      fs.mkdirSync(dir, { recursive: true });
-      writeAuthJson(dir, registry);
-      authFilePath = path.join(dir, 'config.json');
+      const dir = ociAuthDir(contextDir, registry);
+      return [`--authfile=${path.join(dir, 'config.json')}`];
     },
-    tlsArgs(registry: RegistryInfo) {
-      return (registry.insecure || registry.http) ? ['--tls-verify=false'] : [];
-    },
-    buildArgs(contextDir: string, dockerfile: string, image: string, registry: RegistryInfo, args?: Record<string, string>) {
+    buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) {
       return [
         'build', '--progress', 'plain', '--layers',
-        ...this.tlsArgs(registry),
-        ...(authFilePath ? [`--authfile=${authFilePath}`] : []),
-        ...flagBuildArgs(args),
-        '-f', path.join(contextDir, dockerfile), '-t', image, contextDir,
+        ...podmanTls(req.registry), ...authArgs,
+        ...flagBuildArgs(req.buildArgs),
+        '-f', path.join(req.contextDir, req.dockerfile), '-t', image, req.contextDir,
       ];
     },
-    pushArgs(image: string, registry: RegistryInfo) {
-      return ['push', ...this.tlsArgs(registry), ...(authFilePath ? [`--authfile=${authFilePath}`] : []), image];
+    pushCli(image: string, registry: RegistryInfo, authArgs: string[]) {
+      return ['push', ...podmanTls(registry), ...authArgs, image];
     },
-    cleanup(binary: string, image: string) {
-      try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
-    },
+    cleanup: ociCleanup,
     patchConfnew: false,
+  },
+
+  kaniko: {
+    binary: (cfg: DockerBuildCfg) => cfg.kanikoExecutor,
+    setupAuth(_contextDir: string, registry: RegistryInfo) {
+      const dir = process.env.DOCKER_CONFIG || '/kaniko/.docker';
+      fs.mkdirSync(dir, { recursive: true });
+      process.env.DOCKER_CONFIG = dir;
+      writeAuthJson(dir, registry);
+      return [];
+    },
+    buildCli(cfg: DockerBuildCfg, req: BuildRequest, image: string) {
+      return [
+        `--context=${req.contextDir}`,
+        `--dockerfile=${path.join(req.contextDir, req.dockerfile)}`,
+        `--destination=${image}`,
+        '--verbosity=info', '--log-format=json',
+        '--cache=true', `--cache-dir=${cfg.kanikoCacheDir}`,
+        '--cleanup', '--reproducible', '--snapshot-mode=redo',
+        '--push-retry=2', '--image-fs-extract-retry=2', '--image-download-retry=3',
+        ...(req.registry.http ? ['--insecure', '--insecure-pull'] : []),
+        ...(req.registry.insecure ? ['--skip-tls-verify', '--skip-tls-verify-pull'] : []),
+        ...flagBuildArgs(req.buildArgs, true),
+      ];
+    },
+    pushCli: () => null,
+    cleanup: () => {},
+    patchConfnew: true,
   },
 };
 
@@ -131,74 +162,31 @@ export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 // Public API
 // -----------------------------------------------------------------------------
 
-/**
- * Build a container image and push it to the registry.
- *
- * Strategy (DOCKER_BUILD_STRATEGY): docker, podman, kaniko.
- */
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   validate(req);
 
-  const config = getConfig();
+  const cfg = getConfig();
   const image = `${req.registry.host}:${req.registry.port}/plugin:${req.imageTag}`;
+  const s = strategies[cfg.strategy];
+  const bin = s.binary(cfg);
 
-  logger.info('Building image', { strategy: config.strategy, image });
+  logger.info('Building image', { strategy: cfg.strategy, image });
 
-  if (config.strategy === 'kaniko') {
-    await runKaniko(config, req, image);
-  } else {
-    await runOCI(config, req, image);
+  const authArgs = s.setupAuth(req.contextDir, req.registry);
+  patchDockerfile(req.contextDir, req.dockerfile, s.patchConfnew);
+
+  await run(bin, s.buildCli(cfg, req, image, authArgs), cfg.timeoutMs);
+
+  const push = s.pushCli(image, req.registry, authArgs);
+  if (push) {
+    try {
+      await run(bin, push, cfg.pushTimeoutMs);
+    } finally {
+      s.cleanup(bin, image);
+    }
   }
 
   return { fullImage: image };
-}
-
-// -----------------------------------------------------------------------------
-// OCI (docker / podman) — driven by strategy record
-// -----------------------------------------------------------------------------
-
-async function runOCI(cfg: DockerBuildCfg, req: BuildRequest, image: string) {
-  const { contextDir, dockerfile, registry, buildArgs } = req;
-  const s = strategies[cfg.strategy as keyof typeof strategies];
-
-  s.setupAuth(contextDir, registry);
-  patchDockerfile(contextDir, dockerfile, s.patchConfnew);
-
-  await run(s.binary, s.buildArgs(contextDir, dockerfile, image, registry, buildArgs), cfg.timeoutMs);
-
-  try {
-    await run(s.binary, s.pushArgs(image, registry), cfg.pushTimeoutMs);
-  } finally {
-    s.cleanup(s.binary, image);
-  }
-}
-
-// -----------------------------------------------------------------------------
-// Kaniko — separate path (single command, no push step)
-// -----------------------------------------------------------------------------
-
-async function runKaniko(cfg: DockerBuildCfg, req: BuildRequest, image: string) {
-  const { contextDir, dockerfile, registry, buildArgs } = req;
-
-  const dockerDir = process.env.DOCKER_CONFIG || '/kaniko/.docker';
-  fs.mkdirSync(dockerDir, { recursive: true });
-  process.env.DOCKER_CONFIG = dockerDir;
-  writeAuthJson(dockerDir, registry);
-
-  patchDockerfile(contextDir, dockerfile, true);
-
-  await run(cfg.kanikoExecutor, [
-    `--context=${contextDir}`,
-    `--dockerfile=${path.join(contextDir, dockerfile)}`,
-    `--destination=${image}`,
-    '--verbosity=info', '--log-format=json',
-    '--cache=true', `--cache-dir=${cfg.kanikoCacheDir}`,
-    '--cleanup', '--reproducible', '--snapshot-mode=redo',
-    '--push-retry=2', '--image-fs-extract-retry=2', '--image-download-retry=3',
-    ...(registry.http ? ['--insecure', '--insecure-pull'] : []),
-    ...(registry.insecure ? ['--skip-tls-verify', '--skip-tls-verify-pull'] : []),
-    ...flagBuildArgs(buildArgs, true),
-  ], cfg.timeoutMs);
 }
 
 // -----------------------------------------------------------------------------
@@ -263,18 +251,7 @@ function maskSecrets(line: string): string {
 
 function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Set Docker dind TLS env vars per-process when certs are available
-    const env = { ...process.env };
-    if (binary === 'docker' && !env.DOCKER_HOST) {
-      const certPath = env.DOCKER_CERT_PATH || '/app/dind-certs/client';
-      if (fs.existsSync(path.join(certPath, 'ca.pem'))) {
-        const dindHost = env.DIND_HOST || 'localhost';
-        env.DOCKER_HOST = `tcp://${dindHost}:2376`;
-        env.DOCKER_TLS_VERIFY = '1';
-        env.DOCKER_CERT_PATH = certPath;
-      }
-    }
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
 

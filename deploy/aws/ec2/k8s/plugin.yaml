@@ -74,7 +74,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.41.11-podman
+          image: ghcr.io/mwashburn160/plugin:1.41.12-podman
           # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false
@@ -117,6 +117,8 @@ spec:
               value: "3000"
             - name: COMPLIANCE_BYPASS
               value: "false"
+            - name: DIND_HOST
+              value: "localhost"
             # DOCKER_HOST and DOCKER_CERT_PATH set per-process by docker-build.ts
             # (avoids TLS validation at startup before dind generates certs)
           volumeMounts:
@@ -124,9 +126,7 @@ spec:
               mountPath: /app/tmp
             - name: uploads
               mountPath: /app/uploads
-            - name: dind-certs
-              mountPath: /app/dind-certs
-              readOnly: true
+            # DOCKER_HOST and dind connection handled by docker-build.ts via DIND_HOST env var
           resources:
             limits:
               cpu: "1500m"
@@ -165,10 +165,8 @@ spec:
             privileged: true
           env:
             - name: DOCKER_TLS_CERTDIR
-              value: /certs
+              value: ''
           volumeMounts:
-            - name: dind-certs
-              mountPath: /certs
             - name: tmp
               mountPath: /app/tmp
           resources:
@@ -199,10 +197,6 @@ spec:
         - name: uploads
           emptyDir:
             sizeLimit: 512Mi
-        - name: dind-certs
-          emptyDir:
-            medium: Memory
-            sizeLimit: 16Mi
 
 ---
 # =============================================================================
