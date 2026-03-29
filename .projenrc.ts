@@ -104,10 +104,13 @@ function configureJest(project: { jest?: { config: Record<string, unknown> } }, 
   if (opts?.maxWorkers) project.jest.config.maxWorkers = opts.maxWorkers;
 }
 
-function dockerScripts(name: string) {
+function dockerScripts(name: string, defaultTarget?: string) {
+  const target = defaultTarget
+    ? ` --target \${BUILD_TARGET:-${defaultTarget}}`
+    : ' \${BUILD_TARGET:+--target $BUILD_TARGET}';
   return {
     'start': 'node lib/index.js',
-    'docker:build': `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
+    'docker:build': `docker buildx build --no-cache --pull --load${target} --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
     'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
     'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
   };
@@ -388,7 +391,7 @@ for (const svc of services) {
     deps: [...commonServiceDeps, ...svc.deps],
     devDeps: [...commonServiceDevDeps, ...(svc.devDeps ?? [])],
   });
-  project.addScripts(dockerScripts(svc.name));
+  project.addScripts(dockerScripts(svc.name, svc.name === 'plugin' ? 'podman-target' : undefined));
   project.eslint?.addRules(rules);
   configureJest(project);
 }

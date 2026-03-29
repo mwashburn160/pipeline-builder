@@ -13,7 +13,7 @@
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
     "start": "node lib/index.js",
-    "docker:build": "docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-platform}:$(jq -r .version package.json) .",
+    "docker:build": "docker buildx build --no-cache --pull --load ${BUILD_TARGET:+--target $BUILD_TARGET} --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-platform}:$(jq -r .version package.json) .",
     "docker:tag": "docker image tag ${PROJECT_NAME:-platform}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-platform}:$(jq -r .version package.json)"
   },
