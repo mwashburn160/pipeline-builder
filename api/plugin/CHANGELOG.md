@@ -1,3 +1,15 @@
+## 1.41.12 (2026-03-29)
+
+### 🩹 Fixes
+
+- updated unit tests ([d3df6016](https://github.com/mwashburn160/pipeline-builder/commit/d3df6016))
+- refactored docker-build ([61c83d6d](https://github.com/mwashburn160/pipeline-builder/commit/61c83d6d))
+- spawned docker process ([99190021](https://github.com/mwashburn160/pipeline-builder/commit/99190021))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.11 (2026-03-29)
 
 ### 🩹 Fixes
