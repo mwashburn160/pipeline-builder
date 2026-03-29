@@ -87,7 +87,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - wget --spider http://localhost:5000/v2/ || exit 1
+              - wget -qO /dev/null -S http://localhost:5000/v2/ 2>&1 | grep -q 'HTTP/' || exit 1
             Interval: 15
             Timeout: 5
             Retries: 5

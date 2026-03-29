@@ -667,7 +667,7 @@ services:
       - proxy-network
       - backend-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate --spider -q https://localhost:5000/v2/ || exit 1"]
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO /dev/null -S https://localhost:5000/v2/ 2>&1 | grep -q 'HTTP/' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
