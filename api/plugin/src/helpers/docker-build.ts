@@ -146,7 +146,8 @@ function writeAuth(contextDir: string, registry: RegistryInfo, podman: boolean):
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'config.json');
   writeAuthJson(dir, registry);
-  return podman ? [`--authfile=${file}`] : ['--config', dir];
+  if (!podman) process.env.DOCKER_CONFIG = dir;
+  return podman ? [`--authfile=${file}`] : [];
 }
 
 function writeAuthJson(dir: string, registry: RegistryInfo) {
