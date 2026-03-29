@@ -1,3 +1,13 @@
+## 1.40.7 (2026-03-29)
+
+### 🩹 Fixes
+
+- multi-target ([413ec812](https://github.com/mwashburn160/pipeline-builder/commit/413ec812))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.6 (2026-03-29)
 
 ### 🩹 Fixes
