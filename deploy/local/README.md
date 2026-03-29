@@ -78,12 +78,15 @@ XAI_API_KEY=your-key
 | platform | 3000 (internal) | Auth + user management |
 | pipeline | 3000 (internal) | Pipeline CRUD + AI generation |
 | plugin | 3000 (internal) | Plugin CRUD + builds |
+| plugin-dind | 2376 (internal) | Docker-in-Docker sidecar for isolated plugin builds |
 | quota | 3000 (internal) | Quota enforcement |
 | billing | 3000 (internal) | Subscription management |
-| message | 3000 (internal) | Message routing |
+| message | 3000 (internal) | Message routing + WebSocket |
+| compliance | 3000 (internal) | Per-org compliance rule enforcement |
+| reporting | 3000 (internal) | Execution analytics |
 | postgres | 5432 (internal) | PostgreSQL database |
-| mongodb | 27017 (internal) | MongoDB (messages) |
-| redis | 6379 (internal) | Job queue (BullMQ) |
+| mongodb | 27017 (internal) | MongoDB (platform, quota, billing) |
+| redis | 6379 (internal) | Job queue (BullMQ) for plugin builds + compliance events |
 | ollama | 11434 (exposed) | Local LLM inference |
 | pgadmin | 5480 (exposed) | PostgreSQL admin UI |
 | mongo-express | 8081 (exposed) | MongoDB admin UI |
