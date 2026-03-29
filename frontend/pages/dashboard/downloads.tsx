@@ -172,14 +172,14 @@ export default function DownloadsPage() {
         >
           <a
             href="/dashboard/help"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            className="btn btn-secondary"
           >
             <ExternalLink className="w-4 h-4" />
             CLI Reference
           </a>
           <a
             href="/dashboard/tokens"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            className="btn btn-secondary"
           >
             <ExternalLink className="w-4 h-4" />
             API Tokens

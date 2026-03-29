@@ -1,5 +1,5 @@
 import type { BuilderProps } from './pipeline-builder';
-import type { CodeStarOptions, GitHubOptions, S3Options } from './source-types';
+import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options } from './source-types';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types';
 import { CoreConstants } from '../config/app-config';
 import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types';
@@ -196,6 +196,25 @@ export class PipelineConfiguration {
       branch: source.options.branch ?? 'main',
       trigger: source.options.trigger ?? TriggerType.NONE,
       codeBuildCloneOutput: source.options.codeBuildCloneOutput ?? false,
+    };
+  }
+
+  /**
+   * Extracts CodeCommit source options with defaults applied.
+   *
+   * @returns CodeCommit options with `branch` defaulting to `'main'` and `trigger` defaulting to `NONE`
+   * @throws {Error} If the configured source type is not `codecommit`
+   */
+  getCodeCommitOptions(): Required<Pick<CodeCommitOptions, 'repositoryName' | 'branch' | 'trigger'>> {
+    const source = this.source;
+    if (source.type !== 'codecommit') {
+      throw new Error('Source type is not CodeCommit');
+    }
+
+    return {
+      ...source.options,
+      branch: source.options.branch ?? 'main',
+      trigger: source.options.trigger ?? TriggerType.NONE,
     };
   }
 }

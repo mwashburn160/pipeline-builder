@@ -2,8 +2,8 @@
  * Tests for helpers/docker-build.
  *
  * Mocks child_process (spawn, execFileSync) and fs to verify
- * build command construction, input validation, persistent builder
- * lifecycle, streaming output, and network-change detection.
+ * build command construction, input validation, two-step OCI
+ * build+push flow, streaming output, and Dockerfile injection.
  */
 
 import { EventEmitter } from 'events';
@@ -30,12 +30,14 @@ jest.mock('child_process', () => ({
 
 const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
+const mockReadFileSync = jest.fn().mockReturnValue('FROM node:24-slim\nRUN echo hello');
 const mockExistsSync = jest.fn();
 const mockRmSync = jest.fn();
 
 jest.mock('fs', () => ({
   mkdirSync: mockMkdirSync,
   writeFileSync: mockWriteFileSync,
+  readFileSync: mockReadFileSync,
   existsSync: mockExistsSync,
   rmSync: mockRmSync,
 }));
@@ -58,17 +60,31 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
+let mockStrategy = 'docker';
+
+const mockConfigGet = (section: string) => {
+  if (section === 'dockerConfig') {
+    return {
+      strategy: mockStrategy,
+      tempRoot: '/tmp',
+      timeoutMs: 900000,
+      pushTimeoutMs: 300000,
+      kanikoExecutor: '/kaniko/executor',
+      kanikoCacheDir: '/kaniko/cache',
+    };
+  }
+  return {};
+};
+
 jest.mock('@mwashburn160/pipeline-core', () => ({
-  CoreConstants: {
-    DOCKER_BUILDER_NAME: 'plugin-builder',
-    DOCKER_BUILD_TIMEOUT_MS: 900000,
+  Config: {
+    get: mockConfigGet,
+    getAny: mockConfigGet,
   },
 }));
 
 import {
   buildAndPush,
-  destroyBuilder,
-  _resetBuilderStateForTesting,
   type BuildRequest,
   type RegistryInfo,
 } from '../src/helpers/docker-build';
@@ -98,23 +114,19 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
   };
 }
 
-/** Helper: find sync calls for buildx create. */
-function findBuildxCreateCall(): string[] | undefined {
-  return mockExecFileSync.mock.calls
-    .map((c: any) => c[1] as string[])
-    .find((args: string[]) => args.includes('buildx') && args.includes('create'));
-}
-
 // Tests
 
 describe('docker-build', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    _resetBuilderStateForTesting();
     // Default: spawn returns a child that exits with code 0
     mockSpawn.mockImplementation(() => createMockChild(0));
     // Default: execFileSync returns successfully
     mockExecFileSync.mockReturnValue(Buffer.from(''));
+    // Default: readFileSync returns a simple Dockerfile
+    mockReadFileSync.mockReturnValue('FROM node:24-slim\nRUN echo hello');
+    // Default: strategy is docker
+    mockStrategy = 'docker';
   });
 
   describe('input validation', () => {
@@ -145,17 +157,17 @@ describe('docker-build', () => {
 
     it('rejects invalid image tag', async () => {
       const req = makeRequest({ imageTag: 'UPPER-CASE' });
-      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag format');
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag');
     });
 
     it('rejects image tag starting with dot', async () => {
       const req = makeRequest({ imageTag: '.hidden' });
-      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag format');
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag');
     });
 
     it('rejects invalid network name', async () => {
       const req = makeRequest({ registry: makeRegistry({ network: 'bad network!' }) });
-      await expect(buildAndPush(req)).rejects.toThrow('Invalid network name');
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid network');
     });
 
     it('accepts valid inputs', async () => {
@@ -192,32 +204,63 @@ describe('docker-build', () => {
         }),
       );
     });
+
+    it('writes auth config for podman strategy', async () => {
+      mockStrategy = 'podman';
+      await buildAndPush(makeRequest());
+
+      const expectedAuth = Buffer.from('admin:secret').toString('base64');
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        '/tmp/build-ctx/.docker/config.json',
+        JSON.stringify({
+          auths: { 'registry:5000': { auth: expectedAuth } },
+        }),
+      );
+    });
   });
 
   describe('build without network (default Docker networking)', () => {
-    it('spawns docker buildx build --push --progress=plain with correct args', async () => {
+    it('spawns docker build then docker push as two separate calls', async () => {
       await buildAndPush(makeRequest());
 
-      expect(mockSpawn).toHaveBeenCalledWith(
-        'docker',
-        [
-          '--config', '/tmp/build-ctx/.docker',
-          'buildx', 'build', '--push',
-          '--progress', 'plain',
-          '-f', '/tmp/build-ctx/Dockerfile',
-          '-t', 'registry:5000/plugin:p-test-abc123',
-          '/tmp/build-ctx',
-        ],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
-      );
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+
+      // First call: docker build
+      const [buildBinary, buildArgs] = mockSpawn.mock.calls[0];
+      expect(buildBinary).toBe('docker');
+      expect(buildArgs[0]).toBe('build');
+      expect(buildArgs).toContain('--progress');
+      expect(buildArgs).toContain('-f');
+      expect(buildArgs).toContain('-t');
+      expect(buildArgs).toContain('registry:5000/plugin:p-test-abc123');
+
+      // Second call: docker push
+      const [pushBinary, pushArgs] = mockSpawn.mock.calls[1];
+      expect(pushBinary).toBe('docker');
+      expect(pushArgs[0]).toBe('push');
+      expect(pushArgs).toContain('registry:5000/plugin:p-test-abc123');
     });
 
-    it('does not create a buildx builder', async () => {
+    it('includes --config in build and push args for docker', async () => {
       await buildAndPush(makeRequest());
 
-      // execFileSync is used for builder setup — should NOT be called
-      // when there is no network
-      expect(mockExecFileSync).not.toHaveBeenCalled();
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--config');
+      expect(buildArgs).toContain('/tmp/build-ctx/.docker');
+
+      const pushArgs = mockSpawn.mock.calls[1][1];
+      expect(pushArgs).toContain('--config');
+      expect(pushArgs).toContain('/tmp/build-ctx/.docker');
+    });
+
+    it('calls execFileSync for rmi cleanup after push', async () => {
+      await buildAndPush(makeRequest());
+
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'docker',
+        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        { stdio: 'ignore' },
+      );
     });
 
     it('returns the full image reference', async () => {
@@ -226,229 +269,28 @@ describe('docker-build', () => {
     });
   });
 
-  describe('persistent builder lifecycle', () => {
-    it('creates buildx builder on first build with network', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'my_net' }) });
-      await buildAndPush(req);
-
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeDefined();
-      expect(createCall).toContain('--driver');
-      expect(createCall).toContain('docker-container');
-      expect(createCall).toContain('--driver-opt');
-      expect(createCall).toContain('network=my_net');
-    });
-
-    it('includes --builder flag in build command', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'compose_default' }) });
-      await buildAndPush(req);
-
-      const spawnArgs = mockSpawn.mock.calls[0][1];
-      expect(spawnArgs).toContain('--builder');
-      expect(spawnArgs).toContain('plugin-builder');
-    });
-
-    it('reuses builder on subsequent builds with same network', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'my_net' }) });
-
-      // First build — creates the builder
-      await buildAndPush(req);
-      const createCountAfterFirst = mockExecFileSync.mock.calls
-        .filter((c: any) => (c[1] as string[]).includes('create')).length;
-      expect(createCountAfterFirst).toBe(1);
-
-      // Clear mock call history but keep builder state
-      jest.clearAllMocks();
-      mockSpawn.mockImplementation(() => createMockChild(0));
-      mockExecFileSync.mockReturnValue(Buffer.from(''));
-
-      // Second build — should reuse (inspect succeeds, no create)
-      await buildAndPush(req);
-      const createCountAfterSecond = mockExecFileSync.mock.calls
-        .filter((c: any) => (c[1] as string[]).includes('create')).length;
-      expect(createCountAfterSecond).toBe(0);
-    });
-
-    it('recreates builder when network changes', async () => {
-      // First build on net1
-      const req1 = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req1);
-
-      jest.clearAllMocks();
-      mockSpawn.mockImplementation(() => createMockChild(0));
-      mockExecFileSync.mockReturnValue(Buffer.from(''));
-
-      // Second build on net2 — should recreate
-      const req2 = makeRequest({ registry: makeRegistry({ network: 'net2' }) });
-      await buildAndPush(req2);
-
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeDefined();
-      expect(createCall).toContain('network=net2');
-    });
-
-    it('recreates builder when health check fails', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'my_net' }) });
-
-      // First build — creates the builder
-      await buildAndPush(req);
-
-      jest.clearAllMocks();
-      mockSpawn.mockImplementation(() => createMockChild(0));
-      // Make inspect (health check) fail
-      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-        if (Array.isArray(args) && args.includes('inspect')) {
-          throw new Error('builder not found');
-        }
-        return Buffer.from('');
-      });
-
-      // Second build — inspect fails, should recreate
-      await buildAndPush(req);
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeDefined();
-    });
-
-    it('writes buildkitd.toml with http=true and insecure=true by default', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-
-      const tomlCall = mockWriteFileSync.mock.calls.find(
-        (c: any) => String(c[0]).includes('buildkitd.toml'),
-      );
-      expect(tomlCall).toBeDefined();
-      expect(tomlCall![1]).toContain('http = true');
-      expect(tomlCall![1]).toContain('insecure = true');
-    });
-
-    it('writes buildkitd.toml with http=false and insecure=false for production registry', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1', http: false, insecure: false }) });
-      await buildAndPush(req);
-
-      const tomlCall = mockWriteFileSync.mock.calls.find(
-        (c: any) => String(c[0]).includes('buildkitd.toml'),
-      );
-      expect(tomlCall).toBeDefined();
-      expect(tomlCall![1]).toContain('http = false');
-      expect(tomlCall![1]).toContain('insecure = false');
-    });
-
-    it('writes buildkitd.toml with http=false and insecure=true for self-signed cert', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1', http: false, insecure: true }) });
-      await buildAndPush(req);
-
-      const tomlCall = mockWriteFileSync.mock.calls.find(
-        (c: any) => String(c[0]).includes('buildkitd.toml'),
-      );
-      expect(tomlCall).toBeDefined();
-      expect(tomlCall![1]).toContain('http = false');
-      expect(tomlCall![1]).toContain('insecure = true');
-    });
-
-    it('writes buildkitd.toml with default DNS nameservers', async () => {
-      delete process.env.BUILDKIT_DNS_NAMESERVERS;
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-
-      const tomlCall = mockWriteFileSync.mock.calls.find(
-        (c: any) => String(c[0]).includes('buildkitd.toml'),
-      );
-      expect(tomlCall).toBeDefined();
-      expect(tomlCall![1]).toContain('[dns]');
-      expect(tomlCall![1]).toContain('"8.8.8.8"');
-      expect(tomlCall![1]).toContain('"8.8.4.4"');
-    });
-
-    it('writes buildkitd.toml with custom DNS nameservers from env', async () => {
-      process.env.BUILDKIT_DNS_NAMESERVERS = '1.1.1.1,9.9.9.9';
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-
-      const tomlCall = mockWriteFileSync.mock.calls.find(
-        (c: any) => String(c[0]).includes('buildkitd.toml'),
-      );
-      expect(tomlCall).toBeDefined();
-      expect(tomlCall![1]).toContain('"1.1.1.1"');
-      expect(tomlCall![1]).toContain('"9.9.9.9"');
-      delete process.env.BUILDKIT_DNS_NAMESERVERS;
-    });
-
-    it('does not tear down builder after successful build', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-
-      // After create, there should be no 'rm' call (only the force-rm during setup cleanup)
-      const syncCalls = mockExecFileSync.mock.calls.map((c: any) => c[1] as string[]);
-      const rmCallsAfterCreate = syncCalls.slice(
-        syncCalls.findIndex((a: string[]) => a.includes('create')) + 1,
-      ).filter((a: string[]) => a.includes('rm'));
-      expect(rmCallsAfterCreate).toHaveLength(0);
-    });
-
-    it('does not tear down builder after build failure', async () => {
-      mockSpawn.mockImplementation(() => createMockChild(1));
-
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await expect(buildAndPush(req)).rejects.toThrow('Build failed with exit code 1');
-
-      // No teardown rm after create
-      const syncCalls = mockExecFileSync.mock.calls.map((c: any) => c[1] as string[]);
-      const rmCallsAfterCreate = syncCalls.slice(
-        syncCalls.findIndex((a: string[]) => a.includes('create')) + 1,
-      ).filter((a: string[]) => a.includes('rm'));
-      expect(rmCallsAfterCreate).toHaveLength(0);
-    });
-  });
-
-  describe('destroyBuilder', () => {
-    it('removes builder when one is active', async () => {
-      // Create a builder first
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-
-      jest.clearAllMocks();
-      mockExecFileSync.mockReturnValue(Buffer.from(''));
-
-      destroyBuilder();
-
-      expect(mockExecFileSync).toHaveBeenCalledWith(
-        'docker',
-        ['buildx', 'rm', '--force', 'plugin-builder'],
-        { stdio: 'ignore' },
-      );
-    });
-
-    it('is a no-op when no builder is active', () => {
-      destroyBuilder();
-      expect(mockExecFileSync).not.toHaveBeenCalled();
-    });
-
-    it('allows new builder creation after destroy', async () => {
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      await buildAndPush(req);
-      destroyBuilder();
-
-      jest.clearAllMocks();
-      mockSpawn.mockImplementation(() => createMockChild(0));
-      mockExecFileSync.mockReturnValue(Buffer.from(''));
-
-      // Should create a fresh builder
-      await buildAndPush(req);
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeDefined();
-    });
-  });
-
   describe('buildArgs handling', () => {
-    it('includes --build-arg flags in docker command', async () => {
+    it('includes --build-arg flags in the build spawn call', async () => {
       const req = makeRequest({
         buildArgs: { PYTHON_VERSION: '3.12' },
       });
       await buildAndPush(req);
 
-      const spawnArgs = mockSpawn.mock.calls[0][1];
-      expect(spawnArgs).toContain('--build-arg');
-      expect(spawnArgs).toContain('PYTHON_VERSION=3.12');
+      // First spawn call is the build
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--build-arg');
+      expect(buildArgs).toContain('PYTHON_VERSION=3.12');
+    });
+
+    it('does not include --build-arg in the push spawn call', async () => {
+      const req = makeRequest({
+        buildArgs: { PYTHON_VERSION: '3.12' },
+      });
+      await buildAndPush(req);
+
+      // Second spawn call is the push
+      const pushArgs = mockSpawn.mock.calls[1][1];
+      expect(pushArgs).not.toContain('--build-arg');
     });
 
     it('includes multiple --build-arg flags', async () => {
@@ -457,27 +299,27 @@ describe('docker-build', () => {
       });
       await buildAndPush(req);
 
-      const spawnArgs = mockSpawn.mock.calls[0][1];
-      const buildArgFlags = spawnArgs.filter((a: string) => a === '--build-arg');
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      const buildArgFlags = buildArgs.filter((a: string) => a === '--build-arg');
       expect(buildArgFlags).toHaveLength(2);
-      expect(spawnArgs).toContain('PYTHON_VERSION=3.12');
-      expect(spawnArgs).toContain('NODE_ENV=production');
+      expect(buildArgs).toContain('PYTHON_VERSION=3.12');
+      expect(buildArgs).toContain('NODE_ENV=production');
     });
 
     it('skips --build-arg when buildArgs is empty', async () => {
       const req = makeRequest({ buildArgs: {} });
       await buildAndPush(req);
 
-      const spawnArgs = mockSpawn.mock.calls[0][1];
-      expect(spawnArgs).not.toContain('--build-arg');
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).not.toContain('--build-arg');
     });
 
     it('skips --build-arg when buildArgs is undefined', async () => {
       const req = makeRequest();
       await buildAndPush(req);
 
-      const spawnArgs = mockSpawn.mock.calls[0][1];
-      expect(spawnArgs).not.toContain('--build-arg');
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).not.toContain('--build-arg');
     });
 
     it('places --build-arg flags before -f flag', async () => {
@@ -512,18 +354,6 @@ describe('docker-build', () => {
 
       await expect(buildAndPush(makeRequest())).rejects.toThrow('spawn ENOENT');
     });
-
-    it('handles stale builder cleanup gracefully', async () => {
-      // First execFileSync (inspect) throws — means no stale builder
-      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-        if (args.includes('inspect')) throw new Error('builder not found');
-        return Buffer.from('');
-      });
-
-      const req = makeRequest({ registry: makeRegistry({ network: 'net1' }) });
-      // Should not throw — the error is caught internally
-      await expect(buildAndPush(req)).resolves.toBeDefined();
-    });
   });
 
   describe('output streaming', () => {
@@ -537,52 +367,145 @@ describe('docker-build', () => {
     });
   });
 
-  describe('docker:dind sidecar compatibility', () => {
-    afterEach(() => {
-      delete process.env.DOCKER_HOST;
+  describe('podman strategy', () => {
+    beforeEach(() => {
+      mockStrategy = 'podman';
     });
 
-    it('should use DOCKER_HOST environment variable when set', async () => {
-      // Set DOCKER_HOST to simulate dind sidecar
-      process.env.DOCKER_HOST = 'tcp://localhost:2375';
-
+    it('spawns podman as binary instead of docker', async () => {
       await buildAndPush(makeRequest());
 
-      // Verify docker spawn was called (it respects DOCKER_HOST from env)
-      expect(mockSpawn).toHaveBeenCalled();
-
-      // The docker CLI args should NOT include --host flag
-      // (DOCKER_HOST env var is used instead)
-      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
-      expect(spawnArgs).not.toContain('--host');
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn.mock.calls[0][0]).toBe('podman');
+      expect(mockSpawn.mock.calls[1][0]).toBe('podman');
     });
 
-    it('should create buildx builder inside dind when network is configured', async () => {
-      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+    it('includes --layers flag in build args', async () => {
+      await buildAndPush(makeRequest());
 
-      const req = makeRequest({ registry: makeRegistry({ network: 'my_net' }) });
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--layers');
+    });
+
+    it('includes --tls-verify=false for insecure registry', async () => {
+      const req = makeRequest({ registry: makeRegistry({ insecure: true }) });
       await buildAndPush(req);
 
-      // Builder should be created with docker-container driver
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeDefined();
-      expect(createCall).toContain('--driver');
-      expect(createCall).toContain('docker-container');
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--tls-verify=false');
+
+      const pushArgs = mockSpawn.mock.calls[1][1];
+      expect(pushArgs).toContain('--tls-verify=false');
     });
 
-    it('should work without network when DOCKER_HOST is set', async () => {
-      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+    it('includes --tls-verify=false for http registry', async () => {
+      const req = makeRequest({ registry: makeRegistry({ http: true, insecure: false }) });
+      await buildAndPush(req);
 
-      // No network — default Docker networking, but via dind
-      const result = await buildAndPush(makeRequest());
-
-      expect(result.fullImage).toBe('registry:5000/plugin:p-test-abc123');
-      expect(mockSpawn).toHaveBeenCalled();
-
-      // Without a network, no buildx builder should be created
-      const createCall = findBuildxCreateCall();
-      expect(createCall).toBeUndefined();
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--tls-verify=false');
     });
 
+    it('omits --tls-verify=false for secure registry', async () => {
+      const req = makeRequest({ registry: makeRegistry({ http: false, insecure: false }) });
+      await buildAndPush(req);
+
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).not.toContain('--tls-verify=false');
+    });
+
+    it('uses --authfile instead of --config', async () => {
+      await buildAndPush(makeRequest());
+
+      const buildArgs = mockSpawn.mock.calls[0][1];
+      expect(buildArgs).toContain('--authfile=/tmp/build-ctx/.docker/config.json');
+      expect(buildArgs).not.toContain('--config');
+
+      const pushArgs = mockSpawn.mock.calls[1][1];
+      expect(pushArgs).toContain('--authfile=/tmp/build-ctx/.docker/config.json');
+      expect(pushArgs).not.toContain('--config');
+    });
+
+    it('calls execFileSync for rmi cleanup with podman binary', async () => {
+      await buildAndPush(makeRequest());
+
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'podman',
+        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        { stdio: 'ignore' },
+      );
+    });
+  });
+
+  describe('Dockerfile injection', () => {
+    it('reads and patches Dockerfile for docker strategy', async () => {
+      await buildAndPush(makeRequest());
+
+      expect(mockReadFileSync).toHaveBeenCalledWith(
+        '/tmp/build-ctx/Dockerfile',
+        'utf-8',
+      );
+
+      // Find the writeFileSync call for the Dockerfile (not auth config)
+      const dockerfileWrite = mockWriteFileSync.mock.calls.find(
+        (c: any) => String(c[0]) === '/tmp/build-ctx/Dockerfile',
+      );
+      expect(dockerfileWrite).toBeDefined();
+
+      const patchedContent = dockerfileWrite![1] as string;
+      expect(patchedContent).toContain('DEBIAN_FRONTEND=noninteractive');
+      expect(patchedContent).toContain('force-confnew');
+    });
+
+    it('reads and patches Dockerfile for podman strategy without force-confnew', async () => {
+      mockStrategy = 'podman';
+      await buildAndPush(makeRequest());
+
+      expect(mockReadFileSync).toHaveBeenCalledWith(
+        '/tmp/build-ctx/Dockerfile',
+        'utf-8',
+      );
+
+      const dockerfileWrite = mockWriteFileSync.mock.calls.find(
+        (c: any) => String(c[0]) === '/tmp/build-ctx/Dockerfile',
+      );
+      expect(dockerfileWrite).toBeDefined();
+
+      const patchedContent = dockerfileWrite![1] as string;
+      expect(patchedContent).toContain('DEBIAN_FRONTEND=noninteractive');
+      expect(patchedContent).not.toContain('force-confnew');
+    });
+  });
+
+  describe('image cleanup after push', () => {
+    it('calls rmi after successful push', async () => {
+      await buildAndPush(makeRequest());
+
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'docker',
+        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        { stdio: 'ignore' },
+      );
+    });
+
+    it('calls rmi even when push fails', async () => {
+      // First spawn (build) succeeds, second spawn (push) fails
+      let callCount = 0;
+      mockSpawn.mockImplementation(() => {
+        callCount++;
+        return createMockChild(callCount === 2 ? 1 : 0);
+      });
+
+      await expect(buildAndPush(makeRequest())).rejects.toThrow(
+        'Build failed with exit code 1',
+      );
+
+      // rmi should still be called even though push failed
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'docker',
+        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        { stdio: 'ignore' },
+      );
+    });
   });
 });

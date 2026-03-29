@@ -97,7 +97,7 @@ export default function MessagesPage() {
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversations</h2>
               <button
                 onClick={() => setShowCompose(true)}
-                className="p-1.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                className="btn btn-primary btn-sm"
                 title={isSysAdmin ? 'New Message' : 'Contact Support'}
                 aria-label={isSysAdmin ? 'New Message' : 'Contact Support'}
               >

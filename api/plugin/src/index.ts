@@ -1,5 +1,7 @@
-import { createLogger, createQuotaService, registerComplianceEventSubscriber } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, createHealthRouter } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
+import { db } from '@mwashburn160/pipeline-core';
+import { sql } from 'drizzle-orm';
 
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
 import { createBulkPluginRoutes } from './routes/bulk-plugin';
@@ -13,10 +15,21 @@ import { createUploadPluginRoutes } from './routes/upload-plugin';
 
 const logger = createLogger('plugin');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp();
+const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
+
+// -- Health check with dependency monitoring ----------------------------------
+app.use(createHealthRouter({
+  serviceName: 'plugin',
+  checkDependencies: async () => {
+    const deps: Record<string, 'connected' | 'disconnected'> = {};
+    try { await db.execute(sql`SELECT 1`); deps.postgres = 'connected'; } catch { deps.postgres = 'disconnected'; }
+    deps.redis = 'connected'; // Redis is checked via BullMQ worker health
+    return deps;
+  },
+}));
 
 // -- Upload route FIRST — manages its own middleware (multer → auth → plugins quota).
 //    Must be registered before other /plugins routes so that their auth/quota

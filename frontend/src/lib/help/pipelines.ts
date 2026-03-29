@@ -136,5 +136,68 @@ pipeline-manager deploy --id <pipeline-id> --synth`,
         },
       ],
     },
+    {
+      id: 'metadata-keys',
+      title: 'Metadata Keys Reference',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'Metadata keys control pipeline behavior at the global or step level. Set these in the "metadata" or "global" fields of your pipeline configuration.',
+        },
+        {
+          type: 'text',
+          content: 'Pipeline Behavior',
+        },
+        {
+          type: 'table',
+          headers: ['Key', 'Values', 'Description'],
+          rows: [
+            ['SELF_MUTATION', 'true / false', 'Enable the pipeline to update itself when its definition changes'],
+            ['CROSS_ACCOUNT_KEYS', 'true / false', 'Use KMS keys for cross-account deployments'],
+            ['PUBLISH_ASSETS_IN_PARALLEL', 'true / false', 'Publish CDK assets in parallel for faster deployments'],
+            ['USE_CHANGE_SETS', 'true / false', 'Use CloudFormation change sets instead of direct deployments'],
+          ],
+        },
+        {
+          type: 'text',
+          content: 'Docker',
+        },
+        {
+          type: 'table',
+          headers: ['Key', 'Values', 'Description'],
+          rows: [
+            ['DOCKER_ENABLED_FOR_SYNTH', 'true / false', 'Enable Docker during the synth step (required for Docker-based builds)'],
+            ['DOCKER_ENABLED_FOR_SELF_MUTATION', 'true / false', 'Enable Docker during the self-mutation step'],
+            ['DOCKER_CREDENTIALS', 'string', 'ARN or name of the Docker Hub credentials secret'],
+            ['PRIVILEGED', 'true / false', 'Run CodeBuild in privileged mode (needed for Docker-in-Docker)'],
+          ],
+        },
+        {
+          type: 'text',
+          content: 'Network',
+        },
+        {
+          type: 'table',
+          headers: ['Key', 'Values', 'Description'],
+          rows: [
+            ['NETWORK_TYPE', 'string', 'Network configuration type (e.g., "VPC")'],
+            ['NETWORK_VPC_ID', 'string', 'VPC ID to run CodeBuild actions in a private network'],
+            ['NETWORK_SUBNET_IDS', 'string', 'Comma-separated list of subnet IDs for CodeBuild'],
+          ],
+        },
+        {
+          type: 'text',
+          content: 'Notifications',
+        },
+        {
+          type: 'table',
+          headers: ['Key', 'Values', 'Description'],
+          rows: [
+            ['NOTIFICATION_TOPIC_ARN', 'string', 'SNS topic ARN to receive pipeline event notifications'],
+          ],
+        },
+      ],
+    },
   ],
 };

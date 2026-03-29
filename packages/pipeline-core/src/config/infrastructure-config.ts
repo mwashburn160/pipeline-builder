@@ -1,7 +1,8 @@
+import path from 'path';
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import type { AWSConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
+import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
 import { getComputeType } from '../core/pipeline-helpers';
 
 function requireInProduction(envVar: string, devDefault: string): string {
@@ -47,16 +48,77 @@ export function loadRedisConfig(): RedisConfig {
 }
 
 /**
- * Load plugin build configuration from environment variables.
+ * Load plugin build queue configuration.
  *
  * Environment variables:
- * - `PLUGIN_BUILD_CONCURRENCY` — Max concurrent Docker plugin builds (default: `1`)
- *
- * @returns Plugin build configuration
+ * - `PLUGIN_BUILD_CONCURRENCY` — Max concurrent plugin builds (default: `1`)
  */
 export function loadPluginBuildConfig(): PluginBuildConfig {
   return {
     concurrency: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY || '1', 10),
+    maxAttempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10),
+    backoffDelayMs: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10),
+    workerTimeoutMs: parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10),
+    tempDirMaxAgeMs: parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '14400000', 10),
+  };
+}
+
+export function loadDatabaseConfig(): DatabaseConfig {
+  return {
+    postgres: {
+      host: process.env.DB_HOST || 'postgres',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
+      database: process.env.DATABASE || 'pipeline_builder',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || '',
+    },
+    drizzle: {
+      maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20', 10),
+      idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000', 10),
+      connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000', 10),
+    },
+  };
+}
+
+export function loadObservabilityConfig(): ObservabilityConfig {
+  return {
+    logLevel: process.env.LOG_LEVEL || 'info',
+    logFormat: process.env.LOG_FORMAT || 'json',
+    serviceName: process.env.SERVICE_NAME || 'api',
+    tracing: {
+      enabled: process.env.OTEL_TRACING_ENABLED === 'true',
+      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',
+    },
+  };
+}
+
+export function loadComplianceConfig(): ComplianceConfig {
+  return {
+    scanSchedulerIntervalMs: parseInt(process.env.SCAN_SCHEDULER_INTERVAL_MS || '60000', 10),
+  };
+}
+
+/**
+ * Load Docker/Podman/Kaniko build configuration.
+ *
+ * Environment variables:
+ * - `DOCKER_BUILD_STRATEGY` — Build strategy: `podman`, `docker`, or `kaniko` (default: `podman`)
+ * - `DOCKER_BUILD_TEMP_ROOT` — Temp directory for build contexts (default: `<cwd>/tmp`)
+ * - `DOCKER_BUILD_TIMEOUT_MS` — Build timeout in milliseconds (default: `900000` / 15 min)
+ * - `DOCKER_PUSH_TIMEOUT_MS` — Push timeout in milliseconds (default: `300000` / 5 min)
+ * - `KANIKO_EXECUTOR_PATH` — Path to Kaniko executor binary (default: `/kaniko/executor`)
+ * - `KANIKO_CACHE_DIR` — Kaniko layer cache directory (default: `/kaniko/cache`)
+ */
+export function loadDockerConfig(): BuildConfig {
+  const validStrategies = new Set(['docker', 'kaniko', 'podman']);
+  const strategyEnv = (process.env.DOCKER_BUILD_STRATEGY || '').toLowerCase();
+  return {
+    strategy: validStrategies.has(strategyEnv) ? strategyEnv as BuildConfig['strategy'] : 'podman',
+    tempRoot: process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp'),
+    timeoutMs: parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10),
+    pushTimeoutMs: parseInt(process.env.DOCKER_PUSH_TIMEOUT_MS || '300000', 10),
+    kanikoExecutor: process.env.KANIKO_EXECUTOR_PATH || '/kaniko/executor',
+    kanikoCacheDir: process.env.KANIKO_CACHE_DIR || '/kaniko/cache',
   };
 }
 

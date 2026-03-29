@@ -15,13 +15,13 @@ const logger = createLogger('quota');
  */
 export interface QuotaService {
   /** Check if quota is available (fail-open on error). */
-  check(orgId: string, quotaType: QuotaType, authHeader: string): Promise<QuotaCheckResult>;
+  check(orgId: string, quotaType: QuotaType, authHeader: string, requestId?: string): Promise<QuotaCheckResult>;
   /** Increment quota usage. Returns a promise so callers can optionally handle errors. */
-  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number): Promise<void>;
+  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<void>;
   /** Update quota limits. Returns true on success. */
-  updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string): Promise<boolean>;
+  updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string, requestId?: string): Promise<boolean>;
   /** Reset quota usage. Returns true on success. */
-  reset(orgId: string, quotaType?: QuotaType, authHeader?: string): Promise<boolean>;
+  reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean>;
 }
 
 /**
@@ -51,11 +51,12 @@ function createFailOpenResult(): QuotaCheckResult {
 }
 
 /**
- * Build common request headers.
+ * Build common request headers with optional request ID for distributed tracing.
  */
-function buildHeaders(orgId: string, authHeader?: string): Record<string, string> {
+function buildHeaders(orgId: string, authHeader?: string, requestId?: string): Record<string, string> {
   const headers: Record<string, string> = { 'x-org-id': orgId };
   if (authHeader) headers.Authorization = authHeader;
+  if (requestId) headers['X-Request-Id'] = requestId;
   return headers;
 }
 
@@ -89,14 +90,14 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
   const client = createSafeClient(serviceConfig);
 
   return {
-    async check(orgId: string, quotaType: QuotaType, authHeader: string): Promise<QuotaCheckResult> {
+    async check(orgId: string, quotaType: QuotaType, authHeader: string, requestId?: string): Promise<QuotaCheckResult> {
       const path = `/quotas/${encodeURIComponent(orgId)}/${encodeURIComponent(quotaType)}`;
 
       const response = await client.get<{
         success: boolean;
         data?: { quotaType: string; status: QuotaCheckResult };
         message?: string;
-      }>(path, { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS });
+      }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) {
         logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable, allowing request', { orgId, quotaType });
@@ -113,11 +114,11 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return response.body.data.status;
     },
 
-    async increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1): Promise<void> {
+    async increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<void> {
       const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
 
       const response = await client
-        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS });
+        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response || response.statusCode !== 200) {
         logger.warn('Failed to increment quota', {
@@ -132,10 +133,11 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       orgId: string,
       limits: Partial<Record<QuotaType, number>>,
       authHeader: string,
+      requestId?: string,
     ): Promise<boolean> {
       const path = `/quotas/${encodeURIComponent(orgId)}`;
 
-      const response = await client.put(path, limits, { headers: buildHeaders(orgId, authHeader) });
+      const response = await client.put(path, limits, { headers: buildHeaders(orgId, authHeader, requestId) });
 
       if (!response || response.statusCode !== 200) {
         logger.warn('Failed to update quota limits', {
@@ -148,11 +150,11 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return true;
     },
 
-    async reset(orgId: string, quotaType?: QuotaType, authHeader?: string): Promise<boolean> {
+    async reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean> {
       const path = `/quotas/${encodeURIComponent(orgId)}/reset`;
 
       const body = quotaType ? { quotaType } : {};
-      const response = await client.post(path, body, { headers: buildHeaders(orgId, authHeader ?? '') });
+      const response = await client.post(path, body, { headers: buildHeaders(orgId, authHeader ?? '', requestId) });
 
       if (!response || response.statusCode !== 200) {
         logger.warn('Failed to reset quota', {

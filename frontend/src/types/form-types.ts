@@ -179,10 +179,11 @@ export interface FormBuilderState {
   // Synth (required)
   /** Source repository and synth plugin configuration. */
   synth: {
-    sourceType: 's3' | 'github' | 'codestar';
-    s3: { bucketName: string; objectKey: string; trigger: string };
-    github: { repo: string; branch: string; token: string; trigger: string };
-    codestar: { repo: string; branch: string; connectionArn: string; trigger: string; codeBuildCloneOutput: boolean };
+    sourceType: 's3' | 'github' | 'codestar' | 'codecommit';
+    s3: { bucketName: string; objectKey: string; trigger: string; schedule: string };
+    github: { repo: string; branch: string; token: string; trigger: string; schedule: string };
+    codestar: { repo: string; branch: string; connectionArn: string; trigger: string; codeBuildCloneOutput: boolean; schedule: string };
+    codecommit: { repositoryName: string; branch: string; trigger: string; schedule: string };
     plugin: FormPluginOptions;
     metadata: MetadataEntry[];
     networkType: 'none' | 'subnetIds' | 'vpcId' | 'vpcLookup';
@@ -312,9 +313,10 @@ export function createInitialFormState(): FormBuilderState {
     },
     synth: {
       sourceType: 'github',
-      s3: { bucketName: '', objectKey: '', trigger: 'NONE' },
-      github: { repo: '', branch: '', token: '', trigger: 'NONE' },
-      codestar: { repo: '', branch: '', connectionArn: '', trigger: 'NONE', codeBuildCloneOutput: false },
+      s3: { bucketName: '', objectKey: '', trigger: 'NONE', schedule: '' },
+      github: { repo: '', branch: '', token: '', trigger: 'NONE', schedule: '' },
+      codestar: { repo: '', branch: '', connectionArn: '', trigger: 'NONE', codeBuildCloneOutput: false, schedule: '' },
+      codecommit: { repositoryName: '', branch: '', trigger: 'NONE', schedule: '' },
       plugin: createEmptyPlugin(),
       metadata: [],
       networkType: 'none',

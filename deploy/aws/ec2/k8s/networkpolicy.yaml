@@ -394,3 +394,55 @@ spec:
           protocol: TCP
         - port: 10250
           protocol: TCP
+
+---
+# =============================================================================
+# Plugin Build Isolation — restrict plugin pod egress during builds
+# =============================================================================
+# Overrides the broad allow-internal-egress for plugin pods.
+# Plugin pods can only reach registry, postgres, redis, DNS, and HTTPS/HTTP.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plugin-build-isolation
+  namespace: pipeline-builder
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: plugin
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow registry access
+    - to:
+        - podSelector:
+            matchLabels:
+              app: registry
+      ports:
+        - port: 5000
+    # Allow PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    # Allow Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+    # Allow outbound HTTPS (package downloads)
+    - to: []
+      ports:
+        - port: 443
+        - port: 80

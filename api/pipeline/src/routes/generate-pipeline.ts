@@ -44,8 +44,7 @@ function filterPluginsByContext(
   if (contextTerms.size === 0) return plugins;
 
   const filtered = plugins.filter(p => {
-    const category = (p.metadata ?? {}).category;
-    if (typeof category === 'string' && UNIVERSAL_CATEGORIES.has(category.toLowerCase())) return true;
+    if (UNIVERSAL_CATEGORIES.has((p.category || '').toLowerCase())) return true;
     if ((p.keywords ?? []).some(k => contextTerms.has(k.toLowerCase()))) return true;
     const nameLower = p.name.toLowerCase();
     for (const term of contextTerms) {
@@ -120,6 +119,7 @@ async function getAvailablePlugins(orgId: string) {
       commands: schema.plugin.commands,
       installCommands: schema.plugin.installCommands,
       keywords: schema.plugin.keywords,
+      category: schema.plugin.category,
       metadata: schema.plugin.metadata,
       env: schema.plugin.env,
     })
@@ -174,7 +174,7 @@ export function createGeneratePipelineRoutes(): Router {
       if (!validation.ok) {
         return sendBadRequest(res, validation.error);
       }
-      const { prompt, provider, model, apiKey } = validation.value;
+      const { prompt, provider, model, apiKey, previousConfig, fallbackProviders } = validation.value;
 
       try {
         ctx.log('INFO', 'AI pipeline generation requested', {
@@ -192,16 +192,24 @@ export function createGeneratePipelineRoutes(): Router {
           provider,
           model,
           ...(apiKey ? { apiKey } : {}),
+          ...(previousConfig ? { previousConfig } : {}),
+          ...(fallbackProviders ? { fallbackProviders } : {}),
         });
 
         ctx.log('COMPLETED', 'AI pipeline generation completed', {
           pluginCount: plugins.length,
+          ...(result.servedBy && { servedBy: result.servedBy }),
+          ...(result.usage && { tokens: result.usage.totalTokens }),
         });
 
         return sendSuccess(res, 200, {
           props: result.props,
           description: result.description,
           keywords: result.keywords,
+          usage: result.usage,
+          servedBy: result.servedBy,
+          promptVersion: result.promptVersion,
+          validationWarnings: result.validationWarnings,
         });
       } catch (error) {
         const message = errorMessage(error);
@@ -258,7 +266,13 @@ export function createGeneratePipelineRoutes(): Router {
             const { description, keywords, ...props } = finalOutput;
             res.write(`data: ${JSON.stringify({
               type: 'done',
-              data: { props, description: description ?? undefined, keywords: keywords ?? undefined },
+              data: {
+                props,
+                description: description ?? undefined,
+                keywords: keywords ?? undefined,
+                servedBy: result.servedBy,
+                promptVersion: result.promptVersion,
+              },
             })}\n\n`);
           }
           res.write('data: [DONE]\n\n');
@@ -372,7 +386,13 @@ export function createGeneratePipelineRoutes(): Router {
             const { description, keywords, ...props } = finalOutput;
             res.write(`data: ${JSON.stringify({
               type: 'done',
-              data: { props, description: description ?? undefined, keywords: keywords ?? undefined },
+              data: {
+                props,
+                description: description ?? undefined,
+                keywords: keywords ?? undefined,
+                servedBy: result.servedBy,
+                promptVersion: result.promptVersion,
+              },
             })}\n\n`);
 
             // Phase 3: Auto-create missing plugins

@@ -1,3 +1,4 @@
+import dynamic from 'next/dynamic';
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Puzzle, AlertTriangle } from 'lucide-react';
@@ -6,7 +7,10 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
-import ReportTabs from '@/components/reports/ReportTabs';
+
+const ReportTabs = dynamic(() => import('@/components/reports/ReportTabs'), {
+  loading: () => <LoadingPage />,
+});
 import {
   fmtMs, fmtDate, ReportEmpty, SectionHeading,
   StatCardSkeleton, SectionCardSkeleton, TwoColumnSkeleton,

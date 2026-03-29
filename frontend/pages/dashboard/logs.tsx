@@ -131,7 +131,7 @@ export default function LogsPage() {
       title="Service Logs"
       subtitle="System and pipeline logs"
       actions={
-        <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary text-sm py-1.5 flex items-center gap-1.5">
+        <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary py-1.5 flex items-center gap-1.5">
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </button>

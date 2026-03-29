@@ -1,3 +1,4 @@
+import { enqueueComplianceEvent } from './compliance-queue';
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
 import { InternalHttpClient } from './http-client';
 import { type ServiceConfig } from '../types/common';
@@ -37,6 +38,17 @@ export function registerComplianceEventSubscriber(config?: Partial<ServiceConfig
           error: err instanceof Error ? err.message : String(err),
         });
       }
+
+      // Also enqueue for async re-validation (catches rule changes after creation)
+      void enqueueComplianceEvent({
+        eventType: 'validate',
+        target: event.target as 'plugin' | 'pipeline',
+        entityId: event.entityId,
+        orgId: event.orgId,
+        userId: event.userId,
+        attributes: event.attributes,
+        timestamp: event.timestamp.toISOString(),
+      });
     },
   };
 

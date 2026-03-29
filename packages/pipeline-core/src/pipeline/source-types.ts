@@ -83,6 +83,12 @@ export interface S3Options {
    * @default TriggerType.NONE
    */
   readonly trigger?: TriggerType;
+
+  /**
+   * Cron expression for scheduled trigger (e.g., 'cron(0 0 * * ? *)' for daily).
+   * Only used when trigger is SCHEDULE.
+   */
+  readonly schedule?: string;
 }
 
 /**
@@ -112,6 +118,12 @@ export interface GitHubOptions {
    * @default TriggerType.NONE
    */
   readonly trigger?: TriggerType;
+
+  /**
+   * Cron expression for scheduled trigger (e.g., 'cron(0 0 * * ? *)' for daily).
+   * Only used when trigger is SCHEDULE.
+   */
+  readonly schedule?: string;
 }
 
 /**
@@ -144,9 +156,58 @@ export interface CodeStarOptions {
   readonly trigger?: TriggerType;
 
   /**
+   * Cron expression for scheduled trigger (e.g., 'cron(0 0 * * ? *)' for daily).
+   * Only used when trigger is SCHEDULE.
+   */
+  readonly schedule?: string;
+
+  /**
    * Whether to enable full clone capability in CodeBuild
    * When true, CodeBuild can perform git operations on the full repository
    * @default false
    */
   readonly codeBuildCloneOutput?: boolean;
+}
+
+/**
+ * CodeCommit source configuration for CodePipeline
+ *
+ * @example
+ * ```typescript
+ * const source: CodeCommitSourceConfig = {
+ *   type: 'codecommit',
+ *   options: {
+ *     repositoryName: 'my-repo',
+ *     branch: 'main',
+ *     trigger: TriggerType.AUTO
+ *   }
+ * };
+ * ```
+ */
+export interface CodeCommitSourceConfig {
+  readonly type: 'codecommit';
+  readonly options: CodeCommitOptions;
+}
+
+/**
+ * Configuration options for CodeCommit pipeline source
+ */
+export interface CodeCommitOptions {
+  /**
+   * Name of the CodeCommit repository
+   * @example 'my-repo'
+   */
+  readonly repositoryName: string;
+
+  /**
+   * Branch to track
+   * @default 'main'
+   */
+  readonly branch?: string;
+
+  /**
+   * Pipeline trigger behavior
+   * @default TriggerType.NONE
+   */
+  readonly trigger?: TriggerType;
 }

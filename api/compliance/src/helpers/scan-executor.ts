@@ -1,5 +1,5 @@
 import { createLogger, errorMessage, InternalHttpClient, type ServiceConfig } from '@mwashburn160/api-core';
-import { schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
+import { Config, schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger';
 import { notifyComplianceBlock } from './compliance-notifier';
@@ -8,14 +8,18 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('scan-executor');
 
+const serverConfig = Config.getAny('server') as {
+  services: { pluginHost: string; pluginPort: number; pipelineHost: string; pipelinePort: number };
+};
+
 const pluginClient = new InternalHttpClient({
-  host: process.env.PLUGIN_SERVICE_HOST ?? 'plugin',
-  port: parseInt(process.env.PLUGIN_SERVICE_PORT ?? '3000', 10),
+  host: serverConfig.services.pluginHost,
+  port: serverConfig.services.pluginPort,
 } as ServiceConfig);
 
 const pipelineClient = new InternalHttpClient({
-  host: process.env.PIPELINE_SERVICE_HOST ?? 'pipeline',
-  port: parseInt(process.env.PIPELINE_SERVICE_PORT ?? '3000', 10),
+  host: serverConfig.services.pipelineHost,
+  port: serverConfig.services.pipelinePort,
 } as ServiceConfig);
 
 /** Progress update interval (every N entities). */

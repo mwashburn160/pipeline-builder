@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import { BuilderProps } from '@/types';
+import type { ComplianceCheckResult } from '@/types/compliance';
+import { Badge } from '@/components/ui/Badge';
+import api from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import GitUrlTab, { GitUrlTabRef } from './GitUrlTab';
@@ -46,6 +49,8 @@ export default function CreatePipelineModal({
   const [previewJson, setPreviewJson] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [complianceResult, setComplianceResult] = useState<ComplianceCheckResult | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
@@ -124,6 +129,27 @@ export default function CreatePipelineModal({
       const prev = currentStep - 1;
       setCurrentStep(prev);
       formRef.current?.goToStep(prev);
+    }
+  };
+
+  const handleComplianceCheck = async () => {
+    setComplianceLoading(true);
+    setComplianceResult(null);
+    try {
+      const props = await resolveProps();
+      if (!props) { setComplianceLoading(false); return; }
+      const res = await api.dryRunPipelineCompliance(props as unknown as Record<string, unknown>);
+      if (res.success && res.data) {
+        setComplianceResult(res.data);
+      }
+    } catch {
+      setComplianceResult({
+        passed: false, blocked: false, rulesEvaluated: 0, rulesSkipped: 0,
+        violations: [{ ruleId: 'error', ruleName: 'Compliance Check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message: 'Failed to run compliance check' }],
+        warnings: [], exemptionsApplied: [],
+      });
+    } finally {
+      setComplianceLoading(false);
     }
   };
 
@@ -207,13 +233,23 @@ export default function CreatePipelineModal({
 
   const footer = (
     <div className="flex items-center justify-between">
-      <button
-        onClick={handlePreview}
-        disabled={createLoading}
-        className="btn btn-secondary"
-      >
-        Preview JSON
-      </button>
+      <div className="flex items-center space-x-2">
+        <button
+          onClick={handlePreview}
+          disabled={createLoading}
+          className="btn btn-secondary"
+        >
+          Preview JSON
+        </button>
+        <button
+          onClick={handleComplianceCheck}
+          disabled={createLoading || complianceLoading}
+          className="btn btn-secondary"
+        >
+          {complianceLoading ? <LoadingSpinner size="sm" className="mr-1" /> : <ShieldCheck className="w-4 h-4 mr-1" />}
+          Preview Compliance
+        </button>
+      </div>
 
       <div className="flex items-center space-x-3">
         <button
@@ -300,6 +336,33 @@ export default function CreatePipelineModal({
       {previewError && (
         <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
           <p className="text-sm text-yellow-800 dark:text-yellow-300">{previewError}</p>
+        </div>
+      )}
+
+      {complianceResult && (
+        <div className={`mt-4 rounded-xl border p-4 ${complianceResult.passed ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : complianceResult.blocked ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              <span className="text-sm font-medium">Compliance Check ({complianceResult.rulesEvaluated} rules evaluated)</span>
+            </div>
+            <button onClick={() => setComplianceResult(null)} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Dismiss</button>
+          </div>
+          {complianceResult.passed && complianceResult.warnings.length === 0 && (
+            <p className="text-sm text-green-700 dark:text-green-300">All compliance checks passed.</p>
+          )}
+          {complianceResult.violations.map((v, i) => (
+            <div key={`v-${i}`} className="flex items-start gap-2 mt-1">
+              <Badge color="red">{v.severity === 'critical' ? 'Critical' : v.severity === 'error' ? 'Error' : 'Violation'}</Badge>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{v.message}</span>
+            </div>
+          ))}
+          {complianceResult.warnings.map((w, i) => (
+            <div key={`w-${i}`} className="flex items-start gap-2 mt-1">
+              <Badge color="yellow">Warn</Badge>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{w.message}</span>
+            </div>
+          ))}
         </div>
       )}
     </Modal>

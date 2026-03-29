@@ -30,6 +30,18 @@ interface DefaultsSectionProps {
  * When enabled, exposes sub-sections for network configuration, security groups,
  * and metadata that apply as defaults to all pipeline steps.
  */
+/** Look up a metadata entry by key. */
+function getMetaValue(entries: MetadataEntry[], key: string): string | undefined {
+  return entries.find((e) => e.key === key)?.value;
+}
+
+/** Set or remove a metadata entry by key. Returns a new array. */
+function setMetaEntry(entries: MetadataEntry[], key: string, value: string | undefined, type: MetadataEntry['type'] = 'string'): MetadataEntry[] {
+  const filtered = entries.filter((e) => e.key !== key);
+  if (value === undefined || value === '') return filtered;
+  return [...filtered, { key, value, type }];
+}
+
 export default function DefaultsSection({
   defaults,
   onEnabledChange, onNetworkTypeChange, onNetworkChange,
@@ -94,6 +106,95 @@ export default function DefaultsSection({
                 />
               </div>
             </CollapsibleSection>
+
+            {/* Docker */}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={getMetaValue(defaults.metadata, 'aws:cdk:pipelines:codepipeline:dockerenabledforsynth') === 'true'}
+                  onChange={(e) => onMetadataChange(
+                    setMetaEntry(defaults.metadata, 'aws:cdk:pipelines:codepipeline:dockerenabledforsynth', e.target.checked ? 'true' : undefined, 'boolean'),
+                  )}
+                  disabled={disabled}
+                  className="rounded"
+                />
+                Enable Docker for synth step
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={getMetaValue(defaults.metadata, 'aws:cdk:codebuild:buildenvironment:privileged') === 'true'}
+                  onChange={(e) => onMetadataChange(
+                    setMetaEntry(defaults.metadata, 'aws:cdk:codebuild:buildenvironment:privileged', e.target.checked ? 'true' : undefined, 'boolean'),
+                  )}
+                  disabled={disabled}
+                  className="rounded"
+                />
+                Enable privileged mode (required for Docker builds)
+              </label>
+            </div>
+
+            {/* Notifications */}
+            <div className="space-y-3">
+              <label className="label">SNS Topic ARN (optional)</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="arn:aws:sns:us-east-1:123456789012:my-topic"
+                value={getMetaValue(defaults.metadata, 'aws:cdk:notifications:topic:arn') || ''}
+                onChange={(e) => onMetadataChange(
+                  setMetaEntry(defaults.metadata, 'aws:cdk:notifications:topic:arn', e.target.value || undefined),
+                )}
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Receive pipeline execution notifications via SNS (FAILED + SUCCEEDED events).
+              </p>
+            </div>
+
+            {/* Operations */}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={getMetaValue(defaults.metadata, 'aws:cdk:operations:executionevents') === 'true'}
+                  onChange={(e) => onMetadataChange(
+                    setMetaEntry(defaults.metadata, 'aws:cdk:operations:executionevents', e.target.checked ? 'true' : undefined, 'boolean'),
+                  )}
+                  disabled={disabled}
+                  className="rounded"
+                />
+                Track pipeline execution events (EventBridge)
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={getMetaValue(defaults.metadata, 'aws:cdk:operations:metrics') === 'true'}
+                  onChange={(e) => onMetadataChange(
+                    setMetaEntry(defaults.metadata, 'aws:cdk:operations:metrics', e.target.checked ? 'true' : undefined, 'boolean'),
+                  )}
+                  disabled={disabled}
+                  className="rounded"
+                />
+                Enable CloudWatch failure alarms
+              </label>
+            </div>
+
+            {/* Encryption */}
+            <div className="space-y-2">
+              <label className="label">KMS Key ARN (optional)</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="arn:aws:kms:us-east-1:123456789012:key/..."
+                value={getMetaValue(defaults.metadata, 'aws:cdk:encryption:kmskeyarn') || ''}
+                onChange={(e) => onMetadataChange(
+                  setMetaEntry(defaults.metadata, 'aws:cdk:encryption:kmskeyarn', e.target.value || undefined),
+                )}
+                disabled={disabled}
+              />
+            </div>
           </div>
         )}
       </div>

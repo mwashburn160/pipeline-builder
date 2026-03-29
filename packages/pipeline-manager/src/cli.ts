@@ -192,6 +192,41 @@ Examples:
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
   synth(program); // Run CDK synthesis
 
+  // Shell completions
+  printDebug('Registering completions command');
+  program
+    .command('completions')
+    .description('Generate shell completions (bash, zsh, fish)')
+    .argument('<shell>', 'Shell type: bash, zsh, or fish')
+    .action((shell: string) => {
+      switch (shell) {
+        case 'bash':
+          console.log(`# pipeline-manager bash completions
+_pipeline_manager_completions() {
+  local cur="\${COMP_WORDS[COMP_CWORD]}"
+  local commands="login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions"
+  COMPREPLY=($(compgen -W "\${commands}" -- "\${cur}"))
+}
+complete -F _pipeline_manager_completions pipeline-manager`);
+          break;
+        case 'zsh':
+          console.log(`# pipeline-manager zsh completions
+_pipeline_manager() {
+  local commands=(login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions)
+  _describe 'command' commands
+}
+compdef _pipeline_manager pipeline-manager`);
+          break;
+        case 'fish':
+          console.log(`# pipeline-manager fish completions
+complete -c pipeline-manager -n '__fish_use_subcommand' -a 'login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions'`);
+          break;
+        default:
+          console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);
+          process.exit(1);
+      }
+    });
+
   printDebug('All commands registered successfully');
 }
 

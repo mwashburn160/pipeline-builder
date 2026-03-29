@@ -109,7 +109,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="btn btn-primary w-full justify-center"
+              className="btn btn-primary btn-full"
             >
               {isLoading ? (
                 <>

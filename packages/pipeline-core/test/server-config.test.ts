@@ -159,7 +159,19 @@ describe('loadRateLimitConfig', () => {
 describe('validateServerConfig', () => {
   const defaultHttpClient = { timeout: 5000, maxRetries: 2, retryDelayMs: 200 };
   const defaultSse = { maxClientsPerRequest: 10, clientTimeoutMs: 1800000, cleanupIntervalMs: 300000 };
-  const defaultServices = { pluginHost: 'plugin', pluginPort: 3000 };
+  const defaultServices = {
+    pluginHost: 'plugin',
+    pluginPort: 3000,
+    pipelineHost: 'pipeline',
+    pipelinePort: 3000,
+    messageHost: 'message',
+    messagePort: 3000,
+    complianceHost: 'compliance',
+    compliancePort: 3000,
+    billingHost: 'billing',
+    billingPort: 3000,
+    billingTimeout: 5000,
+  };
 
   it('does not throw for valid config', () => {
     expect(() =>

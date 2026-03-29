@@ -258,6 +258,7 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
             bucketName: String(opts.bucketName || ''),
             objectKey: String(opts.objectKey || ''),
             trigger: String(opts.trigger || 'NONE'),
+            schedule: String(opts.schedule || ''),
           };
           break;
         case 'github':
@@ -266,6 +267,7 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
             branch: String(opts.branch || ''),
             token: String(opts.token || ''),
             trigger: String(opts.trigger || 'NONE'),
+            schedule: String(opts.schedule || ''),
           };
           break;
         case 'codestar':
@@ -275,6 +277,15 @@ export function propsToFormState(rawProps: AnyRecord): FormBuilderState {
             connectionArn: String(opts.connectionArn || ''),
             trigger: String(opts.trigger || 'NONE'),
             codeBuildCloneOutput: Boolean(opts.codeBuildCloneOutput),
+            schedule: String(opts.schedule || ''),
+          };
+          break;
+        case 'codecommit':
+          base.synth.codecommit = {
+            repositoryName: String(opts.repositoryName || ''),
+            branch: String(opts.branch || ''),
+            trigger: String(opts.trigger || 'NONE'),
+            schedule: String(opts.schedule || ''),
           };
           break;
       }

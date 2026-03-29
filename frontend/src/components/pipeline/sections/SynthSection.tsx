@@ -17,6 +17,8 @@ interface SynthSectionProps {
   onGithubChange: (field: string, value: string) => void;
   /** Callback when a CodeStar source field changes. */
   onCodestarChange: (field: string, value: string | boolean) => void;
+  /** Callback when a CodeCommit source field changes. */
+  onCodecommitChange: (field: string, value: string) => void;
   /** Callback when the synth plugin configuration changes. */
   onPluginChange: (plugin: FormPluginOptions) => void;
   /** Callback when the synth metadata entries change. */
@@ -40,7 +42,7 @@ interface SynthSectionProps {
  */
 export default function SynthSection({
   synth,
-  onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange,
+  onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange, onCodecommitChange,
   onPluginChange, onMetadataChange, onNetworkTypeChange, onNetworkChange,
   disabled, errors = {},
 }: SynthSectionProps) {
@@ -55,10 +57,12 @@ export default function SynthSection({
           s3={synth.s3}
           github={synth.github}
           codestar={synth.codestar}
+          codecommit={synth.codecommit}
           onSourceTypeChange={onSourceTypeChange}
           onS3Change={onS3Change}
           onGithubChange={onGithubChange}
           onCodestarChange={onCodestarChange}
+          onCodecommitChange={onCodecommitChange}
           disabled={disabled}
           errors={errors}
         />

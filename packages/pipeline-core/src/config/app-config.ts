@@ -5,6 +5,10 @@ import {
   loadRegistryConfig,
   loadRedisConfig,
   loadPluginBuildConfig,
+  loadDockerConfig,
+  loadDatabaseConfig,
+  loadObservabilityConfig,
+  loadComplianceConfig,
   loadAWSConfig,
 } from './infrastructure-config';
 import {
@@ -33,9 +37,7 @@ export class CoreConstants {
   static readonly HANDLER_MAX_RETRIES = parseInt(process.env.HANDLER_MAX_RETRIES || '2', 10);
   static readonly HANDLER_RETRY_DELAY_MS = parseInt(process.env.HANDLER_RETRY_DELAY_MS || '1000', 10); // 1s
 
-  // Docker build configuration
-  static readonly DOCKER_BUILD_TIMEOUT_MS = parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10); // 15 min
-  static readonly DOCKER_BUILDER_NAME = process.env.DOCKER_BUILDER_NAME || 'plugin-builder';
+  // Plugin image configuration
   static readonly PLUGIN_IMAGE_PREFIX = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
 
   // Plugin build queue configuration
@@ -110,9 +112,13 @@ export class CoreConstants {
 const sectionLoaders: { [K in keyof AppConfig]: () => AppConfig[K] } = {
   server: loadServerConfig,
   auth: loadAuthConfig,
+  database: loadDatabaseConfig,
   registry: loadRegistryConfig,
   redis: loadRedisConfig,
   pluginBuild: loadPluginBuildConfig,
+  dockerConfig: loadDockerConfig,
+  observability: loadObservabilityConfig,
+  compliance: loadComplianceConfig,
   aws: loadAWSConfig,
   rateLimit: loadRateLimitConfig,
   billing: loadBillingConfig,
@@ -162,5 +168,13 @@ export class Config {
    */
   static validateAuth(): void {
     validateAuthConfig(this.get('auth'));
+  }
+
+  /**
+   * Untyped config access — use when the published package types don't include a new section yet.
+   * Avoids the `(Config as unknown as ...).get(...)` cast pattern in consumers.
+   */
+  static getAny(section: string): unknown {
+    return this.get(section as keyof AppConfig);
   }
 }

@@ -1,7 +1,8 @@
+import { Config } from '@mwashburn160/pipeline-core';
 import { Request, Response, NextFunction } from 'express';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
-const SERVICE_NAME = process.env.SERVICE_NAME || 'unknown';
+const SERVICE_NAME = (Config.getAny('observability') as { serviceName: string }).serviceName;
 
 /** Shared Prometheus registry */
 const register = new Registry();

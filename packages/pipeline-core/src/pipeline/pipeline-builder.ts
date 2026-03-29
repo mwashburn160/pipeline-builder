@@ -1,6 +1,11 @@
 import { createLogger } from '@mwashburn160/api-core';
-import { Tags } from 'aws-cdk-lib';
-import { PipelineType } from 'aws-cdk-lib/aws-codepipeline';
+import { Duration, Tags } from 'aws-cdk-lib';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { PipelineNotificationEvents, PipelineType } from 'aws-cdk-lib/aws-codepipeline';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
@@ -15,6 +20,7 @@ import { metadataForCodePipeline } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
 import { createCodeBuildStep } from '../core/pipeline-helpers';
+import { MetadataKeys, TriggerType } from '../core/pipeline-types';
 import type { MetaDataType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
 import type { RoleConfig } from '../core/role-types';
@@ -63,6 +69,12 @@ export interface BuilderProps {
    * Stages are added as waves to the CodePipeline after the synth step.
    */
   readonly stages?: StageOptions[];
+
+  /** Optional cron/rate expression for scheduled pipeline execution. */
+  readonly schedule?: string;
+
+  /** Custom tags applied to all pipeline resources. */
+  readonly tags?: Record<string, string>;
 }
 
 /**
@@ -187,9 +199,87 @@ export class PipelineBuilder extends Construct {
       stageBuilder.addStages(this.pipeline, props.stages);
     }
 
-    // Apply tags
+    // ── Tags ──
     Tags.of(this.pipeline).add('project', this.config.project);
     Tags.of(this.pipeline).add('organization', this.config.organization);
+    if (props.tags) {
+      for (const [key, value] of Object.entries(props.tags)) {
+        Tags.of(this.pipeline).add(key, value);
+      }
+    }
+
+    // ── SNS Notifications ──
+    const notificationTopicArn = this.config.metadata.merged[MetadataKeys.NOTIFICATION_TOPIC_ARN];
+    if (typeof notificationTopicArn === 'string') {
+      const topic = sns.Topic.fromTopicArn(this, 'NotificationTopic', notificationTopicArn);
+      const customEvents = this.config.metadata.merged[MetadataKeys.NOTIFICATION_EVENTS];
+      const eventList = Array.isArray(customEvents)
+        ? customEvents
+        : typeof customEvents === 'string'
+          ? String(customEvents).split(',').map(s => s.trim())
+          : ['FAILED', 'SUCCEEDED'];
+      const eventMap: Record<string, PipelineNotificationEvents> = {
+        FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
+        SUCCEEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUCCEEDED,
+        STARTED: PipelineNotificationEvents.PIPELINE_EXECUTION_STARTED,
+        CANCELED: PipelineNotificationEvents.PIPELINE_EXECUTION_CANCELED,
+        SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
+      };
+      const notificationEvents = eventList.map((e: unknown) => eventMap[String(e).toUpperCase()]).filter(Boolean);
+      if (notificationEvents.length > 0) {
+        this.pipeline.pipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
+      }
+    }
+
+    // ── Scheduled Execution ──
+    if (props.synth.source.options?.trigger === TriggerType.SCHEDULE || props.schedule) {
+      const expr = props.schedule || (props.synth.source.options as { schedule?: string })?.schedule || 'rate(1 day)';
+      new events.Rule(this, 'ScheduleRule', {
+        schedule: events.Schedule.expression(expr),
+        targets: [new targets.CodePipeline(this.pipeline.pipeline)],
+      });
+    }
+
+    // ── Execution Event Tracking (forward pipeline state changes to SNS) ──
+    const enableExecEvents = this.config.metadata.merged[MetadataKeys.ENABLE_EXECUTION_EVENTS];
+    if (enableExecEvents && typeof notificationTopicArn === 'string') {
+      new events.Rule(this, 'ExecutionEventRule', {
+        eventPattern: {
+          source: ['aws.codepipeline'],
+          detailType: ['CodePipeline Pipeline Execution State Change'],
+          resources: [this.pipeline.pipeline.pipelineArn],
+        },
+        targets: [new targets.SnsTopic(
+          sns.Topic.fromTopicArn(this, 'ExecutionEventTopic', notificationTopicArn),
+        )],
+      });
+    }
+
+    // ── Artifact Encryption (KMS key) ──
+    const kmsKeyArn = this.config.metadata.merged[MetadataKeys.KMS_KEY_ARN];
+    if (typeof kmsKeyArn === 'string') {
+      const key = kms.Key.fromKeyArn(this, 'ArtifactKey', kmsKeyArn);
+      Tags.of(key).add('pipeline', this.config.pipelineName);
+    }
+
+    // ── Pipeline Metrics & Alarms ──
+    const enableMetrics = this.config.metadata.merged[MetadataKeys.ENABLE_METRICS];
+    if (enableMetrics) {
+      new cloudwatch.Alarm(this, 'PipelineFailureAlarm', {
+        metric: new cloudwatch.Metric({
+          namespace: 'AWS/CodePipeline',
+          metricName: 'FailedPipelineExecutionCount',
+          dimensionsMap: { PipelineName: this.config.pipelineName },
+          statistic: 'Sum',
+          period: Duration.minutes(5),
+        }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        alarmDescription: `Pipeline ${this.config.pipelineName} execution failed`,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+    }
   }
 
   /**

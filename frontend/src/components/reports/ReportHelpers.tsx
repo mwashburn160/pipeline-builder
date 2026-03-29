@@ -192,7 +192,7 @@ export function ExportCSVButton({ data, filename }: ExportButtonProps) {
     <button
       onClick={handleExport}
       disabled={data.length === 0}
-      className="btn btn-ghost text-xs px-2.5 py-1.5"
+      className="btn btn-ghost btn-xs"
       title="Export to CSV"
     >
       <Download className="w-3.5 h-3.5 mr-1" />

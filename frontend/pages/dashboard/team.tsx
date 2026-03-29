@@ -253,10 +253,10 @@ export default function TeamPage() {
       maxWidth="4xl"
       actions={
         <div className="flex gap-2">
-          <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary text-sm">
+          <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
             <Building2 className="w-4 h-4 mr-1.5" /> Create Organization
           </button>
-          <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary text-sm">
+          <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary">
             <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
           </button>
         </div>
@@ -315,8 +315,8 @@ export default function TeamPage() {
             />
             {addForm.error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{addForm.error}</p>}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setAddModalOpen(false)} className="btn btn-secondary text-sm">Cancel</button>
-              <button onClick={handleAddMember} disabled={addForm.loading || !addEmail.trim()} className="btn btn-primary text-sm">
+              <button onClick={() => setAddModalOpen(false)} className="btn btn-secondary">Cancel</button>
+              <button onClick={handleAddMember} disabled={addForm.loading || !addEmail.trim()} className="btn btn-primary">
                 {addForm.loading ? 'Adding...' : 'Add Member'}
               </button>
             </div>
@@ -356,8 +356,8 @@ export default function TeamPage() {
               />
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary text-sm" disabled={passwordForm.loading}>Cancel</button>
-              <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary text-sm">
+              <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary" disabled={passwordForm.loading}>Cancel</button>
+              <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary">
                 {passwordForm.loading ? 'Updating...' : 'Reset Password'}
               </button>
             </div>
@@ -396,8 +396,8 @@ export default function TeamPage() {
             {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
             {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary text-sm" disabled={createOrgForm.loading}>Cancel</button>
-              <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary text-sm">
+              <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary" disabled={createOrgForm.loading}>Cancel</button>
+              <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary">
                 {createOrgForm.loading ? 'Creating...' : 'Create Organization'}
               </button>
             </div>

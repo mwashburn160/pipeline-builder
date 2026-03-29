@@ -2,14 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2 } from 'lucide-react';
+import { GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2, BarChart3, XCircle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import type { BuilderProps } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
-
 // ─── Types ──────────────────────────────────────────────
 
 interface ExecutionCount {
@@ -79,8 +78,12 @@ export default function DashboardPage() {
   const totalPass = executions.reduce((s, p) => s + p.succeeded, 0);
   const successRate = totalExec > 0 ? Math.round((totalPass / totalExec) * 100) : null;
 
+  const totalFailed = executions.reduce((s, p) => s + p.failed, 0);
+
   const stats = [
     { label: 'Pipelines', value: String(executions.length || 0), icon: GitBranch, color: 'text-blue-500' },
+    { label: 'Total Executions', value: String(totalExec), icon: BarChart3, color: 'text-indigo-500' },
+    { label: 'Failed Executions', value: String(totalFailed), icon: XCircle, color: totalFailed > 0 ? 'text-red-500' : 'text-gray-400' },
     { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-green-500' : successRate !== null && successRate >= 70 ? 'text-yellow-500' : 'text-red-500' },
     { label: 'Active Plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500' },
   ];
@@ -152,7 +155,7 @@ export default function DashboardPage() {
             <button
               onClick={handleGenerateFromUrl}
               disabled={!gitUrl.trim()}
-              className="btn btn-primary px-6 py-3 text-base"
+              className="btn btn-primary btn-lg"
             >
               Generate
               <ArrowRight className="w-5 h-5 ml-2" />
@@ -173,7 +176,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Stats Overview — 3 cards */}
-        <motion.div variants={stagger.item} className="grid grid-cols-3 gap-4 mb-6">
+        <motion.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
           {stats.map((s) => {
             const Icon = s.icon;
             return (
@@ -189,6 +192,7 @@ export default function DashboardPage() {
             );
           })}
         </motion.div>
+
 
         {/* Execution Timeline (last 7 days) — full width */}
         {timeline.length > 0 && (

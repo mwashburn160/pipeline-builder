@@ -164,6 +164,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         onS3Change={(field, value) => dispatch({ type: 'SET_SYNTH_S3', field, value })}
         onGithubChange={(field, value) => dispatch({ type: 'SET_SYNTH_GITHUB', field, value })}
         onCodestarChange={(field, value) => dispatch({ type: 'SET_SYNTH_CODESTAR', field, value })}
+        onCodecommitChange={(field, value) => dispatch({ type: 'SET_SYNTH_CODECOMMIT', field, value })}
         onPluginChange={(v) => dispatch({ type: 'SET_SYNTH_PLUGIN', value: v })}
         onMetadataChange={(v) => dispatch({ type: 'SET_SYNTH_METADATA', value: v })}
         onNetworkTypeChange={(v) => dispatch({ type: 'SET_SYNTH_NETWORK_TYPE', value: v })}

@@ -44,6 +44,15 @@ export function loadServerConfig(): ServerConfig {
     services: {
       pluginHost: process.env.PLUGIN_SERVICE_HOST || 'plugin',
       pluginPort: parseInt(process.env.PLUGIN_SERVICE_PORT || '3000', 10),
+      pipelineHost: process.env.PIPELINE_SERVICE_HOST || 'pipeline',
+      pipelinePort: parseInt(process.env.PIPELINE_SERVICE_PORT || '3000', 10),
+      messageHost: process.env.MESSAGE_SERVICE_HOST || 'message',
+      messagePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
+      complianceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
+      compliancePort: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
+      billingHost: process.env.BILLING_SERVICE_HOST || 'billing',
+      billingPort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
+      billingTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10),
     },
   };
 }

@@ -82,22 +82,22 @@
     },
     {
       "name": "@mwashburn160/ai-core",
-      "version": "1.17.10",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.45.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.42.10",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.46.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

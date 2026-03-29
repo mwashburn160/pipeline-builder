@@ -14,9 +14,12 @@ export { getAvailableProviders, getProviderModels };
 
 const logger = createLogger('ai-generation');
 
-// Service-Specific Types
+// -- Prompt versioning --------------------------------------------------------
 
-/** Summary of an available plugin, used as context for AI generation. */
+const PROMPT_VERSION = '2.0';
+
+// -- Types --------------------------------------------------------------------
+
 export interface PluginSummary {
   name: string;
   description: string | null;
@@ -26,34 +29,64 @@ export interface PluginSummary {
   commands: string[];
   installCommands: string[];
   keywords: string[];
+  category: string;
   metadata: Record<string, string | number | boolean>;
   env: Record<string, string>;
 }
 
-/** Parameters for pipeline configuration generation. */
 export interface GenerationRequest {
-  /** Natural language description of the desired pipeline. */
   prompt: string;
-  /** Available plugins for the AI to reference. */
   plugins: PluginSummary[];
-  /** Organization ID for the requesting user. */
   orgId: string;
-  /** AI provider to use (e.g. "anthropic", "openai", "google"). */
   provider: string;
-  /** AI model to use (e.g. "claude-sonnet-4-20250514"). */
   model: string;
-  /** Optional custom API key overriding the server/org key. */
   apiKey?: string;
+  /** Previous config for iterative refinement (conversation memory). */
+  previousConfig?: Record<string, unknown>;
+  /** Fallback providers to try if primary fails (e.g., ['openai', 'google']). */
+  fallbackProviders?: string[];
 }
 
-/** Result of AI pipeline configuration generation. */
 export interface GenerationResult {
-  /** Generated BuilderProps configuration. */
   props: Record<string, unknown>;
-  /** AI-generated description of the pipeline. */
   description?: string;
-  /** AI-generated keywords for the pipeline. */
   keywords?: string[];
+  /** Token usage from the AI call. */
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  /** Which provider/model actually served the request. */
+  servedBy?: { provider: string; model: string };
+  /** Prompt template version used. */
+  promptVersion?: string;
+  /** Plugin validation warnings (referenced plugins that don't exist). */
+  validationWarnings?: string[];
+}
+
+// -- Prompt cache -------------------------------------------------------------
+
+let cachedPluginListHash = '';
+let cachedPluginList = '';
+
+function buildPluginList(plugins: PluginSummary[]): string {
+  const hash = plugins.map(p => `${p.name}:${p.version}`).join(',');
+  if (hash === cachedPluginListHash) return cachedPluginList;
+
+  cachedPluginList = plugins.length > 0
+    ? plugins.map((p) => {
+      let line = `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
+      const parts: string[] = [];
+      const keywords = p.keywords ?? [];
+      if (keywords.length > 0) parts.push(`keywords: ${keywords.join(', ')}`);
+      const category = (p.category || 'unknown').toLowerCase();
+      if (category) parts.push(`category: ${category}`);
+      const envKeys = Object.keys(p.env ?? {});
+      if (envKeys.length > 0) parts.push(`env: ${envKeys.join(', ')}`);
+      if (parts.length > 0) line += `\n  ${parts.join(' | ')}`;
+      return line;
+    }).join('\n')
+    : '(No plugins available — use a reasonable default plugin name and note it may need to be created)';
+
+  cachedPluginListHash = hash;
+  return cachedPluginList;
 }
 
 // Zod Schema — BuilderProps structure for structured AI output
@@ -77,7 +110,7 @@ const SourceSchema = z.discriminatedUnion('type', [
     options: z.object({
       repo: z.string().describe('GitHub repository in format "owner/repo"'),
       branch: z.string().optional().describe('Branch name, defaults to "main"'),
-      trigger: z.enum(['NONE', 'AUTO']).optional().describe('Trigger behavior'),
+      trigger: z.enum(['NONE', 'AUTO', 'SCHEDULE']).optional().describe('Trigger behavior'),
     }),
   }),
   z.object({
@@ -85,7 +118,7 @@ const SourceSchema = z.discriminatedUnion('type', [
     options: z.object({
       bucketName: z.string().describe('S3 bucket name'),
       objectKey: z.string().optional().describe('Object key, defaults to "source.zip"'),
-      trigger: z.enum(['NONE', 'AUTO']).optional(),
+      trigger: z.enum(['NONE', 'AUTO', 'SCHEDULE']).optional(),
     }),
   }),
   z.object({
@@ -94,8 +127,16 @@ const SourceSchema = z.discriminatedUnion('type', [
       repo: z.string().describe('Repository in format "owner/repo"'),
       branch: z.string().optional().describe('Branch name, defaults to "main"'),
       connectionArn: z.string().describe('CodeStar connection ARN'),
-      trigger: z.enum(['NONE', 'AUTO']).optional(),
+      trigger: z.enum(['NONE', 'AUTO', 'SCHEDULE']).optional(),
       codeBuildCloneOutput: z.boolean().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('codecommit'),
+    options: z.object({
+      repositoryName: z.string().describe('CodeCommit repository name'),
+      branch: z.string().optional().describe('Branch name, defaults to "main"'),
+      trigger: z.enum(['NONE', 'AUTO', 'SCHEDULE']).optional(),
     }),
   }),
 ]);
@@ -105,6 +146,8 @@ const StageStepSchema = StepCustomizationSchema.extend({
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   position: z.enum(['pre', 'post']).optional().describe('Step position: "pre" (before deploy) or "post" (after deploy)'),
   timeout: z.number().optional().describe('CodeBuild timeout in minutes'),
+  failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional().describe('What happens when this step fails: fail (stop), warn (log and continue), ignore (silent continue)'),
+  inputArtifact: z.string().optional().describe('Name of a previous stage step to use as input artifact for cross-stage file passing'),
 });
 
 const StageSchema = z.object({
@@ -128,58 +171,33 @@ const PipelineGenerationSchema = z.object({
   synth: SynthSchema.describe('Synthesis step configuration'),
   stages: z.array(StageSchema).optional().describe('Pipeline stages after synth'),
   global: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe('Global metadata inherited by all steps'),
+  role: z.object({
+    roleArn: z.string().optional().describe('ARN of an existing IAM role for the pipeline'),
+    roleName: z.string().optional().describe('Name of an existing IAM role to look up'),
+  }).optional().describe('Custom IAM role for the CodePipeline'),
+  schedule: z.string().optional().describe('Cron or rate expression for scheduled pipeline execution (e.g., "rate(1 day)" or "cron(0 0 * * ? *)")'),
+  defaults: z.object({
+    network: z.object({
+      vpcId: z.string().optional().describe('VPC ID for CodeBuild actions'),
+      subnetIds: z.array(z.string()).optional().describe('Subnet IDs for CodeBuild'),
+    }).optional(),
+  }).optional().describe('Pipeline-level CodeBuild defaults'),
 });
 
-// Plugin Context Helpers
+// -- System prompt ------------------------------------------------------------
 
-/** Extract category from plugin metadata or top-level field. Defaults to 'unknown'. */
-function getCategory(plugin: PluginSummary): string {
-  const category = (plugin.metadata ?? {}).category;
-  return typeof category === 'string' && category.trim().length > 0 ? category.trim().toLowerCase() : 'unknown';
-}
+function buildSystemPrompt(plugins: PluginSummary[], previousConfig?: Record<string, unknown>): string {
+  const pluginList = buildPluginList(plugins);
 
-// System Prompt
-
-/**
- * Build the system prompt for AI pipeline generation.
- *
- * @param plugins - Available plugins to include as context
- * @returns System prompt string
- */
-function buildSystemPrompt(plugins: PluginSummary[]): string {
-  const pluginList = plugins.length > 0
-    ? plugins.map((p) => {
-      let line = `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
-
-      const parts: string[] = [];
-
-      const keywords = p.keywords ?? [];
-      if (keywords.length > 0) {
-        parts.push(`keywords: ${keywords.join(', ')}`);
-      }
-
-      const category = getCategory(p);
-      if (category) {
-        parts.push(`category: ${category}`);
-      }
-
-      const envKeys = Object.keys(p.env ?? {});
-      if (envKeys.length > 0) {
-        parts.push(`env: ${envKeys.join(', ')}`);
-      }
-
-      if (parts.length > 0) {
-        line += `\n  ${parts.join(' | ')}`;
-      }
-      return line;
-    }).join('\n')
-    : '(No plugins available — use a reasonable default plugin name and note it may need to be created)';
+  const previousConfigSection = previousConfig
+    ? `\n## Previous Configuration (for refinement)\nThe user already has this pipeline config. Modify it based on their new request:\n\`\`\`json\n${JSON.stringify(previousConfig, null, 2).slice(0, 4000)}\n\`\`\`\n`
+    : '';
 
   return `You are a pipeline configuration assistant for an AWS CDK Pipelines platform.
 
 Your job is to convert a user's natural language description of a CI/CD pipeline into a structured pipeline configuration.
 
-## Available Plugins
+${previousConfigSection}## Available Plugins
 These are the plugins available for use in the synth step and stage steps. You MUST use plugin names from this list:
 
 ${pluginList}
@@ -188,107 +206,173 @@ ${pluginList}
 
 1. **project** and **organization** are required. Infer them from the user's description. Use lowercase with hyphens.
 2. **synth** is required and must include:
-   - source: one of {type: "github", options: {repo: "owner/repo", branch?: "main"}}, {type: "s3", options: {bucketName: "..."}}, or {type: "codestar", options: {repo: "owner/repo", connectionArn: "..."}}
+   - source: one of {type: "github", options: {repo: "owner/repo", branch?: "main"}}, {type: "s3", options: {bucketName: "..."}}, {type: "codestar", options: {repo: "owner/repo", connectionArn: "..."}}, or {type: "codecommit", options: {repositoryName: "..."}}
    - plugin: {name: "..."} — must reference an available plugin
+   Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
 3. **stages** are optional arrays of {stageName, steps: [{plugin: {name}, ...}]}
 4. For source, default to "github" if the user mentions a repo. Default branch to "main" unless specified.
-5. trigger values: "NONE" (default, manual) or "AUTO" (automatic on changes).
+5. trigger values: "NONE" (default, manual), "AUTO" (automatic on changes), or "SCHEDULE" (cron-based).
 6. Step position is "pre" (before deploy, default) or "post" (after deploy).
 7. Only include fields the user explicitly or implicitly requested. Omit optional fields with no value.
 8. If the user mentions environment variables, include them in the env field of the relevant step.
 9. If the user does not specify a pipeline name, omit it (the system will auto-generate one).
-10. Choose the most appropriate plugin based on description, keywords, category, and env vars. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages).
-11. If the user's description is too vague, make reasonable assumptions and proceed.`;
+10. Choose the most appropriate plugin based on description, keywords, category, and env vars. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages). Use failureBehavior on steps when the user indicates a step is optional or should not block the pipeline. Use "defaults.network" when the user mentions VPC, private subnets, or network isolation for CodeBuild. Use "codecommit" source type when the user references an AWS CodeCommit repository.
+11. When the user needs Docker in builds (e.g., building Docker images, running containers), include Docker metadata in the global field:
+   - "aws:cdk:pipelines:codepipeline:dockerenabledforsynth": true
+   - "aws:cdk:codebuild:buildenvironment:privileged": true
+12. When the user wants pipeline notifications, include in global metadata:
+   - "aws:cdk:notifications:topic:arn": "<SNS topic ARN>"
+   - "aws:cdk:notifications:events": "FAILED,SUCCEEDED" (comma-separated list of events)
+13. If the user's description is too vague, make reasonable assumptions and proceed.`;
 }
 
-// Main Generation Function
+// -- Model resolution with fallback -------------------------------------------
 
-/**
- * Generate a pipeline configuration from a natural language description.
- *
- * Calls the AI SDK's generateText() with a structured output schema to
- * produce BuilderProps JSON. The system prompt includes available plugins
- * as context for the AI.
- *
- * @param request - Generation parameters including prompt, plugins, provider, and model
- * @returns Generated BuilderProps, optional description, and keywords
- * @throws Error if the AI provider is not configured, model is invalid, or AI produces no output
- */
+function resolveModelWithFallback(
+  provider: string,
+  model: string,
+  apiKey?: string,
+  fallbacks?: string[],
+): { model: ReturnType<typeof resolveModel>; provider: string; model_id: string } {
+  // Try primary provider
+  try {
+    const resolved = apiKey
+      ? createModelWithKey(provider, model, apiKey)
+      : resolveModel(provider, model);
+    return { model: resolved, provider, model_id: model };
+  } catch (primaryError) {
+    if (!fallbacks?.length) throw primaryError;
+
+    // Try fallback providers with their default model
+    for (const fallbackProvider of fallbacks) {
+      try {
+        const providers = getAvailableProviders();
+        const providerInfo = providers.find(p => p.id === fallbackProvider);
+        if (!providerInfo?.models?.length) continue;
+        const fallbackModel = providerInfo.models[0].id;
+        const resolved = resolveModel(fallbackProvider, fallbackModel);
+        logger.info('Using fallback AI provider', { primary: provider, fallback: fallbackProvider, fallbackModel });
+        return { model: resolved, provider: fallbackProvider, model_id: fallbackModel };
+      } catch {
+        continue;
+      }
+    }
+    throw primaryError;
+  }
+}
+
+// -- Post-generation validation -----------------------------------------------
+
+function validateGeneratedPlugins(
+  props: Record<string, unknown>,
+  availablePlugins: PluginSummary[],
+): string[] {
+  const warnings: string[] = [];
+  const pluginNames = new Set(availablePlugins.map(p => p.name));
+
+  // Check synth plugin
+  const synthPlugin = (props.synth as { plugin?: { name?: string } })?.plugin?.name;
+  if (synthPlugin && !pluginNames.has(synthPlugin)) {
+    warnings.push(`Synth plugin "${synthPlugin}" not found in available plugins`);
+  }
+
+  // Check stage step plugins
+  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: string } }> }> | undefined;
+  if (stages) {
+    for (const stage of stages) {
+      for (const step of stage.steps ?? []) {
+        const name = step.plugin?.name;
+        if (name && !pluginNames.has(name)) {
+          warnings.push(`Stage plugin "${name}" not found in available plugins`);
+        }
+      }
+    }
+  }
+
+  return warnings;
+}
+
+// -- Main generation function -------------------------------------------------
+
 export async function generatePipelineConfig(request: GenerationRequest): Promise<GenerationResult> {
-  const model = request.apiKey
-    ? createModelWithKey(request.provider, request.model, request.apiKey)
-    : resolveModel(request.provider, request.model);
-  const systemPrompt = buildSystemPrompt(request.plugins);
+  const { model, provider, model_id } = resolveModelWithFallback(
+    request.provider, request.model, request.apiKey, request.fallbackProviders,
+  );
+  const systemPrompt = buildSystemPrompt(request.plugins, request.previousConfig);
 
   logger.info('Generating pipeline config via AI', {
     orgId: request.orgId,
-    provider: request.provider,
-    model: request.model,
+    provider,
+    model: model_id,
     promptLength: request.prompt.length,
     pluginCount: request.plugins.length,
+    promptVersion: PROMPT_VERSION,
+    hasConversationContext: !!request.previousConfig,
   });
 
-  const { output } = await generateText({
+  const result = await generateText({
     model,
     system: systemPrompt,
     prompt: request.prompt,
     output: Output.object({ schema: PipelineGenerationSchema }),
   });
 
-  if (!output) {
+  if (!result.output) {
     throw new ValidationError('AI did not produce a pipeline configuration');
   }
 
-  const { description, keywords, ...props } = output;
+  const { description, keywords, ...props } = result.output;
+  const validationWarnings = validateGeneratedPlugins(props, request.plugins);
+  const usage = result.usage ?? undefined;
 
   logger.info('AI pipeline generation completed', {
     orgId: request.orgId,
-    provider: request.provider,
+    provider,
+    model: model_id,
     project: props.project,
     organization: props.organization,
     stageCount: props.stages?.length ?? 0,
+    promptVersion: PROMPT_VERSION,
+    ...(usage && { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }),
+    ...(validationWarnings.length > 0 && { validationWarnings }),
   });
 
   return {
     props,
     description: description ?? undefined,
     keywords: keywords ?? undefined,
+    usage: usage ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0, totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) } : undefined,
+    servedBy: { provider, model: model_id },
+    promptVersion: PROMPT_VERSION,
+    validationWarnings: validationWarnings.length > 0 ? validationWarnings : undefined,
   };
 }
 
-// Streaming Generation Function
+// -- Streaming generation -----------------------------------------------------
 
-/** Result of streaming AI pipeline generation. */
 export interface StreamingGenerationResult {
-  /** Async iterable of partial pipeline objects as they stream in. */
   partialOutputStream: AsyncIterable<Record<string, unknown>>;
-  /** Promise that resolves to the final validated output when streaming completes. */
   output: PromiseLike<z.infer<typeof PipelineGenerationSchema> | undefined>;
+  /** Provider/model that served this request. */
+  servedBy: { provider: string; model: string };
+  /** Prompt template version used. */
+  promptVersion: string;
 }
 
-/**
- * Stream a pipeline configuration from a natural language description.
- *
- * Uses streamText() with Output.object() to produce partial BuilderProps
- * objects as the AI generates them. The caller iterates partialOutputStream
- * for progressive updates and awaits output for the final result.
- *
- * @param request - Generation parameters including prompt, plugins, provider, and model
- * @returns Streaming result with partialOutputStream and final output promise
- * @throws Error if the AI provider is not configured or model is invalid
- */
 export function streamPipelineConfig(request: GenerationRequest): StreamingGenerationResult {
-  const model = request.apiKey
-    ? createModelWithKey(request.provider, request.model, request.apiKey)
-    : resolveModel(request.provider, request.model);
-  const systemPrompt = buildSystemPrompt(request.plugins);
+  const { model, provider, model_id } = resolveModelWithFallback(
+    request.provider, request.model, request.apiKey, request.fallbackProviders,
+  );
+  const systemPrompt = buildSystemPrompt(request.plugins, request.previousConfig);
 
   logger.info('Streaming pipeline config via AI', {
     orgId: request.orgId,
-    provider: request.provider,
-    model: request.model,
+    provider,
+    model: model_id,
     promptLength: request.prompt.length,
     pluginCount: request.plugins.length,
+    promptVersion: PROMPT_VERSION,
+    hasConversationContext: !!request.previousConfig,
   });
 
   const result = streamText({
@@ -301,5 +385,7 @@ export function streamPipelineConfig(request: GenerationRequest): StreamingGener
   return {
     partialOutputStream: result.partialOutputStream as AsyncIterable<Record<string, unknown>>,
     output: result.output,
+    servedBy: { provider, model: model_id },
+    promptVersion: PROMPT_VERSION,
   };
 }

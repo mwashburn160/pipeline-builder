@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { Search, Puzzle, Plus, Trash2, X, Upload } from 'lucide-react';
+import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
+import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
@@ -35,6 +37,7 @@ export default function PluginsPage() {
       { key: 'id', type: 'text', defaultValue: '' },
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'version', type: 'text', defaultValue: '' },
+      { key: 'category', type: 'select', defaultValue: 'all' },
       { key: 'pluginType', type: 'select', defaultValue: 'all' },
       { key: 'computeType', type: 'select', defaultValue: 'all' },
       { key: 'access', type: 'select', defaultValue: 'all' },
@@ -52,6 +55,7 @@ export default function PluginsPage() {
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.version) p.version = params.version;
+      if (params.category && params.category !== 'all') p.category = params.category;
       if (params.pluginType) p.pluginType = params.pluginType;
       if (params.computeType) p.computeType = params.computeType;
       const response = await api.listPlugins(p);
@@ -180,8 +184,19 @@ export default function PluginsPage() {
       render: (p) => <>{p.version}</>,
     },
     {
+      id: 'category',
+      header: 'Category',
+      sortValue: (p) => p.category || 'unknown',
+      render: (p) => (
+        <Badge color="blue">
+          {CATEGORY_DISPLAY_NAMES[(p.category || 'unknown') as PluginCategory] || p.category || 'unknown'}
+        </Badge>
+      ),
+    },
+    {
       id: 'type',
       header: 'Type',
+      hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.pluginType,
       render: (p) => <>{p.pluginType}</>,
@@ -258,6 +273,12 @@ export default function PluginsPage() {
           summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
           advancedContent={
             <>
+              <select value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)} className="filter-select">
+                <option value="all">All Categories</option>
+                {PLUGIN_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{CATEGORY_DISPLAY_NAMES[cat]}</option>
+                ))}
+              </select>
               <select value={list.filters.pluginType} onChange={(e) => list.updateFilter('pluginType', e.target.value)} className="filter-select">
                 <option value="all">All Types</option>
                 <option value="CodeBuildStep">CodeBuildStep</option>
@@ -344,13 +365,13 @@ export default function PluginsPage() {
               {selectedIds.size} selected
             </span>
             <div className="flex items-center gap-2">
-              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
                 Activate
               </button>
-              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
                 Deactivate
               </button>
-              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger text-xs px-3 py-1.5 inline-flex items-center gap-1">
+              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger btn-xs">
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
               </button>

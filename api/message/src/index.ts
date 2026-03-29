@@ -1,8 +1,11 @@
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@mwashburn160/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, createHealthRouter } from '@mwashburn160/api-core';
+import { createApp, startServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, createWSManager } from '@mwashburn160/api-server';
+import { db } from '@mwashburn160/pipeline-core';
+import { sql } from 'drizzle-orm';
 import { Request, Response } from 'express';
+import { WebSocketServer } from 'ws';
 
 import { createCreateMessageRoutes } from './routes/create-message';
 import { createDeleteMessageRoutes } from './routes/delete-message';
@@ -11,10 +14,18 @@ import { createUpdateMessageRoutes } from './routes/update-message';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp();
+const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
+
+// -- Health check with dependency monitoring ----------------------------------
+app.use(createHealthRouter({
+  serviceName: 'message',
+  checkDependencies: async () => {
+    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'disconnected' as const }; }
+  },
+}));
 
 // -- SSE ticket store ---------------------------------------------------------
 // Short-lived, single-use tickets so JWTs never appear in query strings / logs.
@@ -101,8 +112,56 @@ app.use('/messages', ...createAuthenticatedWithOrgRoute(), createDeleteMessageRo
 
 logger.info('All /messages routes registered');
 
-void runServer(app, {
+// -- WebSocket server for bidirectional real-time communication ---------------
+
+const wsManager = createWSManager({ maxClientsPerOrg: 50 });
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws, orgId: string) => {
+  const clientId = crypto.randomBytes(8).toString('hex');
+  const client = {
+    id: clientId,
+    orgId,
+    send: (data: string) => { if (ws.readyState === ws.OPEN) ws.send(data); },
+    close: () => ws.close(),
+  };
+
+  if (!wsManager.addClient(client)) {
+    ws.close(1013, 'Max connections reached');
+    return;
+  }
+
+  ws.on('message', (raw) => wsManager.handleMessage(client, String(raw)));
+  ws.on('close', () => wsManager.removeClient(client));
+  ws.on('error', () => wsManager.removeClient(client));
+
+  // Send connected confirmation
+  ws.send(JSON.stringify({ type: 'connected', clientId, orgId }));
+});
+
+// Start server and wire WebSocket upgrade
+startServer(app, {
   name: 'Message Service',
   sseManager,
-  onShutdown: async () => { clearInterval(ticketCleanup); },
+  onShutdown: async () => {
+    clearInterval(ticketCleanup);
+    wss.close();
+  },
+}).then(({ server }) => {
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url?.startsWith('/ws')) {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const orgId = url.searchParams.get('orgId');
+      if (!orgId) { socket.destroy(); return; }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, orgId);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+  logger.info('WebSocket server attached at /ws');
+}).catch((err) => {
+  logger.error('Failed to start server', { error: err });
+  process.exit(1);
 });

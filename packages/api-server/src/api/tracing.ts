@@ -1,4 +1,5 @@
 import { createLogger } from '@mwashburn160/api-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -9,7 +10,7 @@ let sdk: NodeSDK | null = null;
 
 /**
  * Initialize OpenTelemetry tracing with OTLP HTTP exporter.
- * Set OTEL_TRACING_ENABLED=true and OTEL_EXPORTER_OTLP_ENDPOINT to enable.
+ * Configured via `Config.get('observability').tracing`.
  *
  * @example
  * ```typescript
@@ -18,7 +19,9 @@ let sdk: NodeSDK | null = null;
  * ```
  */
 export function initTracing(serviceName: string): void {
-  if (process.env.OTEL_TRACING_ENABLED !== 'true') {
+  const { tracing } = Config.getAny('observability') as { tracing: { enabled: boolean; endpoint: string } };
+
+  if (!tracing.enabled) {
     logger.debug('OpenTelemetry tracing disabled (set OTEL_TRACING_ENABLED=true to enable)');
     return;
   }
@@ -29,7 +32,7 @@ export function initTracing(serviceName: string): void {
   }
 
   const exporter = new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',
+    url: tracing.endpoint,
   });
 
   sdk = new NodeSDK({

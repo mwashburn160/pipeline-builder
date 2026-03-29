@@ -533,6 +533,47 @@ export function buildEnhancedPrompt(analysis: RepoAnalysis): string {
     lines.push(`Topics: ${analysis.topics.join(', ')}`);
   }
 
+  // Repository-aware plugin recommendations based on detected files
+  const recommendations: string[] = [];
+  const files = new Set(analysis.detectedFiles.map(f => f.toLowerCase()));
+
+  if (files.has('.github/workflows') || analysis.detectedFiles.some(f => f.includes('.github/workflows'))) {
+    recommendations.push('Repository has GitHub Actions — consider migrating CI/CD steps to equivalent plugins.');
+  }
+  if (files.has('jenkinsfile')) {
+    recommendations.push('Repository has Jenkinsfile — map Jenkins stages to pipeline stages.');
+  }
+  if (files.has('buildspec.yml') || files.has('buildspec.yaml')) {
+    recommendations.push('Repository has buildspec.yml — use commands from it as reference for build steps.');
+  }
+  if (analysis.hasDockerfile) {
+    recommendations.push('Repository has Dockerfile — include a docker-build plugin in the pipeline and enable Docker in synth.');
+  }
+  if (analysis.hasCdkJson) {
+    recommendations.push('Repository is a CDK project — use cdk-synth for synthesis and cdk-deploy for deployment.');
+  }
+  if (files.has('jest.config.js') || files.has('jest.config.ts') || files.has('vitest.config.ts')) {
+    recommendations.push('Repository has test config — add a testing stage with jest or appropriate test plugin.');
+  }
+  if (files.has('.eslintrc.js') || files.has('.eslintrc.json') || files.has('eslint.config.js')) {
+    recommendations.push('Repository has ESLint config — add an eslint quality check stage.');
+  }
+  if (files.has('sonar-project.properties')) {
+    recommendations.push('Repository has SonarQube config — add sonarcloud security scanning stage.');
+  }
+  if (files.has('cypress.config.js') || files.has('cypress.config.ts')) {
+    recommendations.push('Repository has Cypress config — add cypress E2E testing stage.');
+  }
+  if (files.has('playwright.config.ts') || files.has('playwright.config.js')) {
+    recommendations.push('Repository has Playwright config — add playwright testing stage.');
+  }
+
+  if (recommendations.length > 0) {
+    lines.push('');
+    lines.push('## Detected CI/CD hints:');
+    for (const rec of recommendations) lines.push(`- ${rec}`);
+  }
+
   // Source configuration guidance
   lines.push('');
   if (analysis.provider === 'github') {
@@ -542,7 +583,7 @@ export function buildEnhancedPrompt(analysis: RepoAnalysis): string {
   }
 
   lines.push('');
-  lines.push('Use the project name as the pipeline project identifier. Choose appropriate build plugins based on the project type and languages detected.');
+  lines.push('Use the project name as the pipeline project identifier. Choose appropriate build plugins based on the project type, languages, and detected CI/CD hints above.');
 
   return lines.join('\n');
 }

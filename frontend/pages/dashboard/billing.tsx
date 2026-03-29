@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { Check, AlertCircle } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -60,7 +61,7 @@ function formatDate(iso: string): string {
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isAdmin } = useAuthGuard();
+  const { user, isReady, isAdmin, isSysAdmin } = useAuthGuard();
   const features = useFeatures();
   const toast = useToast();
   const canChangePlan = isAdmin;
@@ -70,6 +71,8 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [interval, setInterval] = useState<BillingInterval>('monthly');
+  const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
+  const [showEvents, setShowEvents] = useState(false);
 
   // Billing not available (disabled or system org) — redirect to dashboard
   useEffect(() => {
@@ -100,6 +103,14 @@ export default function BillingPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const fetchEvents = useCallback(async () => {
+    try {
+      const res = await api.listBillingEvents({ limit: 50 });
+      setBillingEvents(res.data?.events || []);
+      setShowEvents(true);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -202,7 +213,7 @@ export default function BillingPage() {
                   <button
                     onClick={handleReactivate}
                     disabled={actionLoading}
-                    className="btn btn-primary text-sm"
+                    className="btn btn-primary"
                   >
                     {actionLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
                     Reactivate Subscription
@@ -211,7 +222,7 @@ export default function BillingPage() {
                   <button
                     onClick={handleCancel}
                     disabled={actionLoading}
-                    className="btn btn-secondary text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950"
+                    className="btn btn-danger-outline"
                   >
                     Cancel Subscription
                   </button>
@@ -324,6 +335,39 @@ export default function BillingPage() {
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
             Contact an organization admin to change your plan.
           </p>
+        )}
+
+        {isSysAdmin && (
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Billing History</h2>
+              {!showEvents && (
+                <button onClick={fetchEvents} className="btn btn-secondary btn-sm">View Events</button>
+              )}
+            </div>
+            {showEvents && billingEvents.length > 0 && (
+              <div className="card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Date</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Type</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Organization</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {billingEvents.map((evt) => (
+                      <tr key={evt.id}>
+                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{new Date(evt.createdAt).toLocaleString()}</td>
+                        <td className="px-4 py-2"><Badge color="blue">{evt.type}</Badge></td>
+                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">{evt.orgId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

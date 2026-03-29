@@ -42,6 +42,7 @@ type Action =
   | { type: 'SET_SYNTH_S3'; field: string; value: string }
   | { type: 'SET_SYNTH_GITHUB'; field: string; value: string }
   | { type: 'SET_SYNTH_CODESTAR'; field: string; value: string | boolean }
+  | { type: 'SET_SYNTH_CODECOMMIT'; field: string; value: string }
   // Synth plugin, metadata, network
   | { type: 'SET_SYNTH_PLUGIN'; value: FormPluginOptions }
   | { type: 'SET_SYNTH_METADATA'; value: MetadataEntry[] }
@@ -113,6 +114,8 @@ function formReducer(state: FormBuilderState, action: Action): FormBuilderState 
       return { ...state, synth: { ...state.synth, github: { ...state.synth.github, [action.field]: action.value } } };
     case 'SET_SYNTH_CODESTAR':
       return { ...state, synth: { ...state.synth, codestar: { ...state.synth.codestar, [action.field]: action.value } } };
+    case 'SET_SYNTH_CODECOMMIT':
+      return { ...state, synth: { ...state.synth, codecommit: { ...state.synth.codecommit, [action.field]: action.value } } };
 
     // Synth plugin, metadata, network
     case 'SET_SYNTH_PLUGIN':

@@ -1,5 +1,11 @@
 ARG NODE_VERSION=24.14.0
 
+# CA certificates stage — shared base with self-signed cert trust
+FROM node:${NODE_VERSION}-alpine AS certs
+RUN apk update && apk add ca-certificates --no-cache
+COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
+RUN update-ca-certificates 2>/dev/null
+
 # Build stage
 FROM node:${NODE_VERSION}-alpine AS builder
 
@@ -26,10 +32,7 @@ FROM node:${NODE_VERSION}-alpine AS runner
 
 WORKDIR /app
 
-RUN apk update && \
-    apk add ca-certificates --no-cache
-COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates 2>/dev/null
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 ENV NEXT_TELEMETRY_DISABLED=1
 

@@ -224,7 +224,13 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ? resolveNetwork(scope, options.uniqueId, network)
     : {};
 
-  // Metadata spread last so it can override programmatic defaults
+  // Metadata spread last so it can override programmatic defaults.
+  // NOTE: Caching is supported via two metadata paths:
+  //   1. MetadataKeys.CACHE ('aws:cdk:pipelines:codebuildstep:cache') — passed directly
+  //      as the CodeBuildStep `cache` prop (expects a codebuild.Cache object).
+  //   2. MetadataKeys.PARTIAL_BUILD_SPEC ('aws:cdk:pipelines:codebuildstep:partialbuildspec')
+  //      — passed as `partialBuildSpec`, which can include a `cache:` section for
+  //      S3 or local caching (e.g., BuildSpec.fromObject({ cache: { paths: [...] } })).
   const step = new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,

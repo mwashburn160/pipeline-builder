@@ -13,15 +13,24 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   __esModule: true,
   CoreConstants: {
     PLUGIN_IMAGE_PREFIX: 'p-',
-    DOCKER_BUILDER_NAME: 'plugin-builder',
-    DOCKER_BUILD_TIMEOUT_MS: 900000,
   },
-  Config: {
-    get: (section: string) => {
+  Config: (() => {
+    const get = (section: string) => {
       if (section === 'registry') return { insecure: true };
+      if (section === 'dockerConfig') {
+        return {
+          strategy: 'podman',
+          tempRoot: path.join(process.cwd(), 'tmp'),
+          timeoutMs: 900000,
+          pushTimeoutMs: 300000,
+          kanikoExecutor: '/kaniko/executor',
+          kanikoCacheDir: '/kaniko/cache',
+        };
+      }
       return {};
-    },
-  },
+    };
+    return { get, getAny: get };
+  })(),
 }));
 
 // Helper: build an in-memory ZIP with the given entries

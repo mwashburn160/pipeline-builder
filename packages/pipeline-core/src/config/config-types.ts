@@ -11,9 +11,13 @@ import type { Algorithm } from 'jsonwebtoken';
 export interface AppConfig {
   readonly server: ServerConfig;
   readonly auth: AuthConfig;
+  readonly database: DatabaseConfig;
   readonly registry: RegistryConfig;
   readonly redis: RedisConfig;
   readonly pluginBuild: PluginBuildConfig;
+  readonly dockerConfig: BuildConfig;
+  readonly observability: ObservabilityConfig;
+  readonly compliance: ComplianceConfig;
   readonly aws: AWSConfig;
   readonly rateLimit: RateLimitConfig;
   readonly billing: BillingConfig;
@@ -50,10 +54,17 @@ export interface ServerConfig {
     readonly cleanupIntervalMs: number;
   };
   readonly services: {
-    /** Plugin service hostname (env: `PLUGIN_SERVICE_HOST`). */
     readonly pluginHost: string;
-    /** Plugin service port (env: `PLUGIN_SERVICE_PORT`). */
     readonly pluginPort: number;
+    readonly pipelineHost: string;
+    readonly pipelinePort: number;
+    readonly messageHost: string;
+    readonly messagePort: number;
+    readonly complianceHost: string;
+    readonly compliancePort: number;
+    readonly billingHost: string;
+    readonly billingPort: number;
+    readonly billingTimeout: number;
   };
 }
 
@@ -120,8 +131,40 @@ export interface RedisConfig {
 }
 
 export interface PluginBuildConfig {
-  /** Max concurrent Docker plugin builds (BullMQ worker concurrency). */
   readonly concurrency: number;
+  readonly maxAttempts: number;
+  readonly backoffDelayMs: number;
+  readonly workerTimeoutMs: number;
+  readonly tempDirMaxAgeMs: number;
+}
+
+export interface BuildConfig {
+  /** Build strategy: 'podman' (default), 'docker', or 'kaniko'. */
+  readonly strategy: 'docker' | 'kaniko' | 'podman';
+  /** Root directory for build temp files. */
+  readonly tempRoot: string;
+  /** Build timeout in milliseconds. */
+  readonly timeoutMs: number;
+  /** Push timeout in milliseconds. */
+  readonly pushTimeoutMs: number;
+  /** Path to Kaniko executor binary (only used when strategy=kaniko). */
+  readonly kanikoExecutor: string;
+  /** Kaniko layer cache directory (only used when strategy=kaniko). */
+  readonly kanikoCacheDir: string;
+}
+
+export interface ObservabilityConfig {
+  readonly logLevel: string;
+  readonly logFormat: string;
+  readonly serviceName: string;
+  readonly tracing: {
+    readonly enabled: boolean;
+    readonly endpoint: string;
+  };
+}
+
+export interface ComplianceConfig {
+  readonly scanSchedulerIntervalMs: number;
 }
 
 export interface AWSConfig {

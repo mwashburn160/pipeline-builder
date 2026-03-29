@@ -196,6 +196,7 @@ export function assembleBuilderProps(
           bucketName: state.synth.s3.bucketName,
           ...(state.synth.s3.objectKey && { objectKey: state.synth.s3.objectKey }),
           ...(state.synth.s3.trigger !== 'NONE' && { trigger: state.synth.s3.trigger }),
+          ...(state.synth.s3.trigger === 'SCHEDULE' && state.synth.s3.schedule && { schedule: state.synth.s3.schedule }),
         },
       };
       break;
@@ -207,6 +208,7 @@ export function assembleBuilderProps(
           ...(state.synth.github.branch && { branch: state.synth.github.branch }),
           ...(state.synth.github.token && { token: state.synth.github.token }),
           ...(state.synth.github.trigger !== 'NONE' && { trigger: state.synth.github.trigger }),
+          ...(state.synth.github.trigger === 'SCHEDULE' && state.synth.github.schedule && { schedule: state.synth.github.schedule }),
         },
       };
       break;
@@ -218,7 +220,19 @@ export function assembleBuilderProps(
           connectionArn: state.synth.codestar.connectionArn,
           ...(state.synth.codestar.branch && { branch: state.synth.codestar.branch }),
           ...(state.synth.codestar.trigger !== 'NONE' && { trigger: state.synth.codestar.trigger }),
+          ...(state.synth.codestar.trigger === 'SCHEDULE' && state.synth.codestar.schedule && { schedule: state.synth.codestar.schedule }),
           ...(state.synth.codestar.codeBuildCloneOutput && { codeBuildCloneOutput: true }),
+        },
+      };
+      break;
+    case 'codecommit':
+      source = {
+        type: 'codecommit',
+        options: {
+          repositoryName: state.synth.codecommit.repositoryName,
+          ...(state.synth.codecommit.branch && { branch: state.synth.codecommit.branch }),
+          ...(state.synth.codecommit.trigger !== 'NONE' && { trigger: state.synth.codecommit.trigger }),
+          ...(state.synth.codecommit.trigger === 'SCHEDULE' && state.synth.codecommit.schedule && { schedule: state.synth.codecommit.schedule }),
         },
       };
       break;

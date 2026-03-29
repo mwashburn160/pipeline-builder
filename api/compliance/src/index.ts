@@ -1,4 +1,6 @@
-import { createLogger, createQuotaService } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, createHealthRouter, registerComplianceQueueBackend } from '@mwashburn160/api-core';
+import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
+import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import {
   createApp,
   runServer,
@@ -6,6 +8,8 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
 } from '@mwashburn160/api-server';
+import { db } from '@mwashburn160/pipeline-core';
+import { sql } from 'drizzle-orm';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
 import { createAuditRoutes } from './routes/audit';
 import { createCreatePolicyRoutes } from './routes/create-policies';
@@ -26,10 +30,19 @@ import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp();
+const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
 
 // Attach request context to all requests
 app.use(attachRequestContext(sseManager));
+
+// -- Health check with dependency monitoring ----------------------------------
+app.use(createHealthRouter({
+  serviceName: 'compliance',
+  checkDependencies: async () => {
+    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
+    catch { return { postgres: 'disconnected' as const }; }
+  },
+}));
 
 // Validation endpoints (auth + org, rate limited) — before CRUD to avoid /:id catch
 app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());
@@ -72,10 +85,28 @@ app.use('/compliance/events/entity', createEntityEventRoutes());
 
 logger.info('All /compliance routes registered');
 
+// Register BullMQ as the compliance event queue backend (used by plugin/pipeline services)
+registerComplianceQueueBackend(enqueue);
+
+// Start the compliance event worker (processes async re-validation events)
+startComplianceWorker(async (event) => {
+  await evaluateEntityEvent({
+    entityId: event.entityId,
+    orgId: event.orgId,
+    target: event.target,
+    eventType: event.eventType,
+    userId: event.userId,
+    attributes: event.attributes,
+  });
+});
+
 void runServer(app, {
   name: 'Compliance Service',
   sseManager,
-  onShutdown: async () => { stopScanScheduler(); },
+  onShutdown: async () => {
+    stopScanScheduler();
+    await stopComplianceWorker();
+  },
 });
 
 startScanScheduler();

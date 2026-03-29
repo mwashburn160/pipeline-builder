@@ -96,6 +96,8 @@
     transform: translateY(1px) scale(0.99);
   }
 
+  /* -- Color variants -- */
+
   .btn-primary {
     background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-brand) 92%, #fff 8%), var(--pb-brand-strong));
     color: #fff;
@@ -115,6 +117,47 @@
     color: #fff;
     box-shadow: 0 10px 22px rgba(226, 75, 75, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
     @apply focus:ring-[color:var(--pb-danger)] hover:brightness-105;
+  }
+
+  .btn-success {
+    background-image: linear-gradient(180deg, color-mix(in srgb, var(--pb-success) 90%, #fff 10%), var(--pb-success));
+    color: #fff;
+    box-shadow: 0 10px 22px rgba(31, 157, 109, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    @apply focus:ring-[color:var(--pb-success)] hover:brightness-105;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-[color:var(--pb-surface-muted)]
+           focus:ring-[color:var(--pb-brand)];
+    color: var(--pb-text-muted);
+  }
+
+  .btn-danger-outline {
+    color: var(--pb-danger);
+    border: 1px solid color-mix(in srgb, var(--pb-danger) 40%, var(--pb-border) 60%);
+    background-color: transparent;
+    @apply hover:bg-[color:color-mix(in_srgb,var(--pb-danger)_8%,transparent_92%)]
+           focus:ring-[color:var(--pb-danger)];
+  }
+
+  /* -- Size variants -- */
+
+  .btn-xs {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* -- Width variants -- */
+
+  .btn-full {
+    @apply w-full justify-center;
   }
 
   /* ---- Inputs ---- */
@@ -298,13 +341,6 @@
     @apply text-[11px] font-semibold uppercase tracking-wider px-4 mb-1 mt-5;
   }
 
-  /* ---- Button ghost variant ---- */
-  .btn-ghost {
-    color: var(--pb-text-muted);
-    @apply bg-transparent hover:bg-[color:var(--pb-surface-muted)]
-           focus:ring-[color:var(--pb-brand)];
-  }
-
   .action-link {
     @apply text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors;
   }
@@ -320,6 +356,7 @@
   .skeleton {
     position: relative;
     overflow: hidden;
+    contain: layout paint;
     background: color-mix(in srgb, var(--pb-surface-muted) 70%, var(--pb-surface) 30%);
   }
 

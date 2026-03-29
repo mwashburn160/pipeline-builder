@@ -1,5 +1,6 @@
 import type { QuotaTier } from '@mwashburn160/api-core';
 import { createLogger, createSafeClient } from '@mwashburn160/api-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { config } from '../config';
 import { BillingEvent } from '../models/billing-event';
 import type { BillingEventType } from '../models/billing-event';
@@ -50,7 +51,7 @@ export async function syncTierToQuotaService(
     const client = createSafeClient({
       host: config.quotaService.host,
       port: config.quotaService.port,
-      timeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10),
+      timeout: ((Config as unknown as { getAny(k: string): unknown }).getAny?.('server') as { services: { billingTimeout: number } })?.services?.billingTimeout ?? 5000,
     });
 
     const response = await client.put(`/quotas/${orgId}`, { tier }, {

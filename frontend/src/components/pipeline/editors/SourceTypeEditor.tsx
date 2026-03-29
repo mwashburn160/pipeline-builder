@@ -3,7 +3,7 @@ import { FormField } from '@/components/ui/FormField';
 
 /** Props for {@link SourceTypeEditor}. */
 interface SourceTypeEditorProps {
-  /** Currently selected source type (github, s3, or codestar). */
+  /** Currently selected source type (github, s3, codestar, or codecommit). */
   sourceType: FormBuilderState['synth']['sourceType'];
   /** S3 source configuration values. */
   s3: FormBuilderState['synth']['s3'];
@@ -11,6 +11,8 @@ interface SourceTypeEditorProps {
   github: FormBuilderState['synth']['github'];
   /** CodeStar source configuration values. */
   codestar: FormBuilderState['synth']['codestar'];
+  /** CodeCommit source configuration values. */
+  codecommit: FormBuilderState['synth']['codecommit'];
   /** Callback when the source type selector changes. */
   onSourceTypeChange: (type: FormBuilderState['synth']['sourceType']) => void;
   /** Callback when an S3 source field changes. */
@@ -19,6 +21,8 @@ interface SourceTypeEditorProps {
   onGithubChange: (field: string, value: string) => void;
   /** Callback when a CodeStar source field changes. */
   onCodestarChange: (field: string, value: string | boolean) => void;
+  /** Callback when a CodeCommit source field changes. */
+  onCodecommitChange: (field: string, value: string) => void;
   /** Whether all inputs should be disabled. */
   disabled?: boolean;
   /** Validation errors keyed by field path (e.g. 'synth.github.repo'). */
@@ -32,8 +36,8 @@ interface SourceTypeEditorProps {
  * the relevant fields for the selected provider (repo, branch, bucket, connection ARN, etc.).
  */
 export default function SourceTypeEditor({
-  sourceType, s3, github, codestar,
-  onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange,
+  sourceType, s3, github, codestar, codecommit,
+  onSourceTypeChange, onS3Change, onGithubChange, onCodestarChange, onCodecommitChange,
   disabled, errors = {},
 }: SourceTypeEditorProps) {
   return (
@@ -48,6 +52,7 @@ export default function SourceTypeEditor({
           <option value="github">GitHub</option>
           <option value="s3">S3</option>
           <option value="codestar">CodeStar</option>
+          <option value="codecommit">CodeCommit</option>
         </select>
       </FormField>
 
@@ -82,8 +87,25 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
+              <option value="SCHEDULE">On Schedule</option>
             </select>
           </FormField>
+          {s3.trigger === 'SCHEDULE' && (
+            <div>
+              <label className="label">Schedule Expression</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="rate(1 day) or cron(0 0 * * ? *)"
+                value={s3.schedule || ''}
+                onChange={(e) => onS3Change('schedule', e.target.value)}
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -130,8 +152,25 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
+              <option value="SCHEDULE">On Schedule</option>
             </select>
           </FormField>
+          {github.trigger === 'SCHEDULE' && (
+            <div>
+              <label className="label">Schedule Expression</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="rate(1 day) or cron(0 0 * * ? *)"
+                value={github.schedule || ''}
+                onChange={(e) => onGithubChange('schedule', e.target.value)}
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -176,8 +215,25 @@ export default function SourceTypeEditor({
             >
               <option value="NONE">None (Manual)</option>
               <option value="AUTO">Auto</option>
+              <option value="SCHEDULE">On Schedule</option>
             </select>
           </FormField>
+          {codestar.trigger === 'SCHEDULE' && (
+            <div>
+              <label className="label">Schedule Expression</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="rate(1 day) or cron(0 0 * * ? *)"
+                value={codestar.schedule || ''}
+                onChange={(e) => onCodestarChange('schedule', e.target.value)}
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
+              </p>
+            </div>
+          )}
           <div className="flex items-center">
             <input
               id="codeBuildCloneOutput"
@@ -191,6 +247,59 @@ export default function SourceTypeEditor({
               CodeBuild Clone Output
             </label>
           </div>
+        </div>
+      )}
+
+      {sourceType === 'codecommit' && (
+        <div className="space-y-3 pl-4 border-l-2 border-gray-200 dark:border-gray-700">
+          <FormField label="Repository Name *" error={errors['synth.codecommit.repositoryName']}>
+            <input
+              type="text"
+              value={codecommit.repositoryName}
+              onChange={(e) => onCodecommitChange('repositoryName', e.target.value)}
+              placeholder="my-repo"
+              disabled={disabled}
+              className="input"
+            />
+          </FormField>
+          <FormField label="Branch">
+            <input
+              type="text"
+              value={codecommit.branch}
+              onChange={(e) => onCodecommitChange('branch', e.target.value)}
+              placeholder="main"
+              disabled={disabled}
+              className="input"
+            />
+          </FormField>
+          <FormField label="Trigger">
+            <select
+              value={codecommit.trigger}
+              onChange={(e) => onCodecommitChange('trigger', e.target.value)}
+              disabled={disabled}
+              className="input"
+            >
+              <option value="NONE">None (Manual)</option>
+              <option value="AUTO">Auto</option>
+              <option value="SCHEDULE">On Schedule</option>
+            </select>
+          </FormField>
+          {codecommit.trigger === 'SCHEDULE' && (
+            <div>
+              <label className="label">Schedule Expression</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="rate(1 day) or cron(0 0 * * ? *)"
+                value={codecommit.schedule || ''}
+                onChange={(e) => onCodecommitChange('schedule', e.target.value)}
+                disabled={disabled}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Use rate() or cron() syntax. Example: rate(1 day), cron(0 8 * * ? *)
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

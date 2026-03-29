@@ -1,4 +1,4 @@
-import type { CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
+import type { CodeCommitSourceConfig, CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
 
 // Re-export shared types from api-core for convenience
 export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
@@ -13,6 +13,8 @@ export const TriggerType = {
   NONE: 'NONE',
   /** Automatic trigger on source changes. Uses polling for S3/GitHub, push-based webhook for CodeStar. */
   AUTO: 'AUTO',
+  /** Scheduled trigger via EventBridge rule. Requires a cron expression in the source options. */
+  SCHEDULE: 'SCHEDULE',
 } as const;
 export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
 
@@ -23,8 +25,9 @@ export type TriggerType = (typeof TriggerType)[keyof typeof TriggerType];
  * - S3SourceConfig: Source code from S3 bucket
  * - GitHubSourceConfig: Source code from GitHub repository
  * - CodeStarSourceConfig: Source code via CodeStar connection (GitHub, Bitbucket, GitLab)
+ * - CodeCommitSourceConfig: Source code from AWS CodeCommit repository
  */
-export type SourceType = S3SourceConfig | GitHubSourceConfig | CodeStarSourceConfig;
+export type SourceType = S3SourceConfig | GitHubSourceConfig | CodeStarSourceConfig | CodeCommitSourceConfig;
 
 /**
  * Constants for metadata keys to avoid string typos.
@@ -129,10 +132,21 @@ export const MetadataKeys = {
   SECURITY_GROUP_NAME: 'aws:cdk:ec2:securitygroup:securitygroupname',
   SECURITY_GROUP_VPC_ID: 'aws:cdk:ec2:securitygroup:vpcid',
 
+  // ── Notifications (namespace: notifications) ──
+  NOTIFICATION_TOPIC_ARN: 'aws:cdk:notifications:topic:arn',
+  NOTIFICATION_EVENTS: 'aws:cdk:notifications:events',
+
   // ── Custom build keys (namespace: build — not wired into NAMESPACE_KEY_MAP) ──
   BUILD_PARALLEL: 'aws:cdk:build:parallel',
   BUILD_CACHE: 'aws:cdk:build:cache',
   BUILD_TIMEOUT: 'aws:cdk:build:timeout',
+
+  // ── Pipeline operations ──
+  ENABLE_EXECUTION_EVENTS: 'aws:cdk:operations:executionevents',
+  ENABLE_METRICS: 'aws:cdk:operations:metrics',
+  ARTIFACT_RETENTION_DAYS: 'aws:cdk:operations:artifactretentiondays',
+  PIPELINE_VARIABLES: 'aws:cdk:operations:variables',
+  KMS_KEY_ARN: 'aws:cdk:encryption:kmskeyarn',
 } as const;
 
 /**

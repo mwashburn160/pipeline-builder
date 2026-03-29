@@ -1,7 +1,11 @@
+import dynamic from 'next/dynamic';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
-import ComplianceDashboard from '@/components/compliance/ComplianceDashboard';
+
+const ComplianceDashboard = dynamic(() => import('@/components/compliance/ComplianceDashboard'), {
+  loading: () => <LoadingPage />,
+});
 
 export default function CompliancePage() {
   const { isReady, isAdmin } = useAuthGuard();

@@ -22,14 +22,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin for npm
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.45.5',
-  pipelineData:   '1.46.5',
-  pipelineCore:   '1.46.5',
-  apiServer:      '1.42.10',
-  aiCore:         '1.17.10',
-  eventIngestion: '1.5.10',
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // =============================================================================
@@ -366,8 +366,8 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'message',
-    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6'],
-    devDeps: ['@types/pg@8.16.0'],
+    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'ws@8.18.2', 'zod@4.3.6'],
+    devDeps: ['@types/pg@8.16.0', '@types/ws@8.18.1'],
   },
   {
     name: 'reporting',

@@ -70,7 +70,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
     PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
     PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
   },
-  Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+  Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
   // db and schema are re-exported from pipeline-data — mock that module directly
 }));
 
@@ -207,7 +207,7 @@ describe('plugin-build-queue', () => {
         PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
         PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
       },
-      Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+      Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
     }));
 
     jest.mock('@mwashburn160/api-core', () => ({

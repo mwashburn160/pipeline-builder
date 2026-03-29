@@ -16,8 +16,9 @@ const EnforcedRulesView = lazy(() => import('./EnforcedRulesView'));
 const PolicyManager = lazy(() => import('./PolicyManager'));
 const RuleHistory = lazy(() => import('./RuleHistory'));
 const ScanDetail = lazy(() => import('./ScanDetail'));
+const ScanScheduleManager = lazy(() => import('./ScanScheduleManager'));
 
-type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'templates';
+type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'schedules' | 'templates';
 
 const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -27,6 +28,7 @@ const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
   { id: 'enforced', label: 'Enforced', icon: CheckCircle },
   { id: 'exemptions', label: 'Exemptions', icon: ShieldOff },
   { id: 'scans', label: 'Scans', icon: Scan },
+  { id: 'schedules', label: 'Schedules', icon: Clock },
   { id: 'templates', label: 'Templates', icon: Sparkles },
 ];
 
@@ -198,6 +200,7 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
             ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} />
             : <ScanManager onViewScan={handleViewScan} readOnly={!isAdmin} />
         )}
+        {tab === 'schedules' && <ScanScheduleManager readOnly={!isAdmin} />}
         {tab === 'templates' && <TemplateOnboarding />}
       </Suspense>
     </div>

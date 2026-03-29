@@ -148,19 +148,15 @@ export function createUploadPluginRoutes(
           },
           pluginRecord: (() => {
             const manifest = m as unknown as Record<string, unknown>;
-            const category = typeof manifest.category === 'string' ? manifest.category : undefined;
-            const baseMetadata = (m.metadata || {}) as Record<string, string | number | boolean>;
-            const metadata = category && !baseMetadata.category
-              ? { ...baseMetadata, category }
-              : baseMetadata;
+            const category = typeof manifest.category === 'string' ? manifest.category : 'unknown';
 
             return {
               orgId,
               name: m.name,
               description: m.description || null,
               version: m.version || '0.0.0',
-              category: category || 'unknown',
-              metadata,
+              category,
+              metadata: (m.metadata || {}) as Record<string, string | number | boolean>,
               pluginType: m.pluginType || 'CodeBuildStep',
               computeType: m.computeType || 'SMALL',
               primaryOutputDirectory: m.primaryOutputDirectory || null,

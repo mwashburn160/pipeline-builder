@@ -352,13 +352,13 @@ export default function PipelinesPage() {
               {selectedIds.size} selected
             </span>
             <div className="flex items-center gap-2">
-              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
                 Activate
               </button>
-              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary text-xs px-3 py-1.5">
+              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
                 Deactivate
               </button>
-              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger text-xs px-3 py-1.5 inline-flex items-center gap-1">
+              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger btn-xs">
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
               </button>

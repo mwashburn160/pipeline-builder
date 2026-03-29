@@ -155,14 +155,14 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
                       <button
                         onClick={() => handleUpdate(id)}
                         disabled={isItemLoading || !editApiKey.trim()}
-                        className="btn btn-primary text-sm"
+                        className="btn btn-primary"
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Save'}
                       </button>
                       <button
                         onClick={() => { setEditingProvider(null); setEditApiKey(''); }}
                         disabled={isItemLoading}
-                        className="btn btn-secondary text-sm"
+                        className="btn btn-secondary"
                       >
                         Cancel
                       </button>
@@ -171,14 +171,14 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setEditingProvider(id); setEditApiKey(''); }}
-                        className="btn btn-secondary text-sm"
+                        className="btn btn-secondary"
                       >
                         Update
                       </button>
                       <button
                         onClick={() => handleRemove(id)}
                         disabled={isItemLoading}
-                        className="btn btn-danger text-sm"
+                        className="btn btn-danger"
                       >
                         {isItemLoading ? <LoadingSpinner size="sm" /> : 'Remove'}
                       </button>
@@ -234,7 +234,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
             <button
               onClick={handleAdd}
               disabled={addLoading || !selectedProvider || !newApiKey.trim()}
-              className="btn btn-primary text-sm"
+              className="btn btn-primary"
             >
               {addLoading ? <LoadingSpinner size="sm" /> : 'Add'}
             </button>

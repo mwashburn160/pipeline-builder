@@ -53,24 +53,51 @@ function queueHealth(status: QueueStatus | null): { label: string; color: string
   return { label: 'Idle', color: 'bg-green-500', badgeColor: 'green' };
 }
 
+interface FailedJob {
+  id: string;
+  pluginName?: string;
+  imageTag?: string;
+  error?: string;
+  attemptsMade?: number;
+  failedAt?: string;
+}
+
 export default function BuildQueuePage() {
   const { user, isReady } = useAuthGuard({ requireSystemAdmin: true });
   const [status, setStatus] = useState<QueueStatus | null>(null);
+  const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
+  const [showFailed, setShowFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
   const fetchStatus = useCallback(async () => {
-    if (document.visibilityState !== 'visible') return;
+    if (!mountedRef.current || document.visibilityState !== 'visible') return;
     try {
       const res = await api.getQueueStatus();
+      if (!mountedRef.current) return;
       if (res.data) {
         setStatus(res.data);
         setLastUpdated(new Date());
         setError(null);
       }
     } catch (err) {
-      setError(formatError(err, 'Failed to fetch queue status'));
+      if (mountedRef.current) setError(formatError(err, 'Failed to fetch queue status'));
+    }
+  }, []);
+
+  const fetchFailed = useCallback(async () => {
+    if (!mountedRef.current) return;
+    try {
+      const res = await api.getQueueFailed();
+      if (!mountedRef.current) return;
+      setFailedJobs(res.data?.jobs || []);
+      setShowFailed(true);
+    } catch (err) {
+      if (mountedRef.current) setError(formatError(err, 'Failed to fetch failed jobs'));
     }
   }, []);
 
@@ -100,7 +127,7 @@ export default function BuildQueuePage() {
       title="Build Queue"
       subtitle="Queued builds and execution status"
       actions={
-        <button onClick={fetchStatus} className="btn-secondary flex items-center gap-2">
+        <button onClick={fetchStatus} className="btn btn-secondary">
           <RefreshCw className="w-4 h-4" />
           Refresh
         </button>
@@ -134,6 +161,53 @@ export default function BuildQueuePage() {
           <StatCard key={card.label} {...card} delay={0.05 + i * 0.05} />
         ))}
       </div>
+
+      {/* Failed jobs section */}
+      {status && status.failed > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Failed Builds</h2>
+            {!showFailed && (
+              <button onClick={fetchFailed} className="btn btn-secondary btn-sm">
+                View Failed Jobs
+              </button>
+            )}
+          </div>
+
+          {showFailed && (
+            <div className="card overflow-hidden">
+              {failedJobs.length === 0 ? (
+                <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No failed jobs found.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Job ID</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Plugin</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Image Tag</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Attempts</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Failed At</th>
+                      <th className="px-4 py-2.5 text-left font-medium text-gray-700 dark:text-gray-300">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {failedJobs.map((job) => (
+                      <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                        <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{job.id}</td>
+                        <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{job.pluginName || '—'}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{job.imageTag || '—'}</td>
+                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{job.attemptsMade ?? '—'}</td>
+                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{job.failedAt ? new Date(job.failedAt).toLocaleString() : '—'}</td>
+                        <td className="px-4 py-2 text-red-600 dark:text-red-400 text-xs max-w-xs truncate" title={job.error}>{job.error || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </DashboardLayout>
   );
 }

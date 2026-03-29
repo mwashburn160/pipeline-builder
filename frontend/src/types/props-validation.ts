@@ -23,6 +23,9 @@ export function validateFormState(state: FormBuilderState): Record<string, strin
       if (!state.synth.codestar.repo.trim()) errors['synth.codestar.repo'] = 'Repository is required';
       if (!state.synth.codestar.connectionArn.trim()) errors['synth.codestar.connectionArn'] = 'Connection ARN is required';
       break;
+    case 'codecommit':
+      if (!state.synth.codecommit.repositoryName.trim()) errors['synth.codecommit.repositoryName'] = 'Repository name is required';
+      break;
   }
 
   if (!state.synth.plugin.name.trim()) errors['synth.plugin.name'] = 'Plugin name is required';

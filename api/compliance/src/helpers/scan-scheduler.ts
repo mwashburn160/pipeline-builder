@@ -1,12 +1,13 @@
 import { createLogger, errorMessage } from '@mwashburn160/api-core';
-import { schema, db } from '@mwashburn160/pipeline-core';
+import { Config, schema, db } from '@mwashburn160/pipeline-core';
 import { eq, and, lte } from 'drizzle-orm';
 import { executeScan } from './scan-executor';
 
 const logger = createLogger('scan-scheduler');
 
 /** How often the scheduler runs (ms). */
-const SCHEDULER_INTERVAL_MS = parseInt(process.env.SCAN_SCHEDULER_INTERVAL_MS ?? '60000', 10);
+const complianceConfig = Config.getAny('compliance') as { scanSchedulerIntervalMs: number };
+const SCHEDULER_INTERVAL_MS = complianceConfig.scanSchedulerIntervalMs;
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 

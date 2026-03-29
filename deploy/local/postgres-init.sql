@@ -212,6 +212,29 @@ ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
 
 -- ============================================================================
+-- ADMIN AUDIT LOG TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             TEXT NOT NULL,
+    user_email          TEXT,
+    org_id              VARCHAR(255),
+    action              VARCHAR(50) NOT NULL,
+    target_type         VARCHAR(50) NOT NULL,
+    target_id           VARCHAR(255),
+    target_name         VARCHAR(255),
+    detail              JSONB DEFAULT '{}',
+    ip_address          VARCHAR(45),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS admin_audit_user_idx ON admin_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS admin_audit_action_idx ON admin_audit_log(action);
+CREATE INDEX IF NOT EXISTS admin_audit_created_idx ON admin_audit_log(created_at);
+CREATE INDEX IF NOT EXISTS admin_audit_org_created_idx ON admin_audit_log(org_id, created_at);
+
+-- ============================================================================
 -- Triggers for automatic updated_at timestamp
 -- ============================================================================
 
@@ -272,6 +295,12 @@ CREATE INDEX IF NOT EXISTS idx_plugins_image_tag
 CREATE INDEX IF NOT EXISTS plugin_org_access_idx
     ON plugins(org_id, access_modifier);
 
+CREATE INDEX IF NOT EXISTS idx_plugins_org_created
+    ON plugins(org_id, created_at DESC) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_plugins_org_name
+    ON plugins(org_id, name) WHERE deleted_at IS NULL;
+
 -- Plugins unique constraint (required for ON CONFLICT upsert in plugin upload)
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_name_version_org_unique
     ON plugins(name, version, org_id);
@@ -309,6 +338,9 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_is_active
 -- Pipelines composite indexes (matching Drizzle schema)
 CREATE INDEX IF NOT EXISTS pipeline_org_access_idx
     ON pipelines(org_id, access_modifier);
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_org_created
+    ON pipelines(org_id, created_at DESC) WHERE deleted_at IS NULL;
 
 -- Pipelines unique constraint (required for ON CONFLICT upsert in pipeline create)
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique

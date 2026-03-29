@@ -29,6 +29,8 @@ export interface RedisCacheClient {
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
   keys(pattern: string): Promise<string[]>;
+  /** SCAN-based iteration (preferred over KEYS for production). */
+  scanStream?(options: { match: string; count?: number }): NodeJS.ReadableStream;
 }
 
 export interface CacheConfig {
@@ -69,6 +71,9 @@ export class CacheService {
   private readonly maxEntries: number;
   private readonly redis?: RedisCacheClient;
 
+  /** Cache metrics — tracks hits, misses, and invalidations. */
+  readonly metrics = { hits: 0, misses: 0, sets: 0, invalidations: 0 };
+
   constructor(config: CacheConfig) {
     this.prefix = config.prefix;
     this.defaultTtlMs = config.defaultTtlSeconds * 1000;
@@ -89,19 +94,23 @@ export class CacheService {
     try {
       if (this.redis) {
         const raw = await this.redis.get(fk);
-        if (!raw) return null;
+        if (!raw) { this.metrics.misses++; return null; }
+        this.metrics.hits++;
         return JSON.parse(raw) as T;
       }
 
       // In-memory
       const entry = this.memory.get(fk);
-      if (!entry) return null;
+      if (!entry) { this.metrics.misses++; return null; }
       if (Date.now() > entry.expiresAt) {
         this.memory.delete(fk);
+        this.metrics.misses++;
         return null;
       }
+      this.metrics.hits++;
       return entry.value as T;
     } catch {
+      this.metrics.misses++;
       return null;
     }
   }
@@ -118,6 +127,7 @@ export class CacheService {
     const ttl = ttlSeconds ?? this.defaultTtlMs / 1000;
 
     try {
+      this.metrics.sets++;
       if (this.redis) {
         await this.redis.set(fk, JSON.stringify(value), 'EX', ttl);
         return;
@@ -157,18 +167,19 @@ export class CacheService {
 
   /**
    * Invalidate all keys matching a pattern (e.g., 'org123:*').
-   * For in-memory cache, iterates all keys. For Redis, uses KEYS command.
-   *
-   * Note: Redis KEYS is O(N) — use sparingly in production. Consider SCAN for large datasets.
+   * Uses SCAN for Redis (non-blocking) with KEYS fallback, or regex for in-memory.
    */
   async invalidatePattern(pattern: string): Promise<number> {
     const fp = this.fullKey(pattern);
 
     try {
       if (this.redis) {
-        const keys = await this.redis.keys(fp);
+        const keys = this.redis.scanStream
+          ? await this.scanKeys(fp)
+          : await this.redis.keys(fp);
         if (keys.length > 0) {
           await this.redis.del(...keys);
+          this.metrics.invalidations += keys.length;
         }
         return keys.length;
       }
@@ -182,10 +193,22 @@ export class CacheService {
           deleted++;
         }
       }
+      this.metrics.invalidations += deleted;
       return deleted;
     } catch {
       return 0;
     }
+  }
+
+  /** Collect keys via Redis SCAN (non-blocking alternative to KEYS). */
+  private scanKeys(pattern: string): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      const stream = this.redis!.scanStream!({ match: pattern, count: 100 });
+      const keys: string[] = [];
+      stream.on('data', (batch: string[]) => keys.push(...batch));
+      stream.once('end', () => resolve(keys));
+      stream.once('error', reject);
+    });
   }
 
   /**

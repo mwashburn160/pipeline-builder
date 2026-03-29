@@ -106,12 +106,13 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 300000,
   },
-  Config: {
-    get: (section: string) => {
+  Config: (() => {
+    const get = (section: string) => {
       if (section === 'server') return { services: { pluginHost: 'plugin', pluginPort: 3000 } };
       return {};
-    },
-  },
+    };
+    return { get, getAny: get };
+  })(),
   db: {
     select: (...args: any[]) => {
       mockDbSelect(...args);

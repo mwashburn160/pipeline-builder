@@ -490,12 +490,16 @@ services:
       PLUGIN_SERVICE_PORT: '3000'
       PIPELINE_SERVICE_HOST: pipeline
       PIPELINE_SERVICE_PORT: '3000'
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
     networks:
       - backend-network
     depends_on:
       postgres:
         condition: service_healthy
       quota:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy: *api-deploy

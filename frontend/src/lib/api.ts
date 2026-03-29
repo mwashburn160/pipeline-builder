@@ -694,6 +694,11 @@ class ApiClient {
     return this.request<ApiResponse<{ subscriptions: Subscription[]; total: number }>>(`/api/billing/admin/subscriptions${buildQuery(params)}`);
   }
 
+  /** Update a subscription (admin only). */
+  async adminUpdateSubscription(id: string, data: Record<string, unknown>) {
+    return this.request<ApiResponse>(`/api/billing/admin/subscriptions/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
   /** List billing events (admin only). */
   async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
@@ -747,6 +752,11 @@ class ApiClient {
 
   async getQueueStatus() {
     return this.request<ApiResponse<QueueStatus>>('/api/plugin/queue/status');
+  }
+
+  /** Get failed jobs from the plugin build queue */
+  async getQueueFailed(params?: Record<string, string>) {
+    return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; imageTag?: string; error?: string; attemptsMade?: number; failedAt?: string }[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins/queue/failed${buildQuery(params)}`);
   }
 
   async updatePlugin(id: string, data: {
@@ -938,6 +948,10 @@ class ApiClient {
       prompt, provider, model, ...(apiKey ? { apiKey } : {}),
     });
   }
+
+  // ============================================
+  // Pipeline Registry — Region endpoints
+  // ============================================
 
   // ============================================
   // Reporting endpoints
@@ -1262,6 +1276,22 @@ class ApiClient {
     });
   }
 
+  /** Validate plugin attributes against compliance rules (blocking) */
+  async validatePluginCompliance(attributes: Record<string, unknown>) {
+    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/plugin', {
+      method: 'POST',
+      body: JSON.stringify({ attributes }),
+    });
+  }
+
+  /** Validate pipeline attributes against compliance rules (blocking) */
+  async validatePipelineCompliance(attributes: Record<string, unknown>) {
+    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline', {
+      method: 'POST',
+      body: JSON.stringify({ attributes }),
+    });
+  }
+
   /** Get compliance audit log */
   async getComplianceAuditLog(params?: { target?: string; result?: string; scanId?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ entries: ComplianceAuditEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`);
@@ -1449,6 +1479,46 @@ class ApiClient {
   async cancelScan(id: string) {
     return this.request<ApiResponse<{ scan: ComplianceScan }>>(`/api/compliance/scans/${id}/cancel`, {
       method: 'POST',
+    });
+  }
+
+  // ============================================
+  // Scan Schedules
+  // ============================================
+
+  /** List scan schedules */
+  async getScanSchedules(params?: Record<string, string>) {
+    return this.request<ApiResponse<{ schedules: Record<string, unknown>[] }>>(`/api/compliance/scan-schedules${buildQuery(params)}`);
+  }
+
+  /** Create a scan schedule */
+  async createScanSchedule(data: { target: string; cronExpression: string }) {
+    return this.request<ApiResponse<{ schedule: Record<string, unknown> }>>('/api/compliance/scan-schedules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Update a scan schedule */
+  async updateScanSchedule(id: string, data: { target?: string; cronExpression?: string }) {
+    return this.request<ApiResponse<{ schedule: Record<string, unknown> }>>(`/api/compliance/scan-schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Toggle scan schedule active state */
+  async toggleScanScheduleActive(id: string, isActive: boolean) {
+    return this.request<ApiResponse<{ schedule: Record<string, unknown> }>>(`/api/compliance/scan-schedules/${id}/active`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+  }
+
+  /** Delete a scan schedule */
+  async deleteScanSchedule(id: string) {
+    return this.request<ApiResponse<void>>(`/api/compliance/scan-schedules/${id}`, {
+      method: 'DELETE',
     });
   }
 

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, errorMessage, extractDbError, incrementQuota, parsePositiveInt, TEMP_DIR_MAX_AGE_MS as DEFAULT_TEMP_DIR_MAX_AGE_MS } from '@mwashburn160/api-core';
+import { createLogger, errorMessage, extractDbError, incrementQuota } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import type { SSEManager } from '@mwashburn160/api-server';
 import { Config, CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
@@ -16,9 +16,15 @@ import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('plugin-build-queue');
 
-const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
+const buildCfg = Config.get('pluginBuild') as {
+  concurrency: number;
+  maxAttempts: number;
+  backoffDelayMs: number;
+  workerTimeoutMs: number;
+  tempDirMaxAgeMs: number;
+};
 
-/** Parse an env var as a positive integer, falling back to the default on failure. */
+const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
 // Queue name & singleton state
 
@@ -85,8 +91,8 @@ export function getQueue(): Queue<PluginBuildJobData> {
     queue = new Queue<PluginBuildJobData>(QUEUE_NAME, {
       connection: getConnection(),
       defaultJobOptions: {
-        attempts: parsePositiveInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS, 2),
-        backoff: { type: 'exponential', delay: parsePositiveInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS, 5000) },
+        attempts: buildCfg.maxAttempts,
+        backoff: { type: 'exponential', delay: buildCfg.backoffDelayMs },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
         removeOnFail: { age: CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS },
       },
@@ -107,7 +113,7 @@ export function isWorkerReady(): boolean {
  * Wait for the BullMQ worker to connect to Redis.
  * Resolves when ready, rejects after timeout.
  */
-export function waitForWorkerReady(timeoutMs = parsePositiveInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS, 10000)): Promise<void> {
+export function waitForWorkerReady(timeoutMs = buildCfg.workerTimeoutMs): Promise<void> {
   return new Promise((resolve, reject) => {
     if (isWorkerReady()) {
       resolve();
@@ -188,7 +194,7 @@ export function startWorker(
 ): Worker<PluginBuildJobData> {
   if (worker) return worker;
 
-  const { concurrency } = Config.get('pluginBuild');
+  const { concurrency } = buildCfg;
 
   worker = new Worker<PluginBuildJobData>(
     QUEUE_NAME,
@@ -321,8 +327,8 @@ export function startWorker(
 
 // Periodic temp directory cleanup
 
-/** Maximum age (ms) for orphaned temp directories before cleanup (4 hours). */
-const TEMP_DIR_MAX_AGE_MS = parsePositiveInt(process.env.TEMP_DIR_MAX_AGE_MS, DEFAULT_TEMP_DIR_MAX_AGE_MS);
+/** Maximum age (ms) for orphaned temp directories before cleanup. */
+const TEMP_DIR_MAX_AGE_MS = buildCfg.tempDirMaxAgeMs;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 

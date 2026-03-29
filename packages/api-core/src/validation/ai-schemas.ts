@@ -24,6 +24,12 @@ export const AIGenerateBodySchema = z.object({
 
   /** Optional custom API key to override the server/org key for this request. */
   apiKey: z.string().min(1).optional(),
+
+  /** Previous pipeline config for iterative refinement. */
+  previousConfig: z.record(z.string(), z.unknown()).optional(),
+
+  /** Fallback AI providers if primary fails (e.g., ["openai", "google"]). */
+  fallbackProviders: z.array(z.string()).optional(),
 });
 
 /** Validated type for AI generation request body. */

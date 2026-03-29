@@ -391,10 +391,10 @@ export default function QuotasPage() {
 
   const headerActions = isSysAdmin && !loading ? (
     <div className="flex items-center gap-2">
-      <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary text-xs disabled:opacity-40">
+      <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary btn-xs">
         Discard
       </button>
-      <button type="button" onClick={handleSave} disabled={!dirty || saving} className="btn btn-primary text-xs disabled:opacity-40">
+      <button type="button" onClick={handleSave} disabled={!dirty || saving} className="btn btn-primary btn-xs">
         {saving ? <><LoadingSpinner size="sm" className="mr-2" /> Saving...</> : 'Save'}
       </button>
     </div>

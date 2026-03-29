@@ -24,6 +24,14 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
+jest.mock('@mwashburn160/pipeline-core', () => {
+  const get = (section: string) => {
+    if (section === 'server') return { services: { billingTimeout: 5000 } };
+    return {};
+  };
+  return { Config: { get, getAny: get } };
+});
+
 jest.mock('../src/config', () => ({
   config: {
     quotaService: { host: 'quota', port: 3000 },

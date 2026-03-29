@@ -97,6 +97,16 @@ export const METADATA_KEY_GROUPS: MetadataKeyGroup[] = [
       { key: 'aws:cdk:build:timeout', label: 'Timeout', type: 'string' },
     ],
   },
+  {
+    category: 'Operations',
+    keys: [
+      { key: 'aws:cdk:operations:executionevents', label: 'Enable execution event tracking', type: 'boolean' },
+      { key: 'aws:cdk:operations:metrics', label: 'Enable CloudWatch failure alarms', type: 'boolean' },
+      { key: 'aws:cdk:operations:artifactretentiondays', label: 'Artifact retention in days', type: 'string' },
+      { key: 'aws:cdk:operations:variables', label: 'Pipeline runtime variables (JSON)', type: 'string' },
+      { key: 'aws:cdk:encryption:kmskeyarn', label: 'Custom KMS key ARN for artifacts', type: 'string' },
+    ],
+  },
 ];
 
 /** Flat lookup: key string → MetadataKeyOption */

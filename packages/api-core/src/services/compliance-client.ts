@@ -1,5 +1,14 @@
 import { InternalHttpClient } from './http-client';
 import { ServiceConfig } from '../types/common';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('compliance-client');
+
+/**
+ * When true, compliance checks are bypassed if the service is unavailable
+ * (fail-open). Default is fail-closed (errors propagate and block the operation).
+ */
+const COMPLIANCE_BYPASS = process.env.COMPLIANCE_BYPASS === 'true';
 
 /**
  * Result of a compliance validation check.
@@ -67,6 +76,23 @@ export interface ComplianceClient {
 }
 
 /**
+ * Return a pass-through result when COMPLIANCE_BYPASS is enabled and the
+ * compliance service is unreachable.
+ */
+function bypassResult(context: Record<string, unknown>): ComplianceCheckResult {
+  logger.warn('COMPLIANCE_BYPASS: Service unavailable, allowing request', context);
+  return {
+    passed: true,
+    blocked: false,
+    violations: [],
+    warnings: [{ ruleId: '', ruleName: '', field: '', operator: '', expectedValue: null, actualValue: null, severity: 'warning', message: 'Compliance check skipped (service unavailable)' }],
+    rulesEvaluated: 0,
+    rulesSkipped: 0,
+    exemptionsApplied: [],
+  };
+}
+
+/**
  * Build common request headers for compliance calls.
  */
 function buildHeaders(orgId: string, authHeader: string): Record<string, string> {
@@ -95,39 +121,59 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
 
   return {
     async validatePlugin(orgId, attributes, authHeader, entityId, entityName, action) {
-      const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
-        '/compliance/validate/plugin',
-        { attributes, entityId, entityName, action: action ?? 'upload' },
-        { headers: buildHeaders(orgId, authHeader) },
-      );
-      return response.body.data;
+      try {
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+          '/compliance/validate/plugin',
+          { attributes, entityId, entityName, action: action ?? 'upload' },
+          { headers: buildHeaders(orgId, authHeader) },
+        );
+        return response.body.data;
+      } catch (error) {
+        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', entityId, entityName });
+        throw error;
+      }
     },
 
     async validatePipeline(orgId, attributes, authHeader, entityId, entityName, action) {
-      const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
-        '/compliance/validate/pipeline',
-        { attributes, entityId, entityName, action: action ?? 'create' },
-        { headers: buildHeaders(orgId, authHeader) },
-      );
-      return response.body.data;
+      try {
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+          '/compliance/validate/pipeline',
+          { attributes, entityId, entityName, action: action ?? 'create' },
+          { headers: buildHeaders(orgId, authHeader) },
+        );
+        return response.body.data;
+      } catch (error) {
+        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', entityId, entityName });
+        throw error;
+      }
     },
 
     async dryRunPlugin(orgId, attributes, authHeader) {
-      const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
-        '/compliance/validate/plugin/dry-run',
-        { attributes },
-        { headers: buildHeaders(orgId, authHeader) },
-      );
-      return response.body.data;
+      try {
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+          '/compliance/validate/plugin/dry-run',
+          { attributes },
+          { headers: buildHeaders(orgId, authHeader) },
+        );
+        return response.body.data;
+      } catch (error) {
+        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', dryRun: true });
+        throw error;
+      }
     },
 
     async dryRunPipeline(orgId, attributes, authHeader) {
-      const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
-        '/compliance/validate/pipeline/dry-run',
-        { attributes },
-        { headers: buildHeaders(orgId, authHeader) },
-      );
-      return response.body.data;
+      try {
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+          '/compliance/validate/pipeline/dry-run',
+          { attributes },
+          { headers: buildHeaders(orgId, authHeader) },
+        );
+        return response.body.data;
+      } catch (error) {
+        if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', dryRun: true });
+        throw error;
+      }
     },
   };
 }

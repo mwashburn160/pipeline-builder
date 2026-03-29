@@ -9,17 +9,24 @@ import { sendError } from '../utils/response';
 
 const logger = createLogger('auth-middleware');
 
-/** Cached JWT secret, loaded lazily to avoid crashing at import time. */
+/** Cached JWT secret with periodic refresh from env var. */
 let _jwtSecret: string | undefined;
+let _jwtSecretRefreshedAt = 0;
+const JWT_SECRET_REFRESH_INTERVAL_MS = 300_000; // 5 minutes
 
 function getJwtSecret(): string {
-  if (!_jwtSecret) {
+  const now = Date.now();
+  if (!_jwtSecret || now - _jwtSecretRefreshedAt > JWT_SECRET_REFRESH_INTERVAL_MS) {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       logger.error('JWT_SECRET environment variable is not set');
       throw new Error('JWT_SECRET environment variable is required');
     }
+    if (_jwtSecret && _jwtSecret !== secret) {
+      logger.info('JWT secret rotated');
+    }
     _jwtSecret = secret;
+    _jwtSecretRefreshedAt = now;
   }
   return _jwtSecret;
 }
