@@ -1,3 +1,13 @@
+## 1.46.6 (2026-03-29)
+
+### 🩹 Fixes
+
+- add docker multi-target ([d077a2be](https://github.com/mwashburn160/pipeline-builder/commit/d077a2be))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.46.5 (2026-03-29)
 
 ### 🩹 Fixes
