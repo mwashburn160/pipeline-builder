@@ -29,7 +29,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json .
 COPY lib/ /app
-RUN mkdir -p /app/tmp /app/uploads
+RUN mkdir -p /app/tmp /app/uploads && chown -R node:node /app/tmp /app/uploads
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 

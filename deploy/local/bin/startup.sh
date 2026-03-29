@@ -89,6 +89,9 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/tmp}"
 mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 
+# Plugin container runs as node (UID 1000) — ensure writable volume mounts
+chmod 777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
+
 # -----------------------------------------------------------------------
 # Start services
 # -----------------------------------------------------------------------
