@@ -1,3 +1,13 @@
+## 1.41.10 (2026-03-29)
+
+### 🩹 Fixes
+
+- debugging ([7f2ce2b9](https://github.com/mwashburn160/pipeline-builder/commit/7f2ce2b9))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.9 (2026-03-29)
 
 ### 🩹 Fixes
