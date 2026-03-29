@@ -19,6 +19,7 @@ primaryOutputDirectory: dc-reports
 dockerfile: Dockerfile
 installCommands:
   # Dependency-Check version selection
+  - test -d dc-reports || mkdir -p dc-reports
   - |
     if [ -d /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check ]; then
       ln -sf /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check /opt/dependency-check/current
@@ -40,7 +41,6 @@ installCommands:
     if [ -f go.mod ]; then go mod download; fi
     if [ -f *.sln ] || [ -f *.csproj ]; then dotnet restore 2>/dev/null || true; fi
 commands:
-  - mkdir -p dc-reports
   - |
     SUPPRESSION_ARG=""
     if [ -n "${DC_SUPPRESSION_FILE}" ] && [ -f "${DC_SUPPRESSION_FILE}" ]; then

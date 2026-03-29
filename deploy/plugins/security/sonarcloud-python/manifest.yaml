@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: .scannerwork
 dockerfile: Dockerfile
 installCommands:
+  - test -d .scannerwork || mkdir -p .scannerwork
   - |
     SCANNER_DIR=$(find /opt/sonar-scanner/versions -maxdepth 1 -name "scanner-${SONAR_SCANNER_VERSION}*" -type d | head -1)
     if [ -n "${SCANNER_DIR}" ]; then

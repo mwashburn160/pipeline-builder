@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: pulumi-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d pulumi-output || mkdir -p pulumi-output
   - pulumi version
   - aws --version
   # Runtime activation based on PULUMI_RUNTIME
@@ -44,7 +45,6 @@ installCommands:
         ;;
     esac
 commands:
-  - mkdir -p pulumi-output
   - |
     cd ${PULUMI_WORK_DIR}
     pulumi login

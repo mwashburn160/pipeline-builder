@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: postman-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d postman-reports || mkdir -p postman-reports
   - |
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
@@ -30,7 +31,6 @@ installCommands:
       fi
     fi
 commands:
-  - mkdir -p postman-reports
   - |
     if [ -z "${COLLECTION_FILE}" ]; then
       COLLECTION_FILE=$(find . -name "*.postman_collection.json" -not -path "*/node_modules/*" | head -1)

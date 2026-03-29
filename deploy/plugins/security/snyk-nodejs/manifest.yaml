@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     if [ -f package-lock.json ]; then npm ci
@@ -26,7 +27,6 @@ installCommands:
     if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
     if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
 commands:
-  - mkdir -p snyk-reports
   - snyk auth ${SNYK_TOKEN}
   - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
   - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true

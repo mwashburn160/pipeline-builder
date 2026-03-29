@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d lint-reports || mkdir -p lint-reports
   - rbenv global ${RUBY_VERSION} && ruby --version
   - gem install rubocop
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
-  - mkdir -p lint-reports
   - |
     echo "Running RuboCop..."
     CONFIG_ARG=""

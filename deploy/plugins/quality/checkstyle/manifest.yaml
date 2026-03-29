@@ -16,6 +16,7 @@ primaryOutputDirectory: checkstyle-reports
 dockerfile: Dockerfile
 installCommands:
   # Java version selection
+  - test -d checkstyle-reports || mkdir -p checkstyle-reports
   - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION}
   - java -version
   # Checkstyle version selection
@@ -29,7 +30,6 @@ installCommands:
     fi
   - java -jar /opt/checkstyle/checkstyle.jar --version
 commands:
-  - mkdir -p checkstyle-reports
   - |
     source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION}
     # Resolve config file

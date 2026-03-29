@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: trivy-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d trivy-reports || mkdir -p trivy-reports
   - |
     if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
       ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
@@ -29,7 +30,6 @@ installCommands:
     if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
     if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
 commands:
-  - mkdir -p trivy-reports
   - trivy fs --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .
   - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json . || true
   - "echo \"Trivy scan complete. Reports available in trivy-reports/\""

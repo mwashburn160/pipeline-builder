@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d test-reports || mkdir -p test-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
@@ -32,7 +33,6 @@ installCommands:
       npm install -g jest
     fi
 commands:
-  - mkdir -p test-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     CONFIG_ARG=""

@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     source ${SDKMAN_DIR}/bin/sdkman-init.sh
@@ -25,7 +26,6 @@ installCommands:
     if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
     if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
 commands:
-  - mkdir -p snyk-reports
   - snyk auth ${SNYK_TOKEN}
   - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
   - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true

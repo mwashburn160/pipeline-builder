@@ -21,6 +21,7 @@ secrets:
 primaryOutputDirectory: veracode-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d veracode-reports || mkdir -p veracode-reports
   - veracode --version 2>/dev/null || echo "Veracode CLI ready"
   - java -version
   - |
@@ -28,7 +29,6 @@ installCommands:
       echo "WARNING: VERACODE_API_ID and VERACODE_API_KEY must be injected via CodeBuild secrets"
     fi
 commands:
-  - mkdir -p veracode-reports
   - |
     case "${VERACODE_SCAN_TYPE}" in
       pipeline)

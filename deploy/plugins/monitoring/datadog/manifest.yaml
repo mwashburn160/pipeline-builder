@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: datadog-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d datadog-output || mkdir -p datadog-output
   - curl --version | head -1
   - jq --version
   - |
@@ -25,7 +26,6 @@ installCommands:
       echo "WARNING: DD_API_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p datadog-output
   - |
     if [ -z "${DD_API_KEY}" ]; then
       echo "ERROR: DD_API_KEY must be set (injected via CodeBuild secrets)"

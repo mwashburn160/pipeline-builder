@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d test-reports || mkdir -p test-reports
   - rbenv global ${RUBY_VERSION} && ruby --version
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
-  - mkdir -p test-reports
   - |
     echo "Setting up database..."
     bundle exec rake db:create db:migrate 2>&1 || true

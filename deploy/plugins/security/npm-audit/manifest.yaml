@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d audit-reports || mkdir -p audit-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
 commands:
-  - mkdir -p audit-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running dependency audit..."

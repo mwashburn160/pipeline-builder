@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: cfn-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d cfn-output || mkdir -p cfn-output
   - aws --version
   - cfn-lint --version
   - rain --version
 commands:
-  - mkdir -p cfn-output
   # Validate template
   - |
     if [ -z "${CFN_TEMPLATE}" ]; then

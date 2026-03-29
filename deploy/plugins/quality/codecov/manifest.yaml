@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: codecov-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d codecov-reports || mkdir -p codecov-reports
   - codecov --version || echo "Codecov uploader ready"
   - |
     if [ -z "${CODECOV_TOKEN}" ]; then
@@ -25,7 +26,6 @@ installCommands:
       echo "Provide CODECOV_TOKEN via CodeBuild secrets or environment variables."
     fi
 commands:
-  - mkdir -p codecov-reports
   # Auto-detect coverage files and upload to Codecov
   - |
     CODECOV_ARGS=""

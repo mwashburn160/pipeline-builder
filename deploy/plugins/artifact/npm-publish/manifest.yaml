@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d publish-output || mkdir -p publish-output
   - node --version
   - npm --version
   - |
@@ -25,7 +26,6 @@ installCommands:
       echo "WARNING: NPM_TOKEN not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p publish-output
   - |
     # Configure npm authentication
     echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc

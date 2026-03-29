@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d security-reports || mkdir -p security-reports
   - pyenv global ${PYTHON_VERSION} && python --version
   - pip install bandit
 commands:
-  - mkdir -p security-reports
   - |
     echo "Running Bandit security scan..."
     bandit -r . \

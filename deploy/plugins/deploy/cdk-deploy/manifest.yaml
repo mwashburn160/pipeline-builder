@@ -18,6 +18,7 @@ metadata:
   aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
+  - test -d cdk-output || mkdir -p cdk-output
   - node -v && npm -v
   - cdk --version
   - aws --version
@@ -39,7 +40,6 @@ installCommands:
       npm run build 2>/dev/null || npx tsc 2>/dev/null || true
     fi
 commands:
-  - mkdir -p cdk-output
   # Bootstrap check
   - |
     echo "Target: account=${CDK_DEFAULT_ACCOUNT}, region=${CDK_DEFAULT_REGION}"

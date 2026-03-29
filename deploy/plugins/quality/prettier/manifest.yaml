@@ -16,6 +16,7 @@ primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
 installCommands:
   # Node.js version selection
+  - test -d format-reports || mkdir -p format-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
@@ -33,7 +34,6 @@ installCommands:
     # Ensure Prettier is available
     npx prettier --version 2>/dev/null || npm install -g prettier
 commands:
-  - mkdir -p format-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Checking code formatting with Prettier..."

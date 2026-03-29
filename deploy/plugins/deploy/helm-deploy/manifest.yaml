@@ -18,11 +18,11 @@ secrets:
     required: false
     description: "Base64-encoded kubeconfig; not needed if running in EKS with IAM role"
 installCommands:
+  - test -d helm-output || mkdir -p helm-output
   - helm version --short
   - kubectl version --client --output=json
   - aws --version
 commands:
-  - mkdir -p helm-output
   # Decode kubeconfig if provided
   - |
     if [ -n "${KUBECONFIG_DATA}" ]; then

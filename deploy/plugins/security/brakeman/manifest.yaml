@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d security-reports || mkdir -p security-reports
   - rbenv global ${RUBY_VERSION} && ruby --version
   - gem install brakeman
 commands:
-  - mkdir -p security-reports
   - |
     echo "Running Brakeman security scan..."
     brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \

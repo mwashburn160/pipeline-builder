@@ -24,6 +24,7 @@ secrets:
 primaryOutputDirectory: fortify-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d fortify-reports || mkdir -p fortify-reports
   - fcli --version 2>/dev/null || echo "Fortify CLI ready"
   - |
     case "${FORTIFY_SCAN_TYPE}" in
@@ -39,7 +40,6 @@ installCommands:
         ;;
     esac
 commands:
-  - mkdir -p fortify-reports
   - |
     case "${FORTIFY_SCAN_TYPE}" in
       fod)

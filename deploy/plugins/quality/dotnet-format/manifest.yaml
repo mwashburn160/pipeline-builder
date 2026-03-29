@@ -15,9 +15,9 @@ secrets: []
 primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d format-reports || mkdir -p format-reports
   - dotnet --version
 commands:
-  - mkdir -p format-reports
   - |
     echo "Running dotnet format check..."
     dotnet format --verify-no-changes --verbosity diagnostic \

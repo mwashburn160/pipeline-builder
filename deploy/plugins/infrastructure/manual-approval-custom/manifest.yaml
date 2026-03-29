@@ -15,9 +15,9 @@ primaryOutputDirectory: approval-output
 dockerfile: Dockerfile
 secrets: []
 installCommands:
+  - test -d approval-output || mkdir -p approval-output
   - aws --version
 commands:
-  - mkdir -p approval-output
   # Generate approval token
   - |
     APPROVAL_TOKEN=$(date +%s)-$(head -c 16 /dev/urandom | xxd -p)

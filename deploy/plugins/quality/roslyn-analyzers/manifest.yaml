@@ -15,9 +15,9 @@ secrets: []
 primaryOutputDirectory: analysis-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d analysis-reports || mkdir -p analysis-reports
   - dotnet --version
 commands:
-  - mkdir -p analysis-reports
   - |
     echo "Running Roslyn analyzers..."
     dotnet build \

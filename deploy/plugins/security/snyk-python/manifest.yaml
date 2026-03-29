@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
@@ -26,7 +27,6 @@ installCommands:
     if [ -f Pipfile.lock ]; then pip install pipenv && pipenv install --system; fi
     if [ -f poetry.lock ]; then pip install poetry && poetry install --no-interaction; fi
 commands:
-  - mkdir -p snyk-reports
   - snyk auth ${SNYK_TOKEN}
   - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
   - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true

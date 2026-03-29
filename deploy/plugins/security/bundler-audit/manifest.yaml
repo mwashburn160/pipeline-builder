@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d audit-reports || mkdir -p audit-reports
   - rbenv global ${RUBY_VERSION} && ruby --version
   - gem install bundler-audit
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
-  - mkdir -p audit-reports
   - |
     echo "Running bundler-audit..."
     bundle audit check --update \

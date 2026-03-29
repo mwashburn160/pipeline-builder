@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: serverless-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d serverless-output || mkdir -p serverless-output
   - |
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
@@ -30,7 +31,6 @@ installCommands:
       pip3 install --break-system-packages -r requirements.txt
     fi
 commands:
-  - mkdir -p serverless-output
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     cd ${SLS_SERVICE_PATH}

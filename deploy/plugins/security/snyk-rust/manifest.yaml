@@ -18,13 +18,13 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     rustup default ${RUST_VERSION}
     rustc --version
     if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
-  - mkdir -p snyk-reports
   - snyk auth ${SNYK_TOKEN}
   - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
   - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true

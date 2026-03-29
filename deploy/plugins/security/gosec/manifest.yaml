@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d security-reports || mkdir -p security-reports
   - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
   - go version
   - go install github.com/securego/gosec/v2/cmd/gosec@latest
   - if [ -f go.mod ]; then go mod download; fi
 commands:
-  - mkdir -p security-reports
   - |
     echo "Running gosec security scan..."
     gosec -fmt json -out security-reports/gosec-results.json ./... 2>&1 || true

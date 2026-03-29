@@ -21,10 +21,10 @@ secrets:
     required: true
     description: "Database password for Flyway connection"
 installCommands:
+  - test -d flyway-output || mkdir -p flyway-output
   - flyway --version
   - java --version
 commands:
-  - mkdir -p flyway-output
   # Validate required parameters
   - |
     if [ -z "${FLYWAY_URL}" ]; then

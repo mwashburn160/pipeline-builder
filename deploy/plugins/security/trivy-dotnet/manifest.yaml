@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: trivy-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d trivy-reports || mkdir -p trivy-reports
   - |
     if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
       ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
@@ -27,7 +28,6 @@ installCommands:
   - |
     if ls *.sln *.csproj 1>/dev/null 2>&1; then dotnet restore; fi
 commands:
-  - mkdir -p trivy-reports
   - trivy fs --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .
   - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json . || true
   - "echo \"Trivy scan complete. Reports available in trivy-reports/\""

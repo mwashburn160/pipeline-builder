@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: codacy-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d codacy-reports || mkdir -p codacy-reports
   - codacy-coverage-reporter version || echo "Codacy coverage reporter ready"
   - |
     if [ -z "${CODACY_PROJECT_TOKEN}" ]; then
@@ -25,7 +26,6 @@ installCommands:
       echo "Provide CODACY_PROJECT_TOKEN via CodeBuild secrets or environment variables."
     fi
 commands:
-  - mkdir -p codacy-reports
   # Auto-detect coverage files and upload to Codacy
   - |
     echo "Scanning for coverage files..."

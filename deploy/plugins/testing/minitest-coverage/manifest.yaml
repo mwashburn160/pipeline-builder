@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d coverage-reports || mkdir -p coverage-reports
   - rbenv global ${RUBY_VERSION} && ruby --version
   - gem install simplecov
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
-  - mkdir -p coverage-reports
   - |
     echo "Running tests with coverage..."
     COVERAGE=true bundle exec rails test \

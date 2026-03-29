@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: target/release
 dockerfile: Dockerfile
 installCommands:
+  - test -d target/release || mkdir -p target/release
   - rustup default ${RUST_VERSION}
   - rustc --version && cargo --version
   - |

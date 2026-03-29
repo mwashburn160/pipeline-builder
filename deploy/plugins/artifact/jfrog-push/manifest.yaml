@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: registry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d registry-output || mkdir -p registry-output
   - docker --version
   - docker buildx version
   - jf --version
@@ -32,7 +33,6 @@ installCommands:
       echo "WARNING: JFROG_TOKEN and JFROG_URL must both be set for JFrog authentication"
     fi
 commands:
-  - mkdir -p registry-output
   - |
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"

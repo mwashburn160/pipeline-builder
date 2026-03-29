@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: registry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d registry-output || mkdir -p registry-output
   - docker --version
   - docker buildx version
   - gcloud --version
@@ -32,7 +33,6 @@ installCommands:
       echo "WARNING: GOOGLE_APPLICATION_CREDENTIALS not set. Set GOOGLE_APPLICATION_CREDENTIALS to the path of your service account JSON key file"
     fi
 commands:
-  - mkdir -p registry-output
   - |
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"

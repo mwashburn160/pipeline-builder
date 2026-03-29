@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: artillery-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d artillery-reports || mkdir -p artillery-reports
   - |
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
   - artillery version
 commands:
-  - mkdir -p artillery-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     if [ -z "${ARTILLERY_CONFIG}" ]; then

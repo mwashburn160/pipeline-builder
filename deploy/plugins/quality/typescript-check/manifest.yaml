@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: tsc-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d tsc-reports || mkdir -p tsc-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
@@ -31,7 +32,6 @@ installCommands:
       npm install -g typescript
     fi
 commands:
-  - mkdir -p tsc-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running TypeScript type check..."

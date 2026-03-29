@@ -18,13 +18,13 @@ secrets:
 primaryOutputDirectory: sentry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d sentry-output || mkdir -p sentry-output
   - sentry-cli --version
   - |
     if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
       echo "WARNING: SENTRY_AUTH_TOKEN not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p sentry-output
   - |
     if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
       echo "ERROR: SENTRY_AUTH_TOKEN must be set (injected via CodeBuild secrets)"

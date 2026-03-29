@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: registry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d registry-output || mkdir -p registry-output
   - docker --version
   - docker buildx version
   - gh --version
@@ -30,7 +31,6 @@ installCommands:
       echo "WARNING: GITHUB_TOKEN not set. Set GITHUB_TOKEN to authenticate with ghcr.io"
     fi
 commands:
-  - mkdir -p registry-output
   - |
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"

@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d audit-reports || mkdir -p audit-reports
   - rustup default ${RUST_VERSION}
   - rustc --version && cargo --version
   - cargo install cargo-audit
 commands:
-  - mkdir -p audit-reports
   - |
     echo "Running cargo audit..."
     cargo audit --json > audit-reports/cargo-audit.json 2>&1 || true

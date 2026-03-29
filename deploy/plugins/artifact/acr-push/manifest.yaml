@@ -24,6 +24,7 @@ secrets:
 primaryOutputDirectory: registry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d registry-output || mkdir -p registry-output
   - docker --version
   - docker buildx version
   - az --version
@@ -45,7 +46,6 @@ installCommands:
       echo "WARNING: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID must all be set for service principal authentication"
     fi
 commands:
-  - mkdir -p registry-output
   - |
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"

@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: notify-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d notify-output || mkdir -p notify-output
   - curl --version | head -1
   - jq --version
   - |
@@ -25,7 +26,6 @@ installCommands:
       echo "WARNING: SLACK_WEBHOOK_URL not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p notify-output
   - |
     if [ -z "${SLACK_WEBHOOK_URL}" ]; then
       echo "ERROR: SLACK_WEBHOOK_URL must be set (injected via CodeBuild secrets)"

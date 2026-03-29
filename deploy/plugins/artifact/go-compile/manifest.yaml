@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: bin
 dockerfile: Dockerfile
 installCommands:
+  - test -d bin || mkdir -p bin
   - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
   - go version
   - if [ -f go.mod ]; then go mod download; fi
 commands:
-  - mkdir -p bin
   - |
     echo "Building Go binary..."
     CGO_ENABLED=${CGO_ENABLED} GOOS=${GOOS} GOARCH=${GOARCH} \

@@ -18,13 +18,13 @@ secrets:
 primaryOutputDirectory: semgrep-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d semgrep-reports || mkdir -p semgrep-reports
   - semgrep --version
   - |
     if [ -n "${SEMGREP_APP_TOKEN}" ]; then
       echo "Semgrep App token configured — results will sync to dashboard"
     fi
 commands:
-  - mkdir -p semgrep-reports
   - |
     echo "Running Semgrep with rules: ${SEMGREP_RULES}"
     semgrep scan \

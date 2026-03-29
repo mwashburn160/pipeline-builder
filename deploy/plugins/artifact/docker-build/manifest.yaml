@@ -21,6 +21,7 @@ secrets:
 primaryOutputDirectory: docker-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d docker-output || mkdir -p docker-output
   - docker --version
   - docker buildx version
   - aws --version
@@ -57,7 +58,6 @@ installCommands:
         ;;
     esac
 commands:
-  - mkdir -p docker-output
   - |
     # Build args
     BUILD_ARGS=""

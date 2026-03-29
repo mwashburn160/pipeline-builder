@@ -16,6 +16,7 @@ primaryOutputDirectory: k6-reports
 dockerfile: Dockerfile
 installCommands:
   # k6 version selection
+  - test -d k6-reports || mkdir -p k6-reports
   - |
     if [ -f /opt/k6/versions/k6-${K6_VERSION} ]; then
       ln -sf /opt/k6/versions/k6-${K6_VERSION} /usr/local/bin/k6
@@ -35,7 +36,6 @@ installCommands:
       fi
     fi
 commands:
-  - mkdir -p k6-reports
   - |
     if [ -z "${K6_SCRIPT}" ]; then
       K6_SCRIPT=$(find . -name "*.js" -path "*/k6/*" -o -name "load-test*.js" -o -name "perf-test*.js" 2>/dev/null | head -1)

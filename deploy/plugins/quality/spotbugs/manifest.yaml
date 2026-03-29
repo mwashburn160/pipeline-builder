@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: spotbugs-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d spotbugs-reports || mkdir -p spotbugs-reports
   - java -version
   - |
     if [ -f gradlew ]; then chmod +x gradlew; fi
     if [ -f mvnw ]; then chmod +x mvnw; fi
 commands:
-  - mkdir -p spotbugs-reports
   - |
     echo "Running SpotBugs analysis..."
     if [ -f gradlew ]; then

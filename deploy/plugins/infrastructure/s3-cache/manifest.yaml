@@ -15,11 +15,11 @@ primaryOutputDirectory: cache-output
 dockerfile: Dockerfile
 secrets: []
 installCommands:
+  - test -d cache-output || mkdir -p cache-output
   - aws --version
   - tar --version
   - zstd --version 2>&1 || true
 commands:
-  - mkdir -p cache-output
   # Validate required parameters
   - |
     if [ -z "${CACHE_BUCKET}" ]; then

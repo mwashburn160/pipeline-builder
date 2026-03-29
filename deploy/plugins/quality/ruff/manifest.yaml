@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d lint-reports || mkdir -p lint-reports
   - pyenv global ${PYTHON_VERSION} && python --version
   - pip install ruff
 commands:
-  - mkdir -p lint-reports
   - |
     echo "Running Ruff linter..."
     ruff check . --output-format json > lint-reports/ruff-check.json 2>&1 || true

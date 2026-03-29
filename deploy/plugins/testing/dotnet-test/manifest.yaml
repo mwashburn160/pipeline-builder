@@ -15,9 +15,9 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d test-reports || mkdir -p test-reports
   - dotnet --version
 commands:
-  - mkdir -p test-reports
   - |
     echo "Restoring packages..."
     dotnet restore

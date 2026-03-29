@@ -18,9 +18,9 @@ secrets:
 primaryOutputDirectory: notify-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d notify-output || mkdir -p notify-output
   - aws --version
 commands:
-  - mkdir -p notify-output
   - |
     if [ -z "${EMAIL_TO}" ]; then
       echo "ERROR: EMAIL_TO must be set"

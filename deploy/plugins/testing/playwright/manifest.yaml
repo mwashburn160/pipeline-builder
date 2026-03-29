@@ -16,6 +16,7 @@ primaryOutputDirectory: playwright-reports
 dockerfile: Dockerfile
 installCommands:
   # Node.js version selection
+  - test -d playwright-reports || mkdir -p playwright-reports
   - |
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
@@ -33,7 +34,6 @@ installCommands:
     fi
   - npx playwright install --with-deps
 commands:
-  - mkdir -p playwright-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     PROJECT_ARG=""

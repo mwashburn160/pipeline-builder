@@ -20,6 +20,7 @@ metadata:
   aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
+- test -d cdk.out || mkdir -p cdk.out
 - npm install -g aws-cdk @mwashburn160/pipeline-manager
 commands:
 - 'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'

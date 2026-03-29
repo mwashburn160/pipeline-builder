@@ -18,13 +18,13 @@ secrets:
 primaryOutputDirectory: gitguardian-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d gitguardian-reports || mkdir -p gitguardian-reports
   - ggshield --version
   - |
     if [ -z "${GITGUARDIAN_API_KEY}" ]; then
       echo "WARNING: GITGUARDIAN_API_KEY must be injected via CodeBuild secrets"
     fi
 commands:
-  - mkdir -p gitguardian-reports
   - |
     EXIT_ZERO_ARG=""
     if [ "${GG_EXIT_ZERO}" = "true" ]; then

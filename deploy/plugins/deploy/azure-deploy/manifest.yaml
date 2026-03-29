@@ -24,6 +24,7 @@ secrets:
 primaryOutputDirectory: azure-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d azure-output || mkdir -p azure-output
   - az version
   - kubectl version --client 2>/dev/null || true
   - |
@@ -31,7 +32,6 @@ installCommands:
       echo "WARNING: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID not fully set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p azure-output
   - |
     if [ -z "${AZURE_CLIENT_ID}" ] || [ -z "${AZURE_CLIENT_SECRET}" ] || [ -z "${AZURE_TENANT_ID}" ]; then
       echo "ERROR: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID must all be set (injected via CodeBuild secrets)"

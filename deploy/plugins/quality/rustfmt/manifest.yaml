@@ -15,11 +15,11 @@ secrets: []
 primaryOutputDirectory: fmt-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d fmt-reports || mkdir -p fmt-reports
   - rustup default ${RUST_VERSION}
   - rustc --version
   - rustup component add rustfmt
 commands:
-  - mkdir -p fmt-reports
   - |
     echo "Running rustfmt check..."
     cargo fmt --all -- --check \

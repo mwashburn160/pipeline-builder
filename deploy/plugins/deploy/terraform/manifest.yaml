@@ -16,6 +16,7 @@ primaryOutputDirectory: tf-output
 dockerfile: Dockerfile
 installCommands:
   # Terraform version selection
+  - test -d tf-output || mkdir -p tf-output
   - |
     tfenv use ${TF_VERSION} 2>/dev/null || tfenv install ${TF_VERSION} && tfenv use ${TF_VERSION}
   - terraform version
@@ -23,7 +24,6 @@ installCommands:
   - tfsec --version
   - aws --version
 commands:
-  - mkdir -p tf-output
   # Initialize Terraform
   - |
     cd ${TF_WORKING_DIR}

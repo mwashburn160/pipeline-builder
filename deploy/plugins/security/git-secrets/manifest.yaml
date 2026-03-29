@@ -16,6 +16,7 @@ primaryOutputDirectory: secrets-reports
 dockerfile: Dockerfile
 installCommands:
   # Gitleaks version selection
+  - test -d secrets-reports || mkdir -p secrets-reports
   - |
     if [ -f /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} ]; then
       ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /usr/local/bin/gitleaks
@@ -27,7 +28,6 @@ installCommands:
   - gitleaks version
   - trufflehog --version
 commands:
-  - mkdir -p secrets-reports
   # Gitleaks scan
   - |
     CONFIG_ARG=""

@@ -18,10 +18,10 @@ secrets:
 primaryOutputDirectory: notify-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d notify-output || mkdir -p notify-output
   - gh --version
   - curl --version | head -1
 commands:
-  - mkdir -p notify-output
   - |
     if [ -z "${GITHUB_OWNER}" ] || [ -z "${GITHUB_REPO}" ] || [ -z "${GITHUB_SHA}" ]; then
       echo "ERROR: GITHUB_OWNER, GITHUB_REPO, and GITHUB_SHA must be set"

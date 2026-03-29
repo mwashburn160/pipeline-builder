@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d lint-reports || mkdir -p lint-reports
   - rustup default ${RUST_VERSION}
   - rustc --version && cargo --version
   - rustup component add clippy
   - if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
-  - mkdir -p lint-reports
   - |
     echo "Running Clippy..."
     cargo clippy --all-targets --all-features -- ${CLIPPY_FLAGS} \

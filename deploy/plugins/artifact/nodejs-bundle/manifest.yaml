@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: build-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d build-output || mkdir -p build-output
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
@@ -29,7 +30,6 @@ installCommands:
       npm install
     fi
 commands:
-  - mkdir -p build-output
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running build script: ${BUILD_SCRIPT}"

@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: license-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d license-reports || mkdir -p license-reports
   - license-checker --version || echo "license-checker ready"
   - pip-licenses --version || echo "pip-licenses ready"
   # Install project dependencies for accurate license scanning
@@ -26,7 +27,6 @@ installCommands:
     if [ -f Pipfile.lock ]; then pip3 install pipenv && pipenv install --system; fi
     if [ -f Gemfile.lock ]; then bundle install; fi
 commands:
-  - mkdir -p license-reports
   # Node.js license scan
   - |
     if [ -f package.json ]; then

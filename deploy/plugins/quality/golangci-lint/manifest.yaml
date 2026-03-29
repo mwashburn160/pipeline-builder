@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d lint-reports || mkdir -p lint-reports
   - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
   - go version
   - golangci-lint --version
   - if [ -f go.mod ]; then go mod download; fi
 commands:
-  - mkdir -p lint-reports
   - |
     echo "Running golangci-lint..."
     golangci-lint run \

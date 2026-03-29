@@ -19,9 +19,9 @@ secrets:
 primaryOutputDirectory: generated
 dockerfile: Dockerfile
 installCommands:
+  - test -d generated || mkdir -p generated
   - echo "AI Provider=${AI_PROVIDER} Model=${AI_MODEL}"
 commands:
-  - mkdir -p generated
   # Scan project for language/framework indicators
   - |
     PROJECT_CONTEXT=""

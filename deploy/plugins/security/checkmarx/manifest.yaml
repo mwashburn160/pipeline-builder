@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: checkmarx-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d checkmarx-reports || mkdir -p checkmarx-reports
   - cx version 2>/dev/null || echo "Checkmarx CLI ready"
   - kics version 2>/dev/null || echo "KICS ready"
   - |
@@ -25,7 +26,6 @@ installCommands:
       echo "WARNING: CX_CLIENT_SECRET must be injected via CodeBuild secrets"
     fi
 commands:
-  - mkdir -p checkmarx-reports
   - |
     case "${CX_SCAN_TYPE}" in
       sast)

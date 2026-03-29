@@ -16,6 +16,7 @@ primaryOutputDirectory: docker-lint-reports
 dockerfile: Dockerfile
 installCommands:
   # Hadolint version selection
+  - test -d docker-lint-reports || mkdir -p docker-lint-reports
   - |
     if [ -f /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} ]; then
       ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
@@ -36,7 +37,6 @@ installCommands:
     fi
   - dockle --version
 commands:
-  - mkdir -p docker-lint-reports
   # Hadolint — lint all Dockerfiles found in the project
   - |
     echo "Running Hadolint on Dockerfiles..."

@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: helm-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d helm-output || mkdir -p helm-output
   - helm version
   - aws --version
 commands:
-  - mkdir -p helm-output
   - |
     if [ -z "${HELM_REGISTRY}" ]; then
       echo "ERROR: HELM_REGISTRY must be set (e.g., oci://123456789.dkr.ecr.us-east-1.amazonaws.com)"

@@ -16,13 +16,13 @@ primaryOutputDirectory: generated
 dockerfile: Dockerfile
 installCommands:
   # Start Ollama server in background
+  - test -d generated || mkdir -p generated
   - ollama serve &
   - sleep 5
   # Pull the configured model
   - ollama pull ${OLLAMA_MODEL}
   - ollama list
 commands:
-  - mkdir -p generated
   # Scan project for language/framework indicators
   - |
     PROJECT_CONTEXT=""

@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: health-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d health-reports || mkdir -p health-reports
   - curl --version | head -1
   - |
     if [ -z "${HEALTH_ENDPOINTS}" ]; then
@@ -22,7 +23,6 @@ installCommands:
       echo "Example: HEALTH_ENDPOINTS=https://api.example.com/health,https://app.example.com"
     fi
 commands:
-  - mkdir -p health-reports
   - |
     if [ -z "${HEALTH_ENDPOINTS}" ]; then
       echo "ERROR: HEALTH_ENDPOINTS must be set (comma-separated URLs)"

@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d test-reports || mkdir -p test-reports
   - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
   - go version
   - go install github.com/jstemmer/go-junit-report/v2@latest
   - if [ -f go.mod ]; then go mod download; fi
 commands:
-  - mkdir -p test-reports
   - |
     echo "Running go test..."
     go test -v -coverprofile=test-reports/coverage.out ./... \

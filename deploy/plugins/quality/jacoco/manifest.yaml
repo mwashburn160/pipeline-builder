@@ -15,12 +15,12 @@ secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d coverage-reports || mkdir -p coverage-reports
   - java -version
   - |
     if [ -f gradlew ]; then chmod +x gradlew; fi
     if [ -f mvnw ]; then chmod +x mvnw; fi
 commands:
-  - mkdir -p coverage-reports
   - |
     echo "Running JaCoCo coverage report..."
     if [ -f gradlew ]; then

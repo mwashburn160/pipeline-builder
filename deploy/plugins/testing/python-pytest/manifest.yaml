@@ -15,13 +15,13 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d test-reports || mkdir -p test-reports
   - pyenv global ${PYTHON_VERSION} && python --version
   - pip install pytest pytest-cov
   - |
     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     if [ -f pyproject.toml ]; then pip install -e '.[testing]' 2>/dev/null || pip install -e '.[test]' 2>/dev/null || true; fi
 commands:
-  - mkdir -p test-reports
   - |
     echo "Running pytest..."
     python -m pytest ${PYTEST_ARGS} \

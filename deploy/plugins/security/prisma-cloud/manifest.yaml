@@ -21,6 +21,7 @@ secrets:
 primaryOutputDirectory: prisma-reports
 dockerfile: Dockerfile
 installCommands:
+  - test -d prisma-reports || mkdir -p prisma-reports
   - checkov --version
   - |
     if [ -n "${PRISMA_CONSOLE_URL}" ] && [ -n "${PRISMA_ACCESS_KEY}" ] && [ -n "${PRISMA_SECRET_KEY}" ]; then
@@ -34,7 +35,6 @@ installCommands:
       echo "Checkov (open-source IaC scanner) is available"
     fi
 commands:
-  - mkdir -p prisma-reports
   - |
     case "${PRISMA_SCAN_TYPE}" in
       iac)

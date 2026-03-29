@@ -18,6 +18,7 @@ metadata:
   aws:cdk:codebuild:buildenvironment:privileged: true
 dockerfile: Dockerfile
 installCommands:
+  - test -d cdk-output || mkdir -p cdk-output
   - node -v && npm -v
   - cdk --version
   - aws --version
@@ -51,7 +52,6 @@ installCommands:
       echo "Primary region: ${CDK_PRIMARY_REGION} (deployed first)"
     fi
 commands:
-  - mkdir -p cdk-output
   # Synthesize once (shared across all regions)
   - |
     STACK_ARG=""

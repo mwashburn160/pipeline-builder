@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: lambda-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d lambda-output || mkdir -p lambda-output
   - aws --version
   - zip --version | head -1
 commands:
-  - mkdir -p lambda-output
   - |
     if [ -z "${LAMBDA_FUNCTION}" ]; then
       echo "ERROR: LAMBDA_FUNCTION must be set"

@@ -15,9 +15,9 @@ secrets: []
 primaryOutputDirectory: ecs-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d ecs-output || mkdir -p ecs-output
   - aws --version
 commands:
-  - mkdir -p ecs-output
   - |
     if [ -z "${ECS_CLUSTER}" ] || [ -z "${ECS_SERVICE}" ]; then
       echo "ERROR: ECS_CLUSTER and ECS_SERVICE must be set"

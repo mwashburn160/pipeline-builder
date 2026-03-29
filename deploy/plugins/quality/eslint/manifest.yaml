@@ -16,6 +16,7 @@ primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
   # Node.js version selection
+  - test -d lint-reports || mkdir -p lint-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
@@ -34,7 +35,6 @@ installCommands:
       npm install -g eslint
     fi
 commands:
-  - mkdir -p lint-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     WARN_ARG=""

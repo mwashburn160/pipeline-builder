@@ -16,6 +16,7 @@ primaryOutputDirectory: cypress-reports
 dockerfile: Dockerfile
 installCommands:
   # Node.js version selection
+  - test -d cypress-reports || mkdir -p cypress-reports
   - |
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
@@ -33,7 +34,6 @@ installCommands:
     fi
   - npx cypress verify
 commands:
-  - mkdir -p cypress-reports
   - |
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     SPEC_ARG=""

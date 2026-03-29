@@ -18,13 +18,13 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d publish-output || mkdir -p publish-output
   - dotnet --version
   - |
     if [ -z "${NUGET_API_KEY}" ]; then
       echo "WARNING: NUGET_API_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p publish-output
   - |
     # Pack the project
     echo "Packing .NET project..."

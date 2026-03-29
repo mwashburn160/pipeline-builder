@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: gcloud-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d gcloud-output || mkdir -p gcloud-output
   - gcloud version
   - kubectl version --client 2>/dev/null || true
   - terraform version
@@ -26,7 +27,6 @@ installCommands:
       echo "WARNING: GOOGLE_APPLICATION_CREDENTIALS not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
-  - mkdir -p gcloud-output
   - |
     if [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
       echo "ERROR: GOOGLE_APPLICATION_CREDENTIALS must be set (injected via CodeBuild secrets)"

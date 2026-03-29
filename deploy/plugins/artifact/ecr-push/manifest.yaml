@@ -15,6 +15,7 @@ secrets: []
 primaryOutputDirectory: registry-output
 dockerfile: Dockerfile
 installCommands:
+  - test -d registry-output || mkdir -p registry-output
   - docker --version
   - docker buildx version
   - aws --version
@@ -25,7 +26,6 @@ installCommands:
       | docker login --username AWS --password-stdin \
       ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 commands:
-  - mkdir -p registry-output
   - |
     if [ -z "${ECR_REPOSITORY}" ]; then
       echo "ERROR: ECR_REPOSITORY must be set"

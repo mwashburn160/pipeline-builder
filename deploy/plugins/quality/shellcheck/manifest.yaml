@@ -16,6 +16,7 @@ primaryOutputDirectory: shellcheck-reports
 dockerfile: Dockerfile
 installCommands:
   # ShellCheck version selection
+  - test -d shellcheck-reports || mkdir -p shellcheck-reports
   - |
     if [ -f /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} ]; then
       ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /usr/local/bin/shellcheck
@@ -26,7 +27,6 @@ installCommands:
     fi
   - shellcheck --version
 commands:
-  - mkdir -p shellcheck-reports
   - |
     echo "Scanning for shell scripts..."
     SCRIPTS=$(find . -type f \( -name "*.sh" -o -name "*.bash" -o -name "*.zsh" \) \
