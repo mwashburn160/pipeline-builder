@@ -1,3 +1,13 @@
+## 1.41.13 (2026-03-29)
+
+### 🩹 Fixes
+
+- docker-dind tls ([4186e26f](https://github.com/mwashburn160/pipeline-builder/commit/4186e26f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.12 (2026-03-29)
 
 ### 🩹 Fixes
