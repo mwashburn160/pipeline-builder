@@ -1,3 +1,13 @@
+## 1.46.0 (2026-03-29)
+
+### 🚀 Features
+
+- add event-driven ([4d7a0ab3](https://github.com/mwashburn160/pipeline-builder/commit/4d7a0ab3))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.45.6 (2026-03-28)
 
 ### 🩹 Fixes

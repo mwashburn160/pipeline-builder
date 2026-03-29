@@ -1,3 +1,17 @@
+## 1.41.0 (2026-03-29)
+
+### 🚀 Features
+
+- add event-driven ([4d7a0ab3](https://github.com/mwashburn160/pipeline-builder/commit/4d7a0ab3))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.47.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.11 (2026-03-28)
 
 ### 🩹 Fixes
