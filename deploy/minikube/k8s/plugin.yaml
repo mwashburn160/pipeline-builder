@@ -49,7 +49,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app.kubernetes.io/name: plugin
+                    app: plugin
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-dependencies
@@ -74,11 +74,14 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.41.7-podman
-          # Runs as root — Kaniko requires root to chown files during image builds
+          image: ghcr.io/mwashburn160/plugin:1.41.8-podman
+          # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
+            capabilities:
+              add: ["SYS_CHROOT", "SETUID", "SETGID"]
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
               name: http
@@ -114,11 +117,16 @@ spec:
               value: "3000"
             - name: COMPLIANCE_BYPASS
               value: "false"
+            # DOCKER_HOST and DOCKER_CERT_PATH set per-process by docker-build.ts
+            # (avoids TLS validation at startup before dind generates certs)
           volumeMounts:
             - name: tmp
               mountPath: /app/tmp
             - name: uploads
               mountPath: /app/uploads
+            - name: dind-certs
+              mountPath: /certs
+              readOnly: true
           resources:
             limits:
               cpu: "1500m"
@@ -150,6 +158,40 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 30
+        # dind sidecar — provides Docker daemon for docker strategy (idle when using podman)
+        - name: dind
+          image: docker:27-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: /certs
+          volumeMounts:
+            - name: dind-certs
+              mountPath: /certs
+            - name: tmp
+              mountPath: /app/tmp
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: 1024Mi
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: tmp
           emptyDir:
@@ -157,6 +199,10 @@ spec:
         - name: uploads
           emptyDir:
             sizeLimit: 512Mi
+        - name: dind-certs
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
 
 ---
 # =============================================================================

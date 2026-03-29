@@ -143,6 +143,19 @@ echo "=== Waiting for node ==="
 run_as_mk kubectl wait --for=condition=Ready node/"$PROFILE" --timeout=120s
 
 # ---------------------------------------------------------------------------
+# Configure minikube VM for podman rootless builds
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Configuring minikube VM for podman rootless ==="
+run_as_mk minikube ssh --profile="$PROFILE" -- \
+  'sudo sysctl -w kernel.unprivileged_userns_clone=1 user.max_user_namespaces=28633 2>/dev/null; \
+   grep -q "unprivileged_userns_clone" /etc/sysctl.conf 2>/dev/null || \
+     echo "kernel.unprivileged_userns_clone = 1" | sudo tee -a /etc/sysctl.conf >/dev/null; \
+   grep -q "max_user_namespaces" /etc/sysctl.conf 2>/dev/null || \
+     echo "user.max_user_namespaces = 28633" | sudo tee -a /etc/sysctl.conf >/dev/null; \
+   echo "  Kernel configured for unprivileged user namespaces"'
+
+# ---------------------------------------------------------------------------
 # Addons & KEDA
 # ---------------------------------------------------------------------------
 echo ""
@@ -332,14 +345,12 @@ echo "  Current: $CURRENT_STRATEGY"
 echo ""
 echo "  1) podman  — Podman rootless (default for K8s)"
 echo "  2) docker  — Docker daemon via dind sidecar"
-echo "  3) kaniko  — Kaniko executor (daemonless)"
 echo ""
-read -rp "Select strategy [1-3] or press Enter to keep '$CURRENT_STRATEGY': " choice
+read -rp "Select strategy [1-2] or press Enter to keep '$CURRENT_STRATEGY': " choice
 
 case "$choice" in
   1) SELECTED_STRATEGY="podman" ;;
   2) SELECTED_STRATEGY="docker" ;;
-  3) SELECTED_STRATEGY="kaniko" ;;
   *) SELECTED_STRATEGY="$CURRENT_STRATEGY" ;;
 esac
 
@@ -348,24 +359,13 @@ if [ "$SELECTED_STRATEGY" != "$CURRENT_STRATEGY" ]; then
   echo "  Updated .env: DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY"
 fi
 
-# Update plugin image tag in K8s manifest to match selected strategy
-PLUGIN_YAML="$K8S_DIR/plugin.yaml"
-if [ -f "$PLUGIN_YAML" ]; then
-  PLUGIN_VERSION=$(grep 'ghcr.io/mwashburn160/plugin:' "$PLUGIN_YAML" | head -1 | sed 's/.*plugin:\([0-9.]*\).*/\1/')
-  if [ -n "$PLUGIN_VERSION" ]; then
-    sed -i "s|ghcr.io/mwashburn160/plugin:[0-9.]*-[a-z]*|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$PLUGIN_YAML"
-    echo "  Plugin image: plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}"
-  fi
-  sed -i "s/value: \"podman\"/value: \"$SELECTED_STRATEGY\"/; s/value: \"docker\"/value: \"$SELECTED_STRATEGY\"/; s/value: \"kaniko\"/value: \"$SELECTED_STRATEGY\"/" "$PLUGIN_YAML"
-fi
-
 if [ "$SELECTED_STRATEGY" = "docker" ]; then
-  echo "  Note: docker strategy requires Docker CLI inside the plugin container image"
+  echo "  Using dind sidecar for isolated Docker builds"
+else
+  echo "  Using podman rootless (kernel configured for user namespaces)"
 fi
 echo ""
 
-echo ""
-echo "=== Pre-pulling container images ==="
 echo ""
 echo "=== Applying Kubernetes manifests ==="
 run_as_mk kubectl apply -k "$K8S_DIR"
@@ -398,7 +398,7 @@ run_as_mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE"
 
 echo ""
 echo "=== Waiting for application pods (up to 5 min) ==="
-run_as_mk kubectl wait --for=condition=Ready pod -l app.kubernetes.io/part-of=pipeline-builder -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+run_as_mk kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
 
 echo ""
 echo "=== Pod Status ==="
