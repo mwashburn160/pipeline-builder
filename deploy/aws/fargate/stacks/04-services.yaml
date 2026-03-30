@@ -28,7 +28,7 @@ Parameters:
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:1.41.12-kaniko
+    Default: ghcr.io/mwashburn160/plugin:1.41.13-kaniko
     Description: Docker image for the Plugin service
 
   QuotaImage:

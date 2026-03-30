@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.12-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.13-docker'
     container_name: plugin
     restart: always
     environment:
@@ -417,6 +417,7 @@ services:
     container_name: plugin-dind
     restart: always
     privileged: true
+    command: ["--insecure-registry=registry:5000"]
     environment:
       DOCKER_TLS_CERTDIR: ''
     volumes:

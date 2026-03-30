@@ -74,7 +74,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.41.12-podman
+          image: ghcr.io/mwashburn160/plugin:1.41.13-podman
           # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false
@@ -161,6 +161,7 @@ spec:
         # dind sidecar — provides Docker daemon for docker strategy (idle when using podman)
         - name: dind
           image: docker:27-dind
+          args: ["--insecure-registry=registry:5000"]
           securityContext:
             privileged: true
           env:
