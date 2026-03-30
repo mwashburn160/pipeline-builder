@@ -1,5 +1,5 @@
-import { createLogger, errorMessage, InternalHttpClient, type ServiceConfig } from '@mwashburn160/api-core';
-import { Config, schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
+import { schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger';
 import { notifyComplianceBlock } from './compliance-notifier';
@@ -7,20 +7,6 @@ import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('scan-executor');
-
-const serverConfig = Config.getAny('server') as {
-  services: { pluginHost: string; pluginPort: number; pipelineHost: string; pipelinePort: number };
-};
-
-const pluginClient = new InternalHttpClient({
-  host: serverConfig.services.pluginHost,
-  port: serverConfig.services.pluginPort,
-} as ServiceConfig);
-
-const pipelineClient = new InternalHttpClient({
-  host: serverConfig.services.pipelineHost,
-  port: serverConfig.services.pipelinePort,
-} as ServiceConfig);
 
 /** Progress update interval (every N entities). */
 const PROGRESS_BATCH_SIZE = 10;
@@ -164,15 +150,18 @@ export async function executeScan(scanId: string): Promise<void> {
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   try {
-    const client = target === 'plugin' ? pluginClient : pipelineClient;
-    const path = target === 'plugin' ? '/plugins' : '/pipelines';
-    const response = await client.get(`${path}?limit=1000`, {
-      headers: { 'x-internal-service': 'true', 'x-org-id': orgId },
-    });
-
-    const data = response.body as Record<string, unknown>;
-    const items = (data.plugins ?? data.pipelines ?? data.data ?? []) as EntityRecord[];
-    return items;
+    const table = target === 'plugin' ? schema.plugin : schema.pipeline;
+    const rows = await db
+      .select({ id: table.id, name: table.name })
+      .from(table)
+      .where(
+        and(
+          eq(table.isActive, true),
+          or(eq(table.orgId, orgId), eq(table.orgId, SYSTEM_ORG_ID)),
+        ),
+      )
+      .limit(1000);
+    return rows as EntityRecord[];
   } catch (err) {
     logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
     return [];
