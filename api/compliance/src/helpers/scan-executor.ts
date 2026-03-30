@@ -165,7 +165,7 @@ export async function executeScan(scanId: string): Promise<void> {
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   try {
     const client = target === 'plugin' ? pluginClient : pipelineClient;
-    const path = target === 'plugin' ? '/api/plugins' : '/api/pipelines';
+    const path = target === 'plugin' ? '/plugins' : '/pipelines';
     const response = await client.get(`${path}?limit=1000`, {
       headers: { 'x-internal-service': 'true', 'x-org-id': orgId },
     });
