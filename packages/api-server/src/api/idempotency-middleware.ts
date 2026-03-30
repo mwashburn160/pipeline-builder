@@ -31,8 +31,9 @@ export function idempotencyMiddleware() {
     // Only apply to mutation methods
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
 
-    // Namespace by orgId to prevent cross-org collisions
-    const orgId = req.context?.identity?.orgId || req.user?.organizationId || 'anon';
+    // Namespace by orgId to prevent cross-org cache collisions
+    const orgId = req.context?.identity?.orgId || req.user?.organizationId;
+    if (!orgId) return next(); // skip idempotency for unauthenticated requests
     const fullKey = `${orgId}:${key}`;
 
     // Check for cached response

@@ -13,14 +13,6 @@ import { idempotencyMiddleware } from './idempotency-middleware';
 import { metricsMiddleware, metricsHandler } from './metrics';
 import { SSEManager } from '../http/sse-connection-manager';
 
-declare global {
-  namespace Express {
-    interface Request {
-      requestId?: string;
-    }
-  }
-}
-
 /**
  * Options for creating an Express application
  */

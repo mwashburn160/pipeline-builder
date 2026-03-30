@@ -9,16 +9,11 @@ export * from './get-context';
 // App factory
 export * from './app-factory';
 
-// ETag support
-export * from './etag-middleware';
-
 // Idempotency
 export * from './idempotency-middleware';
 
-// Tracing
+// Observability
 export * from './tracing';
-
-// Metrics
 export * from './metrics';
 
 // Server utilities

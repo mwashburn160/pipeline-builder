@@ -1,18 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { createRequestContext, RequestContext } from './request-types';
+import { createRequestContext } from './request-types';
 import type { SSEManager } from '../http/sse-connection-manager';
-
-/**
- * Augment Express Request type to include context property
- */
-declare global {
-  namespace Express {
-    interface Request {
-      /** Request context with identity, logging, and SSE */
-      context?: RequestContext;
-    }
-  }
-}
 
 /**
  * Creates middleware that attaches RequestContext to req.context

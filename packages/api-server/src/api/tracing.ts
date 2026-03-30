@@ -42,10 +42,6 @@ export function initTracing(serviceName: string): void {
 
   sdk.start();
   logger.info(`OpenTelemetry tracing initialized for ${serviceName}`);
-
-  process.on('SIGTERM', () => {
-    sdk?.shutdown().catch((err: unknown) => logger.error('OTel shutdown error', { error: err }));
-  });
 }
 
 /**

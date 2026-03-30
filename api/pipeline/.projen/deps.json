@@ -92,7 +92,7 @@
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.43.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

@@ -3,6 +3,18 @@ import { Request } from 'express';
 import { v7 as uuid } from 'uuid';
 import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
 
+// Consolidated Express Request augmentations
+declare global {
+  namespace Express {
+    interface Request {
+      /** Unique request ID (set by app-factory middleware) */
+      requestId?: string;
+      /** Request context with identity, logging, and SSE */
+      context?: RequestContext;
+    }
+  }
+}
+
 const logger = createLogger('api-server');
 
 /**
