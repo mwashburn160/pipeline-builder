@@ -17,12 +17,15 @@ const logger = createLogger('billing');
 
 // -- Express app ---------------------------------------------------------------
 
+const checkMongoDb = async () => ({
+  mongodb: mongoose.connection.readyState === 1 ? 'connected' as const
+    : mongoose.connection.readyState === 0 ? 'unknown' as const  // not yet connected (starting up)
+    : 'disconnected' as const,
+});
+
 const { app, sseManager } = createApp({
-  checkDependencies: async () => ({
-    mongodb: mongoose.connection.readyState === 1 ? 'connected'
-      : mongoose.connection.readyState === 0 ? 'unknown' as const  // not yet connected (starting up)
-      : 'disconnected',
-  }),
+  // Only check MongoDB when billing is enabled — disabled mode never connects
+  checkDependencies: config.enabled ? checkMongoDb : undefined,
 });
 
 app.use(attachRequestContext(sseManager));
