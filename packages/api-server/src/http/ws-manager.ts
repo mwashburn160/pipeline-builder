@@ -77,9 +77,9 @@ export class WSManager {
   }
 
   broadcast(type: string, data: unknown): number {
+    const payload = JSON.stringify({ type, data, ts: new Date().toISOString() });
     let sent = 0;
     for (const [, orgClients] of this.clients) {
-      const payload = JSON.stringify({ type, data, ts: new Date().toISOString() });
       for (const client of orgClients) {
         try { client.send(payload); sent++; } catch { this.removeClient(client); }
       }

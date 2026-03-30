@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import net from 'net';
-import { createLogger, createHealthRouter } from '@mwashburn160/api-core';
+import { createLogger } from '@mwashburn160/api-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -104,13 +104,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(limiter);
 
-/** Health check endpoint — uses shared createHealthRouter from api-core */
-app.use(createHealthRouter({
-  serviceName: 'platform',
-  checkDependencies: async () => ({
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-  }),
-}));
+/** Health check endpoint */
+app.get('/health', (_req: Request, res: Response) => {
+  const mongodb = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  const status = mongodb === 'connected' ? 200 : 503;
+  res.status(status).json({ status: status === 200 ? 'ok' : 'degraded', dependencies: { mongodb } });
+});
 
 /**
  * Prometheus metrics endpoint for monitoring and observability.

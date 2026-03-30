@@ -1,4 +1,4 @@
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId } from '@mwashburn160/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId, createHealthRouter } from '@mwashburn160/api-core';
 import type { OpenApiSpecOptions } from '@mwashburn160/api-core';
 import { Config, CoreConstants, getConnection } from '@mwashburn160/pipeline-core';
 import compression from 'compression';
@@ -43,9 +43,8 @@ export interface CreateAppOptions {
   urlEncodedLimit?: string;
   /** Custom SSE manager instance */
   sseManager?: SSEManager;
-  /** Skip default PostgreSQL health/metrics endpoints (default: false).
-   *  When true, the service should provide its own health check. */
-  skipDefaultHealthCheck?: boolean;
+  /** Health check dependency checker — if provided, /health reports dependency status */
+  checkDependencies?: () => Promise<Record<string, 'connected' | 'disconnected' | 'unknown'>>;
   /** Enable OpenAPI spec at /docs/openapi.json and Swagger UI at /docs (default: true) */
   enableOpenApi?: boolean;
   /** OpenAPI spec customization options */
@@ -101,7 +100,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     enableUrlEncoded = true,
     urlEncodedLimit = '1mb',
     sseManager = new SSEManager(),
-    skipDefaultHealthCheck = false,
+    checkDependencies,
     enableOpenApi = true,
     openApiOptions,
     enableCompression = true,
@@ -178,54 +177,25 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     next();
   });
 
-  // Health check and metrics registered before rate limiter so they are never throttled
-  if (!skipDefaultHealthCheck) {
-    app.get('/health', (_req: Request, res: Response) => {
-      sendSuccess(res, 200, {
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-      });
-    });
+  // Health check registered before rate limiter so it is never throttled
+  app.use(createHealthRouter({
+    serviceName: process.env.SERVICE_NAME || 'api',
+    checkDependencies,
+  }));
 
-    // Warm-up endpoint — initializes connection pool without a real API call (for Lambda pre-warming)
-    app.get('/warmup', async (_req: Request, res: Response) => {
-      try {
-        const connection = getConnection();
-        await connection.testConnection();
-        sendSuccess(res, 200, { warmed: true });
-      } catch {
-        sendSuccess(res, 200, { warmed: false });
-      }
-    });
+  // Warm-up endpoint — initializes connection pool without a real API call (for Lambda pre-warming)
+  app.get('/warmup', async (_req: Request, res: Response) => {
+    try {
+      const connection = getConnection();
+      await connection.testConnection();
+      sendSuccess(res, 200, { warmed: true });
+    } catch {
+      sendError(res, 503, 'Warmup failed');
+    }
+  });
 
-    // Deep health check that tests database connectivity — use for readiness probes
-    app.get('/health/ready', async (_req: Request, res: Response) => {
-      try {
-        const connection = getConnection();
-        const isHealthy = await connection.testConnection();
-
-        const healthData = {
-          status: isHealthy ? 'healthy' : 'unhealthy',
-          timestamp: new Date().toISOString(),
-          database: isHealthy ? 'connected' : 'disconnected',
-        };
-
-        if (isHealthy) {
-          sendSuccess(res, 200, healthData);
-        } else {
-          sendError(res, 503, 'Service unhealthy', undefined, healthData);
-        }
-      } catch (error) {
-        sendError(res, 503, 'Service unhealthy', undefined, {
-          status: 'unhealthy',
-          timestamp: new Date().toISOString(),
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
-    });
-
-    app.get('/metrics', metricsHandler());
-  }
+  // Prometheus metrics endpoint — always registered (never throttled)
+  app.get('/metrics', metricsHandler());
 
   // OpenAPI spec and Swagger UI (registered before rate limiter)
   if (enableOpenApi) {

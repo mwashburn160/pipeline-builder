@@ -383,8 +383,9 @@ services:
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
       DIND_HOST: plugin-dind
+      TMPDIR: /tmp
     volumes:
-      - './data/tmp:/app/tmp:rw'
+      - './data/tmp:/tmp:rw'
       - './data/uploads:/app/uploads:rw'
     networks:
       - backend-network
@@ -419,9 +420,10 @@ services:
     privileged: true
     command: ["--insecure-registry=registry:5000"]
     environment:
-      DOCKER_TLS_CERTDIR: ''
+      DOCKER_TLS_CERTDIR: ${DOCKER_TLS_CERTDIR:-}
+      TMPDIR: /tmp
     volumes:
-      - './data/tmp:/app/tmp:rw'
+      - './data/tmp:/tmp:rw'
     networks:
       - backend-network
     healthcheck:

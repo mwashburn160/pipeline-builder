@@ -22,7 +22,7 @@ export interface StartServerOptions {
   onStart?: (port: number) => void;
   /** Callback before shutdown */
   onShutdown?: () => Promise<void>;
-  /** Runs before database check (e.g., connectDatabase for MongoDB) */
+  /** Runs before database check (e.g., initialize external connections) */
   onBeforeStart?: () => Promise<void>;
   /** Custom database health check, or false to skip. Default: PostgreSQL testConnection */
   testDatabase?: (() => Promise<boolean>) | false;
@@ -90,7 +90,7 @@ export async function startServer(
 
   logger.info(`Starting ${name}...`);
 
-  // Pre-start hook (e.g., connect to MongoDB)
+  // Pre-start hook (e.g., initialize external connections)
   if (onBeforeStart) {
     await onBeforeStart();
   }
@@ -165,12 +165,12 @@ export async function startServer(
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);
-    }, shutdownTimeoutMs);
+    }, shutdownTimeoutMs).unref();
   };
 
   // Register signal handlers
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
   return {
     server,

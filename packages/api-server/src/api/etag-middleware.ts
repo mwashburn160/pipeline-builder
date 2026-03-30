@@ -7,9 +7,9 @@ import { Request, Response, NextFunction } from 'express';
  * Returns 304 Not Modified when the client's If-None-Match header matches.
  */
 export function etagMiddleware() {
-  return (_req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     // Only apply to GET requests
-    if (_req.method !== 'GET') return next();
+    if (req.method !== 'GET') return next();
 
     res.json = (body: unknown) => {
       // Serialize once, hash, and send — avoids double JSON.stringify
@@ -20,7 +20,7 @@ export function etagMiddleware() {
       res.setHeader('ETag', etag);
 
       // Check If-None-Match header
-      const ifNoneMatch = _req.headers['if-none-match'];
+      const ifNoneMatch = req.headers['if-none-match'];
       if (ifNoneMatch && ifNoneMatch === etag) {
         res.status(304).end();
         return res;

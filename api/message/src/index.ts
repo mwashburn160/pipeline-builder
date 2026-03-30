@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, createHealthRouter } from '@mwashburn160/api-core';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@mwashburn160/api-core';
 import { createApp, startServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, createWSManager } from '@mwashburn160/api-server';
 import { db } from '@mwashburn160/pipeline-core';
 import { sql } from 'drizzle-orm';
@@ -14,18 +14,14 @@ import { createUpdateMessageRoutes } from './routes/update-message';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
-
-// -- Attach request context to all requests -----------------------------------
-app.use(attachRequestContext(sseManager));
-
-// -- Health check with dependency monitoring ----------------------------------
-app.use(createHealthRouter({
-  serviceName: 'message',
+const { app, sseManager } = createApp({
   checkDependencies: async () => {
     try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'disconnected' as const }; }
   },
-}));
+});
+
+// -- Attach request context to all requests -----------------------------------
+app.use(attachRequestContext(sseManager));
 
 // -- SSE ticket store ---------------------------------------------------------
 // Short-lived, single-use tickets so JWTs never appear in query strings / logs.

@@ -1,4 +1,3 @@
-import { createHealthRouter } from '@mwashburn160/api-core';
 import { createApp, runServer, attachRequestContext } from '@mwashburn160/api-server';
 import mongoose from 'mongoose';
 
@@ -9,16 +8,13 @@ import updateQuotaRoutes from './routes/update-quota';
 
 // -- Express app ---------------------------------------------------------------
 
-const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
-
-app.use(attachRequestContext(sseManager));
-
-app.use(createHealthRouter({
-  serviceName: 'quota',
+const { app, sseManager } = createApp({
   checkDependencies: async () => ({
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
   }),
-}));
+});
+
+app.use(attachRequestContext(sseManager));
 
 app.use('/quotas', getQuotaRoutes);
 app.use('/quotas', updateQuotaRoutes);

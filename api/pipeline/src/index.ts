@@ -1,4 +1,4 @@
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, createHealthRouter } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 import { db } from '@mwashburn160/pipeline-core';
 import { sql } from 'drizzle-orm';
@@ -13,19 +13,15 @@ import { createUpdatePipelineRoutes } from './routes/update-pipeline';
 
 const logger = createLogger('pipeline');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
-
-// -- Attach request context to all requests -----------------------------------
-app.use(attachRequestContext(sseManager));
-
-// -- Health check with dependency monitoring ----------------------------------
-app.use(createHealthRouter({
-  serviceName: 'pipeline',
+const { app, sseManager } = createApp({
   checkDependencies: async () => {
     try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
     catch { return { postgres: 'disconnected' as const }; }
   },
-}));
+});
+
+// -- Attach request context to all requests -----------------------------------
+app.use(attachRequestContext(sseManager));
 
 // -- Create route FIRST — manages its own middleware (uses 'pipelines' quota).
 //    Must be before read routes so POST /pipelines doesn't run through the

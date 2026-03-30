@@ -119,6 +119,8 @@ spec:
               value: "false"
             - name: DIND_HOST
               value: "localhost"
+            - name: TMPDIR
+              value: "/tmp"
             # DOCKER_HOST and DOCKER_CERT_PATH set per-process by docker-build.ts
             # (avoids TLS validation at startup before dind generates certs)
           volumeMounts:
@@ -165,8 +167,10 @@ spec:
           securityContext:
             privileged: true
           env:
-            - name: DOCKER_TLS_CERTDIR
+            - name: DOCKER_TLS_CERTDIR  # disable TLS (plain TCP on port 2375)
               value: ''
+            - name: TMPDIR
+              value: "/tmp"
           volumeMounts:
             - name: tmp
               mountPath: /app/tmp

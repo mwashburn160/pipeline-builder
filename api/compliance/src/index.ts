@@ -1,4 +1,4 @@
-import { createLogger, createQuotaService, createHealthRouter, registerComplianceQueueBackend } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceQueueBackend } from '@mwashburn160/api-core';
 import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
 import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import {
@@ -30,19 +30,15 @@ import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
-
-// Attach request context to all requests
-app.use(attachRequestContext(sseManager));
-
-// -- Health check with dependency monitoring ----------------------------------
-app.use(createHealthRouter({
-  serviceName: 'compliance',
+const { app, sseManager } = createApp({
   checkDependencies: async () => {
     try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
     catch { return { postgres: 'disconnected' as const }; }
   },
-}));
+});
+
+// Attach request context to all requests
+app.use(attachRequestContext(sseManager));
 
 // Validation endpoints (auth + org, rate limited) — before CRUD to avoid /:id catch
 app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());

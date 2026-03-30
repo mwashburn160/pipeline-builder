@@ -1,4 +1,4 @@
-import { createHealthRouter, createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
+import { createLogger, sendError, ErrorCode } from '@mwashburn160/api-core';
 import { createApp, runServer, attachRequestContext } from '@mwashburn160/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -17,17 +17,15 @@ const logger = createLogger('billing');
 
 // -- Express app ---------------------------------------------------------------
 
-const { app, sseManager } = createApp({ skipDefaultHealthCheck: true });
+const { app, sseManager } = createApp({
+  checkDependencies: async () => ({
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  }),
+});
 
 app.use(attachRequestContext(sseManager));
 
 if (config.enabled) {
-  app.use(createHealthRouter({
-    serviceName: 'billing',
-    checkDependencies: async () => ({
-      mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    }),
-  }));
 
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
@@ -57,8 +55,6 @@ if (config.enabled) {
   });
 } else {
   logger.info('Billing is disabled (BILLING_ENABLED=false)');
-
-  app.use(createHealthRouter({ serviceName: 'billing' }));
 
   // Return 503 for all billing routes when disabled
   app.use('/billing', (_req, res) => {
