@@ -1,3 +1,13 @@
+## 1.40.8 (2026-03-30)
+
+### 🩹 Fixes
+
+- removed skipDefaultHealthCheck ([8c97210e](https://github.com/mwashburn160/pipeline-builder/commit/8c97210e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.40.7 (2026-03-29)
 
 ### 🩹 Fixes

@@ -1,3 +1,17 @@
+## 1.41.14 (2026-03-30)
+
+### 🩹 Fixes
+
+- removed skipDefaultHealthCheck ([8c97210e](https://github.com/mwashburn160/pipeline-builder/commit/8c97210e))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-server to 1.43.6
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.13 (2026-03-29)
 
 ### 🩹 Fixes

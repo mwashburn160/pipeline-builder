@@ -1,3 +1,9 @@
+## 1.46.8 (2026-03-30)
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-server to 1.43.6
+
 ## 1.46.7 (2026-03-29)
 
 ### 🩹 Fixes
