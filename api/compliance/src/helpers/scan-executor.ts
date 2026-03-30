@@ -158,7 +158,7 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
         .limit(1000) as EntityRecord[];
     }
     return await db
-      .select({ id: schema.pipeline.id, name: schema.pipeline.name })
+      .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
       .from(schema.pipeline)
       .where(and(eq(schema.pipeline.isActive, true), or(eq(schema.pipeline.orgId, orgId), eq(schema.pipeline.orgId, SYSTEM_ORG_ID))))
       .limit(1000) as EntityRecord[];
