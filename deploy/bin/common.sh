@@ -100,9 +100,8 @@ prompt_credentials() {
   fi
 
   if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-    printf "Password [****]: "
-    read -rs PLATFORM_PASSWORD
-    echo ""
+    printf "Password [%s]: " "$_default_pw"
+    read -r PLATFORM_PASSWORD
     PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$_default_pw}"
   fi
 }
