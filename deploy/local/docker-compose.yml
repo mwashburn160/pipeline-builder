@@ -464,14 +464,7 @@ services:
       ollama:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1024M
-        reservations:
-          cpus: '0.5'
-          memory: 512M
+    deploy: *api-deploy
 
   message:
     image: 'ghcr.io/mwashburn160/message:1.22.9'
@@ -492,11 +485,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.35'
+          memory: 384M
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.15'
+          memory: 192M
 
   reporting:
     image: 'ghcr.io/mwashburn160/reporting:1.3.9'
@@ -514,11 +507,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.35'
+          memory: 384M
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.15'
+          memory: 192M
 
   compliance:
     image: 'ghcr.io/mwashburn160/compliance:1.6.9'
@@ -545,7 +538,14 @@ services:
       redis:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy: *api-deploy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   quota:
     image: 'ghcr.io/mwashburn160/quota:1.38.9'
@@ -572,11 +572,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.75'
-          memory: 512M
+          cpus: '0.5'
+          memory: 384M
         reservations:
-          cpus: '0.4'
-          memory: 256M
+          cpus: '0.25'
+          memory: 192M
 
   billing:
     image: 'ghcr.io/mwashburn160/billing:1.24.9'
@@ -620,11 +620,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.35'
+          memory: 384M
         reservations:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.15'
+          memory: 192M
 
   # ---------------------------------------------------------------------------
   # Admin UIs
@@ -711,6 +711,7 @@ services:
       REGISTRY_AUTH_HTPASSWD_REALM: registry realm
       REGISTRY_AUTH_HTPASSWD_PATH: /etc/auth/registry.passwd
       REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+      REGISTRY_HTTP_DEBUG_ADDR: '0.0.0.0:5001'
     volumes:
       - './auth/registry.passwd:/etc/auth/registry.passwd:ro'
       - './certs/registry.crt:/etc/ssl/certs/registry.crt:ro'
@@ -720,7 +721,7 @@ services:
       - proxy-network
       - backend-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-check-certificate -qO /dev/null -S https://localhost:5000/v2/ 2>&1 | grep -q 'HTTP/' || exit 1"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:5001/debug/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

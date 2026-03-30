@@ -99,11 +99,11 @@ spec:
               value: "3000"
           resources:
             limits:
-              cpu: "750m"
-              memory: 512Mi
+              cpu: "500m"
+              memory: 384Mi
             requests:
-              cpu: "400m"
-              memory: 256Mi
+              cpu: "250m"
+              memory: 192Mi
           readinessProbe:
             httpGet:
               path: /health

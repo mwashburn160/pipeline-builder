@@ -101,8 +101,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-nginx"
-      Cpu: "512"
-      Memory: "1024"
+      Cpu: "256"
+      Memory: "512"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -256,8 +256,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-platform"
-      Cpu: "1024"
-      Memory: "2048"
+      Cpu: "512"
+      Memory: "1024"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -433,8 +433,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-pipeline"
-      Cpu: "1024"
-      Memory: "2048"
+      Cpu: "512"
+      Memory: "1024"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -856,8 +856,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-quota"
-      Cpu: "512"
-      Memory: "1024"
+      Cpu: "256"
+      Memory: "512"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -1033,8 +1033,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-billing"
-      Cpu: "512"
-      Memory: "1024"
+      Cpu: "256"
+      Memory: "512"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -1214,8 +1214,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-message"
-      Cpu: "512"
-      Memory: "1024"
+      Cpu: "256"
+      Memory: "512"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -1389,8 +1389,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-reporting"
-      Cpu: "512"
-      Memory: "1024"
+      Cpu: "256"
+      Memory: "512"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -1548,8 +1548,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${StackPrefix}-compliance"
-      Cpu: "1024"
-      Memory: "2048"
+      Cpu: "512"
+      Memory: "1024"
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE

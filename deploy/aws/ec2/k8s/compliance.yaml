@@ -115,11 +115,11 @@ spec:
               value: "6379"
           resources:
             limits:
-              cpu: "750m"
-              memory: 768Mi
+              cpu: "500m"
+              memory: 512Mi
             requests:
-              cpu: "400m"
-              memory: 384Mi
+              cpu: "250m"
+              memory: 256Mi
           readinessProbe:
             httpGet:
               path: /health
