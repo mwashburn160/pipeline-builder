@@ -144,6 +144,7 @@ jest.mock('../src/services/git-analysis-service', () => ({
 
 jest.mock('../src/services/ai-generation-service', () => ({
   getAvailableProviders: mockGetAvailableProviders,
+  getFilteredPlugins: jest.fn().mockResolvedValue([]),
   streamPipelineConfig: mockStreamPipelineConfig,
   generatePipelineConfig: jest.fn(),
 }));
