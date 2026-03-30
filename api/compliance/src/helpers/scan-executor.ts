@@ -150,18 +150,18 @@ export async function executeScan(scanId: string): Promise<void> {
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   try {
-    const table = target === 'plugin' ? schema.plugin : schema.pipeline;
-    const rows = await db
-      .select({ id: table.id, name: table.name })
-      .from(table)
-      .where(
-        and(
-          eq(table.isActive, true),
-          or(eq(table.orgId, orgId), eq(table.orgId, SYSTEM_ORG_ID)),
-        ),
-      )
-      .limit(1000);
-    return rows as EntityRecord[];
+    if (target === 'plugin') {
+      return await db
+        .select({ id: schema.plugin.id, name: schema.plugin.name })
+        .from(schema.plugin)
+        .where(and(eq(schema.plugin.isActive, true), or(eq(schema.plugin.orgId, orgId), eq(schema.plugin.orgId, SYSTEM_ORG_ID))))
+        .limit(1000) as EntityRecord[];
+    }
+    return await db
+      .select({ id: schema.pipeline.id, name: schema.pipeline.name })
+      .from(schema.pipeline)
+      .where(and(eq(schema.pipeline.isActive, true), or(eq(schema.pipeline.orgId, orgId), eq(schema.pipeline.orgId, SYSTEM_ORG_ID))))
+      .limit(1000) as EntityRecord[];
   } catch (err) {
     logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
     return [];
