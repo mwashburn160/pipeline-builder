@@ -1,3 +1,13 @@
+## 1.24.10 (2026-03-30)
+
+### 🩹 Fixes
+
+- disconnected before MongoDB connects ([b0428f2f](https://github.com/mwashburn160/pipeline-builder/commit/b0428f2f))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.9 (2026-03-30)
 
 ### 🩹 Fixes
