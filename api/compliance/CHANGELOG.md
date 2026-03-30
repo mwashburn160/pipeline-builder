@@ -1,3 +1,13 @@
+## 1.6.11 (2026-03-30)
+
+### 🩹 Fixes
+
+- backend services directly ([00d8ad09](https://github.com/mwashburn160/pipeline-builder/commit/00d8ad09))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.10 (2026-03-30)
 
 ### 🩹 Fixes

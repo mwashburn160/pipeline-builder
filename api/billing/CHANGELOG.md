@@ -1,3 +1,13 @@
+## 1.24.11 (2026-03-30)
+
+### 🩹 Fixes
+
+- billing startup ([97bc0791](https://github.com/mwashburn160/pipeline-builder/commit/97bc0791))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.24.10 (2026-03-30)
 
 ### 🩹 Fixes
