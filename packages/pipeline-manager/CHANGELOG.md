@@ -1,3 +1,13 @@
+## 1.41.7 (2026-03-30)
+
+### 🩹 Fixes
+
+- scan executor ([972bda4b](https://github.com/mwashburn160/pipeline-builder/commit/972bda4b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.6 (2026-03-30)
 
 This was a version bump only for @mwashburn160/pipeline-manager to align it with other projects, there were no code changes.

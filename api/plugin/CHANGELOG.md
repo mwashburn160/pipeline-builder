@@ -1,3 +1,13 @@
+## 1.41.17 (2026-03-30)
+
+### 🩹 Fixes
+
+- scan executor ([972bda4b](https://github.com/mwashburn160/pipeline-builder/commit/972bda4b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.16 (2026-03-30)
 
 ### 🩹 Fixes
