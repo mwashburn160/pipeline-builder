@@ -3,6 +3,7 @@ export {
   requireAuth,
   requireOrganization,
   requireAdmin,
+  requireFeature,
   isSystemOrg,
   isSystemAdmin,
   type RequireAuthOptions,

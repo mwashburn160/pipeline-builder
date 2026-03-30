@@ -1,9 +1,8 @@
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
-import { getAuthContext, handleControllerError } from '../helpers/controller-helper';
+import { Request } from 'express';
+import { getAuthContext, withController } from '../helpers/controller-helper';
 import {
   pipelineService,
-  PipelineServiceError,
   PipelineFilter,
 } from '../services';
 import { parsePagination } from '../utils/pagination';
@@ -39,58 +38,42 @@ function buildFilter(query: Request['query'], options?: { includeId?: boolean; i
   return filter;
 }
 
-/** Map caught errors to HTTP responses. */
-function handleError(res: Response, err: unknown, operation: string): void {
-  if (err instanceof PipelineServiceError) {
-    sendError(res, err.statusCode, err.message, err.code);
-  } else {
-    handleControllerError(res, err, `Failed to ${operation}`);
-  }
-}
 
 /**
  * List pipelines with optional filters
  * GET /pipeline
  */
-export async function listPipelines(req: Request, res: Response): Promise<void> {
+export const listPipelines = withController('List pipelines', async (req, res) => {
   const auth = getAuthContext(req, res, 'list pipelines');
   if (!auth) return;
 
-  try {
-    const filter = buildFilter(req.query, { includePagination: true });
-    const result = await pipelineService.listPipelines(auth.orgId, filter, auth);
+  const filter = buildFilter(req.query, { includePagination: true });
+  const result = await pipelineService.listPipelines(auth.orgId, filter, auth);
 
-    logger.info('[LIST PIPELINES] Success', { userId: auth.userId, orgId: auth.orgId, count: result.pipelines.length });
-    sendSuccess(res, 200, result);
-  } catch (err) {
-    handleError(res, err, 'list pipelines');
-  }
-}
+  logger.info('[LIST PIPELINES] Success', { userId: auth.userId, orgId: auth.orgId, count: result.pipelines.length });
+  sendSuccess(res, 200, result);
+});
 
 /**
  * Get a single pipeline by ID
  * GET /pipeline/:id
  */
-export async function getPipelineById(req: Request, res: Response): Promise<void> {
+export const getPipelineById = withController('Get pipeline', async (req, res) => {
   const auth = getAuthContext(req, res, 'view pipelines');
   if (!auth) return;
 
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   if (!id) return sendError(res, 400, 'Pipeline ID is required');
 
-  try {
-    const pipeline = await pipelineService.getPipelineById(auth.orgId, id, auth);
-    sendSuccess(res, 200, pipeline);
-  } catch (err) {
-    handleError(res, err, 'get pipeline');
-  }
-}
+  const pipeline = await pipelineService.getPipelineById(auth.orgId, id, auth);
+  sendSuccess(res, 200, pipeline);
+});
 
 /**
  * Get a single pipeline by query filters
  * GET /pipeline/search
  */
-export async function getPipeline(req: Request, res: Response): Promise<void> {
+export const getPipeline = withController('Search pipeline', async (req, res) => {
   const auth = getAuthContext(req, res, 'view pipelines');
   if (!auth) return;
 
@@ -99,19 +82,15 @@ export async function getPipeline(req: Request, res: Response): Promise<void> {
     return sendError(res, 400, 'At least one search filter is required');
   }
 
-  try {
-    const pipeline = await pipelineService.getPipeline(auth.orgId, filter, auth);
-    sendSuccess(res, 200, pipeline);
-  } catch (err) {
-    handleError(res, err, 'get pipeline');
-  }
-}
+  const pipeline = await pipelineService.getPipeline(auth.orgId, filter, auth);
+  sendSuccess(res, 200, pipeline);
+});
 
 /**
  * Create a new pipeline configuration
  * POST /pipeline
  */
-export async function createPipeline(req: Request, res: Response): Promise<void> {
+export const createPipeline = withController('Create pipeline', async (req, res) => {
   const auth = getAuthContext(req, res, 'create pipelines');
   if (!auth) return;
 
@@ -136,34 +115,30 @@ export async function createPipeline(req: Request, res: Response): Promise<void>
     ?? `${resolvedOrganization.toLowerCase()}-${resolvedProject.toLowerCase()}-pipeline`;
   const validAccessModifier = accessModifier === 'public' ? 'public' : 'private';
 
-  try {
-    const result = await pipelineService.createPipeline(
-      auth.orgId,
-      {
-        project: resolvedProject,
-        organization: resolvedOrganization,
-        pipelineName: resolvedPipelineName,
-        props,
-        accessModifier: validAccessModifier,
-      },
-      auth,
-    );
+  const result = await pipelineService.createPipeline(
+    auth.orgId,
+    {
+      project: resolvedProject,
+      organization: resolvedOrganization,
+      pipelineName: resolvedPipelineName,
+      props,
+      accessModifier: validAccessModifier,
+    },
+    auth,
+  );
 
-    logger.info('[CREATE PIPELINE] Success', { userId: auth.userId, orgId: auth.orgId, pipelineId: result.id });
-    sendSuccess(res, 201, {
-      pipeline: {
-        id: result.id,
-        project: result.project,
-        organization: result.organization,
-        pipelineName: result.pipelineName,
-        accessModifier: result.accessModifier,
-        isDefault: result.isDefault,
-        isActive: result.isActive,
-        createdAt: result.createdAt,
-        createdBy: result.createdBy,
-      },
-    }, result.message);
-  } catch (err) {
-    handleError(res, err, 'create pipeline');
-  }
-}
+  logger.info('[CREATE PIPELINE] Success', { userId: auth.userId, orgId: auth.orgId, pipelineId: result.id });
+  sendSuccess(res, 201, {
+    pipeline: {
+      id: result.id,
+      project: result.project,
+      organization: result.organization,
+      pipelineName: result.pipelineName,
+      accessModifier: result.accessModifier,
+      isDefault: result.isDefault,
+      isActive: result.isActive,
+      createdAt: result.createdAt,
+      createdBy: result.createdBy,
+    },
+  }, result.message);
+});

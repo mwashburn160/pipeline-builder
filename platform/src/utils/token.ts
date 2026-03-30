@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger, resolveUserFeatures, isSystemOrgId } from '@mwashburn160/api-core';
+import type { QuotaTier } from '@mwashburn160/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { User, Organization, UserOrganization } from '../models';
@@ -14,11 +15,17 @@ export interface MembershipContext {
   organizationId: string;
   organizationName?: string;
   role: OrgMemberRole;
+  tier?: string;
 }
 
 /** Build an access token JWT payload from a user document and optional membership. */
 export function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
   const role = membership?.role ?? 'member';
+  const tier = (membership?.tier as QuotaTier) || 'developer';
+  const isSystem = isSystemOrgId(membership?.organizationId, membership?.organizationName);
+  const overrides = user.featureOverrides
+    ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
+    : undefined;
   return {
     type: 'access',
     sub: user._id.toString(),
@@ -28,6 +35,8 @@ export function createAccessTokenPayload(user: UserDocument, membership?: Member
     email: user.email,
     role,
     isAdmin: role === 'admin' || role === 'owner',
+    tier,
+    features: resolveUserFeatures(tier, overrides, isSystem),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
   };
@@ -90,11 +99,12 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (activeOrgId) {
     const membership = await UserOrganization.findOne({ userId, organizationId: activeOrgId, isActive: true }).lean();
     if (membership) {
-      const org = await Organization.findById(activeOrgId).select('name').lean();
+      const org = await Organization.findById(activeOrgId).select('name tier').lean();
       return {
         organizationId: activeOrgId,
         organizationName: org?.name,
         role: membership.role as OrgMemberRole,
+        tier: (org as unknown as Record<string, unknown>)?.tier as string | undefined,
       };
     }
   }
@@ -104,11 +114,12 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (!first) return undefined;
 
   const orgId = first.organizationId.toString();
-  const org = await Organization.findById(orgId).select('name').lean();
+  const org = await Organization.findById(orgId).select('name tier').lean();
   return {
     organizationId: orgId,
     organizationName: org?.name,
     role: first.role as OrgMemberRole,
+    tier: (org as unknown as Record<string, unknown>)?.tier as string | undefined,
   };
 }
 

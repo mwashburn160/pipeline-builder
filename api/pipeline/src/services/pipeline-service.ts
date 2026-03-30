@@ -83,7 +83,7 @@ export class PipelineService extends CrudService<
       orgId: entity.orgId,
       userId: entity.createdBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 
@@ -98,7 +98,7 @@ export class PipelineService extends CrudService<
       orgId: entity.orgId,
       userId: entity.updatedBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 
@@ -113,7 +113,7 @@ export class PipelineService extends CrudService<
       orgId: entity.orgId,
       userId: entity.updatedBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 

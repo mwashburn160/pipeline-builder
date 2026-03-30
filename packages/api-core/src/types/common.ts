@@ -130,6 +130,10 @@ export interface JwtPayload {
   role: 'owner' | 'admin' | 'member';
   /** Derived: true when role is 'admin' or 'owner' in the active organization */
   isAdmin?: boolean;
+  /** Organization's quota tier ('developer' | 'pro' | 'unlimited') */
+  tier?: string;
+  /** Resolved feature flags for this user/org */
+  features?: string[];
   /** Active organization ID (from UserOrganization membership) */
   organizationId?: string;
   /** Active organization name */

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
 import { config } from '../config';
+import { withController } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
 import { issueTokens } from '../utils/token';
 import { validateBody, oauthCallbackSchema } from '../utils/validation';
@@ -187,7 +187,7 @@ async function findOrCreateUser(providerName: ProviderName, userInfo: OAuthUserI
 
 // Route handlers
 
-export async function getAuthUrl(req: Request, res: Response): Promise<void> {
+export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
   const providerName = Array.isArray(req.params.provider) ? req.params.provider[0] : req.params.provider;
   const provider = getProvider(providerName);
 
@@ -208,9 +208,9 @@ export async function getAuthUrl(req: Request, res: Response): Promise<void> {
   pendingOAuthStates.set(state, Date.now());
 
   sendSuccess(res, 200, { url: provider.buildAuthorizeUrl(state), state });
-}
+});
 
-export async function handleCallback(req: Request, res: Response): Promise<void> {
+export const handleCallback = withController('OAuth callback', async (req, res) => {
   const providerName = Array.isArray(req.params.provider) ? req.params.provider[0] : req.params.provider;
   const provider = getProvider(providerName);
 
@@ -222,26 +222,21 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
   if (!pendingOAuthStates.has(body.state)) return sendError(res, 403, 'Invalid or expired OAuth state');
   pendingOAuthStates.delete(body.state);
 
-  try {
-    const accessToken = await provider.exchangeCode(body.code);
-    const userInfo = await provider.fetchUserInfo(accessToken);
+  const accessToken = await provider.exchangeCode(body.code);
+  const userInfo = await provider.fetchUserInfo(accessToken);
 
-    if (!userInfo.email) return sendError(res, 400, `${providerName} did not return an email address`);
+  if (!userInfo.email) return sendError(res, 400, `${providerName} did not return an email address`);
 
-    const user = await findOrCreateUser(providerName as ProviderName, userInfo);
-    const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
+  const user = await findOrCreateUser(providerName as ProviderName, userInfo);
+  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
-    logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
-    sendSuccess(res, 200, tokens);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message === 'TOKEN_EXCHANGE_FAILED') return sendError(res, 502, `Failed to exchange authorization code with ${providerName}`);
-    logger.error(`[OAUTH] ${providerName} callback error`, { error: message });
-    return sendError(res, 500, 'OAuth authentication failed');
-  }
-}
+  logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
+  sendSuccess(res, 200, tokens);
+}, {
+  TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange authorization code' },
+});
 
-export async function getProviders(_req: Request, res: Response): Promise<void> {
+export const getProviders = withController('Get OAuth providers', async (_req, res) => {
   const enabled = Object.entries(providers).filter(([, p]) => p.enabled).map(([name]) => name);
   sendSuccess(res, 200, { providers: enabled });
-}
+});

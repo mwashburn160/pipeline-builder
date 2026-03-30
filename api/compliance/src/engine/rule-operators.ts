@@ -42,31 +42,18 @@ function safeRegexTest(pattern: string, value: string): boolean {
  * getFieldValue({ s: 'hello' }, '$length(s)')    // → 5
  */
 export function getFieldValue(entity: Record<string, unknown>, fieldPath: string): unknown {
-  // Handle computed fields
+  // Handle computed fields: $count(field), $length(field), $keys(field), $lines(field)
   const computedMatch = fieldPath.match(/^\$(\w+)\((.+)\)$/);
   if (computedMatch) {
     const [, fn, innerPath] = computedMatch;
-    const innerValue = getFieldValue(entity, innerPath);
-
-    switch (fn) {
-      case 'count':
-        if (Array.isArray(innerValue)) return innerValue.length;
-        if (innerValue && typeof innerValue === 'object') return Object.keys(innerValue).length;
-        return 0;
-      case 'length':
-        if (typeof innerValue === 'string') return innerValue.length;
-        return 0;
-      case 'keys':
-        if (innerValue && typeof innerValue === 'object' && !Array.isArray(innerValue)) {
-          return Object.keys(innerValue);
-        }
-        return [];
-      case 'lines':
-        if (typeof innerValue === 'string') return innerValue.split('\n').length;
-        return 0;
-      default:
-        return undefined;
-    }
+    const v = getFieldValue(entity, innerPath);
+    const computedFns: Record<string, (val: unknown) => unknown> = {
+      count: (val) => Array.isArray(val) ? val.length : (val && typeof val === 'object') ? Object.keys(val).length : 0,
+      length: (val) => typeof val === 'string' ? val.length : 0,
+      keys: (val) => (val && typeof val === 'object' && !Array.isArray(val)) ? Object.keys(val) : [],
+      lines: (val) => typeof val === 'string' ? val.split('\n').length : 0,
+    };
+    return computedFns[fn]?.(v);
   }
 
   // Standard dot-notation traversal
@@ -96,72 +83,51 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
  * evaluateOperator('in', 'SMALL', ['SMALL', 'MEDIUM'])      // → true
  * evaluateOperator('regex', 'hello-world', '^hello')        // → true
  */
+/** Check if fieldValue contains ruleValue (string or array). */
+function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
+  if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
+    return fieldValue.toLowerCase().includes(ruleValue.toLowerCase());
+  }
+  if (Array.isArray(fieldValue)) {
+    return fieldValue.some((v) => String(v).toLowerCase() === String(ruleValue).toLowerCase());
+  }
+  return false;
+}
+
+/** Operator lookup table — each entry returns true if condition is SATISFIED. */
+const OPERATORS: Record<string, (fv: unknown, rv: unknown) => boolean> = {
+  // Equality
+  eq:          (fv, rv) => fv === rv || String(fv) === String(rv),
+  neq:         (fv, rv) => fv !== rv && String(fv) !== String(rv),
+  // String / array containment
+  contains:    evalContains,
+  notContains: (fv, rv) => !evalContains(fv, rv),
+  // Regex
+  regex:       (fv, rv) => typeof rv === 'string' && safeRegexTest(rv, String(fv ?? '')),
+  // Numeric comparison
+  gt:          (fv, rv) => Number(fv) > Number(rv),
+  gte:         (fv, rv) => Number(fv) >= Number(rv),
+  lt:          (fv, rv) => Number(fv) < Number(rv),
+  lte:         (fv, rv) => Number(fv) <= Number(rv),
+  // Set membership
+  in:          (fv, rv) => Array.isArray(rv) && rv.some((v) => String(v) === String(fv)),
+  notIn:       (fv, rv) => !Array.isArray(rv) || !rv.some((v) => String(v) === String(fv)),
+  // Existence
+  exists:      (fv) => fv !== null && fv !== undefined,
+  notExists:   (fv) => fv === null || fv === undefined,
+  // Count/length aliases (used with computed $count/$length fields)
+  countGt:     (fv, rv) => Number(fv) > Number(rv),
+  countLt:     (fv, rv) => Number(fv) < Number(rv),
+  lengthGt:    (fv, rv) => Number(fv) > Number(rv),
+  lengthLt:    (fv, rv) => Number(fv) < Number(rv),
+};
+
 export function evaluateOperator(
   operator: RuleOperator,
   fieldValue: unknown,
   ruleValue: unknown,
 ): boolean {
-  switch (operator) {
-    // Equality
-    case 'eq':
-      return fieldValue === ruleValue || String(fieldValue) === String(ruleValue);
-    case 'neq':
-      return fieldValue !== ruleValue && String(fieldValue) !== String(ruleValue);
-
-    // String containment
-    case 'contains':
-      if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
-        return fieldValue.toLowerCase().includes(ruleValue.toLowerCase());
-      }
-      if (Array.isArray(fieldValue)) {
-        return fieldValue.some((v) => String(v).toLowerCase() === String(ruleValue).toLowerCase());
-      }
-      return false;
-    case 'notContains':
-      return !evaluateOperator('contains', fieldValue, ruleValue);
-
-    // Regex
-    case 'regex':
-      if (typeof ruleValue !== 'string') return false;
-      return safeRegexTest(ruleValue, String(fieldValue ?? ''));
-
-    // Numeric comparison
-    case 'gt':
-      return Number(fieldValue) > Number(ruleValue);
-    case 'gte':
-      return Number(fieldValue) >= Number(ruleValue);
-    case 'lt':
-      return Number(fieldValue) < Number(ruleValue);
-    case 'lte':
-      return Number(fieldValue) <= Number(ruleValue);
-
-    // Set membership
-    case 'in':
-      if (!Array.isArray(ruleValue)) return false;
-      return ruleValue.some((v) => String(v) === String(fieldValue));
-    case 'notIn':
-      if (!Array.isArray(ruleValue)) return true;
-      return !ruleValue.some((v) => String(v) === String(fieldValue));
-
-    // Existence
-    case 'exists':
-      return fieldValue !== null && fieldValue !== undefined;
-    case 'notExists':
-      return fieldValue === null || fieldValue === undefined;
-
-    // Count/length operators (for computed fields)
-    case 'countGt':
-      return Number(fieldValue) > Number(ruleValue);
-    case 'countLt':
-      return Number(fieldValue) < Number(ruleValue);
-    case 'lengthGt':
-      return Number(fieldValue) > Number(ruleValue);
-    case 'lengthLt':
-      return Number(fieldValue) < Number(ruleValue);
-
-    default:
-      return false; // Unknown operator = violation (fail-closed)
-  }
+  return OPERATORS[operator]?.(fieldValue, ruleValue) ?? false; // Unknown operator = violation (fail-closed)
 }
 
 /**

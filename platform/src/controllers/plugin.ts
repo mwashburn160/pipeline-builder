@@ -1,9 +1,8 @@
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
-import { getAuthContext } from '../helpers/controller-helper';
+import { Request } from 'express';
+import { getAuthContext, withController } from '../helpers/controller-helper';
 import {
   pluginService,
-  PluginServiceError,
   PluginFilter,
 } from '../services';
 import { parsePagination } from '../utils/pagination';
@@ -39,26 +38,12 @@ function buildFilter(query: Request['query'], options?: { includePagination?: bo
   return filter;
 }
 
-/**
- * Map a caught error to an appropriate HTTP response.
- * Returns the service error's status/code when available, otherwise 500.
- * @param res - Express response
- * @param err - Caught error
- * @param operation - Human-readable operation name for the fallback message
- */
-function handleError(res: Response, err: unknown, operation: string): void {
-  if (err instanceof PluginServiceError) {
-    sendError(res, err.statusCode, err.message, err.code);
-  } else {
-    sendError(res, 500, `Failed to ${operation}`);
-  }
-}
 
 /**
  * List plugins with optional filters
  * GET /plugin
  */
-export async function listPlugins(req: Request, res: Response): Promise<void> {
+export const listPlugins = withController('List plugins', async (req, res) => {
   const auth = getAuthContext(req, res, 'list plugins');
   if (!auth) return;
 
@@ -66,31 +51,26 @@ export async function listPlugins(req: Request, res: Response): Promise<void> {
 
   logger.info('[LIST PLUGINS] Request received', { userId: auth.userId, orgId: auth.orgId, filter });
 
-  try {
-    const result = await pluginService.listPlugins(auth.orgId, filter, {
-      userId: auth.userId,
-      token: auth.token,
-    });
+  const result = await pluginService.listPlugins(auth.orgId, filter, {
+    userId: auth.userId,
+    token: auth.token,
+  });
 
-    logger.info('[LIST PLUGINS] Success', {
-      userId: auth.userId,
-      orgId: auth.orgId,
-      count: result.plugins.length,
-      total: result.pagination?.total,
-    });
+  logger.info('[LIST PLUGINS] Success', {
+    userId: auth.userId,
+    orgId: auth.orgId,
+    count: result.plugins.length,
+    total: result.pagination?.total,
+  });
 
-    sendSuccess(res, 200, result);
-  } catch (error) {
-    logger.error('[LIST PLUGINS] Failed:', error);
-    handleError(res, error, 'list plugins');
-  }
-}
+  sendSuccess(res, 200, result);
+});
 
 /**
  * Get a single plugin by ID
  * GET /plugin/:id
  */
-export async function getPluginById(req: Request, res: Response): Promise<void> {
+export const getPluginById = withController('Get plugin', async (req, res) => {
   const auth = getAuthContext(req, res, 'view plugins');
   if (!auth) return;
 
@@ -101,31 +81,26 @@ export async function getPluginById(req: Request, res: Response): Promise<void> 
 
   logger.info('[GET PLUGIN] Request received', { userId: auth.userId, orgId: auth.orgId, pluginId: id });
 
-  try {
-    const plugin = await pluginService.getPluginById(auth.orgId, id, {
-      userId: auth.userId,
-      token: auth.token,
-    });
+  const plugin = await pluginService.getPluginById(auth.orgId, id, {
+    userId: auth.userId,
+    token: auth.token,
+  });
 
-    logger.info('[GET PLUGIN] Success', {
-      userId: auth.userId,
-      orgId: auth.orgId,
-      pluginId: id,
-      pluginName: plugin.name,
-    });
+  logger.info('[GET PLUGIN] Success', {
+    userId: auth.userId,
+    orgId: auth.orgId,
+    pluginId: id,
+    pluginName: plugin.name,
+  });
 
-    sendSuccess(res, 200, plugin);
-  } catch (error) {
-    logger.error('[GET PLUGIN] Failed:', error);
-    handleError(res, error, 'get plugin');
-  }
-}
+  sendSuccess(res, 200, plugin);
+});
 
 /**
  * Get a single plugin by query filters
  * GET /plugin/search
  */
-export async function getPlugin(req: Request, res: Response): Promise<void> {
+export const getPlugin = withController('Search plugin', async (req, res) => {
   const auth = getAuthContext(req, res, 'view plugins');
   if (!auth) return;
 
@@ -137,31 +112,26 @@ export async function getPlugin(req: Request, res: Response): Promise<void> {
 
   logger.info('[GET PLUGIN] Search request received', { userId: auth.userId, orgId: auth.orgId, filter });
 
-  try {
-    const plugin = await pluginService.getPlugin(auth.orgId, filter, {
-      userId: auth.userId,
-      token: auth.token,
-    });
+  const plugin = await pluginService.getPlugin(auth.orgId, filter, {
+    userId: auth.userId,
+    token: auth.token,
+  });
 
-    logger.info('[GET PLUGIN] Search success', {
-      userId: auth.userId,
-      orgId: auth.orgId,
-      pluginId: plugin.id,
-      pluginName: plugin.name,
-    });
+  logger.info('[GET PLUGIN] Search success', {
+    userId: auth.userId,
+    orgId: auth.orgId,
+    pluginId: plugin.id,
+    pluginName: plugin.name,
+  });
 
-    sendSuccess(res, 200, plugin);
-  } catch (error) {
-    logger.error('[GET PLUGIN] Search failed:', error);
-    handleError(res, error, 'get plugin');
-  }
-}
+  sendSuccess(res, 200, plugin);
+});
 
 /**
  * Upload and create a new plugin
  * POST /plugin
  */
-export async function createPlugin(req: Request, res: Response): Promise<void> {
+export const createPlugin = withController('Create plugin', async (req, res) => {
   const auth = getAuthContext(req, res, 'upload plugins');
   if (!auth) return;
 
@@ -184,36 +154,31 @@ export async function createPlugin(req: Request, res: Response): Promise<void> {
     accessModifier,
   });
 
-  try {
-    const result = await pluginService.uploadPlugin(
-      auth.orgId,
-      { file: file.buffer, filename: file.originalname, accessModifier },
-      { userId: auth.userId, token: auth.token },
-    );
+  const result = await pluginService.uploadPlugin(
+    auth.orgId,
+    { file: file.buffer, filename: file.originalname, accessModifier },
+    { userId: auth.userId, token: auth.token },
+  );
 
-    logger.info('[CREATE PLUGIN] Upload success', {
-      userId: auth.userId,
-      orgId: auth.orgId,
-      pluginId: result.id,
-      pluginName: result.name,
+  logger.info('[CREATE PLUGIN] Upload success', {
+    userId: auth.userId,
+    orgId: auth.orgId,
+    pluginId: result.id,
+    pluginName: result.name,
+    version: result.version,
+  });
+
+  sendSuccess(res, 201, {
+    plugin: {
+      id: result.id,
+      name: result.name,
       version: result.version,
-    });
-
-    sendSuccess(res, 201, {
-      plugin: {
-        id: result.id,
-        name: result.name,
-        version: result.version,
-        imageTag: result.imageTag,
-        fullImage: result.fullImage,
-        accessModifier: result.accessModifier,
-        isDefault: result.isDefault,
-        isActive: result.isActive,
-        createdBy: result.createdBy,
-      },
-    }, result.message);
-  } catch (error) {
-    logger.error('[CREATE PLUGIN] Upload failed:', error);
-    handleError(res, error, 'upload plugin');
-  }
-}
+      imageTag: result.imageTag,
+      fullImage: result.fullImage,
+      accessModifier: result.accessModifier,
+      isDefault: result.isDefault,
+      isActive: result.isActive,
+      createdBy: result.createdBy,
+    },
+  }, result.message);
+});

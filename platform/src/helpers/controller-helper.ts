@@ -4,6 +4,39 @@ import mongoose from 'mongoose';
 
 const logger = createLogger('platform-api');
 
+// Controller Wrapper
+
+/**
+ * Wrap a controller handler with unified error handling.
+ * Eliminates the need for try-catch in every controller function.
+ *
+ * @example
+ * ```typescript
+ * // Before:
+ * export async function listOrgs(req: Request, res: Response) {
+ *   try { ... } catch (error) { logger.error('[LIST ORGS]', error); sendError(res, 500, 'Error'); }
+ * }
+ *
+ * // After:
+ * export const listOrgs = withController('List organizations', async (req, res) => { ... });
+ * ```
+ */
+export function withController(
+  label: string,
+  handler: (req: Request, res: Response) => Promise<void>,
+  errorMap?: ErrorMap,
+): (req: Request, res: Response) => Promise<void> {
+  return async (req: Request, res: Response) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      if (!res.headersSent) {
+        handleControllerError(res, err, `[${label}] Error`, errorMap);
+      }
+    }
+  };
+}
+
 // Auth Helpers
 
 export function isSystemAdmin(req: Request): boolean {

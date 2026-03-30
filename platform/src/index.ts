@@ -108,7 +108,7 @@ app.use(limiter);
 app.get('/health', (_req: Request, res: Response) => {
   const mongodb = mongoose.connection.readyState === 1 ? 'connected'
     : mongoose.connection.readyState === 0 ? 'unknown'
-    : 'disconnected';
+      : 'disconnected';
   const status = mongodb === 'disconnected' ? 503 : 200;
   res.status(status).json({ status: status === 200 ? 'ok' : 'degraded', dependencies: { mongodb } });
 });

@@ -201,6 +201,32 @@ export function requireSystemAdmin(
   next();
 }
 
+/**
+ * Require a specific feature flag. Use after requireAuth.
+ * Checks the `features` array in the JWT payload (set at token issuance).
+ * System org users always pass (all features enabled).
+ */
+export function requireFeature(feature: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+
+    // System org always has all features
+    if (isSystemOrg(req)) return next();
+
+    if (!req.user.features?.includes(feature)) {
+      return sendError(
+        res, HttpStatus.FORBIDDEN,
+        `This feature requires a higher plan (${feature})`,
+        ErrorCode.INSUFFICIENT_PERMISSIONS,
+      );
+    }
+
+    next();
+  };
+}
+
 /** Only system admins can set access to 'public'; everyone else gets 'private'. */
 export function resolveAccessModifier(req: Request, requested: string | undefined): 'public' | 'private' {
   if (requested === 'public' && isSystemAdmin(req)) {

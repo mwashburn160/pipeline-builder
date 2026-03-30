@@ -22,14 +22,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* for local, or pin for npm
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.46.7',
-  pipelineData:   '1.47.7',
-  pipelineCore:   '1.47.7',
-  apiServer:      '1.43.8',
-  aiCore:         '1.18.7',
-  eventIngestion: '1.6.7',
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // =============================================================================

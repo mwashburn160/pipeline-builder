@@ -15,6 +15,10 @@ export interface AccessTokenPayload {
   role: 'owner' | 'admin' | 'member';
   /** Whether user has admin privileges (owner or admin) */
   isAdmin: boolean;
+  /** Organization's quota tier */
+  tier?: string;
+  /** Resolved feature flags for this user/org */
+  features?: string[];
   /** Active organization ID */
   organizationId?: string;
   /** Organization name */

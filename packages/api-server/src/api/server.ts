@@ -2,8 +2,8 @@ import { Server } from 'http';
 import { createLogger } from '@mwashburn160/api-core';
 import { Config, getConnection, closeConnection } from '@mwashburn160/pipeline-core';
 import { Express } from 'express';
-import { SSEManager } from '../http/sse-connection-manager';
 import { shutdownTracing } from './tracing';
+import { SSEManager } from '../http/sse-connection-manager';
 
 const logger = createLogger('Server');
 

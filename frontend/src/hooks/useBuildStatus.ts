@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useSSE } from './useSSE';
 import { BUILD_SSE_MAX_RETRIES, MAX_BUILD_EVENTS } from '@/lib/constants';
+import { clearPluginCache } from './usePlugins';
 
 /** Discriminator for SSE build event payloads. */
 export type BuildEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
@@ -49,6 +50,7 @@ export function useBuildStatus(requestId: string | null) {
     switch (parsed.type) {
       case 'COMPLETED':
         setStatus('completed');
+        clearPluginCache();
         return true; // close connection
       case 'ERROR':
         setStatus('failed');

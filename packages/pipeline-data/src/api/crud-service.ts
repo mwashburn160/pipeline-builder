@@ -34,6 +34,7 @@ export interface BaseEntity {
   updatedAt: Date;
   createdBy: string;
   updatedBy: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -117,6 +118,11 @@ export abstract class CrudService<
   protected abstract get conflictTarget(): AnyColumn[];
 
   private readonly _logger = createLogger('CrudService');
+
+  /** Build conditions for a single entity by ID. */
+  private idConditions(id: string, orgId?: string): SQL[] {
+    return this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+  }
 
   // Lifecycle hooks — override in subclasses to react to mutations
   // These are fire-and-forget: errors are logged but never block the caller.
@@ -267,7 +273,7 @@ export abstract class CrudService<
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
   async findById(id: string, orgId?: string): Promise<TEntity | null> {
-    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.idConditions(id, orgId);
 
     const results = await db
       .select()
@@ -315,7 +321,7 @@ export abstract class CrudService<
     orgId: string,
     userId: string,
   ): Promise<TEntity | null> {
-    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.idConditions(id, orgId);
 
     const [updated] = await db
       .update(this.schema)
@@ -338,7 +344,7 @@ export abstract class CrudService<
    * Delete an entity (soft delete by setting isActive = false)
    */
   async delete(id: string, orgId: string, userId: string): Promise<TEntity | null> {
-    const conditions = this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+    const conditions = this.idConditions(id, orgId);
 
     const [deleted] = await db
       .update(this.schema)

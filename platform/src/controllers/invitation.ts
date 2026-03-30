@@ -1,8 +1,7 @@
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
-import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config';
-import { requireOrgMembership, handleTransactionError } from '../helpers/controller-helper';
+import { requireOrgMembership, withController } from '../helpers/controller-helper';
 import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument, UserOrganization } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
@@ -100,7 +99,7 @@ async function processInvitationAcceptance(
  * Send invitation to join organization
  * POST /invitation/send
  */
-export async function sendInvitation(req: Request, res: Response): Promise<void> {
+export const sendInvitation = withController('Send invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
@@ -208,19 +207,17 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
         allowedOAuthProviders: result?.allowedOAuthProviders,
       },
     }, 'Invitation sent successfully');
-  } catch (error) {
-    handleTransactionError(res, error, {
-      ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
-      UNAUTHORIZED: { status: 403, message: 'You are not authorized to send invitations' },
-      ALREADY_MEMBER: { status: 400, message: 'User is already a member of this organization' },
-      INVITATION_ALREADY_SENT: { status: 400, message: 'An invitation has already been sent to this email' },
-      MAX_INVITATIONS_REACHED: { status: 400, message: 'Maximum pending invitations reached' },
-      INVITER_NOT_FOUND: { status: 404, message: 'Inviter not found' },
-    }, 'Failed to send invitation');
   } finally {
     await session.endSession();
   }
-}
+}, {
+  ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
+  UNAUTHORIZED: { status: 403, message: 'You are not authorized to send invitations' },
+  ALREADY_MEMBER: { status: 400, message: 'User is already a member of this organization' },
+  INVITATION_ALREADY_SENT: { status: 400, message: 'An invitation has already been sent to this email' },
+  MAX_INVITATIONS_REACHED: { status: 400, message: 'Maximum pending invitations reached' },
+  INVITER_NOT_FOUND: { status: 404, message: 'Inviter not found' },
+});
 
 // Accept Invitation
 
@@ -228,7 +225,7 @@ export async function sendInvitation(req: Request, res: Response): Promise<void>
  * Accept invitation (supports both email/password and OAuth)
  * POST /invitation/accept
  */
-export async function acceptInvitation(req: Request, res: Response): Promise<void> {
+export const acceptInvitation = withController('Accept invitation', async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
@@ -286,29 +283,27 @@ export async function acceptInvitation(req: Request, res: Response): Promise<voi
     });
 
     sendSuccess(res, 200, undefined, 'Invitation accepted successfully');
-  } catch (error) {
-    handleTransactionError(res, error, {
-      INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
-      INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
-      INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
-      INVITATION_REVOKED: { status: 400, message: 'Invitation has been revoked' },
-      USER_NOT_FOUND: { status: 404, message: 'User not found' },
-      EMAIL_MISMATCH: { status: 403, message: 'This invitation was sent to a different email address' },
-      ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
-      ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
-      OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
-      EMAIL_NOT_ALLOWED: { status: 403, message: 'This invitation can only be accepted via OAuth' },
-    }, 'Failed to accept invitation');
   } finally {
     await session.endSession();
   }
-}
+}, {
+  INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
+  INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
+  INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
+  INVITATION_REVOKED: { status: 400, message: 'Invitation has been revoked' },
+  USER_NOT_FOUND: { status: 404, message: 'User not found' },
+  EMAIL_MISMATCH: { status: 403, message: 'This invitation was sent to a different email address' },
+  ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
+  ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
+  OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
+  EMAIL_NOT_ALLOWED: { status: 403, message: 'This invitation can only be accepted via OAuth' },
+});
 
 /**
  * Accept invitation via OAuth (creates user if needed)
  * POST /invitation/accept-oauth
  */
-export async function acceptInvitationViaOAuth(req: Request, res: Response): Promise<void> {
+export const acceptInvitationViaOAuth = withController('Accept invitation via OAuth', async (req, res) => {
   const { token, oauthProvider, oauthData } = req.body;
 
   if (!token) return sendError(res, 400, 'Invitation token is required');
@@ -392,21 +387,19 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
     });
 
     sendSuccess(res, 200, undefined, 'Invitation accepted successfully via OAuth');
-  } catch (error) {
-    handleTransactionError(res, error, {
-      INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
-      INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
-      INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
-      INVITATION_REVOKED: { status: 400, message: 'Invitation has been revoked' },
-      EMAIL_MISMATCH: { status: 403, message: 'OAuth email does not match invitation email' },
-      ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
-      ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
-      OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
-    }, 'Failed to accept invitation');
   } finally {
     await session.endSession();
   }
-}
+}, {
+  INVITATION_NOT_FOUND: { status: 404, message: 'Invitation not found' },
+  INVITATION_ACCEPTED: { status: 400, message: 'Invitation has already been accepted' },
+  INVITATION_EXPIRED: { status: 400, message: 'Invitation has expired' },
+  INVITATION_REVOKED: { status: 400, message: 'Invitation has been revoked' },
+  EMAIL_MISMATCH: { status: 403, message: 'OAuth email does not match invitation email' },
+  ORGANIZATION_NOT_FOUND: { status: 404, message: 'Organization not found' },
+  ALREADY_MEMBER: { status: 400, message: 'You are already a member of this organization' },
+  OAUTH_NOT_ALLOWED: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
+});
 
 // Get/List/Manage Invitations
 
@@ -414,175 +407,155 @@ export async function acceptInvitationViaOAuth(req: Request, res: Response): Pro
  * Get invitation details by token (public - for preview before accepting)
  * GET /invitation/:token
  */
-export async function getInvitation(req: Request, res: Response): Promise<void> {
-  try {
-    const { token } = req.params;
+export const getInvitation = withController('Get invitation', async (req, res) => {
+  const { token } = req.params;
 
-    if (!token) {
-      return sendError(res, 400, 'Invitation token is required');
-    }
-
-    const invitation = await Invitation.findOne({ token })
-      .populate('organizationId', 'name slug')
-      .populate('invitedBy', 'username');
-
-    if (!invitation) {
-      return sendError(res, 404, 'Invitation not found');
-    }
-
-    if (invitation.status === 'pending' && invitation.isExpired()) {
-      invitation.status = 'expired';
-      await invitation.save();
-    }
-
-    sendSuccess(res, 200, {
-      invitation: {
-        email: invitation.email,
-        role: invitation.role,
-        status: invitation.status,
-        expiresAt: invitation.expiresAt,
-        organization: invitation.organizationId,
-        invitedBy: invitation.invitedBy,
-        isValid: invitation.isValid(),
-        invitationType: invitation.invitationType,
-        allowedOAuthProviders: invitation.allowedOAuthProviders,
-        canAcceptViaEmail: invitation.canAcceptViaEmail(),
-        canAcceptViaGoogle: invitation.canAcceptViaOAuth('google'),
-      },
-    });
-  } catch (error) {
-    logger.error('[GET INVITATION] Failed:', error);
-    return sendError(res, 500, 'Failed to get invitation');
+  if (!token) {
+    return sendError(res, 400, 'Invitation token is required');
   }
-}
+
+  const invitation = await Invitation.findOne({ token })
+    .populate('organizationId', 'name slug')
+    .populate('invitedBy', 'username');
+
+  if (!invitation) {
+    return sendError(res, 404, 'Invitation not found');
+  }
+
+  if (invitation.status === 'pending' && invitation.isExpired()) {
+    invitation.status = 'expired';
+    await invitation.save();
+  }
+
+  sendSuccess(res, 200, {
+    invitation: {
+      email: invitation.email,
+      role: invitation.role,
+      status: invitation.status,
+      expiresAt: invitation.expiresAt,
+      organization: invitation.organizationId,
+      invitedBy: invitation.invitedBy,
+      isValid: invitation.isValid(),
+      invitationType: invitation.invitationType,
+      allowedOAuthProviders: invitation.allowedOAuthProviders,
+      canAcceptViaEmail: invitation.canAcceptViaEmail(),
+      canAcceptViaGoogle: invitation.canAcceptViaOAuth('google'),
+    },
+  });
+});
 
 /**
  * List organization invitations
  * GET /invitation/list
  */
-export async function listInvitations(req: Request, res: Response): Promise<void> {
+export const listInvitations = withController('List invitations', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  try {
-    const { status, invitationType } = req.query;
-    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
+  const { status, invitationType } = req.query;
+  const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
-    const query: Record<string, unknown> = { organizationId: orgId };
-    if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
-      query.status = status;
-    }
-    if (invitationType && ['email', 'oauth', 'any'].includes(invitationType as string)) {
-      query.invitationType = invitationType;
-    }
-
-    const [invitations, total] = await Promise.all([
-      Invitation.find(query)
-        .populate('invitedBy', 'username email')
-        .populate('acceptedBy', 'username email')
-        .sort({ createdAt: -1 })
-        .skip(offset)
-        .limit(limitNum)
-        .lean(),
-      Invitation.countDocuments(query),
-    ]);
-
-    sendSuccess(res, 200, {
-      invitations,
-      pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
-    });
-  } catch (error) {
-    logger.error('[LIST INVITATIONS] Failed:', error);
-    return sendError(res, 500, 'Failed to list invitations');
+  const query: Record<string, unknown> = { organizationId: orgId };
+  if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
+    query.status = status;
   }
-}
+  if (invitationType && ['email', 'oauth', 'any'].includes(invitationType as string)) {
+    query.invitationType = invitationType;
+  }
+
+  const [invitations, total] = await Promise.all([
+    Invitation.find(query)
+      .populate('invitedBy', 'username email')
+      .populate('acceptedBy', 'username email')
+      .sort({ createdAt: -1 })
+      .skip(offset)
+      .limit(limitNum)
+      .lean(),
+    Invitation.countDocuments(query),
+  ]);
+
+  sendSuccess(res, 200, {
+    invitations,
+    pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
+  });
+});
 
 /**
  * Revoke invitation
  * DELETE /invitation/:invitationId
  */
-export async function revokeInvitation(req: Request, res: Response): Promise<void> {
+export const revokeInvitation = withController('Revoke invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  try {
-    const { invitationId } = req.params;
+  const { invitationId } = req.params;
 
-    const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId });
-    if (!invitation) {
-      return sendError(res, 404, 'Invitation not found');
-    }
-
-    if (invitation.status !== 'pending') {
-      return sendError(res, 400, `Cannot revoke invitation with status: ${invitation.status}`);
-    }
-
-    const org = await Organization.findById(orgId);
-    if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
-      return sendError(res, 403, 'You are not authorized to revoke invitations');
-    }
-
-    invitation.status = 'revoked';
-    await invitation.save();
-
-    logger.info('[REVOKE INVITATION] Invitation revoked', { invitationId, revokedBy: req.user!.sub });
-
-    sendSuccess(res, 200, undefined, 'Invitation revoked successfully');
-  } catch (error) {
-    logger.error('[REVOKE INVITATION] Failed:', error);
-    return sendError(res, 500, 'Failed to revoke invitation');
+  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId });
+  if (!invitation) {
+    return sendError(res, 404, 'Invitation not found');
   }
-}
+
+  if (invitation.status !== 'pending') {
+    return sendError(res, 400, `Cannot revoke invitation with status: ${invitation.status}`);
+  }
+
+  const org = await Organization.findById(orgId);
+  if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
+    return sendError(res, 403, 'You are not authorized to revoke invitations');
+  }
+
+  invitation.status = 'revoked';
+  await invitation.save();
+
+  logger.info('[REVOKE INVITATION] Invitation revoked', { invitationId, revokedBy: req.user!.sub });
+
+  sendSuccess(res, 200, undefined, 'Invitation revoked successfully');
+});
 
 /**
  * Resend invitation email
  * POST /invitation/:invitationId/resend
  */
-export async function resendInvitation(req: Request, res: Response): Promise<void> {
+export const resendInvitation = withController('Resend invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  try {
-    const { invitationId } = req.params;
+  const { invitationId } = req.params;
 
-    const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId, status: 'pending' });
-    if (!invitation) {
-      return sendError(res, 404, 'Pending invitation not found');
-    }
-
-    const org = await Organization.findById(orgId);
-    if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
-      return sendError(res, 403, 'You are not authorized to resend invitations');
-    }
-
-    const inviter = await User.findById(invitation.invitedBy);
-    if (!inviter) {
-      return sendError(res, 404, 'Inviter not found');
-    }
-
-    invitation.expiresAt = getExpirationDate();
-    await invitation.save();
-
-    const emailSent = await emailService.sendInvitation({
-      recipientEmail: invitation.email,
-      inviterName: inviter.username,
-      organizationName: org.name,
-      invitationToken: invitation.token,
-      expiresAt: invitation.expiresAt,
-      role: invitation.role,
-      invitationType: invitation.invitationType,
-      allowedOAuthProviders: invitation.allowedOAuthProviders,
-    });
-
-    if (!emailSent && config.email.enabled) {
-      return sendError(res, 500, 'Failed to send invitation email');
-    }
-
-    logger.info('[RESEND INVITATION] Invitation resent', { invitationId, email: invitation.email });
-
-    sendSuccess(res, 200, { expiresAt: invitation.expiresAt }, 'Invitation resent successfully');
-  } catch (error) {
-    logger.error('[RESEND INVITATION] Failed:', error);
-    return sendError(res, 500, 'Failed to resend invitation');
+  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId, status: 'pending' });
+  if (!invitation) {
+    return sendError(res, 404, 'Pending invitation not found');
   }
-}
+
+  const org = await Organization.findById(orgId);
+  if (!org || (org.owner.toString() !== req.user!.sub && req.user!.role !== 'admin')) {
+    return sendError(res, 403, 'You are not authorized to resend invitations');
+  }
+
+  const inviter = await User.findById(invitation.invitedBy);
+  if (!inviter) {
+    return sendError(res, 404, 'Inviter not found');
+  }
+
+  invitation.expiresAt = getExpirationDate();
+  await invitation.save();
+
+  const emailSent = await emailService.sendInvitation({
+    recipientEmail: invitation.email,
+    inviterName: inviter.username,
+    organizationName: org.name,
+    invitationToken: invitation.token,
+    expiresAt: invitation.expiresAt,
+    role: invitation.role,
+    invitationType: invitation.invitationType,
+    allowedOAuthProviders: invitation.allowedOAuthProviders,
+  });
+
+  if (!emailSent && config.email.enabled) {
+    return sendError(res, 500, 'Failed to send invitation email');
+  }
+
+  logger.info('[RESEND INVITATION] Invitation resent', { invitationId, email: invitation.email });
+
+  sendSuccess(res, 200, { expiresAt: invitation.expiresAt }, 'Invitation resent successfully');
+});

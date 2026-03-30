@@ -1,4 +1,4 @@
-import { createLogger, createQuotaService, registerComplianceEventSubscriber } from '@mwashburn160/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@mwashburn160/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@mwashburn160/api-server';
 import { db } from '@mwashburn160/pipeline-core';
 import { sql } from 'drizzle-orm';
@@ -35,8 +35,8 @@ app.use('/plugins', createUploadPluginRoutes(quotaService));
 // -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
 
-// -- AI generation routes (MUST be before read routes to avoid /:id catching "providers"/"generate")
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes());
+// -- AI generation routes — ai_generation feature gate (MUST be before read routes)
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePluginRoutes());
 
 // -- Deploy AI-generated plugin — manages its own admin + quota middleware
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService));
@@ -50,8 +50,8 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createUpdatePluginRout
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeletePluginRoutes());
 
-// -- Bulk routes — auth + orgId (no quota check) ----------------------------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createBulkPluginRoutes());
+// -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPluginRoutes());
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);

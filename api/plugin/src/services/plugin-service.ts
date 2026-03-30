@@ -85,7 +85,7 @@ export class PluginService extends CrudService<
       orgId: entity.orgId,
       userId: entity.createdBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 
@@ -100,7 +100,7 @@ export class PluginService extends CrudService<
       orgId: entity.orgId,
       userId: entity.updatedBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 
@@ -115,7 +115,7 @@ export class PluginService extends CrudService<
       orgId: entity.orgId,
       userId: entity.updatedBy,
       timestamp: new Date(),
-      attributes: entity as unknown as Record<string, unknown>,
+      attributes: entity,
     });
   }
 
@@ -192,7 +192,7 @@ export class PluginService extends CrudService<
         })
         .returning();
 
-      const result = upserted as unknown as Plugin;
+      const result = upserted as Plugin;
       pluginCache.invalidatePattern(`${data.orgId}:*`).catch((err) => {
         logger.debug('Cache invalidation failed after plugin deploy', { orgId: data.orgId, error: errorMessage(err) });
       });
