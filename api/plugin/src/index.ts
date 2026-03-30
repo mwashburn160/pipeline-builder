@@ -17,8 +17,8 @@ const logger = createLogger('plugin');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
   checkDependencies: async () => {
-    const deps: Record<string, 'connected' | 'disconnected'> = {};
-    try { await db.execute(sql`SELECT 1`); deps.postgres = 'connected'; } catch { deps.postgres = 'disconnected'; }
+    const deps: Record<string, 'connected' | 'disconnected' | 'unknown'> = {};
+    try { await db.execute(sql`SELECT 1`); deps.postgres = 'connected'; } catch { deps.postgres = 'unknown'; }
     deps.redis = 'connected';
     return deps;
   },

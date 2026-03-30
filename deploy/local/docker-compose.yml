@@ -256,7 +256,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.46.7'
+    image: 'ghcr.io/mwashburn160/frontend:1.46.9'
     container_name: frontend
     restart: always
     environment:
@@ -279,7 +279,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.40.7'
+    image: 'ghcr.io/mwashburn160/platform:1.40.9'
     container_name: platform
     restart: always
     environment:
@@ -361,7 +361,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.41.13-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.41.15-docker'
     container_name: plugin
     restart: always
     environment:
@@ -442,7 +442,7 @@ services:
           memory: 512M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.40.7'
+    image: 'ghcr.io/mwashburn160/pipeline:1.40.9'
     container_name: pipeline
     restart: always
     environment:
@@ -474,7 +474,7 @@ services:
           memory: 512M
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.22.7'
+    image: 'ghcr.io/mwashburn160/message:1.22.9'
     container_name: message
     restart: always
     environment:
@@ -499,7 +499,7 @@ services:
           memory: 256M
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:1.3.7'
+    image: 'ghcr.io/mwashburn160/reporting:1.3.9'
     container_name: reporting
     restart: always
     environment:
@@ -521,7 +521,7 @@ services:
           memory: 256M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:1.6.7'
+    image: 'ghcr.io/mwashburn160/compliance:1.6.9'
     container_name: compliance
     restart: always
     environment:
@@ -548,7 +548,7 @@ services:
     deploy: *api-deploy
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.38.7'
+    image: 'ghcr.io/mwashburn160/quota:1.38.9'
     container_name: quota
     restart: always
     environment:
@@ -579,7 +579,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:1.24.7'
+    image: 'ghcr.io/mwashburn160/billing:1.24.9'
     container_name: billing
     restart: always
     environment:

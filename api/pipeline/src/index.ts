@@ -16,7 +16,7 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
   checkDependencies: async () => {
     try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
-    catch { return { postgres: 'disconnected' as const }; }
+    catch { return { postgres: 'unknown' as const }; }
   },
 });
 

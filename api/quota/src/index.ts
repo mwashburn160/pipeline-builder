@@ -10,7 +10,9 @@ import updateQuotaRoutes from './routes/update-quota';
 
 const { app, sseManager } = createApp({
   checkDependencies: async () => ({
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongodb: mongoose.connection.readyState === 1 ? 'connected'
+      : mongoose.connection.readyState === 0 ? 'unknown' as const
+      : 'disconnected',
   }),
 });
 

@@ -10,7 +10,7 @@ import { createPluginReportRoutes } from './routes/plugin-reports';
 const logger = createLogger('reporting');
 const { app, sseManager } = createApp({
   checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'disconnected' as const }; }
+    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
   },
 });
 

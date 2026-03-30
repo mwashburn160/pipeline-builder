@@ -106,8 +106,10 @@ app.use(limiter);
 
 /** Health check endpoint */
 app.get('/health', (_req: Request, res: Response) => {
-  const mongodb = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  const status = mongodb === 'connected' ? 200 : 503;
+  const mongodb = mongoose.connection.readyState === 1 ? 'connected'
+    : mongoose.connection.readyState === 0 ? 'unknown'
+    : 'disconnected';
+  const status = mongodb === 'disconnected' ? 503 : 200;
   res.status(status).json({ status: status === 200 ? 'ok' : 'degraded', dependencies: { mongodb } });
 });
 
