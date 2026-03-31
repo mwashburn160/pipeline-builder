@@ -52,6 +52,27 @@ Results are cached per org+target (configurable TTL, default 60s). Caches are in
 | `POST` | `/compliance/subscriptions` | Subscribe to a published rule |
 | `DELETE` | `/compliance/subscriptions/:ruleId` | Unsubscribe |
 
+### Scans
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/scans` | List scans (filterable by target, status) |
+| `GET` | `/compliance/scans/:id` | Get scan by ID |
+| `POST` | `/compliance/scans` | Trigger a scan (`{ target: 'plugin' \| 'pipeline' \| 'all' }`) |
+| `POST` | `/compliance/scans/:id/cancel` | Cancel a running scan |
+
+### Scan Schedules
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/scan-schedules` | List recurring scan schedules |
+| `POST` | `/compliance/scan-schedules` | Create schedule (`{ target, cronExpression }`) |
+| `PUT` | `/compliance/scan-schedules/:id` | Update schedule target or cron |
+| `PATCH` | `/compliance/scan-schedules/:id/active` | Toggle active (`{ isActive: boolean }`) |
+| `DELETE` | `/compliance/scan-schedules/:id` | Deactivate schedule |
+
+Cron expressions use standard 5-field format (`minute hour dayOfMonth month dayOfWeek`). Examples: `0 * * * *` (hourly), `*/15 * * * *` (every 15 min), `0 6 * * 1` (Monday 6am).
+
 ### Validation
 
 | Method | Endpoint | Description |

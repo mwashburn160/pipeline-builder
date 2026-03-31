@@ -117,6 +117,22 @@ curl -X POST https://localhost:8443/api/organization \
 
 Invite members via email from the dashboard or API. Invitees join with the role specified at invite time. A user can belong to multiple organizations and switch between them.
 
+### Feature Tiers
+
+AI generation and bulk operations are gated by the organization's subscription tier:
+
+| Feature | Developer | Pro | Unlimited |
+|---------|-----------|-----|-----------|
+| Pipeline / plugin CRUD | yes | yes | yes |
+| AI pipeline generation | - | yes | yes |
+| AI plugin generation | - | yes | yes |
+| Bulk operations | - | yes | yes |
+| Audit log | - | - | yes |
+| Custom integrations | - | - | yes |
+| Priority support | - | yes | yes |
+
+System org users always have access to all features. Per-user overrides can be set by admins to grant or revoke individual features regardless of tier.
+
 ### Team Structures
 
 Different teams use separate organizations to maintain isolation while sharing the same platform:
