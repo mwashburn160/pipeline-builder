@@ -101,7 +101,7 @@ spec:
             failureThreshold: 3
           startupProbe:
             httpGet:
-              path: /health
+              path: /
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
