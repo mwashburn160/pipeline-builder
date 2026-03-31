@@ -1,3 +1,13 @@
+## 1.42.6 (2026-03-31)
+
+### 🩹 Fixes
+
+- podman set SYS_ADMIN capability ([03f5a4a1](https://github.com/mwashburn160/pipeline-builder/commit/03f5a4a1))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.5 (2026-03-31)
 
 ### 🩹 Fixes
