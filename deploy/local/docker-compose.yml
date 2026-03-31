@@ -261,7 +261,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.47.4'
+    image: 'ghcr.io/mwashburn160/frontend:1.47.5'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
