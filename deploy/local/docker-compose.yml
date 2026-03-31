@@ -95,27 +95,6 @@ services:
     networks:
       - proxy-network
       - backend-network
-    depends_on:
-      platform:
-        condition: service_healthy
-      frontend:
-        condition: service_healthy
-      plugin:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      message:
-        condition: service_healthy
-      reporting:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      billing:
-        condition: service_healthy
-      compliance:
-        condition: service_healthy
-      grafana:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sfk https://localhost:8443/health || exit 1"]
       interval: 30s
@@ -359,14 +338,6 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-      plugin:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      billing:
-        condition: service_healthy
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
@@ -403,11 +374,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      quota:
-        condition: service_healthy
       redis:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
       plugin-dind:
         condition: service_healthy
@@ -472,10 +439,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      quota:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
     healthcheck: *api-healthcheck
     deploy: *api-deploy
 
@@ -492,8 +455,6 @@ services:
       - backend-network
     depends_on:
       postgres:
-        condition: service_healthy
-      quota:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
@@ -548,10 +509,6 @@ services:
       - backend-network
     depends_on:
       postgres:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
@@ -629,10 +586,6 @@ services:
       - backend-network
     depends_on:
       mongodb:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      quota:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
@@ -798,19 +751,6 @@ services:
       - './data/db-data/prometheus/:/prometheus:rw'
     networks:
       - backend-network
-    depends_on:
-      platform:
-        condition: service_healthy
-      plugin:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      message:
-        condition: service_healthy
-      quota:
-        condition: service_healthy
-      billing:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
       interval: 30s

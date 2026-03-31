@@ -106,7 +106,7 @@ const strategies: Record<BuildStrategy, StrategyDef> = {
     },
     buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) {
       return [
-        'build', '--progress', 'plain', '--layers',
+        'build', '--progress', 'plain', '--layers', '--isolation=chroot',
         ...podmanTls(req.registry), ...authArgs,
         ...flagBuildArgs(req.buildArgs),
         '-f', path.join(req.contextDir, req.dockerfile), '-t', image, req.contextDir,
