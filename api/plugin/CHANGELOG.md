@@ -1,3 +1,13 @@
+## 1.42.7 (2026-03-31)
+
+### 🩹 Fixes
+
+- rebuild image ([cc530110](https://github.com/mwashburn160/pipeline-builder/commit/cc530110))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.6 (2026-03-31)
 
 ### 🩹 Fixes
