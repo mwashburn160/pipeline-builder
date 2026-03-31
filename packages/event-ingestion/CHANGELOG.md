@@ -1,3 +1,13 @@
+## 1.7.0 (2026-03-31)
+
+### 🚀 Features
+
+- code refactor ([3023e399](https://github.com/mwashburn160/pipeline-builder/commit/3023e399))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.6.8 (2026-03-30)
 
 ### 🩹 Fixes

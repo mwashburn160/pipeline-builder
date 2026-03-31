@@ -1,3 +1,17 @@
+## 1.42.0 (2026-03-31)
+
+### 🚀 Features
+
+- code refactor ([3023e399](https://github.com/mwashburn160/pipeline-builder/commit/3023e399))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.48.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.8 (2026-03-30)
 
 ### 🩹 Fixes
