@@ -52,35 +52,6 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "https"
     spec:
-      initContainers:
-        - name: wait-for-services
-          image: busybox
-          resources:
-            limits:
-              cpu: "100m"
-              memory: 64Mi
-            requests:
-              cpu: "50m"
-              memory: 32Mi
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for backend services..."
-              for svc in platform plugin pipeline quota billing; do
-                until wget -qO- http://${svc}.pipeline-builder.svc.cluster.local:3000/health > /dev/null 2>&1; do
-                  echo "Waiting for ${svc}..."
-                  sleep 5
-                done
-                echo "${svc} is ready"
-              done
-              echo "Waiting for frontend..."
-              until wget --spider -qO- http://frontend.pipeline-builder.svc.cluster.local:3000/ > /dev/null 2>&1; do
-                echo "Waiting for frontend..."
-                sleep 5
-              done
-              echo "frontend is ready"
-              echo "All services ready"
       containers:
         - name: nginx
           image: nginx:1.27

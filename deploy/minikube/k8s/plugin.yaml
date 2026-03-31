@@ -66,11 +66,9 @@ spec:
             - -c
             - |
               echo "Waiting for postgres..."
-              until nc -z postgres.pipeline-builder 5432; do sleep 3; done
+              until nc -z postgres 5432; do sleep 3; done
               echo "Waiting for redis..."
-              until nc -z redis.pipeline-builder 6379; do sleep 3; done
-              echo "Waiting for quota..."
-              until wget -qO- http://quota:3000/health > /dev/null 2>&1; do sleep 3; done
+              until nc -z redis 6379; do sleep 3; done
               echo "Dependencies ready"
       containers:
         - name: plugin
