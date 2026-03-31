@@ -100,6 +100,11 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
+jest.mock('@mwashburn160/pipeline-core', () => ({
+  db: { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn().mockResolvedValue([]) },
+  schema: { plugin: {} },
+}));
+
 // Import AFTER mocks
 
 import {
