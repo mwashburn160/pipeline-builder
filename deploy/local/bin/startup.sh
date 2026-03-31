@@ -106,7 +106,7 @@ echo "=== Plugin Build Strategy ==="
 echo "  Current: $CURRENT_STRATEGY"
 echo ""
 echo "  1) docker  — Docker daemon via dind sidecar"
-echo "  2) podman  — Podman rootless"
+echo "  2) podman  — Podman standard"
 echo ""
 read -rp "Select strategy [1-2] or press Enter to keep '$CURRENT_STRATEGY': " choice
 
@@ -129,7 +129,7 @@ fi
 if [ "$SELECTED_STRATEGY" = "docker" ]; then
   echo "  Using dind sidecar for isolated Docker builds"
 else
-  echo "  Using podman rootless (requires Linux kernel with user namespace support)"
+  echo "  Using podman standard (requires SYS_ADMIN capability)"
 fi
 echo ""
 

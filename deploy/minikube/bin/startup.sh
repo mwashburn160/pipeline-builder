@@ -106,12 +106,7 @@ echo "  Cluster ready"
 
 # -- Configure VM + addons ---------------------------------------------------
 
-log "Configuring VM + addons"
-minikube ssh --profile="$PROFILE" -- \
-  'sudo sysctl -w user.max_user_namespaces=28633 2>/dev/null; \
-   [ -e /proc/sys/kernel/unprivileged_userns_clone ] && sudo sysctl -w kernel.unprivileged_userns_clone=1 2>/dev/null; \
-   grep -q max_user_namespaces /etc/sysctl.conf 2>/dev/null || echo "user.max_user_namespaces = 28633" | sudo tee -a /etc/sysctl.conf >/dev/null'
-
+log "Enabling addons"
 for addon in default-storageclass storage-provisioner metrics-server; do
   minikube addons enable "$addon" --profile="$PROFILE"
 done
@@ -196,7 +191,7 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-podman}"
 log "Plugin Build Strategy: $CURRENT_STRATEGY"
 if [ -t 0 ]; then
-  echo "  1) podman — rootless (default)   2) docker — dind sidecar"
+  echo "  1) podman — standard (default)   2) docker — dind sidecar"
   read -rp "  Select [1-2] or Enter to keep '$CURRENT_STRATEGY': " choice
   case "$choice" in
     1) SELECTED="podman" ;; 2) SELECTED="docker" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
@@ -214,7 +209,7 @@ kubectl apply -k "$K8S_DIR"
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && minikube ssh --profile="$PROFILE" -- \
-  "grep -q '\\sregistry\$' /etc/hosts && sudo sed -i 's/.*\\sregistry\$/'"$REGISTRY_IP"' registry/' /etc/hosts || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
+  "grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > /tmp/hosts.tmp; echo '$REGISTRY_IP registry' >> /tmp/hosts.tmp; sudo cp /tmp/hosts.tmp /etc/hosts; rm /tmp/hosts.tmp; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
 echo "  registry -> ${REGISTRY_IP:-unknown}"
 
 # -- Wait for pods ------------------------------------------------------------

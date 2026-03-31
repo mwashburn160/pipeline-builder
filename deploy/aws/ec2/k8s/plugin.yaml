@@ -73,12 +73,11 @@ spec:
       containers:
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:1.42.5-podman
-          # Podman rootless needs user namespace creation (allowPrivilegeEscalation + SYS_CHROOT)
           securityContext:
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["SYS_CHROOT", "SETUID", "SETGID"]
+              add: ["SYS_ADMIN", "SETUID", "SETGID"]
               drop: ["ALL"]
           ports:
             - containerPort: 3000

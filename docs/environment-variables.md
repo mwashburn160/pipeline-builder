@@ -122,22 +122,26 @@ Complete reference for all environment variables used across Pipeline Builder se
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_BUILD_STRATEGY` | `podman` | Build strategy: `podman` (rootless, default), `docker` (needs daemon/dind), `kaniko` (daemonless, Fargate) |
+| `DOCKER_BUILD_STRATEGY` | `podman` | Build strategy: `podman` (default for K8s), `docker` (dind sidecar for Docker Compose), `kaniko` (daemonless, Fargate) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
 
 The plugin Docker image is published with target-specific tags: `plugin:<version>-podman`, `plugin:<version>-kaniko`, `plugin:<version>-docker`. Each deploy target pulls the image matching its strategy.
 
-### Docker Strategy Options
+### Strategy Details
 
-When using `docker` strategy, the plugin container needs access to a Docker daemon. Two options:
+| Strategy | How it works | Requires | Used by |
+|----------|-------------|----------|---------|
+| `podman` | Standard podman with `SYS_ADMIN` capability | Pod with `SYS_ADMIN`, `SETUID`, `SETGID` capabilities | Minikube, EC2 (K8s) |
+| `docker` | Docker CLI connecting to a dind sidecar | `docker:27-dind` sidecar (privileged) | Local (Docker Compose) |
+| `kaniko` | Daemonless image builder | EFS mount for layer cache | Fargate (ECS) |
 
-**Option 1: dind sidecar (recommended, isolated)**
-A `docker:27-dind` sidecar runs an isolated Docker daemon with auto-generated TLS certs. Plugin builds cannot see or affect host containers. The dind connection (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`) is configured per-process by `docker-build.ts` at build time — do **not** set these in `.env` files as they override the host Docker CLI and break `docker compose`.
+**Podman** runs as a standard (non-rootless) container build tool inside the plugin pod. The pod requires `SYS_ADMIN` capability for namespace creation and overlayfs mounts. No Docker daemon or sidecar needed.
 
-**Option 2: Host Docker socket**
-Mount `/var/run/docker.sock:/var/run/docker.sock:ro` into the plugin container. Simpler but builds share the host daemon and can see host containers.
+**Docker (dind sidecar)** runs an isolated Docker daemon as a sidecar container. Plugin builds cannot see or affect host containers. The dind connection (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`) is configured per-process by `docker-build.ts` at build time — do **not** set these in `.env` files as they override the host Docker CLI and break `docker compose`.
+
+**Kaniko** builds images without a daemon or elevated privileges. Used on Fargate where privileged containers and podman are not available.
 
 ### Build Queue
 
