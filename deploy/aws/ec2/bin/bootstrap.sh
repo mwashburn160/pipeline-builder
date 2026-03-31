@@ -269,12 +269,11 @@ echo "Phase 8: iptables port forwarding"
 echo "========================================"
 
 # Enable IP forwarding and kernel settings for podman rootless builds
-cat > /etc/sysctl.d/99-pipeline-builder.conf <<'SYSCTL'
-net.ipv4.ip_forward = 1
-# Podman rootless: allow unprivileged user namespaces inside minikube containers
-kernel.unprivileged_userns_clone = 1
-user.max_user_namespaces = 28633
-SYSCTL
+{
+  echo "net.ipv4.ip_forward = 1"
+  echo "user.max_user_namespaces = 28633"
+  [ -e /proc/sys/kernel/unprivileged_userns_clone ] && echo "kernel.unprivileged_userns_clone = 1"
+} > /etc/sysctl.d/99-pipeline-builder.conf
 sysctl -p /etc/sysctl.d/99-pipeline-builder.conf
 
 # Note: iptables DNAT rules are set AFTER minikube starts (in startup.sh)
