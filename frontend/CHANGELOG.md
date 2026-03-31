@@ -1,3 +1,13 @@
+## 1.47.5 (2026-03-31)
+
+### 🩹 Fixes
+
+- add progress indicator ([62712c05](https://github.com/mwashburn160/pipeline-builder/commit/62712c05))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.4 (2026-03-31)
 
 ### 🩹 Fixes
