@@ -57,7 +57,6 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
-            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -67,6 +66,16 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-env
+          env:
+            - name: PLATFORM_BASE_URL
+              value: "https://nginx:8443"
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          volumeMounts:
+            - name: next-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
           resources:
             limits:
               cpu: "500m"
@@ -98,6 +107,15 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 30
+      volumes:
+        - name: next-cache
+          hostPath:
+            path: /mnt/data/cache
+            type: DirectoryOrCreate
+        - name: tmp
+          hostPath:
+            path: /mnt/data/tmp
+            type: DirectoryOrCreate
 ---
 # =============================================================================
 # Frontend HorizontalPodAutoscaler

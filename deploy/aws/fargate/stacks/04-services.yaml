@@ -1732,6 +1732,9 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: next-cache
+        - Name: tmp
       ContainerDefinitions:
         - Name: frontend
           Image: !Ref FrontendImage
@@ -1741,9 +1744,16 @@ Resources:
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
+          MountPoints:
+            - ContainerPath: /app/.next/cache
+              SourceVolume: next-cache
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           Environment:
             - Name: NEXT_PUBLIC_API_URL
               Value: !Sub "https://${DomainName}"
+            - Name: PLATFORM_BASE_URL
+              Value: "http://nginx.pipeline-builder.local:8080"
           HealthCheck:
             Command:
               - CMD-SHELL
