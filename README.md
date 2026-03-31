@@ -240,6 +240,59 @@ new PipelineBuilder(stack, 'MyPipeline', {
 | **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$30-80/mo |
 | **[Fargate](docs/aws-deployment.md#fargate)** | Production | ~$100-300/mo |
 
+### Start / Stop
+
+**Local (Docker Compose):**
+
+```bash
+# Start
+cd deploy/local && ./bin/startup.sh
+
+# Stop
+cd deploy/local && docker compose down
+
+# Stop and remove volumes
+cd deploy/local && docker compose down -v
+```
+
+**Minikube (local Kubernetes):**
+
+```bash
+# Start
+bash deploy/minikube/bin/startup.sh
+
+# Stop (deletes cluster + port-forwards)
+bash deploy/minikube/bin/shutdown.sh
+
+# Check pods
+kubectl get pods -n pipeline-builder
+```
+
+**AWS EC2 (SSH into instance first):**
+
+```bash
+# Start (after reboot or shutdown)
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
+
+# Stop
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
+
+# Check pods
+sudo -u minikube kubectl get pods -n pipeline-builder
+```
+
+**AWS Fargate:**
+
+```bash
+cd deploy/aws/fargate
+
+# Deploy all stacks
+bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com
+
+# Teardown all stacks
+bash bin/teardown.sh --stack-prefix pb --region us-east-1
+```
+
 ---
 
 ## Documentation

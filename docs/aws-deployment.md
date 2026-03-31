@@ -122,9 +122,20 @@ All in `deploy/aws/ec2/bin/`. On the instance: `/opt/pipeline-builder/deploy/aws
 | Script | Purpose | Run as |
 |--------|---------|--------|
 | `bootstrap.sh` | Full EC2 setup (runs automatically via UserData) | root |
-| `startup.sh` | Start Minikube + deploy K8s manifests | minikube |
-| `shutdown.sh` | Stop Minikube + remove iptables rules | root |
+| `startup.sh` | Start Minikube + deploy K8s manifests | root (sudo) |
+| `shutdown.sh` | Stop Minikube + remove iptables rules | root (sudo) |
 | `update-tls-secret.sh` | Certbot hook to update K8s TLS secret | root |
+
+```bash
+# Start (after bootstrap or reboot)
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
+
+# Stop
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
+
+# Check pod status
+sudo -u minikube kubectl get pods -n pipeline-builder
+```
 
 ### Security
 
