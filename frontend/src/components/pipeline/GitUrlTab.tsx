@@ -412,6 +412,21 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           </button>
         </div>
 
+        {/* Streaming progress */}
+        {generating && !previewJson && (
+          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4 flex items-center gap-3">
+            <LoadingSpinner size="sm" />
+            <div>
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
+              </p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                {analyzing ? 'Scanning files, languages, and frameworks' : 'AI is building your pipeline — this may take a minute with local models'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Error */}
         {(error || ai.error) && (
           <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
