@@ -72,7 +72,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.42.5-podman
+          image: ghcr.io/mwashburn160/plugin:1.42.6-podman
           securityContext:
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
