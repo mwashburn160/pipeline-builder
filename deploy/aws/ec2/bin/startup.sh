@@ -132,6 +132,7 @@ CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | while IFS='=' read -r key value; do
   eval "printf '%s=%s\n' \"\$key\" \"\${$key}\""
 done > "$CLEAN_ENV"
+chmod 644 "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
