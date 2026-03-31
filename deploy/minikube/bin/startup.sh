@@ -108,8 +108,8 @@ echo "  Cluster ready"
 
 log "Configuring VM + addons"
 minikube ssh --profile="$PROFILE" -- \
-  'sudo sysctl -w kernel.unprivileged_userns_clone=1 user.max_user_namespaces=28633 2>/dev/null; \
-   grep -q unprivileged_userns_clone /etc/sysctl.conf 2>/dev/null || echo "kernel.unprivileged_userns_clone = 1" | sudo tee -a /etc/sysctl.conf >/dev/null; \
+  'sudo sysctl -w user.max_user_namespaces=28633 2>/dev/null; \
+   [ -e /proc/sys/kernel/unprivileged_userns_clone ] && sudo sysctl -w kernel.unprivileged_userns_clone=1 2>/dev/null; \
    grep -q max_user_namespaces /etc/sysctl.conf 2>/dev/null || echo "user.max_user_namespaces = 28633" | sudo tee -a /etc/sysctl.conf >/dev/null'
 
 for addon in default-storageclass storage-provisioner metrics-server; do
