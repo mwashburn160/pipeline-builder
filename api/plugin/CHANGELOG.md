@@ -1,3 +1,13 @@
+## 1.42.5 (2026-03-31)
+
+### 🩹 Fixes
+
+- set podman chroot ([24f74cbe](https://github.com/mwashburn160/pipeline-builder/commit/24f74cbe))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.4 (2026-03-31)
 
 ### 🩹 Fixes
