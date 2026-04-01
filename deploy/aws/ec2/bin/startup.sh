@@ -117,12 +117,31 @@ mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/down
 mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
 
+# -- Build strategy (must run before ConfigMap creation) ----------------------
+
+CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
+log "Plugin Build Strategy: $CURRENT_STRATEGY"
+if [ -t 0 ]; then
+  echo "  1) docker — dind sidecar (default)   2) podman — daemonless"
+  read -rp "  Select [1-2] or Enter to keep '$CURRENT_STRATEGY': " choice
+  case "$choice" in
+    1) SELECTED="docker" ;; 2) SELECTED="podman" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
+  esac
+  if [ "$SELECTED" != "$CURRENT_STRATEGY" ]; then
+    sed -i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env"
+    export DOCKER_BUILD_STRATEGY="$SELECTED"
+    echo "  Updated to $SELECTED"
+  fi
+else
+  echo "  Using $CURRENT_STRATEGY (non-interactive)"
+fi
+
 # -- Namespace + ConfigMap + Secrets ------------------------------------------
 
 log "Creating namespace + secrets + configmaps"
 kube create namespace "$NS"
 
-# app-env ConfigMap from .env
+# app-env ConfigMap from .env (includes DOCKER_BUILD_STRATEGY from prompt above)
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | while IFS='=' read -r key value; do
   eval "printf '%s=%s\n' \"\$key\" \"\${$key}\""
@@ -197,21 +216,6 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
   --from-file=database-health.json="$CONFIG_DIR/grafana/database-health.json" --from-file=plugin-builds.json="$CONFIG_DIR/grafana/plugin-builds.json" \
   --from-file=business-metrics.json="$CONFIG_DIR/grafana/business-metrics.json" --from-file=compliance-metrics.json="$CONFIG_DIR/grafana/compliance-metrics.json" \
   --from-file=infrastructure.json="$CONFIG_DIR/grafana/infrastructure.json"
-
-# -- Build strategy -----------------------------------------------------------
-
-CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
-log "Plugin Build Strategy: $CURRENT_STRATEGY"
-if [ -t 0 ]; then
-  echo "  1) docker — dind sidecar (default)   2) podman — daemonless"
-  read -rp "  Select [1-2] or Enter to keep '$CURRENT_STRATEGY': " choice
-  case "$choice" in
-    1) SELECTED="docker" ;; 2) SELECTED="podman" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
-  esac
-  [ "$SELECTED" != "$CURRENT_STRATEGY" ] && sed -i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env" && echo "  Updated to $SELECTED"
-else
-  echo "  Using $CURRENT_STRATEGY (non-interactive)"
-fi
 
 # -- Deploy -------------------------------------------------------------------
 

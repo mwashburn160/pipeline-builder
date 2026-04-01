@@ -98,8 +98,7 @@ spec:
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
-            - name: DOCKER_BUILD_STRATEGY
-              value: "docker"
+            # DOCKER_BUILD_STRATEGY comes from app-env ConfigMap (set during startup prompt)
             - name: DOCKER_REGISTRY_HTTP
               value: "true"
             - name: DOCKER_REGISTRY_INSECURE
