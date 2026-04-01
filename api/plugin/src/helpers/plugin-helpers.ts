@@ -37,6 +37,9 @@ export interface PluginRecordData {
   secrets: Array<{ name: string; required: boolean; description?: string }>;
 }
 
+/** Failure classification for DLQ routing. */
+export type FailureCategory = 'retryable' | 'permanent';
+
 /** Data stored in each BullMQ job. */
 export interface PluginBuildJobData {
   requestId: string;
@@ -45,6 +48,10 @@ export interface PluginBuildJobData {
   authToken: string;
   buildRequest: BuildRequest;
   pluginRecord: PluginRecordData;
+  failureCategory?: FailureCategory;
+  lastError?: string;
+  /** Total attempts across main queue + DLQ cycles. Prevents infinite retry loops. */
+  totalAttempts?: number;
 }
 
 /** Parameters for creating a plugin build job. */

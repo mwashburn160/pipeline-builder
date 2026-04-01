@@ -60,6 +60,9 @@ export function loadPluginBuildConfig(): PluginBuildConfig {
     backoffDelayMs: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10),
     workerTimeoutMs: parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10),
     tempDirMaxAgeMs: parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '14400000', 10),
+    dlqMaxAttempts: parseInt(process.env.PLUGIN_DLQ_MAX_ATTEMPTS || '3', 10),
+    dlqBackoffBaseMs: parseInt(process.env.PLUGIN_DLQ_BACKOFF_BASE_MS || '300000', 10),
+    dlqMaxSize: parseInt(process.env.PLUGIN_DLQ_MAX_SIZE || '20', 10),
   };
 }
 

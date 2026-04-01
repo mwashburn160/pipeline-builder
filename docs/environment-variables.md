@@ -149,7 +149,10 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 |----------|---------|-------------|
 | `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent builds per container |
 | `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name |
-| `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts |
+| `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts before moving to DLQ |
+| `PLUGIN_DLQ_MAX_ATTEMPTS` | `3` | Max DLQ retry attempts (exponential backoff) |
+| `PLUGIN_DLQ_BACKOFF_BASE_MS` | `300000` | DLQ backoff base delay (5 min; scales 5m → 15m → 45m) |
+| `PLUGIN_DLQ_MAX_SIZE` | `20` | Max DLQ jobs before oldest are purged |
 
 ---
 

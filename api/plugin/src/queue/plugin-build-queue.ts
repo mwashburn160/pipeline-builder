@@ -10,7 +10,7 @@ import type { Job } from 'bullmq';
 import IORedis from 'ioredis';
 
 import { buildAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import type { PluginBuildJobData } from '../helpers/plugin-helpers';
+import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 import type { PluginInsert } from '../services/plugin-service';
 
@@ -22,19 +22,30 @@ const buildCfg = Config.get('pluginBuild') as {
   backoffDelayMs: number;
   workerTimeoutMs: number;
   tempDirMaxAgeMs: number;
+  dlqMaxAttempts: number;
+  dlqBackoffBaseMs: number;
+  dlqMaxSize: number;
 };
+
+/** Max total attempts across main queue + DLQ before treating as permanent. */
+const MAX_TOTAL_ATTEMPTS = buildCfg.maxAttempts + (buildCfg.dlqMaxAttempts * buildCfg.maxAttempts);
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
+const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 
 let connection: IORedis | null = null;
 let queue: Queue<PluginBuildJobData> | null = null;
+let dlq: Queue<PluginBuildJobData> | null = null;
 let worker: Worker<PluginBuildJobData> | null = null;
+let dlqWorker: Worker<PluginBuildJobData> | null = null;
 
+// ---------------------------------------------------------------------------
 // Redis connection
+// ---------------------------------------------------------------------------
 
 function getConnection(): IORedis {
   if (!connection) {
@@ -64,12 +75,9 @@ function getConnection(): IORedis {
   return connection;
 }
 
-// Queue
-
-/** Dead letter queue name for failed plugin builds */
-const DLQ_NAME = `${QUEUE_NAME}-dlq`;
-
-let dlq: Queue<PluginBuildJobData> | null = null;
+// ---------------------------------------------------------------------------
+// Queues
+// ---------------------------------------------------------------------------
 
 /** Get (or create) the dead letter queue for failed plugin builds. */
 export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
@@ -101,7 +109,25 @@ export function getQueue(): Queue<PluginBuildJobData> {
   return queue;
 }
 
-// Worker
+// ---------------------------------------------------------------------------
+// Failure classification
+// ---------------------------------------------------------------------------
+
+/** Classify a build error as retryable or permanent. */
+function classifyFailure(error: Error): FailureCategory {
+  const msg = error.message;
+  const dbCode = extractDbError(error)?.dbCode;
+
+  // Permanent: DB schema errors, constraint violations, compliance, validation
+  if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
+  if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';
+
+  return 'retryable';
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /** Returns true if the worker is connected and ready to process jobs. */
 export function isWorkerReady(): boolean {
@@ -147,7 +173,6 @@ function cleanupContextDir(dir: string): void {
 
 /**
  * Persist a plugin build event to the pipeline_events table (fire-and-forget).
- * Used for build reporting — never blocks the build pipeline.
  */
 function recordBuildEvent(
   orgId: string,
@@ -159,7 +184,7 @@ function recordBuildEvent(
   const completedMs = job.finishedOn ?? Date.now();
   const durationMs = startedMs ? completedMs - startedMs : undefined;
 
-  if (!db?.insert) return; // db may be unavailable in unit tests
+  if (!db?.insert) return;
 
   db.insert(schema.pipelineEvent)
     .values({
@@ -183,6 +208,70 @@ function recordBuildEvent(
       logger.warn('Failed to record build event', { error: errorMessage(err) });
     });
 }
+
+/**
+ * Collect context dirs referenced by jobs across main queue and DLQ.
+ * Includes failed state to protect dirs during DLQ backoff.
+ */
+async function getProtectedContextDirs(): Promise<Set<string>> {
+  const dirs = new Set<string>();
+  const states = ['waiting', 'delayed', 'active', 'failed'] as const;
+  try {
+    const [mainJobs, dlqJobs] = await Promise.all([
+      getQueue().getJobs([...states]),
+      getDeadLetterQueue().getJobs([...states]),
+    ]);
+    for (const job of [...mainJobs, ...dlqJobs]) {
+      const dir = job.data?.buildRequest?.contextDir;
+      if (dir) dirs.add(dir);
+    }
+  } catch { /* best-effort */ }
+  return dirs;
+}
+
+/**
+ * Enforce DLQ max size by purging oldest terminal jobs first.
+ * Only purges completed/failed jobs; active/waiting/delayed jobs are skipped.
+ */
+async function enforceDlqMaxSize(): Promise<void> {
+  const q = getDeadLetterQueue();
+  const allJobs = await q.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed']);
+  if (allJobs.length < buildCfg.dlqMaxSize) return;
+
+  // Only purge terminal jobs (completed, or failed with no retries left)
+  const terminalJobs = allJobs.filter((job) => {
+    if (job.finishedOn == null) return false;
+    const maxAttempts = job.opts.attempts ?? 1;
+    return job.attemptsMade >= maxAttempts;
+  });
+
+  terminalJobs.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  const purgeCount = allJobs.length - buildCfg.dlqMaxSize + 1;
+  const toPurge = terminalJobs.slice(0, purgeCount);
+
+  for (const job of toPurge) {
+    cleanupContextDir(job.data.buildRequest.contextDir);
+    try { await job.remove(); } catch { /* best-effort */ }
+    logger.info('Purged oldest DLQ job', { jobId: job.id, pluginName: job.data.pluginRecord.name });
+  }
+}
+
+/**
+ * Clean up context dirs for all non-active DLQ jobs, then obliterate the queue.
+ * Skips dirs for jobs currently being processed to avoid mid-operation deletion.
+ */
+export async function purgeDlq(): Promise<void> {
+  const q = getDeadLetterQueue();
+  const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
+  for (const job of jobs) {
+    cleanupContextDir(job.data.buildRequest.contextDir);
+  }
+  await q.obliterate({ force: true });
+}
+
+// ---------------------------------------------------------------------------
+// Main worker
+// ---------------------------------------------------------------------------
 
 /**
  * Start the BullMQ worker that processes plugin Docker builds.
@@ -210,7 +299,6 @@ export function startWorker(
       try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
       try {
-        // 1. Build and push Docker image (skipped for ManualApprovalStep — no Docker image needed)
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
         let fullImage = '';
 
@@ -220,13 +308,10 @@ export function startWorker(
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 
-        // 2. Persist to database (name-scoped default + upsert)
         const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId);
 
-        // 3. Increment quota
         incrementQuota(quotaService, orgId, 'plugins', authToken, logger.warn.bind(logger));
 
-        // 4. Persist build event for reporting
         recordBuildEvent(orgId, 'completed', job, {
           pluginName: result.name,
           pluginVersion: result.version,
@@ -234,7 +319,6 @@ export function startWorker(
           pluginId: result.id,
         });
 
-        // 5. Send completion SSE
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
           id: result.id,
           name: result.name,
@@ -243,16 +327,11 @@ export function startWorker(
           fullImage,
         });
 
-        // Clean up on success
         cleanupContextDir(buildRequest.contextDir);
 
         return { pluginId: result.id, fullImage };
       } catch (err) {
-        // Only clean up build context after final attempt (so retries can reuse it)
-        const maxAttempts = job.opts.attempts ?? 1;
-        if (job.attemptsMade >= maxAttempts) {
-          cleanupContextDir(buildRequest.contextDir);
-        }
+        // Don't clean dir here — the 'failed' handler decides based on classification
         throw err;
       }
     },
@@ -265,44 +344,78 @@ export function startWorker(
   // -- Error handling -------------------------------------------------------
 
   worker.on('failed', (job, error) => {
-    if (job) {
-      const { requestId } = job.data;
-      const dbDetails = extractDbError(error);
-      const maxAttempts = job.opts.attempts ?? 1;
-      const isFinalAttempt = job.attemptsMade >= maxAttempts;
+    if (!job) return;
 
-      logger.error('Plugin build failed', {
-        jobId: job.id,
-        requestId,
-        error: error.message,
-        attemptsMade: job.attemptsMade,
-        isFinalAttempt,
-        ...dbDetails,
-      });
-      sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
-        jobId: job.id,
-        attemptsMade: job.attemptsMade,
-        maxAttempts,
-      });
+    const { requestId, orgId, pluginRecord, buildRequest } = job.data;
+    const totalAttempts = (job.data.totalAttempts ?? 0) + 1;
+    const maxAttempts = job.opts.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade >= maxAttempts;
 
-      // Persist build failure event for reporting
-      const { orgId, pluginRecord } = job.data;
-      recordBuildEvent(orgId, 'failed', job, {
+    logger.error('Plugin build failed', {
+      jobId: job.id,
+      requestId,
+      error: error.message,
+      attemptsMade: job.attemptsMade,
+      totalAttempts,
+      isFinalAttempt,
+      ...extractDbError(error),
+    });
+
+    sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
+      jobId: job.id,
+      attemptsMade: job.attemptsMade,
+      maxAttempts,
+    });
+
+    recordBuildEvent(orgId, 'failed', job, {
+      pluginName: pluginRecord.name,
+      pluginVersion: pluginRecord.version,
+      imageTag: pluginRecord.imageTag,
+      errorMessage: error.message,
+    });
+
+    if (!isFinalAttempt) return; // Main queue will retry — keep dir
+
+    const category = classifyFailure(error);
+
+    // Circuit breaker: if total attempts across all cycles exceeded, treat as permanent
+    if (category === 'permanent' || totalAttempts >= MAX_TOTAL_ATTEMPTS) {
+      cleanupContextDir(buildRequest.contextDir);
+      logger.warn('Permanent failure, cleaned up', {
+        jobId: job.id,
         pluginName: pluginRecord.name,
-        pluginVersion: pluginRecord.version,
-        imageTag: pluginRecord.imageTag,
-        errorMessage: error.message,
+        category,
+        totalAttempts,
       });
-
-      // Move to dead letter queue after final attempt for debugging
-      if (isFinalAttempt) {
-        getDeadLetterQueue().add(`dlq-${job.id}`, job.data, {
-          jobId: `dlq-${job.id}`,
-        }).catch((dlqErr) => {
-          logger.warn('Failed to move job to DLQ', { jobId: job.id, error: errorMessage(dlqErr) });
-        });
-      }
+      return;
     }
+
+    // Retryable: move to DLQ for retry (keep dir alive)
+    const dlqData: PluginBuildJobData = {
+      ...job.data,
+      failureCategory: category,
+      lastError: error.message,
+      totalAttempts,
+    };
+
+    enforceDlqMaxSize()
+      .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
+        jobId: `dlq-${job.id}`,
+        attempts: buildCfg.dlqMaxAttempts,
+        backoff: { type: 'exponential', delay: buildCfg.dlqBackoffBaseMs },
+      }))
+      .then(() => {
+        logger.info('Moved to DLQ for retry', {
+          jobId: job.id,
+          pluginName: pluginRecord.name,
+          totalAttempts,
+          dlqAttempts: buildCfg.dlqMaxAttempts,
+        });
+      })
+      .catch((dlqErr) => {
+        logger.warn('Failed to move job to DLQ, cleaning up', { jobId: job.id, error: errorMessage(dlqErr) });
+        cleanupContextDir(buildRequest.contextDir);
+      });
   });
 
   worker.on('error', (error) => {
@@ -319,59 +432,146 @@ export function startWorker(
 
   logger.info('Plugin build worker started', { concurrency });
 
-  // Start periodic cleanup of orphaned temp directories
+  startDlqWorker();
   startTempCleanup();
 
   return worker;
 }
 
-// Periodic temp directory cleanup
+// ---------------------------------------------------------------------------
+// DLQ worker — re-queues retryable jobs back to main queue
+// ---------------------------------------------------------------------------
 
-/** Maximum age (ms) for orphaned temp directories before cleanup. */
+function startDlqWorker(): void {
+  if (dlqWorker) return;
+
+  dlqWorker = new Worker<PluginBuildJobData>(
+    DLQ_NAME,
+    async (job: Job<PluginBuildJobData>) => {
+      const { pluginRecord, buildRequest, totalAttempts } = job.data;
+
+      // Circuit breaker: stop retrying if total attempts exceeded
+      if ((totalAttempts ?? 0) >= MAX_TOTAL_ATTEMPTS) {
+        cleanupContextDir(buildRequest.contextDir);
+        logger.warn('DLQ: max total attempts reached, giving up', {
+          jobId: job.id,
+          pluginName: pluginRecord.name,
+          totalAttempts,
+        });
+        return;
+      }
+
+      if (!fs.existsSync(buildRequest.contextDir)) {
+        throw new Error(`Context dir missing: ${buildRequest.contextDir}`);
+      }
+
+      // Touch dir to prevent cleanup during backoff
+      try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
+
+      logger.info('DLQ: re-queuing job', {
+        jobId: job.id,
+        pluginName: pluginRecord.name,
+        dlqAttempt: job.attemptsMade,
+        totalAttempts,
+      });
+
+      // Carry totalAttempts forward, strip DLQ-specific metadata
+      const { failureCategory: _, lastError: __, ...cleanData } = job.data;
+      await getQueue().add(`retry-${pluginRecord.name}`, cleanData);
+    },
+    {
+      connection: getConnection(),
+      concurrency: 1,
+    },
+  );
+
+  dlqWorker.on('failed', (job, error) => {
+    if (!job) return;
+
+    const maxAttempts = job.opts.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade >= maxAttempts;
+
+    logger.error('DLQ retry failed', {
+      jobId: job.id,
+      pluginName: job.data.pluginRecord.name,
+      error: error.message,
+      attemptsMade: job.attemptsMade,
+      isFinalAttempt,
+    });
+
+    if (isFinalAttempt) {
+      cleanupContextDir(job.data.buildRequest.contextDir);
+      logger.warn('DLQ exhausted all retries, cleaned up', {
+        jobId: job.id,
+        pluginName: job.data.pluginRecord.name,
+      });
+    }
+  });
+
+  dlqWorker.on('completed', (job) => {
+    logger.info('DLQ job processed', { jobId: job.id, name: job.name });
+  });
+
+  logger.info('DLQ worker started');
+}
+
+// ---------------------------------------------------------------------------
+// Periodic temp directory cleanup
+// ---------------------------------------------------------------------------
+
 const TEMP_DIR_MAX_AGE_MS = buildCfg.tempDirMaxAgeMs;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Remove temp directories older than TEMP_DIR_MAX_AGE_MS. */
+/** Remove temp directories older than TEMP_DIR_MAX_AGE_MS, skipping dirs with active jobs. */
 function cleanupStaleTempDirs(): void {
   const tmpRoot = BUILD_TEMP_ROOT;
   if (!fs.existsSync(tmpRoot)) return;
 
-  try {
-    const entries = fs.readdirSync(tmpRoot, { withFileTypes: true });
-    const now = Date.now();
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const dirPath = path.join(tmpRoot, entry.name);
-      try {
-        const stat = fs.statSync(dirPath);
-        if (now - stat.mtimeMs > TEMP_DIR_MAX_AGE_MS) {
-          fs.rmSync(dirPath, { recursive: true, force: true });
-          logger.debug('Cleaned up stale temp dir', { path: dirPath });
+  getProtectedContextDirs().then((protectedDirs) => {
+    try {
+      const entries = fs.readdirSync(tmpRoot, { withFileTypes: true });
+      const now = Date.now();
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const dirPath = path.join(tmpRoot, entry.name);
+        if (protectedDirs.has(dirPath)) continue;
+        try {
+          const stat = fs.statSync(dirPath);
+          if (now - stat.mtimeMs > TEMP_DIR_MAX_AGE_MS) {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+            logger.debug('Cleaned up stale temp dir', { path: dirPath });
+          }
+        } catch (err) {
+          logger.debug('Failed to clean temp dir', { path: dirPath, error: errorMessage(err) });
         }
-      } catch (err) {
-        logger.debug('Failed to clean temp dir', { path: dirPath, error: errorMessage(err) });
       }
+    } catch (err) {
+      logger.debug('Temp dir cleanup scan failed', { error: errorMessage(err) });
     }
-  } catch (err) {
-    logger.debug('Temp dir cleanup scan failed', { error: errorMessage(err) });
-  }
+  }).catch(() => {});
 }
 
 /** Start periodic cleanup of orphaned temp directories. */
 function startTempCleanup(): void {
   if (cleanupTimer) return;
   cleanupTimer = setInterval(cleanupStaleTempDirs, TEMP_DIR_MAX_AGE_MS);
-  cleanupTimer.unref(); // Don't prevent process exit
+  cleanupTimer.unref();
 }
 
+// ---------------------------------------------------------------------------
 // Graceful shutdown
+// ---------------------------------------------------------------------------
 
 /** Close worker, queue, Redis connections, and cleanup timer. */
 export async function shutdownQueue(): Promise<void> {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
+  }
+  if (dlqWorker) {
+    await dlqWorker.close();
+    dlqWorker = null;
   }
   if (worker) {
     await worker.close();

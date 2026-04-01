@@ -136,6 +136,9 @@ export interface PluginBuildConfig {
   readonly backoffDelayMs: number;
   readonly workerTimeoutMs: number;
   readonly tempDirMaxAgeMs: number;
+  readonly dlqMaxAttempts: number;
+  readonly dlqBackoffBaseMs: number;
+  readonly dlqMaxSize: number;
 }
 
 export interface BuildConfig {

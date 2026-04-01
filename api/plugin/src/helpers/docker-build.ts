@@ -66,6 +66,10 @@ function ociAuthDir(contextDir: string, registry: RegistryInfo): string {
 
 function ociCleanup(binary: string, image: string) {
   try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
+}
+
+function dockerCleanup(binary: string, image: string) {
+  ociCleanup(binary, image);
   // Prune dangling images and build cache to prevent disk exhaustion during bulk uploads
   try { execFileSync(binary, ['system', 'prune', '-f'], { stdio: 'ignore', timeout: 30_000 }); } catch { /* best-effort */ }
 }
@@ -96,7 +100,7 @@ const strategies: Record<BuildStrategy, StrategyDef> = {
       ];
     },
     pushCli: (image: string) => ['push', image],
-    cleanup: ociCleanup,
+    cleanup: dockerCleanup,
     patchConfnew: true,
   },
 

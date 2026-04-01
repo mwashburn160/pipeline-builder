@@ -47,6 +47,10 @@ Tokens expire after 24 hours by default (configurable via `JWT_EXPIRES_IN`). Use
 | `GET` | `/plugins/providers` | List AI providers |
 | `POST` | `/plugins/generate` | AI-generate plugin from prompt |
 | `POST` | `/plugins/deploy-generated` | Build and deploy AI-generated plugin |
+| `GET` | `/plugins/queue/status` | Build queue counts (admin only) |
+| `GET` | `/plugins/queue/failed` | Failed build jobs (admin only) |
+| `GET` | `/plugins/queue/dlq` | Dead letter queue jobs (admin only) |
+| `DELETE` | `/plugins/queue/dlq` | Purge all DLQ jobs (admin only) |
 
 ### Common Query Parameters
 
