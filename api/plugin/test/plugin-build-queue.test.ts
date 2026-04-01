@@ -71,10 +71,6 @@ jest.mock('../src/services/plugin-service', () => ({
   pluginService: { deployVersion: mockDeployVersion },
 }));
 
-jest.mock('../src/helpers/message-client', () => ({
-  notifyPluginBuildFailure: jest.fn(),
-}));
-
 const mockPipelineCoreConfig: Record<string, any> = {
   pluginBuild: {
     concurrency: 1,
@@ -229,9 +225,6 @@ describe('plugin-build-queue', () => {
       pluginService: { deployVersion: mockDeployVersion },
     }));
 
-    jest.mock('../src/helpers/message-client', () => ({
-      notifyPluginBuildFailure: jest.fn(),
-    }));
 
     jest.mock('@mwashburn160/pipeline-core', () => ({
       CoreConstants: {

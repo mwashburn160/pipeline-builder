@@ -80,7 +80,11 @@ describe('queue-status route', () => {
       success: true,
       statusCode: 200,
       data: {
-        waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0,
+        waiting: 3,
+        active: 1,
+        completed: 10,
+        failed: 2,
+        delayed: 0,
         dlq: { waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0 },
       },
     }));
