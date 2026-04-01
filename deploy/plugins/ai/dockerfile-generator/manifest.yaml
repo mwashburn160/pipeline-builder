@@ -8,7 +8,7 @@ keywords:
 category: ai
 version: 1.0.0
 pluginType: CodeBuildStep
-computeType: LARGE
+computeType: X2_LARGE
 timeout: 30
 failureBehavior: fail
 secrets: []

@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { UserPlus, CheckCircle, Check } from 'lucide-react';
+import { UserPlus, CheckCircle, Check, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -93,7 +93,7 @@ export default function RegisterPage() {
     try {
       await register(username, email, password, organizationName || undefined, billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
-      setTimeout(() => router.push('/auth/login'), 2000);
+      setTimeout(() => router.push('/'), 1500);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Registration failed. Please try again.');
     }
@@ -110,8 +110,8 @@ export default function RegisterPage() {
         >
           <div className="alert-success">
             <CheckCircle className="mx-auto h-12 w-12 mb-4" />
-            <h3 className="text-lg font-medium">Registration successful!</h3>
-            <p className="mt-2 text-sm">Redirecting to login...</p>
+            <h3 className="text-lg font-medium">Account created!</h3>
+            <p className="mt-2 text-sm">Redirecting to sign in...</p>
           </div>
         </motion.div>
       </div>
@@ -136,7 +136,7 @@ export default function RegisterPage() {
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
             Already have an account?{' '}
-            <Link href="/auth/login" className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors">
+            <Link href="/" className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors">
               Sign in
             </Link>
           </p>

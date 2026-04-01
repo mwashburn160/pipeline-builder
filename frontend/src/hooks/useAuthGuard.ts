@@ -18,7 +18,7 @@ interface AuthGuardOptions {
 
 /**
  * Guards a page route by checking authentication and role requirements.
- * Redirects to `/auth/login` if not authenticated, or to `/dashboard` if
+ * Redirects to `/` (landing page) if not authenticated, or to `/dashboard` if
  * the user lacks the required admin privileges.
  *
  * @param options - Optional role requirements (admin, system admin)
@@ -39,7 +39,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   useEffect(() => {
     if (!isInitialized || isLoading) return;
     if (!isAuthenticated) {
-      router.push('/auth/login');
+      router.push('/');
       return;
     }
     if (requireAdmin && !isAdmin) {

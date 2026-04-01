@@ -1,5 +1,5 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader, AlertTriangle } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
@@ -128,6 +128,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [generatedDescription, setGeneratedDescription] = useState('');
     const [generatedKeywords, setGeneratedKeywords] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [showOllamaWarning, setShowOllamaWarning] = useState(false);
     const [previewJson, setPreviewJson] = useState<string | null>(null);
     const [checkingPlugins, setCheckingPlugins] = useState(false);
     const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
@@ -197,6 +198,14 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         setError('Please select a provider and model.');
         return;
       }
+
+      // Show warning for Ollama — local models may struggle with large repos
+      if (ai.selectedProvider === 'ollama' && !showOllamaWarning) {
+        setShowOllamaWarning(true);
+        return;
+      }
+      setShowOllamaWarning(false);
+
       setError(null);
       setGenerating(true);
       setAnalyzing(true);
@@ -390,6 +399,39 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             </div>
           )}
         </div>
+
+        {/* Ollama warning */}
+        {showOllamaWarning && (
+          <div className="rounded-xl border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+                  Local model may produce limited results
+                </p>
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-3 leading-relaxed">
+                  Ollama runs locally with limited CPU and memory. Pipeline generation may time out or produce
+                  incomplete results, especially with large repositories. For better results, consider using a
+                  cloud AI provider (Anthropic, OpenAI, Google, or xAI).
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleGenerate}
+                    className="btn btn-primary btn-sm text-xs"
+                  >
+                    Continue with Ollama
+                  </button>
+                  <button
+                    onClick={() => setShowOllamaWarning(false)}
+                    className="btn btn-ghost btn-sm text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Generate Button */}
         <div className="flex justify-end">

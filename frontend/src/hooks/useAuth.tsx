@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return api.onSessionExpired(() => {
       clearPluginCache();
       setUser(null);
-      router.push('/auth/login?expired=1');
+      router.push('/?expired=1');
     });
   }, [router]);
 

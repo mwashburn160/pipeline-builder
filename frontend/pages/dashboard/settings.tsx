@@ -75,7 +75,7 @@ export default function SettingsPage() {
     setDeleteLoading(true);
     try {
       await api.deleteAccount();
-      window.location.href = '/auth/login';
+      window.location.href = '/';
     } catch (err) {
       profile.setError(formatError(err, 'Failed to delete account'));
       setShowDeleteConfirm(false);

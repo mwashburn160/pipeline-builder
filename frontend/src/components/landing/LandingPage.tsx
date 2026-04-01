@@ -1,12 +1,15 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Layout, Sparkles, Terminal, Code2, Blocks,
   Shield, Package, Users, BarChart3, Lock,
   Cpu, Cloud, Server, Container,
-  Bot, Globe, Zap, ArrowRight, Check,
+  Bot, Globe, Zap, ArrowRight, Check, LogIn,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 // ---------------------------------------------------------------------------
 // Animation
@@ -46,10 +49,15 @@ function NavBar() {
         <a href="#top" className="font-serif text-lg font-bold text-[var(--pb-text)]">
           Pipeline Builder
         </a>
+        <div className="hidden md:flex items-center gap-5 text-sm text-[var(--pb-text-muted)]">
+          <a href="#features" className="hover:text-[var(--pb-text)] transition-colors">Features</a>
+          <a href="#plugins" className="hover:text-[var(--pb-text)] transition-colors">Plugins</a>
+          <a href="#deploy" className="hover:text-[var(--pb-text)] transition-colors">Deploy</a>
+        </div>
         <div className="flex items-center gap-3">
-          <Link href="/auth/login" className="text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
+          <a href="#signin" className="text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
             Sign In
-          </Link>
+          </a>
           <Link href="/auth/register" className="btn btn-primary text-sm px-4 py-1.5">
             Get Started
           </Link>
@@ -60,15 +68,36 @@ function NavBar() {
 }
 
 // ---------------------------------------------------------------------------
-// Hero with code preview
+// Hero with login form
 // ---------------------------------------------------------------------------
 
 function Hero() {
+  const { login, isLoading } = useAuth();
+  const router = useRouter();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const sessionExpired = router.query.expired === '1';
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!identifier || !password) {
+      setError('Enter your email and password');
+      return;
+    }
+    try {
+      await login(identifier, password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign in failed');
+    }
+  };
+
   return (
-    <section id="top" className="pt-28 pb-8 px-6">
-      <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+    <section id="top" className="pt-24 pb-8 px-6">
+      <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
         {/* Left — copy */}
-        <div>
+        <div className="pt-4">
           <motion.p
             className="text-xs font-semibold text-[var(--pb-brand)] mb-3 tracking-widest uppercase"
             initial={{ opacity: 0 }}
@@ -96,60 +125,111 @@ function Hero() {
             125 plugins. Per-org compliance. Zero lock-in.
           </motion.p>
           <motion.div
-            className="flex items-center gap-3"
+            className="hidden lg:block"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
           >
-            <Link href="/auth/register" className="btn btn-primary px-5 py-2 text-sm">
-              Get Started <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
-            </Link>
-            <Link href="/auth/login" className="btn btn-ghost px-5 py-2 text-sm">
-              Sign In
-            </Link>
-          </motion.div>
-        </div>
-
-        {/* Right — terminal mock */}
-        <motion.div
-          className="hidden lg:block"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          <div className="rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface)] shadow-lg overflow-hidden">
-            <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[var(--pb-border)] bg-[var(--pb-surface-muted)]">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-400/60" />
-              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" />
-              <span className="w-2.5 h-2.5 rounded-full bg-green-400/60" />
-              <span className="ml-3 text-[10px] text-[var(--pb-text-muted)]">pipeline.ts</span>
-            </div>
-            <pre className="p-4 text-[11px] leading-relaxed overflow-x-auto font-mono text-[var(--pb-text-muted)]">
-              <code>{`import { PipelineBuilder } from '@mwashburn160/pipeline-core';
-
-new PipelineBuilder(stack, 'MyPipeline', {
+            <div className="rounded-lg border border-[var(--pb-border)] bg-[var(--pb-surface)] shadow-lg overflow-hidden">
+              <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[var(--pb-border)] bg-[var(--pb-surface-muted)]">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400/60" />
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" />
+                <span className="w-2.5 h-2.5 rounded-full bg-green-400/60" />
+                <span className="ml-3 text-[10px] text-[var(--pb-text-muted)]">pipeline.ts</span>
+              </div>
+              <pre className="p-3 text-[10px] leading-relaxed overflow-x-auto font-mono text-[var(--pb-text-muted)]">
+                <code>{`new PipelineBuilder(stack, 'MyPipeline', {
   project: 'my-app',
-  organization: 'my-org',
   synth: {
-    source: { type: 'github',
-      options: { repo: 'my-org/my-app', branch: 'main' }
-    },
+    source: { type: 'github', options: { repo: 'org/app' } },
     plugin: { name: 'cdk-synth', version: '1.0.0' },
   },
   stages: [
-    { stageName: 'Test',
-      steps: [{ name: 'unit-tests',
-        plugin: { name: 'jest', version: '1.0.0' }
-      }],
-    },
-    { stageName: 'Deploy',
-      steps: [{ name: 'deploy-prod',
-        plugin: { name: 'cdk-deploy', version: '1.0.0' }
-      }],
-    },
+    { stageName: 'Test', steps: [{ plugin: { name: 'jest' } }] },
+    { stageName: 'Deploy', steps: [{ plugin: { name: 'cdk-deploy' } }] },
   ],
 });`}</code>
-            </pre>
+              </pre>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Right — sign in form */}
+        <motion.div
+          id="signin"
+          className="w-full max-w-sm mx-auto lg:mx-0 lg:ml-auto"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+        >
+          <div className="card p-6">
+            <h2 className="text-lg font-bold mb-1">Sign in</h2>
+            <p className="text-xs text-[var(--pb-text-muted)] mb-5">
+              Or{' '}
+              <Link href="/auth/register" className="text-[var(--pb-brand)] hover:underline">
+                create a new account
+              </Link>
+            </p>
+
+            {sessionExpired && !error && (
+              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-2.5 mb-4">
+                <p className="text-xs text-yellow-800 dark:text-yellow-200">Session expired. Please sign in again.</p>
+              </div>
+            )}
+
+            {error && (
+              <div className="alert-error mb-4 text-sm">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-3">
+              <div>
+                <label htmlFor="landing-identifier" className="label text-xs">Email or Username</label>
+                <input
+                  id="landing-identifier"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  className="input"
+                  placeholder="you@example.com"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <label htmlFor="landing-password" className="label text-xs">Password</label>
+                <input
+                  id="landing-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  className="input"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="btn btn-primary btn-full text-sm mt-1"
+              >
+                {isLoading ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-4 h-4 mr-1.5" />
+                    Sign in
+                  </>
+                )}
+              </button>
+            </form>
           </div>
         </motion.div>
       </div>
@@ -173,7 +253,6 @@ function HowItWorks() {
       <div className="max-w-3xl mx-auto">
         <SectionLabel text="How It Works" />
         <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-8">
-          {/* Connecting line (desktop) */}
           <div className="hidden sm:block absolute top-[18px] left-[16.6%] right-[16.6%] h-px bg-[var(--pb-border)]" />
           {steps.map((s, i) => (
             <motion.div
@@ -199,7 +278,7 @@ function HowItWorks() {
 }
 
 // ---------------------------------------------------------------------------
-// Interfaces — icon row
+// Interfaces
 // ---------------------------------------------------------------------------
 
 const interfaces = [
@@ -238,7 +317,7 @@ function Interfaces() {
 }
 
 // ---------------------------------------------------------------------------
-// Features — split layout with checklist
+// Features
 // ---------------------------------------------------------------------------
 
 const featureList = [
@@ -261,8 +340,6 @@ function Features() {
     <section id="features" className="py-16 px-6 bg-[var(--pb-surface-muted)]">
       <div className="max-w-5xl mx-auto">
         <SectionLabel text="Why Pipeline Builder" />
-
-        {/* Checklist */}
         <motion.div
           className="max-w-2xl mx-auto mb-12"
           initial={{ opacity: 0, y: 12 }}
@@ -279,8 +356,6 @@ function Features() {
             ))}
           </div>
         </motion.div>
-
-        {/* Detail cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {featureCards.map((item, i) => (
             <motion.div
@@ -304,7 +379,7 @@ function Features() {
 }
 
 // ---------------------------------------------------------------------------
-// AI — split layout with terminal
+// AI
 // ---------------------------------------------------------------------------
 
 const aiProviders = [
@@ -320,7 +395,6 @@ function AI() {
   return (
     <section className="py-16 px-6">
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-        {/* Left — copy */}
         <motion.div
           initial={{ opacity: 0, x: -16 }}
           whileInView={{ opacity: 1, x: 0 }}
@@ -345,8 +419,6 @@ function AI() {
             ))}
           </div>
         </motion.div>
-
-        {/* Right — terminal mock */}
         <motion.div
           initial={{ opacity: 0, x: 16 }}
           whileInView={{ opacity: 1, x: 0 }}
@@ -374,7 +446,7 @@ function AI() {
     "stages": [
       { "stageName": "Build", "plugin": "nodejs" },
       { "stageName": "Test",  "plugin": "jest" },
-      { "stageName": "Scan",  "plugin": "snyk-nodejs" },
+      { "stageName": "Scan",  "plugin": "snyk" },
       { "stageName": "Deploy","plugin": "cdk-deploy" }
     ]
   }
@@ -388,7 +460,7 @@ function AI() {
 }
 
 // ---------------------------------------------------------------------------
-// Plugins — pills
+// Plugins
 // ---------------------------------------------------------------------------
 
 const pluginCategories = [
@@ -482,14 +554,9 @@ function BottomCTA() {
         <p className="text-sm text-[var(--pb-text-muted)] mb-6">
           Create an account and build your first pipeline in minutes.
         </p>
-        <div className="flex items-center justify-center gap-3">
-          <Link href="/auth/register" className="btn btn-primary px-6 py-2.5 text-sm">
-            Create Account <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
-          </Link>
-          <Link href="/auth/login" className="btn btn-ghost px-6 py-2.5 text-sm">
-            Sign In
-          </Link>
-        </div>
+        <Link href="/auth/register" className="btn btn-primary px-6 py-2.5 text-sm">
+          Create Account <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
+        </Link>
       </div>
     </section>
   );
