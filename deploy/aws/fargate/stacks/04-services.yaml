@@ -58,7 +58,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.47.8
+    Default: ghcr.io/mwashburn160/frontend:1.47.10
     Description: Docker image for the Frontend service
 
   OllamaImage:
