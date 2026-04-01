@@ -74,10 +74,11 @@ spec:
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:1.42.7-podman
           securityContext:
+            runAsUser: 0
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["SYS_ADMIN", "SETUID", "SETGID"]
+              add: ["SYS_CHROOT", "SETUID", "SETGID"]
               drop: ["ALL"]
           ports:
             - containerPort: 3000
