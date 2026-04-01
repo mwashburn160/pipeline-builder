@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS plugins (
     description         TEXT,
     keywords            JSONB NOT NULL DEFAULT '{}',
     version             VARCHAR(20) NOT NULL DEFAULT '1.0.0',
+    category            VARCHAR(50) NOT NULL DEFAULT 'unknown',
     metadata            JSONB NOT NULL DEFAULT '{}',
     
     -- Build Configuration
@@ -202,6 +203,8 @@ ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT 
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile VARCHAR(100);
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'unknown';
+CREATE INDEX IF NOT EXISTS idx_plugins_category ON plugins(category);
 
 -- Pipelines table - add missing columns
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);
