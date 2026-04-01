@@ -1,3 +1,13 @@
+## 1.47.10 (2026-04-01)
+
+### 🩹 Fixes
+
+- update the login.tsx page ([33f57ebe](https://github.com/mwashburn160/pipeline-builder/commit/33f57ebe))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.9 (2026-04-01)
 
 ### 🩹 Fixes
