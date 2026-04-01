@@ -66,6 +66,8 @@ function ociAuthDir(contextDir: string, registry: RegistryInfo): string {
 
 function ociCleanup(binary: string, image: string) {
   try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
+  // Prune dangling images and build cache to prevent disk exhaustion during bulk uploads
+  try { execFileSync(binary, ['system', 'prune', '-f'], { stdio: 'ignore', timeout: 30_000 }); } catch { /* best-effort */ }
 }
 
 function podmanTls(registry: RegistryInfo): string[] {

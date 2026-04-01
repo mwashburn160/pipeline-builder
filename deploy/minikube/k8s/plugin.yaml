@@ -186,6 +186,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /app/tmp
+            - name: dind-storage
+              mountPath: /var/lib/docker
           resources:
             limits:
               cpu: "1000m"
@@ -217,6 +219,10 @@ spec:
         - name: uploads
           emptyDir:
             sizeLimit: 512Mi
+        - name: dind-storage
+          hostPath:
+            path: /mnt/data/tmp
+            type: DirectoryOrCreate
 
 ---
 # =============================================================================
