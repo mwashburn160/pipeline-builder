@@ -756,7 +756,12 @@ class ApiClient {
 
   /** Get failed jobs from the plugin build queue */
   async getQueueFailed(params?: Record<string, string>) {
-    return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; imageTag?: string; error?: string; attemptsMade?: number; failedAt?: string }[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins/queue/failed${buildQuery(params)}`);
+    return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; imageTag?: string; error?: string; attemptsMade?: number; maxAttempts?: number; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/failed${buildQuery(params)}`);
+  }
+
+  /** Get dead letter queue jobs */
+  async getQueueDlq(params?: Record<string, string>) {
+    return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; imageTag?: string; failureCategory?: string; lastError?: string; error?: string; attemptsMade?: number; maxAttempts?: number; createdAt?: string; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/dlq${buildQuery(params)}`);
   }
 
   async updatePlugin(id: string, data: {
