@@ -403,7 +403,7 @@ services:
       TMPDIR: /tmp
     volumes:
       - './data/tmp:/tmp:rw'
-      - './data/tmp:/var/lib/docker:rw'
+      - './data/dind-storage:/var/lib/docker:rw'
     networks:
       - backend-network
     healthcheck:

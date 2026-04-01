@@ -202,7 +202,7 @@ spec:
             sizeLimit: 512Mi
         - name: dind-storage
           hostPath:
-            path: /mnt/data/tmp
+            path: /mnt/data/dind-storage
             type: DirectoryOrCreate
 
 ---
