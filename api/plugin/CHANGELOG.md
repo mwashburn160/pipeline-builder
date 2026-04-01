@@ -1,3 +1,13 @@
+## 1.42.8 (2026-04-01)
+
+### 🩹 Fixes
+
+- updated plugin storage ([470bdc9b](https://github.com/mwashburn160/pipeline-builder/commit/470bdc9b))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.7 (2026-03-31)
 
 ### 🩹 Fixes
