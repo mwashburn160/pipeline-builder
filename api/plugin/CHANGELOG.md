@@ -1,3 +1,13 @@
+## 1.42.9 (2026-04-01)
+
+### 🩹 Fixes
+
+- dind storage ([2fc4125d](https://github.com/mwashburn160/pipeline-builder/commit/2fc4125d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.42.8 (2026-04-01)
 
 ### 🩹 Fixes
