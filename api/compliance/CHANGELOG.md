@@ -1,3 +1,13 @@
+## 1.7.9 (2026-04-01)
+
+### 🩹 Fixes
+
+- upgraded aiCore=1.19.8 ([caca2341](https://github.com/mwashburn160/pipeline-builder/commit/caca2341))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.8 (2026-04-01)
 
 ### 🩹 Fixes
