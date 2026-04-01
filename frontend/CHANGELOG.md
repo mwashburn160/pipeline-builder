@@ -1,3 +1,18 @@
+## 1.47.6 (2026-04-01)
+
+### 🩹 Fixes
+
+- added dlq retry ([c83782e6](https://github.com/mwashburn160/pipeline-builder/commit/c83782e6))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.48.5
+- Updated @mwashburn160/api-server to 1.44.5
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.5 (2026-03-31)
 
 ### 🩹 Fixes

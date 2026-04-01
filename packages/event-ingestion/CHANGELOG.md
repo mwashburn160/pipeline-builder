@@ -1,3 +1,13 @@
+## 1.7.5 (2026-04-01)
+
+### 🩹 Fixes
+
+- added dlq retry ([c83782e6](https://github.com/mwashburn160/pipeline-builder/commit/c83782e6))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.4 (2026-03-31)
 
 ### 🩹 Fixes
