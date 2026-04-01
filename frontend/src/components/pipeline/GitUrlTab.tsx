@@ -1,4 +1,4 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader, AlertTriangle } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -129,6 +129,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [generatedKeywords, setGeneratedKeywords] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [showOllamaWarning, setShowOllamaWarning] = useState(false);
+    const ollamaConfirmedRef = useRef(false);
     const [previewJson, setPreviewJson] = useState<string | null>(null);
     const [checkingPlugins, setCheckingPlugins] = useState(false);
     const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
@@ -200,11 +201,12 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       }
 
       // Show warning for Ollama — local models may struggle with large repos
-      if (ai.selectedProvider === 'ollama' && !showOllamaWarning) {
+      if (ai.selectedProvider === 'ollama' && !ollamaConfirmedRef.current) {
         setShowOllamaWarning(true);
         return;
       }
       setShowOllamaWarning(false);
+      ollamaConfirmedRef.current = false;
 
       setError(null);
       setGenerating(true);
@@ -276,10 +278,14 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       }
     };
 
-    // Auto-generate when initialUrl + autoGenerate are set
+    // Auto-generate when initialUrl + autoGenerate are set (skip if Ollama warning needed)
     useEffect(() => {
       if (autoGenerate && initialUrl && ai.selectedProvider && ai.selectedModel && !ai.loading) {
-        handleGenerate();
+        if (ai.selectedProvider === 'ollama') {
+          setShowOllamaWarning(true);
+        } else {
+          handleGenerate();
+        }
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate to prevent infinite loops on prop changes
     }, [ai.loading]);
@@ -416,7 +422,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 </p>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleGenerate}
+                    onClick={() => { ollamaConfirmedRef.current = true; handleGenerate(); }}
                     className="btn btn-primary btn-sm text-xs"
                   >
                     Continue with Ollama
