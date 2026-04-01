@@ -66,14 +66,17 @@ export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
     { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
   ],
   ollama: [
+    { id: 'phi3:mini', name: 'Phi-3 Mini (3.8B)' },
+    { id: 'qwen2.5-coder:1.5b', name: 'Qwen 2.5 Coder 1.5B' },
+    { id: 'gemma2:2b', name: 'Gemma 2 (2B)' },
+    { id: 'qwen2.5:1.5b', name: 'Qwen 2.5 (1.5B)' },
+    { id: 'stablecode:3b', name: 'Stable Code (3B)' },
     { id: 'tinyllama', name: 'TinyLlama (1.1B)' },
-    { id: 'qwen2.5:1.5b', name: 'Qwen 2.5 1.5B' },
-    { id: 'llama3', name: 'Llama 3' },
-    { id: 'llama3:70b', name: 'Llama 3 70B' },
-    { id: 'codellama', name: 'Code Llama' },
-    { id: 'mistral', name: 'Mistral' },
+    { id: 'llama3', name: 'Llama 3 (8B)' },
+    { id: 'codellama', name: 'Code Llama (7B)' },
+    { id: 'mistral', name: 'Mistral (7B)' },
     { id: 'deepseek-coder-v2', name: 'DeepSeek Coder V2' },
-    { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder' },
+    { id: 'qwen2.5-coder', name: 'Qwen 2.5 Coder (7B)' },
   ],
 };
 
