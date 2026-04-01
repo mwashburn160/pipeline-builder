@@ -1,5 +1,22 @@
 ---
 # =============================================================================
+# Podman storage configuration for rootful builds
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: podman-storage-config
+  labels:
+    app: plugin
+data:
+  storage.conf: |
+    [storage]
+    driver = "vfs"
+    runroot = "/run/containers/storage"
+    graphroot = "/var/lib/containers/storage"
+
+---
+# =============================================================================
 # Plugin Service
 # =============================================================================
 apiVersion: v1
@@ -75,11 +92,7 @@ spec:
           image: ghcr.io/mwashburn160/plugin:1.42.7-podman
           securityContext:
             runAsUser: 0
-            readOnlyRootFilesystem: false
-            allowPrivilegeEscalation: true
-            capabilities:
-              add: ["SYS_CHROOT", "SETUID", "SETGID", "SYS_ADMIN"]
-              drop: ["ALL"]
+            privileged: true
           ports:
             - containerPort: 3000
               name: http
@@ -126,7 +139,9 @@ spec:
               mountPath: /app/tmp
             - name: uploads
               mountPath: /app/uploads
-            # DOCKER_HOST and dind connection handled by docker-build.ts via DIND_HOST env var
+            - name: podman-storage-config
+              mountPath: /etc/containers/storage.conf
+              subPath: storage.conf
           resources:
             limits:
               cpu: "1500m"
@@ -194,6 +209,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
       volumes:
+        - name: podman-storage-config
+          configMap:
+            name: podman-storage-config
         - name: tmp
           emptyDir:
             sizeLimit: 1Gi

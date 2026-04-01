@@ -51,16 +51,14 @@ FROM app-base AS podman-target
 RUN apt-get update && apt-get install -y --no-install-recommends \
     podman fuse-overlayfs slirp4netns uidmap \
     && rm -rf /var/lib/apt/lists/*
-# Podman rootless config
+# Podman rootful config
 COPY containers.conf /etc/containers/containers.conf
 COPY storage.conf /etc/containers/storage.conf
 # Self-signed cert for Podman registry access
 RUN mkdir -p /etc/containers/certs.d
 COPY ./self-signed.crt /etc/containers/certs.d/self-signed.crt
-# Storage directory for rootless builds
-RUN mkdir -p /home/node/.local/share/containers/storage \
-    && chown -R node:node /home/node/.local
-USER node
+# Storage directories for rootful builds
+RUN mkdir -p /run/containers/storage /var/lib/containers/storage
 CMD ["node", "index.js"]
 
 # =============================================================================
