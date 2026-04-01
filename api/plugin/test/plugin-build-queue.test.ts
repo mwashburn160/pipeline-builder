@@ -9,22 +9,30 @@
 
 const mockQueueAdd = jest.fn();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
+const mockQueueGetJobs = jest.fn().mockResolvedValue([]);
+const mockQueueGetJobCounts = jest.fn().mockResolvedValue({});
+const mockQueueObliterate = jest.fn().mockResolvedValue(undefined);
 const mockWorkerClose = jest.fn().mockResolvedValue(undefined);
 const mockWorkerOn = jest.fn();
-let capturedWorkerProcessor: ((job: any) => Promise<any>) | null = null;
+
+// Track which worker processor is for which queue name
+const capturedProcessors: Record<string, (job: any) => Promise<any>> = {};
 
 jest.mock('bullmq', () => {
   class MockQueue {
     add = mockQueueAdd;
     close = mockQueueClose;
+    getJobs = mockQueueGetJobs;
+    getJobCounts = mockQueueGetJobCounts;
+    obliterate = mockQueueObliterate;
   }
 
   class MockWorker {
     on = mockWorkerOn;
     close = mockWorkerClose;
 
-    constructor(_name: string, processor: (job: any) => Promise<any>, _opts: any) {
-      capturedWorkerProcessor = processor;
+    constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
+      capturedProcessors[name] = processor;
     }
   }
 
@@ -43,15 +51,19 @@ jest.mock('ioredis', () => {
 const mockIncrementQuota = jest.fn();
 const mockExistsSync = jest.fn().mockReturnValue(false);
 const mockRmSync = jest.fn();
+const mockUtimesSync = jest.fn();
 
 jest.mock('fs', () => ({
   existsSync: mockExistsSync,
   rmSync: mockRmSync,
+  utimesSync: mockUtimesSync,
+  readdirSync: jest.fn().mockReturnValue([]),
 }));
 
 const mockBuildAndPush = jest.fn();
 jest.mock('../src/helpers/docker-build', () => ({
   buildAndPush: mockBuildAndPush,
+  BUILD_TEMP_ROOT: '/tmp',
 }));
 
 const mockDeployVersion = jest.fn();
@@ -59,8 +71,21 @@ jest.mock('../src/services/plugin-service', () => ({
   pluginService: { deployVersion: mockDeployVersion },
 }));
 
+jest.mock('../src/helpers/message-client', () => ({
+  notifyPluginBuildFailure: jest.fn(),
+}));
+
 const mockPipelineCoreConfig: Record<string, any> = {
-  pluginBuild: { concurrency: 1 },
+  pluginBuild: {
+    concurrency: 1,
+    maxAttempts: 2,
+    backoffDelayMs: 5000,
+    workerTimeoutMs: 10000,
+    tempDirMaxAgeMs: 14400000,
+    dlqMaxAttempts: 3,
+    dlqBackoffBaseMs: 300000,
+    dlqMaxSize: 20,
+  },
   redis: { host: 'localhost', port: 6379 },
 };
 
@@ -71,7 +96,6 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
     PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
   },
   Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
-  // db and schema are re-exported from pipeline-data — mock that module directly
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -84,12 +108,6 @@ jest.mock('@mwashburn160/api-core', () => ({
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   extractDbError: jest.fn(() => ({})),
   incrementQuota: mockIncrementQuota,
-  parsePositiveInt: (value: string | undefined, fallback: number) => {
-    if (!value) return fallback;
-    const parsed = parseInt(value, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-  },
-  TEMP_DIR_MAX_AGE_MS: 14400000,
 }));
 
 jest.mock('@mwashburn160/api-server', () => ({}));
@@ -145,26 +163,30 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
   };
 }
 
-function makeJob(data: PluginBuildJobData) {
+function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) {
   return {
     id: 'job-1',
     data,
     attemptsMade: 1,
     opts: { attempts: 2 },
+    ...overrides,
   };
+}
+
+function getMainProcessor() {
+  return capturedProcessors['plugin-build'];
 }
 
 // Tests
 
 describe('plugin-build-queue', () => {
-  // Re-require the module fresh for each test to reset singleton state
   let queueModule: typeof import('../src/queue/plugin-build-queue');
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    capturedWorkerProcessor = null;
+    Object.keys(capturedProcessors).forEach((k) => delete capturedProcessors[k]);
+    mockExistsSync.mockReturnValue(false);
 
-    // Reset the module registry to clear singleton state (queue, worker, connection)
     jest.resetModules();
 
     // Re-apply mocks after resetModules
@@ -172,12 +194,15 @@ describe('plugin-build-queue', () => {
       class MockQueue {
         add = mockQueueAdd;
         close = mockQueueClose;
+        getJobs = mockQueueGetJobs;
+        getJobCounts = mockQueueGetJobCounts;
+        obliterate = mockQueueObliterate;
       }
       class MockWorker {
         on = mockWorkerOn;
         close = mockWorkerClose;
-        constructor(_name: string, processor: (job: any) => Promise<any>, _opts: any) {
-          capturedWorkerProcessor = processor;
+        constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
+          capturedProcessors[name] = processor;
         }
       }
       return { Queue: MockQueue, Worker: MockWorker };
@@ -191,14 +216,21 @@ describe('plugin-build-queue', () => {
     jest.mock('fs', () => ({
       existsSync: mockExistsSync,
       rmSync: mockRmSync,
+      utimesSync: mockUtimesSync,
+      readdirSync: jest.fn().mockReturnValue([]),
     }));
 
     jest.mock('../src/helpers/docker-build', () => ({
       buildAndPush: mockBuildAndPush,
+      BUILD_TEMP_ROOT: '/tmp',
     }));
 
     jest.mock('../src/services/plugin-service', () => ({
       pluginService: { deployVersion: mockDeployVersion },
+    }));
+
+    jest.mock('../src/helpers/message-client', () => ({
+      notifyPluginBuildFailure: jest.fn(),
     }));
 
     jest.mock('@mwashburn160/pipeline-core', () => ({
@@ -220,17 +252,10 @@ describe('plugin-build-queue', () => {
       errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
       extractDbError: jest.fn(() => ({})),
       incrementQuota: mockIncrementQuota,
-      parsePositiveInt: (value: string | undefined, fallback: number) => {
-        if (!value) return fallback;
-        const parsed = parseInt(value, 10);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-      },
-      TEMP_DIR_MAX_AGE_MS: 14400000,
     }));
 
     jest.mock('@mwashburn160/api-server', () => ({}));
 
-    // Fresh import (dynamic import to satisfy ESLint no-require-imports rule)
     queueModule = await import('../src/queue/plugin-build-queue');
   });
 
@@ -249,13 +274,14 @@ describe('plugin-build-queue', () => {
   });
 
   describe('startWorker()', () => {
-    it('creates a Worker and returns it', () => {
+    it('creates main and DLQ workers', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
       const w = queueModule.startWorker(sse, quota);
       expect(w).toBeDefined();
-      expect(capturedWorkerProcessor).toBeInstanceOf(Function);
+      expect(getMainProcessor()).toBeInstanceOf(Function);
+      expect(capturedProcessors['plugin-build-dlq']).toBeInstanceOf(Function);
     });
 
     it('returns same worker on repeated calls (singleton)', () => {
@@ -293,15 +319,11 @@ describe('plugin-build-queue', () => {
       const jobData = makeJobData();
       const job = makeJob(jobData);
 
-      const result = await capturedWorkerProcessor!(job);
+      const result = await getMainProcessor()(job);
 
-      // Verify buildAndPush was called
       expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest);
-
-      // Verify deployVersion was called with plugin record and userId
       expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1');
 
-      // Verify SSE events
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Image pushed', expect.any(Object));
       expect(sse.send).toHaveBeenCalledWith('req-123', 'COMPLETED', 'Plugin deployed', expect.objectContaining({
@@ -309,10 +331,7 @@ describe('plugin-build-queue', () => {
         name: 'my-plugin',
       }));
 
-      // Verify quota increment
       expect(mockIncrementQuota).toHaveBeenCalledWith(quota, 'org-1', 'plugins', 'Bearer tok', expect.any(Function));
-
-      // Verify return value
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
     });
 
@@ -327,12 +346,12 @@ describe('plugin-build-queue', () => {
       mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
 
-      await capturedWorkerProcessor!(makeJob(makeJobData()));
+      await getMainProcessor()(makeJob(makeJobData()));
 
       expect(mockRmSync).toHaveBeenCalledWith('/tmp/build-ctx', { recursive: true, force: true });
     });
 
-    it('does not clean up temp directory on non-final attempt failure (preserves for retry)', async () => {
+    it('does not clean up temp directory on failure (deferred to failed handler)', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
@@ -341,29 +360,13 @@ describe('plugin-build-queue', () => {
       mockBuildAndPush.mockRejectedValue(new Error('Docker build failed'));
       mockExistsSync.mockReturnValue(true);
 
-      // attemptsMade=1, attempts=2 → not final, should preserve context for retry
-      await expect(capturedWorkerProcessor!(makeJob(makeJobData()))).rejects.toThrow('Docker build failed');
+      await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toThrow('Docker build failed');
 
+      // Cleanup is handled by the 'failed' event handler, not the processor
       expect(mockRmSync).not.toHaveBeenCalled();
     });
 
-    it('cleans up temp directory after final attempt failure', async () => {
-      const sse = makeSseManager();
-      const quota = makeQuotaService();
-
-      queueModule.startWorker(sse, quota);
-
-      mockBuildAndPush.mockRejectedValue(new Error('Docker build failed'));
-      mockExistsSync.mockReturnValue(true);
-
-      // attemptsMade=2 >= attempts=2 → final attempt, should clean up
-      const job = { ...makeJob(makeJobData()), attemptsMade: 2 };
-      await expect(capturedWorkerProcessor!(job)).rejects.toThrow('Docker build failed');
-
-      expect(mockRmSync).toHaveBeenCalledWith('/tmp/build-ctx', { recursive: true, force: true });
-    });
-
-    it('does not throw if temp dir cleanup fails', async () => {
+    it('does not throw if temp dir cleanup fails on success', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
@@ -376,7 +379,8 @@ describe('plugin-build-queue', () => {
       mockRmSync.mockImplementation(() => { throw new Error('permission denied'); });
 
       // Should not throw — cleanup error is caught internally
-      await expect(capturedWorkerProcessor!(makeJob(makeJobData()))).resolves.toBeDefined();
+      const result = await getMainProcessor()(makeJob(makeJobData()));
+      expect(result).toEqual({ pluginId: 'p1', fullImage: 'img' });
     });
   });
 
@@ -387,10 +391,10 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      // Find the 'failed' handler
-      const failedCall = mockWorkerOn.mock.calls.find((c: any) => c[0] === 'failed');
-      expect(failedCall).toBeDefined();
-      const failedHandler = failedCall![1];
+      // Find the 'failed' handler from the main worker (first registered)
+      const failedCalls = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed');
+      expect(failedCalls.length).toBeGreaterThan(0);
+      const failedHandler = failedCalls[0][1];
 
       const jobData = makeJobData();
       const job = makeJob(jobData);
@@ -411,10 +415,9 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const failedCall = mockWorkerOn.mock.calls.find((c: any) => c[0] === 'failed');
-      const failedHandler = failedCall![1];
+      const failedCalls = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed');
+      const failedHandler = failedCalls[0][1];
 
-      // Should not throw when job is null/undefined
       expect(() => failedHandler(null, new Error('Connection lost'))).not.toThrow();
       expect(sse.send).not.toHaveBeenCalled();
     });
@@ -425,7 +428,6 @@ describe('plugin-build-queue', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
-      // Create queue and worker
       queueModule.getQueue();
       queueModule.startWorker(sse, quota);
 
@@ -436,7 +438,6 @@ describe('plugin-build-queue', () => {
     });
 
     it('handles shutdown when nothing was initialized', async () => {
-      // Should not throw even if queue/worker/connection are null
       await expect(queueModule.shutdownQueue()).resolves.toBeUndefined();
     });
   });
