@@ -240,7 +240,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:1.47.5'
+    image: 'ghcr.io/mwashburn160/frontend:1.47.8'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -267,7 +267,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.41.4'
+    image: 'ghcr.io/mwashburn160/platform:1.41.7'
     container_name: platform
     restart: always
     stop_grace_period: 10s
@@ -342,7 +342,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:1.42.9-docker'
+    image: 'ghcr.io/mwashburn160/plugin:1.42.12-docker'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
@@ -422,7 +422,7 @@ services:
           memory: 512M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.41.4'
+    image: 'ghcr.io/mwashburn160/pipeline:1.41.7'
     container_name: pipeline
     restart: always
     stop_grace_period: 10s
@@ -444,7 +444,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:1.23.4'
+    image: 'ghcr.io/mwashburn160/message:1.23.7'
     container_name: message
     restart: always
     stop_grace_period: 10s
@@ -468,7 +468,7 @@ services:
           memory: 192M
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:1.4.4'
+    image: 'ghcr.io/mwashburn160/reporting:1.4.7'
     container_name: reporting
     restart: always
     stop_grace_period: 10s
@@ -491,7 +491,7 @@ services:
           memory: 192M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:1.7.4'
+    image: 'ghcr.io/mwashburn160/compliance:1.7.7'
     container_name: compliance
     restart: always
     stop_grace_period: 10s
@@ -522,7 +522,7 @@ services:
           memory: 256M
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:1.39.4'
+    image: 'ghcr.io/mwashburn160/quota:1.39.7'
     container_name: quota
     restart: always
     stop_grace_period: 10s
@@ -554,7 +554,7 @@ services:
           memory: 192M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:1.25.4'
+    image: 'ghcr.io/mwashburn160/billing:1.25.7'
     container_name: billing
     restart: always
     stop_grace_period: 10s
