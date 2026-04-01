@@ -218,8 +218,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearPluginCache();
       setUser(null);
       setIsLoading(false);
-      // Use Next.js router for client-side navigation
-      router.push('/auth/login');
+      // Navigate to landing page
+      router.push('/');
     }
   }, [router]);
 
