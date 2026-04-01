@@ -109,13 +109,9 @@ spec:
             failureThreshold: 30
       volumes:
         - name: next-cache
-          hostPath:
-            path: /mnt/data/cache
-            type: DirectoryOrCreate
+          emptyDir: {}
         - name: tmp
-          hostPath:
-            path: /mnt/data/tmp
-            type: DirectoryOrCreate
+          emptyDir: {}
 ---
 # =============================================================================
 # Frontend HorizontalPodAutoscaler
