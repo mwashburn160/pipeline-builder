@@ -1,3 +1,13 @@
+## 1.47.9 (2026-04-01)
+
+### 🩹 Fixes
+
+- update the build queue page ([cd832636](https://github.com/mwashburn160/pipeline-builder/commit/cd832636))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.8 (2026-04-01)
 
 ### 🩹 Fixes
