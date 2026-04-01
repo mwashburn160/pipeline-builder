@@ -6,9 +6,12 @@
  */
 
 const mockGetJobCounts = jest.fn();
+const mockDlqGetJobCounts = jest.fn();
 
 jest.mock('../src/queue/plugin-build-queue', () => ({
   getQueue: () => ({ getJobCounts: mockGetJobCounts }),
+  getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: jest.fn().mockResolvedValue([]) }),
+  purgeDlq: jest.fn(),
 }));
 
 jest.mock('@mwashburn160/api-core', () => ({
@@ -61,6 +64,9 @@ describe('queue-status route', () => {
     mockGetJobCounts.mockResolvedValue({
       waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0, paused: 0,
     });
+    mockDlqGetJobCounts.mockResolvedValue({
+      waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0, paused: 0,
+    });
 
     const router = createQueueStatusRoutes();
     const handler = (router.stack as any)[0].route.stack[0].handle;
@@ -69,10 +75,14 @@ describe('queue-status route', () => {
     await handler(req, res, jest.fn());
 
     expect(mockGetJobCounts).toHaveBeenCalled();
+    expect(mockDlqGetJobCounts).toHaveBeenCalled();
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       statusCode: 200,
-      data: { waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0 },
+      data: {
+        waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0,
+        dlq: { waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0 },
+      },
     }));
   });
 
