@@ -403,7 +403,7 @@ services:
       TMPDIR: /tmp
     volumes:
       - './data/tmp:/tmp:rw'
-      - './data/dind-storage:/var/lib/docker:rw'
+      - 'dind-storage:/var/lib/docker'
     networks:
       - backend-network
     healthcheck:
@@ -874,6 +874,7 @@ services:
 # =============================================================================
 volumes:
   promtail-positions:
+  dind-storage:
 
 networks:
   proxy-network:

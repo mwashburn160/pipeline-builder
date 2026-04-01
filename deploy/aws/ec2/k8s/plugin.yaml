@@ -201,9 +201,7 @@ spec:
           emptyDir:
             sizeLimit: 512Mi
         - name: dind-storage
-          hostPath:
-            path: /mnt/data/dind-storage
-            type: DirectoryOrCreate
+          emptyDir: {}
 
 ---
 # =============================================================================

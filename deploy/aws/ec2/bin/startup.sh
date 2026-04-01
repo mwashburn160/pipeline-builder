@@ -63,7 +63,7 @@ set -a; . "$ENV_FILE"; set +a
 
 # -- Data directories ---------------------------------------------------------
 
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,grafana,loki,prometheus,ollama},registry-data,pgadmin-data,tmp,dind-storage} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,grafana,loki,prometheus,ollama},registry-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
 
 # -- Clean stale Docker state ------------------------------------------------
