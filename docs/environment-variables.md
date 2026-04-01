@@ -122,7 +122,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_BUILD_STRATEGY` | `podman` | Build strategy: `podman` (default for K8s), `docker` (dind sidecar for Docker Compose), `kaniko` (daemonless, Fargate) |
+| `DOCKER_BUILD_STRATEGY` | `docker` | Build strategy: `docker` (dind sidecar, default for local/K8s), `podman` (daemonless), `kaniko` (daemonless, Fargate) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
@@ -133,8 +133,8 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 
 | Strategy | How it works | Requires | Used by |
 |----------|-------------|----------|---------|
-| `podman` | Standard podman with `SYS_ADMIN` capability | Pod with `SYS_ADMIN`, `SETUID`, `SETGID` capabilities | Minikube, EC2 (K8s) |
-| `docker` | Docker CLI connecting to a dind sidecar | `docker:27-dind` sidecar (privileged) | Local (Docker Compose) |
+| `docker` | Docker CLI connecting to a dind sidecar | `docker:27-dind` sidecar (privileged) | Local, Minikube, EC2 (default) |
+| `podman` | Standard podman with `SYS_ADMIN` capability | Pod with `SYS_ADMIN`, `SETUID`, `SETGID` capabilities | Alternative for K8s |
 | `kaniko` | Daemonless image builder | EFS mount for layer cache | Fargate (ECS) |
 
 **Podman** runs as a standard (non-rootless) container build tool inside the plugin pod. The pod requires `SYS_ADMIN` capability for namespace creation and overlayfs mounts. No Docker daemon or sidecar needed.

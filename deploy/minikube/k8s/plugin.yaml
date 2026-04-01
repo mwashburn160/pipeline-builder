@@ -113,7 +113,7 @@ spec:
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
             - name: DOCKER_BUILD_STRATEGY
-              value: "podman"
+              value: "docker"
             - name: DOCKER_REGISTRY_HTTP
               value: "true"
             - name: DOCKER_REGISTRY_INSECURE

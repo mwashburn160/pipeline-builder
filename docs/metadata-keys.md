@@ -44,8 +44,8 @@ Customize individual build steps within a pipeline stage.
 
 | MetadataKeys constant | String value |
 |----|-----|
-| `STEP_ROLE` | `aws:cdk:pipelines:codebuildstep:role` |
 | `ACTION_ROLE` | `aws:cdk:pipelines:codebuildstep:actionrole` |
+| `ADDITIONAL_INPUTS` | `aws:cdk:pipelines:codebuildstep:additionalinputs` |
 | `BUILD_ENVIRONMENT` | `aws:cdk:pipelines:codebuildstep:buildenvironment` |
 | `CACHE` | `aws:cdk:pipelines:codebuildstep:cache` |
 | `COMMANDS` | `aws:cdk:pipelines:codebuildstep:commands` |
@@ -58,6 +58,7 @@ Customize individual build steps within a pipeline stage.
 | `PARTIAL_BUILD_SPEC` | `aws:cdk:pipelines:codebuildstep:partialbuildspec` |
 | `PRIMARY_OUTPUT_DIRECTORY` | `aws:cdk:pipelines:codebuildstep:primaryoutputdirectory` |
 | `PROJECT_NAME` | `aws:cdk:pipelines:codebuildstep:projectname` |
+| `STEP_ROLE` | `aws:cdk:pipelines:codebuildstep:role` |
 | `ROLE_POLICY_STATEMENTS` | `aws:cdk:pipelines:codebuildstep:rolepolicystatements` |
 | `TIMEOUT` | `aws:cdk:pipelines:codebuildstep:timeout` |
 
@@ -130,6 +131,34 @@ Attach security groups to build containers in VPC deployments.
 | `SECURITY_GROUP_NAME` | `aws:cdk:ec2:securitygroup:securitygroupname` |
 | `SECURITY_GROUP_VPC_ID` | `aws:cdk:ec2:securitygroup:vpcid` |
 | `SECURITY_GROUP_MUTABLE` | `aws:cdk:ec2:securitygroup:mutable` |
+
+## Notification Configuration
+
+Configure pipeline event notifications via SNS.
+
+| MetadataKeys constant | String value |
+|----|-----|
+| `NOTIFICATION_TOPIC_ARN` | `aws:cdk:notifications:topic:arn` |
+| `NOTIFICATION_EVENTS` | `aws:cdk:notifications:events` |
+
+## Pipeline Operations
+
+Operational settings for execution tracking, metrics, artifact retention, and pipeline variables.
+
+| MetadataKeys constant | String value |
+|----|-----|
+| `ENABLE_EXECUTION_EVENTS` | `aws:cdk:operations:executionevents` |
+| `ENABLE_METRICS` | `aws:cdk:operations:metrics` |
+| `ARTIFACT_RETENTION_DAYS` | `aws:cdk:operations:artifactretentiondays` |
+| `PIPELINE_VARIABLES` | `aws:cdk:operations:variables` |
+
+## Encryption
+
+Control KMS encryption for pipeline artifacts and resources.
+
+| MetadataKeys constant | String value |
+|----|-----|
+| `KMS_KEY_ARN` | `aws:cdk:encryption:kmskeyarn` |
 
 ## Custom Build Keys
 

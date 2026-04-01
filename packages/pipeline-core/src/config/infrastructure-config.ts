@@ -113,7 +113,7 @@ export function loadDockerConfig(): BuildConfig {
   const validStrategies = new Set(['docker', 'kaniko', 'podman']);
   const strategyEnv = (process.env.DOCKER_BUILD_STRATEGY || '').toLowerCase();
   return {
-    strategy: validStrategies.has(strategyEnv) ? strategyEnv as BuildConfig['strategy'] : 'podman',
+    strategy: validStrategies.has(strategyEnv) ? strategyEnv as BuildConfig['strategy'] : 'docker',
     tempRoot: process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp'),
     timeoutMs: parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10),
     pushTimeoutMs: parseInt(process.env.DOCKER_PUSH_TIMEOUT_MS || '300000', 10),

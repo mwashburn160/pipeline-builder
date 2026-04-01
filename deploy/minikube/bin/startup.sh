@@ -188,13 +188,13 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 
 # -- Build strategy -----------------------------------------------------------
 
-CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-podman}"
+CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
 log "Plugin Build Strategy: $CURRENT_STRATEGY"
 if [ -t 0 ]; then
-  echo "  1) podman — standard (default)   2) docker — dind sidecar"
+  echo "  1) docker — dind sidecar (default)   2) podman — daemonless"
   read -rp "  Select [1-2] or Enter to keep '$CURRENT_STRATEGY': " choice
   case "$choice" in
-    1) SELECTED="podman" ;; 2) SELECTED="docker" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
+    1) SELECTED="docker" ;; 2) SELECTED="podman" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
   esac
   [ "$SELECTED" != "$CURRENT_STRATEGY" ] && sed -i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env" && echo "  Updated to $SELECTED"
 else
