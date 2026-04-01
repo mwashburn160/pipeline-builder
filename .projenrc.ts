@@ -24,12 +24,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* for local, or pin for npm
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.47.4',
-  pipelineData:   '1.48.4',
-  pipelineCore:   ws,
+  apiCore:        '1.47.5',
+  pipelineData:   '1.48.5',
+  pipelineCore:   '1.48.5',
   apiServer:      ws,
-  aiCore:         '1.19.4',
-  eventIngestion: '1.7.4',
+  aiCore:         '1.19.5',
+  eventIngestion: '1.7.5',
 };
 
 // =============================================================================
