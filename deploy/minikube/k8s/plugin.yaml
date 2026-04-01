@@ -78,7 +78,7 @@ spec:
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["SYS_CHROOT", "SETUID", "SETGID"]
+              add: ["SYS_CHROOT", "SETUID", "SETGID", "SYS_ADMIN"]
               drop: ["ALL"]
           ports:
             - containerPort: 3000
