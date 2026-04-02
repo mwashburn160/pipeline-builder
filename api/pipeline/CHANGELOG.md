@@ -1,3 +1,13 @@
+## 1.41.16 (2026-04-02)
+
+### 🩹 Fixes
+
+- updated ai filter ([a9d39da5](https://github.com/mwashburn160/pipeline-builder/commit/a9d39da5))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.15 (2026-04-02)
 
 ### 🩹 Fixes
