@@ -1,3 +1,13 @@
+## 1.25.15 (2026-04-02)
+
+### 🩹 Fixes
+
+- upgraded apiCore=1.47.16 ([0498cba4](https://github.com/mwashburn160/pipeline-builder/commit/0498cba4))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.25.14 (2026-04-02)
 
 ### 🩹 Fixes
