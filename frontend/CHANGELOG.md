@@ -1,3 +1,13 @@
+## 1.47.13 (2026-04-02)
+
+### 🩹 Fixes
+
+- refactored landing page ([039f00d8](https://github.com/mwashburn160/pipeline-builder/commit/039f00d8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.12 (2026-04-01)
 
 ### 🩹 Fixes
