@@ -1,3 +1,13 @@
+## 1.41.15 (2026-04-02)
+
+### 🩹 Fixes
+
+- add post-generation validation ([d2c40919](https://github.com/mwashburn160/pipeline-builder/commit/d2c40919))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.41.14 (2026-04-02)
 
 ### 🩹 Fixes
