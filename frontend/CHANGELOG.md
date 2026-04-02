@@ -1,3 +1,13 @@
+## 1.47.20 (2026-04-02)
+
+### 🩹 Fixes
+
+- updated ux ([205db421](https://github.com/mwashburn160/pipeline-builder/commit/205db421))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.19 (2026-04-02)
 
 ### 🩹 Fixes
