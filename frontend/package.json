@@ -51,7 +51,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.47.20",
+  "version": "1.47.21",
   "jest": {
     "coverageProvider": "v8",
     "testEnvironment": "node",

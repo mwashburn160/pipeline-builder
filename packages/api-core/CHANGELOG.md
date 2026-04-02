@@ -1,3 +1,13 @@
+## 1.47.16 (2026-04-02)
+
+### 🩹 Fixes
+
+- updated ollama resource limits ([eb2f7e70](https://github.com/mwashburn160/pipeline-builder/commit/eb2f7e70))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.15 (2026-04-02)
 
 ### 🩹 Fixes
