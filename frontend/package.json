@@ -32,7 +32,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.47.15",
+    "@mwashburn160/api-core": "1.47.17",
     "@mwashburn160/api-server": "1.44.15",
     "@mwashburn160/pipeline-core": "1.48.14",
     "framer-motion": "12.34.3",
@@ -51,7 +51,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.47.22",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testEnvironment": "node",
