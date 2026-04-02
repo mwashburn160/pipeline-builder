@@ -23,7 +23,7 @@ Parameters:
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:1.41.15
+    Default: ghcr.io/mwashburn160/pipeline:1.41.16
     Description: Docker image for the Pipeline service
 
   PluginImage:

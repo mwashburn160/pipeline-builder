@@ -422,7 +422,7 @@ services:
           memory: 512M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:1.41.15'
+    image: 'ghcr.io/mwashburn160/pipeline:1.41.16'
     container_name: pipeline
     restart: always
     stop_grace_period: 10s
