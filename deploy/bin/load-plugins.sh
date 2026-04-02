@@ -165,6 +165,7 @@ upload_one_plugin() {
       -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
       -H "Authorization: Bearer ${JWT_TOKEN}" \
       -H "x-org-id: system" \
+      -H "x-internal-service: true" \
       -F "plugin=@${plugin_dir}/plugin.zip" \
       -F "accessModifier=public" \
       --insecure 2>/dev/null || echo "000")
@@ -357,6 +358,7 @@ while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
     -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "x-org-id: system" \
+    -H "x-internal-service: true" \
     -F "plugin=@${plugin_dir}/plugin.zip" \
     -F "accessModifier=public" \
     --insecure 2>/dev/null || echo "000")

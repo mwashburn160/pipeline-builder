@@ -18,7 +18,7 @@ CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
-DATA_DIR="$DEPLOY_DIR/data"
+DATA_DIR="/mnt/data"
 DOMAIN="${DOMAIN:-}"
 
 # -- Helpers ------------------------------------------------------------------

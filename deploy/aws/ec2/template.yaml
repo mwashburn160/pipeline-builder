@@ -285,15 +285,15 @@ Resources:
             fi
 
             # Mount data volume
-            mkdir -p /mnt/pipeline-data
-            mount /dev/xvdf /mnt/pipeline-data
+            mkdir -p /mnt/data
+            mount /dev/xvdf /mnt/data
 
             # Persist mount across reboots
             DATA_UUID=$(blkid -s UUID -o value /dev/xvdf)
             if ! grep -q "$DATA_UUID" /etc/fstab; then
-              echo "UUID=$DATA_UUID /mnt/pipeline-data ext4 defaults,nofail 0 2" >> /etc/fstab
+              echo "UUID=$DATA_UUID /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
             fi
-            echo "Data volume mounted at /mnt/pipeline-data"
+            echo "Data volume mounted at /mnt/data"
 
             # Install git
             dnf install -y git

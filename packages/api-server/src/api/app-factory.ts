@@ -210,6 +210,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       standardHeaders: true,
       legacyHeaders: false,
       validate: { keyGeneratorIpFallback: false },
+      // Skip rate limiting for internal service calls (init scripts, inter-service)
+      skip: (req: Request) => req.headers['x-internal-service'] === 'true',
       // Per-org key: use orgId from JWT when available, fall back to IP
       keyGenerator: (req: Request) => {
         return getOrgId(req) || req.ip || 'anon';

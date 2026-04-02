@@ -63,6 +63,7 @@ upload_pipeline_single() {
       -H "Authorization: Bearer ${JWT_TOKEN}" \
       -H "Content-Type: application/json" \
       -H "x-org-id: system" \
+      -H "x-internal-service: true" \
       -d "$BODY" \
       --insecure 2>/dev/null || echo "000")
 
@@ -128,6 +129,7 @@ upload_pipelines_bulk() {
       -H "Authorization: Bearer ${JWT_TOKEN}" \
       -H "Content-Type: application/json" \
       -H "x-org-id: system" \
+      -H "x-internal-service: true" \
       -d "{\"pipelines\": ${BULK_PAYLOAD}}" \
       --insecure 2>/dev/null || echo -e "\n000")
 

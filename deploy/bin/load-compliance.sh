@@ -36,6 +36,7 @@ post_with_retry() {
       -k -s -o /dev/null -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $JWT_TOKEN" \
+      -H "x-internal-service: true" \
       -d @"$_file" 2>/dev/null || echo "000")
 
     _result="$(classify_status "$STATUS")"

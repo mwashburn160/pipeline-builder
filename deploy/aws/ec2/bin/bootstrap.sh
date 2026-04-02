@@ -92,6 +92,21 @@ echo "========================================"
 echo "Phase 3: Install Docker"
 echo "========================================"
 dnf install -y docker
+
+# Move Docker storage to dedicated data volume to prevent root disk exhaustion
+DATA_MOUNT="/mnt/data"
+DOCKER_DATA_ROOT="$DATA_MOUNT/docker"
+if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+  mkdir -p "$DOCKER_DATA_ROOT"
+  mkdir -p /etc/docker
+  cat > /etc/docker/daemon.json <<DAEMONJSON
+{
+  "data-root": "$DOCKER_DATA_ROOT"
+}
+DAEMONJSON
+  echo "  Docker data-root: $DOCKER_DATA_ROOT"
+fi
+
 systemctl enable docker
 systemctl start docker
 echo "  Docker installed and running"
@@ -181,15 +196,14 @@ else
   echo "  User 'minikube' already exists"
 fi
 
-# Symlink data directory to dedicated EBS volume (mounted by UserData)
-DATA_MOUNT="/mnt/pipeline-data"
-if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
-  echo "  Using dedicated data volume at $DATA_MOUNT"
-  chown minikube:minikube "$DATA_MOUNT"
-  ln -sfn "$DATA_MOUNT" "$DEPLOY_DIR/data"
+# Data directory on dedicated EBS volume (mounted by UserData at /mnt/data)
+if mountpoint -q "/mnt/data" 2>/dev/null; then
+  echo "  Using dedicated data volume at /mnt/data"
+  chown minikube:minikube /mnt/data
 else
-  echo "  WARNING: No data volume mounted at $DATA_MOUNT — using root volume"
-  mkdir -p "$DEPLOY_DIR/data"
+  echo "  WARNING: No data volume at /mnt/data — using root volume"
+  mkdir -p /mnt/data
+  chown minikube:minikube /mnt/data
 fi
 chown -R minikube:minikube "$DEPLOY_DIR"
 
