@@ -12,53 +12,59 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Fully qualified domain name for the application (e.g. app.example.com)
-    AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9\-]*(\.[a-zA-Z0-9][a-zA-Z0-9\-]*)+$
-    ConstraintDescription: Must be a valid fully qualified domain name
+    Description: Application hostname (custom domain or ALB DNS name)
+
+  BaseUrl:
+    Type: String
+    Default: ""
+    Description: >
+      Full base URL including protocol (e.g. https://app.example.com or
+      http://pb-alb-123.us-east-1.elb.amazonaws.com). When empty, defaults
+      to https://${DomainName}.
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:1.41.14
+    Default: ghcr.io/mwashburn160/platform:1.41.19
     Description: Docker image for the Platform service
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:1.41.16
+    Default: ghcr.io/mwashburn160/pipeline:1.41.21
     Description: Docker image for the Pipeline service
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:1.42.19-kaniko
+    Default: ghcr.io/mwashburn160/plugin:1.42.24-kaniko
     Description: Docker image for the Plugin service
 
   QuotaImage:
     Type: String
-    Default: ghcr.io/mwashburn160/quota:1.39.14
+    Default: ghcr.io/mwashburn160/quota:1.39.19
     Description: Docker image for the Quota service
 
   BillingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/billing:1.25.14
+    Default: ghcr.io/mwashburn160/billing:1.25.19
     Description: Docker image for the Billing service
 
   MessageImage:
     Type: String
-    Default: ghcr.io/mwashburn160/message:1.23.14
+    Default: ghcr.io/mwashburn160/message:1.23.19
     Description: Docker image for the Message service
 
   ReportingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/reporting:1.4.14
+    Default: ghcr.io/mwashburn160/reporting:1.4.19
     Description: Docker image for the Reporting service
 
   ComplianceImage:
     Type: String
-    Default: ghcr.io/mwashburn160/compliance:1.7.14
+    Default: ghcr.io/mwashburn160/compliance:1.7.19
     Description: Docker image for the Compliance service
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:1.47.20
+    Default: ghcr.io/mwashburn160/frontend:1.47.26
     Description: Docker image for the Frontend service
 
   OllamaImage:
@@ -87,6 +93,9 @@ Parameters:
   DefaultDesiredCount:
     Type: Number
     Default: 1
+
+Conditions:
+  HasBaseUrl: !Not [!Equals [!Ref BaseUrl, ""]]
 
 Resources:
 
@@ -137,7 +146,7 @@ Resources:
                 Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -304,22 +313,22 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: platform
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -481,9 +490,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: pipeline
             - Name: OLLAMA_BASE_URL
@@ -500,21 +509,21 @@ Resources:
               Value: "3000"
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: ANTHROPIC_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ANTHROPIC_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ANTHROPIC_API_KEY::"
             - Name: OPENAI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:OPENAI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:OPENAI_API_KEY::"
             - Name: GOOGLE_GENERATIVE_AI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -688,9 +697,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: plugin
             - Name: IMAGE_REGISTRY_HOST
@@ -724,25 +733,25 @@ Resources:
               SourceVolume: plugin-uploads
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: IMAGE_REGISTRY_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_USER::"
             - Name: IMAGE_REGISTRY_TOKEN
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
             - Name: ANTHROPIC_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ANTHROPIC_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ANTHROPIC_API_KEY::"
             - Name: OPENAI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:OPENAI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:OPENAI_API_KEY::"
             - Name: GOOGLE_GENERATIVE_AI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -904,22 +913,22 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: quota
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1081,9 +1090,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED
@@ -1092,15 +1101,15 @@ Resources:
               Value: stub
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1262,20 +1271,20 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: message
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1423,18 +1432,18 @@ Resources:
             - Name: DATABASE
               Value: pipeline_builder
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: reporting
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1598,18 +1607,18 @@ Resources:
             - Name: PIPELINE_SERVICE_PORT
               Value: "3000"
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: SERVICE_NAME
               Value: compliance
           Secrets:
             - Name: JWT_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
             - Name: DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -1751,7 +1760,7 @@ Resources:
               SourceVolume: tmp
           Environment:
             - Name: NEXT_PUBLIC_API_URL
-              Value: !Sub "https://${DomainName}"
+              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
             - Name: PLATFORM_BASE_URL
               Value: "http://nginx.pipeline-builder.local:8080"
           HealthCheck:

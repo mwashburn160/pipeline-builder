@@ -11,7 +11,8 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Fully qualified domain name for the application (used for tagging)
+    Default: ""
+    Description: Application hostname (custom domain or ALB DNS name)
 
   AppSecretsName:
     Type: String
@@ -85,7 +86,7 @@ Resources:
               Value: pipeline_builder
           Secrets:
             - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
           MountPoints:
             - SourceVolume: postgres-data
               ContainerPath: /var/lib/postgresql/data
@@ -233,7 +234,7 @@ Resources:
               Value: platform
           Secrets:
             - Name: MONGO_INITDB_ROOT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
           MountPoints:
             - SourceVolume: mongodb-data
               ContainerPath: /data/db
@@ -279,7 +280,7 @@ Resources:
               Value: admin
           Secrets:
             - Name: MONGO_INITDB_ROOT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
           LogConfiguration:
             LogDriver: awslogs
             Options:

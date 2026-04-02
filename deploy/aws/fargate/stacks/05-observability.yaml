@@ -11,7 +11,12 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Fully qualified domain name for the application (used for Grafana root URL)
+    Description: Application hostname (custom domain or ALB DNS name)
+
+  BaseUrl:
+    Type: String
+    Default: ""
+    Description: Full base URL including protocol. When empty, defaults to https://${DomainName}.
 
   AppSecretsName:
     Type: String
@@ -32,6 +37,13 @@ Parameters:
   DefaultDesiredCount:
     Type: Number
     Default: 1
+  PrometheusRetentionDays:
+    Type: Number
+    Default: 7
+    Description: Number of days to retain Prometheus metrics data
+
+Conditions:
+  HasBaseUrl: !Not [!Equals [!Ref BaseUrl, ""]]
 
 Resources:
 
@@ -107,7 +119,7 @@ Resources:
           Command:
             - "--config.file=/shared-config/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
-            - "--storage.tsdb.retention.time=7d"
+            - !Sub "--storage.tsdb.retention.time=${PrometheusRetentionDays}d"
             - "--web.console.libraries=/usr/share/prometheus/console_libraries"
             - "--web.console.templates=/usr/share/prometheus/consoles"
           MountPoints:
@@ -376,8 +388,7 @@ Resources:
                 aws s3 cp s3://${ConfigBucket}/grafana/prometheus.yml /shared-config/provisioning/datasources/prometheus.yml &&
                 aws s3 cp s3://${ConfigBucket}/grafana/loki.yml /shared-config/provisioning/datasources/loki.yml &&
                 aws s3 cp s3://${ConfigBucket}/grafana/dashboards.yml /shared-config/provisioning/dashboards/dashboards.yml &&
-                aws s3 cp s3://${ConfigBucket}/grafana/api-metrics.json /shared-config/dashboards/api-metrics.json &&
-                aws s3 cp s3://${ConfigBucket}/grafana/service-logs.json /shared-config/dashboards/service-logs.json
+                aws s3 sync s3://${ConfigBucket}/grafana/ /shared-config/dashboards/ --exclude "*.yml" --exclude "*.yaml"
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           Environment:
@@ -406,7 +417,10 @@ Resources:
               Protocol: tcp
           Environment:
             - Name: GF_SERVER_ROOT_URL
-              Value: !Sub "https://${DomainName}/grafana/"
+              Value: !If
+                - HasBaseUrl
+                - !Sub "${BaseUrl}/grafana/"
+                - !Sub "https://${DomainName}/grafana/"
             - Name: GF_SERVER_SERVE_FROM_SUB_PATH
               Value: "true"
             - Name: GF_SECURITY_ADMIN_USER
@@ -425,7 +439,7 @@ Resources:
               Value: "true"
           Secrets:
             - Name: GF_SECURITY_ADMIN_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GRAFANA_ADMIN_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GRAFANA_ADMIN_PASSWORD::"
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume

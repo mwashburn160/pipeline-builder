@@ -4,7 +4,7 @@ datasources:
     type: prometheus
     uid: prometheus
     access: proxy
-    url: http://prometheus:9090
+    url: http://prometheus.pipeline-builder.local:9090
     isDefault: false
     editable: false
     jsonData:

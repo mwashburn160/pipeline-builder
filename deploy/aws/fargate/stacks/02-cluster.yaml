@@ -12,7 +12,14 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Domain name used for resource tagging.
+    Default: ""
+    Description: Application hostname (custom domain or ALB DNS name)
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: CloudWatch log group retention in days
 
 Resources:
   # ---------------------------------------------------------------------------
@@ -49,7 +56,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
       Policies:
         - PolicyName: TaskExecutionInlinePolicy
           PolicyDocument:
@@ -60,14 +67,14 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*"
+                  - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*"
               - Sid: CloudWatchLogsAccess
                 Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource:
-                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pipeline-builder/*:*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pipeline-builder/*:*"
               - Sid: ECRAuthToken
                 Effect: Allow
                 Action:
@@ -80,7 +87,7 @@ Resources:
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
                 Resource:
-                  - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+                  - !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
       Tags:
         - Key: Project
           Value: pipeline-builder
@@ -118,12 +125,32 @@ Resources:
                 Action:
                   - elasticfilesystem:ClientMount
                   - elasticfilesystem:ClientWrite
-                  - elasticfilesystem:ClientRootAccess
                 Resource:
                   - !Sub
-                    - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${FileSystemId}"
+                    - "arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${FileSystemId}"
                     - FileSystemId: !ImportValue
                         Fn::Sub: "${StackPrefix}-EFSFileSystemId"
+                Condition:
+                  StringEquals:
+                    "elasticfilesystem:AccessPointArn":
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-PostgresAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-MongodbAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-RegistryAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-PrometheusAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-LokiAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-GrafanaAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-OllamaAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-PgadminAccessPointArn"
+                      - !ImportValue
+                        Fn::Sub: "${StackPrefix}-KanikoCacheAccessPointArn"
       Tags:
         - Key: Project
           Value: pipeline-builder
@@ -329,189 +356,231 @@ Resources:
   # ---------------------------------------------------------------------------
   NginxLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/nginx
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PlatformLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/platform
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PipelineLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/pipeline
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PluginLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/plugin
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   QuotaLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/quota
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   BillingLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/billing
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   MessageLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/message
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   ReportingLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/reporting
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   ComplianceLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/compliance
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   FrontendLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/frontend
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PostgresLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/postgres
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   MongodbLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/mongodb
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   RedisLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/redis
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PrometheusLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/prometheus
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   LokiLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/loki
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   GrafanaLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/grafana
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   FluentBitLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/fluent-bit
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   RegistryLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/registry
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   PgadminLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/pgadmin
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   MongoExpressLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/mongo-express
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder
 
   OllamaLogGroup:
     Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: /pipeline-builder/ollama
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
       Tags:
         - Key: Project
           Value: pipeline-builder

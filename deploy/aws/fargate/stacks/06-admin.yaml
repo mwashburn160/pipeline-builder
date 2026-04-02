@@ -11,7 +11,8 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Fully qualified domain name for the application (used for tagging)
+    Default: ""
+    Description: Application hostname (custom domain or ALB DNS name)
 
   AppSecretsName:
     Type: String
@@ -51,7 +52,7 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       Cpu: "512"
-      Memory: "512"
+      Memory: "1024"
       ExecutionRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
@@ -79,7 +80,7 @@ Resources:
               Value: /var/lib/registry
           Secrets:
             - Name: REGISTRY_HTTP_SECRET
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
           MountPoints:
             - SourceVolume: registry-data
               ContainerPath: /var/lib/registry
@@ -195,9 +196,9 @@ Resources:
               Value: /pgadmin
           Secrets:
             - Name: PGADMIN_DEFAULT_EMAIL
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_EMAIL::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_EMAIL::"
             - Name: PGADMIN_DEFAULT_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PGADMIN_DEFAULT_PASSWORD::"
           MountPoints:
             - SourceVolume: pgadmin-data
               ContainerPath: /var/lib/pgadmin
@@ -304,15 +305,15 @@ Resources:
               Value: "true"
           Secrets:
             - Name: ME_CONFIG_BASICAUTH_USERNAME
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_USERNAME::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_USERNAME::"
             - Name: ME_CONFIG_BASICAUTH_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_PASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_PASSWORD::"
             - Name: ME_CONFIG_MONGODB_ADMINUSERNAME
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINUSERNAME::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINUSERNAME::"
             - Name: ME_CONFIG_MONGODB_ADMINPASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINPASSWORD::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_MONGODB_ADMINPASSWORD::"
             - Name: ME_CONFIG_MONGODB_URL
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -476,7 +477,7 @@ Resources:
   RegistryUIDiscovery:
     Type: AWS::ServiceDiscovery::Service
     Properties:
-      Name: registry-express
+      Name: registry-ui
       NamespaceId:
         Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
       DnsConfig:

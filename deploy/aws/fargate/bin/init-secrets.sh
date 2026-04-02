@@ -10,7 +10,7 @@
 # the new secrets. Consider setting a calendar reminder or using AWS Config
 # rules to enforce rotation schedules.
 #
-# Usage: bash bin/init-secrets.sh --domain pipeline.example.com
+# Usage: bash bin/init-secrets.sh [--domain pipeline.example.com] [--ghcr-token ghp_xxx]
 # =============================================================================
 set -euo pipefail
 
@@ -36,14 +36,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [ -z "$DOMAIN" ]; then
-  echo "ERROR: --domain is required"
-  echo "Usage: bash bin/init-secrets.sh --domain pipeline.example.com [--ghcr-token ghp_xxx]"
-  exit 1
-fi
-
 echo "=== Pipeline Builder - Secrets Initialization ==="
-echo "  Domain: $DOMAIN"
+echo "  Domain: ${DOMAIN:-"(none)"}"
 echo "  Region: $REGION"
 echo "  Secret: $SECRET_NAME"
 
@@ -76,7 +70,7 @@ SECRETS_JSON=$(cat <<EOF
   "ME_CONFIG_BASICAUTH_PASSWORD": "${ME_BASICAUTH_PASSWORD}",
   "ME_CONFIG_MONGODB_ADMINUSERNAME": "mongo",
   "ME_CONFIG_MONGODB_ADMINPASSWORD": "${MONGO_PASSWORD}",
-  "PGADMIN_DEFAULT_EMAIL": "admin@${DOMAIN}",
+  "PGADMIN_DEFAULT_EMAIL": "admin@${DOMAIN:-localhost}",
   "PGADMIN_DEFAULT_PASSWORD": "${PGADMIN_PASSWORD}",
   "IMAGE_REGISTRY_USER": "admin",
   "IMAGE_REGISTRY_TOKEN": "${REGISTRY_TOKEN}",
@@ -148,7 +142,7 @@ echo "    PostgreSQL:    postgres / ${POSTGRES_PASSWORD}"
 echo "    MongoDB:       mongo / ${MONGO_PASSWORD}"
 echo "    Grafana:       admin / ${GRAFANA_ADMIN_PASSWORD}"
 echo "    Mongo Express: admin / ${ME_BASICAUTH_PASSWORD}"
-echo "    pgAdmin:       admin@${DOMAIN} / ${PGADMIN_PASSWORD}"
+echo "    pgAdmin:       admin@${DOMAIN:-localhost} / ${PGADMIN_PASSWORD}"
 echo "    Registry:      admin / ${REGISTRY_TOKEN}"
 echo ""
 echo "  IMPORTANT: Save these credentials. They are stored in Secrets Manager"

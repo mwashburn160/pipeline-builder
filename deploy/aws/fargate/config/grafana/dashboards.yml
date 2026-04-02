@@ -7,5 +7,5 @@ providers:
     disableDeletion: false
     editable: true
     options:
-      path: /etc/grafana/dashboards
+      path: /shared-config/dashboards
       foldersFromFilesStructure: false
