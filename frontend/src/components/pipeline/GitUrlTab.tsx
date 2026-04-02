@@ -408,28 +408,32 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {/* Ollama warning */}
         {showOllamaWarning && (
-          <div className="rounded-xl border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-4">
+          <div className="card p-5 border-2 border-[var(--pb-accent)]">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+              <div className="rounded-lg bg-[var(--pb-accent)] p-2 shrink-0">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
               <div>
-                <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                  Local model may produce limited results
+                <p className="text-sm font-bold text-[var(--pb-text)] mb-2">
+                  Local model — limited resources
                 </p>
-                <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-3 leading-relaxed">
-                  Ollama runs locally with limited CPU and memory. Pipeline generation may time out or produce
-                  incomplete results, especially with large repositories. For better results, consider using a
-                  cloud AI provider (Anthropic, OpenAI, Google, or xAI).
+                <p className="text-sm text-[var(--pb-text-muted)] mb-4 leading-relaxed">
+                  Ollama runs on this server with limited CPU and memory. Generation may be slow,
+                  time out, or produce incomplete results with large repositories.
                 </p>
-                <div className="flex items-center gap-2">
+                <p className="text-sm text-[var(--pb-text-muted)] mb-4">
+                  For better results, switch to a cloud provider: <strong>Anthropic</strong>, <strong>OpenAI</strong>, <strong>Google</strong>, or <strong>xAI</strong>.
+                </p>
+                <div className="flex items-center gap-3">
                   <button
                     onClick={() => { ollamaConfirmedRef.current = true; handleGenerate(); }}
-                    className="btn btn-primary btn-sm text-xs"
+                    className="btn btn-primary text-sm"
                   >
                     Continue with Ollama
                   </button>
                   <button
                     onClick={() => setShowOllamaWarning(false)}
-                    className="btn btn-ghost btn-sm text-xs"
+                    className="btn btn-secondary text-sm"
                   >
                     Cancel
                   </button>
