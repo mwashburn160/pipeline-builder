@@ -174,9 +174,17 @@ function buildPluginList(plugins: PluginSummary[]): string {
 
 // Zod Schema — BuilderProps structure for structured AI output
 
+const PluginFilterSchema = z.object({
+  version: z.string().optional().describe('Semantic version of the plugin'),
+  accessModifier: z.enum(['public', 'private']).optional().describe('Plugin visibility'),
+  isActive: z.boolean().optional().describe('Whether the plugin is active'),
+  isDefault: z.boolean().optional().describe('Whether to use the default version of this plugin'),
+}).optional().describe('Optional filter criteria for plugin resolution');
+
 const PluginOptionsSchema = z.object({
   name: z.string().describe('Plugin name (must match an available plugin)'),
   alias: z.string().optional().describe('Optional alias for the plugin instance'),
+  filter: PluginFilterSchema.describe('Plugin filter — set isDefault: true to use the default version'),
 });
 
 const StepCustomizationSchema = z.object({
@@ -290,9 +298,11 @@ ${pluginList}
 1. **project** and **organization** are required. Infer them from the user's description. Use lowercase with hyphens.
 2. **synth** is required and must include:
    - source: one of {type: "github", options: {repo: "owner/repo", branch?: "main"}}, {type: "s3", options: {bucketName: "..."}}, {type: "codestar", options: {repo: "owner/repo", connectionArn: "..."}}, or {type: "codecommit", options: {repositoryName: "..."}}
-   - plugin: {name: "cdk-synth"} — ALWAYS use "cdk-synth" as the synth plugin. This is required for all pipelines.
+   - plugin: {name: "cdk-synth", filter: {isDefault: true}} — ALWAYS use "cdk-synth" as the synth plugin with isDefault: true. This is required for all pipelines.
    Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
-3. **stages** are optional arrays of {stageName, steps: [{plugin: {name}, ...}]}
+3. **stages** are optional arrays of {stageName, steps: [{plugin: {name, filter: {isDefault: true}}, ...}]}
+   - Every plugin reference MUST include filter with at minimum isDefault: true
+   - Optional filter fields: version, accessModifier ("public"|"private"), isActive
 4. For source, default to "github" if the user mentions a repo. Default branch to "main" unless specified.
 5. trigger values: "NONE" (default, manual), "AUTO" (automatic on changes), or "SCHEDULE" (cron-based).
 6. Step position is "pre" (before deploy, default) or "post" (after deploy).
@@ -353,28 +363,40 @@ function validateGeneratedPlugins(
   const warnings: string[] = [];
   const pluginNames = new Set(availablePlugins.map(p => p.name));
 
-  // Enforce cdk-synth as the synth plugin
-  const synth = props.synth as { plugin?: { name?: string } } | undefined;
+  // Enforce cdk-synth as the synth plugin with filter
+  const synth = props.synth as { plugin?: { name?: string; filter?: Record<string, unknown> } } | undefined;
   const synthPlugin = synth?.plugin?.name;
-  if (synth && synthPlugin !== 'cdk-synth') {
-    if (synth.plugin) {
-      synth.plugin.name = 'cdk-synth';
+  if (synth) {
+    if (!synth.plugin) {
+      (synth as Record<string, unknown>).plugin = { name: 'cdk-synth', filter: { isDefault: true } };
     } else {
-      (synth as Record<string, unknown>).plugin = { name: 'cdk-synth' };
-    }
-    if (synthPlugin) {
-      warnings.push(`Synth plugin changed from "${synthPlugin}" to "cdk-synth" (required for all pipelines)`);
+      if (synthPlugin !== 'cdk-synth') {
+        warnings.push(`Synth plugin changed from "${synthPlugin}" to "cdk-synth" (required for all pipelines)`);
+        synth.plugin.name = 'cdk-synth';
+      }
+      if (!synth.plugin.filter) {
+        synth.plugin.filter = { isDefault: true };
+      } else if (synth.plugin.filter.isDefault === undefined) {
+        synth.plugin.filter.isDefault = true;
+      }
     }
   }
 
-  // Check stage step plugins
-  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: string } }> }> | undefined;
+  // Check stage step plugins and enforce filter.isDefault
+  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: string; filter?: Record<string, unknown> } }> }> | undefined;
   if (stages) {
     for (const stage of stages) {
       for (const step of stage.steps ?? []) {
         const name = step.plugin?.name;
         if (name && !pluginNames.has(name)) {
           warnings.push(`Stage plugin "${name}" not found in available plugins`);
+        }
+        if (step.plugin) {
+          if (!step.plugin.filter) {
+            step.plugin.filter = { isDefault: true };
+          } else if (step.plugin.filter.isDefault === undefined) {
+            step.plugin.filter.isDefault = true;
+          }
         }
       }
     }
