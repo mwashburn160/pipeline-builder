@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Search, Puzzle, Plus, Trash2, X, Upload } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
@@ -11,6 +12,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
@@ -22,11 +24,21 @@ import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import type { Plugin } from '@/types';
 
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="text-gray-900 dark:text-gray-100 font-mono text-xs mt-0.5">{value}</p>
+    </div>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────
 
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const toast = useToast();
   const canViewPublic = isSysAdmin;
 
   // ── Data ──
@@ -66,7 +78,7 @@ export default function PluginsPage() {
 
   const del = useDelete<Plugin>(
     (p) => api.deletePlugin(p.id),
-    list.refresh,
+    () => { list.refresh(); toast.success('Plugin deleted'); },
     (err) => list.setError(formatError(err, 'Failed to delete plugin')),
   );
 
@@ -102,9 +114,11 @@ export default function PluginsPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
+      const count = selectedIds.size;
       await api.bulkDeletePlugins(Array.from(selectedIds));
       clearSelection();
       list.refresh();
+      toast.success(`${count} plugin${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete plugins'));
     } finally {
@@ -116,9 +130,11 @@ export default function PluginsPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
+      const count = selectedIds.size;
       await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
       clearSelection();
       list.refresh();
+      toast.success(`${count} plugin${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} plugins`));
     } finally {
@@ -132,6 +148,7 @@ export default function PluginsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
+  const [viewPlugin, setViewPlugin] = useState<Plugin | null>(null);
 
   // ── Columns ──
 
@@ -221,10 +238,9 @@ export default function PluginsPage() {
       cellClassName: 'text-sm',
       render: (plugin) => (
         <div className="flex items-center space-x-3">
-          {canModify(isSysAdmin, plugin.accessModifier) ? (
+          <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
+          {canModify(isSysAdmin, plugin.accessModifier) && (
             <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
-          ) : (
-            <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
           {canModify(isSysAdmin, plugin.accessModifier) && (
             <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
@@ -355,6 +371,46 @@ export default function PluginsPage() {
 
       {editPlugin && (
         <EditPluginModal plugin={editPlugin} isSysAdmin={isSysAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
+      )}
+
+      {viewPlugin && (
+        <Modal title={viewPlugin.name} onClose={() => setViewPlugin(null)} maxWidth="max-w-lg">
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <Detail label="Version" value={viewPlugin.version} />
+              <Detail label="Category" value={viewPlugin.category || '—'} />
+              <Detail label="Type" value={viewPlugin.pluginType} />
+              <Detail label="Compute" value={viewPlugin.computeType} />
+              <Detail label="Access" value={viewPlugin.accessModifier} />
+              <Detail label="Timeout" value={viewPlugin.timeout ? `${viewPlugin.timeout} min` : '—'} />
+              <Detail label="Active" value={viewPlugin.isActive ? 'Yes' : 'No'} />
+              <Detail label="Default" value={viewPlugin.isDefault ? 'Yes' : 'No'} />
+            </div>
+            {viewPlugin.description && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</p>
+                <p className="text-gray-900 dark:text-gray-100">{viewPlugin.description}</p>
+              </div>
+            )}
+            {viewPlugin.keywords && viewPlugin.keywords.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Keywords</p>
+                <div className="flex flex-wrap gap-1">
+                  {viewPlugin.keywords.map((k: string, i: number) => (
+                    <span key={`${k}-${i}`} className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{k}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {viewPlugin.imageTag && (
+              <Detail label="Image Tag" value={viewPlugin.imageTag} />
+            )}
+            <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
+              <div>Created: {new Date(viewPlugin.createdAt).toLocaleString()}</div>
+              <div>Updated: {new Date(viewPlugin.updatedAt).toLocaleString()}</div>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Sticky bottom bulk actions bar */}

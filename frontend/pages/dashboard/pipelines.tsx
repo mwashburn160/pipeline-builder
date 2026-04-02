@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search, Trash2, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -25,6 +26,7 @@ import type { Pipeline, BuilderProps } from '@/types';
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const toast = useToast();
   const canViewPublic = isSysAdmin;
 
   // ── Data ──
@@ -60,7 +62,7 @@ export default function PipelinesPage() {
 
   const del = useDelete<Pipeline>(
     (p) => api.deletePipeline(p.id),
-    list.refresh,
+    () => { list.refresh(); toast.success('Pipeline deleted'); },
     (err) => list.setError(formatError(err, 'Failed to delete pipeline')),
   );
 
@@ -91,6 +93,7 @@ export default function PipelinesPage() {
     if (result?.success) {
       setCreateSuccess('Pipeline created successfully!');
       list.refresh();
+      toast.success('Pipeline created');
       setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
     }
   };
@@ -123,9 +126,11 @@ export default function PipelinesPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
+      const count = selectedIds.size;
       await api.bulkDeletePipelines(Array.from(selectedIds));
       clearSelection();
       list.refresh();
+      toast.success(`${count} pipeline${count > 1 ? 's' : ''} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete pipelines'));
     } finally {
@@ -137,9 +142,11 @@ export default function PipelinesPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
+      const count = selectedIds.size;
       await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
       clearSelection();
       list.refresh();
+      toast.success(`${count} pipeline${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} pipelines`));
     } finally {

@@ -6,8 +6,10 @@ import {
   Shield, Package, BarChart3,
   Cpu, Cloud, Server, Container,
   Bot, Globe, Zap, ArrowRight, Check, LogIn, Terminal, Sparkles,
+  Menu, X, Moon, Sun,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useDarkMode } from '@/hooks/useDarkMode';
 import { LoadingSpinner } from '@/components/ui/Loading';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +31,8 @@ const fadeUp = {
 
 function NavBar() {
   const [scrolled, setScrolled] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { isDark, toggle: toggleDark } = useDarkMode();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 32);
@@ -38,18 +42,33 @@ function NavBar() {
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-      scrolled
+      scrolled || mobileOpen
         ? 'bg-[var(--pb-surface)]/90 backdrop-blur-lg border-b border-[var(--pb-border)] shadow-sm'
         : 'bg-transparent'
     }`}>
       <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-        <a href="#top" className="font-serif text-lg font-bold text-[var(--pb-text)]">
+        <a href="#top" className="font-serif text-lg font-bold text-[var(--pb-text)]" aria-label="Pipeline Builder home">
           Pipeline Builder
         </a>
-        <Link href="/auth/register" className="btn btn-primary text-sm px-4 py-1.5">
-          Get Started
-        </Link>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleDark} className="p-2 text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors" aria-label="Toggle dark mode">
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+          <Link href="/auth/register" className="hidden sm:inline-flex btn btn-primary text-sm px-4 py-1.5">
+            Get Started
+          </Link>
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="sm:hidden p-2 text-[var(--pb-text-muted)]" aria-label="Menu">
+            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
+      {/* Mobile menu */}
+      {mobileOpen && (
+        <div className="sm:hidden border-t border-[var(--pb-border)] bg-[var(--pb-surface)] px-6 py-4 space-y-3">
+          <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-[var(--pb-text-muted)]">Sign in</a>
+          <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get Started</Link>
+        </div>
+      )}
     </nav>
   );
 }

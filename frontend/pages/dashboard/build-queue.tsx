@@ -343,8 +343,9 @@ export default function BuildQueuePage() {
           <Badge color="yellow">DLQ: {dlqTotal}</Badge>
         )}
         {lastUpdated && (
-          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-            Updated {lastUpdated.toLocaleTimeString()}
+          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            Auto-refresh {POLL_INTERVAL / 1000}s &middot; {lastUpdated.toLocaleTimeString()}
           </span>
         )}
       </motion.div>

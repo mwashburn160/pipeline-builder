@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { ChevronDown, Building2, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/components/ui/Toast';
+import { clearPluginCache } from '@/hooks/usePlugins';
 
 /**
  * Organization switcher dropdown.
@@ -9,6 +12,8 @@ import { useAuth } from '@/hooks/useAuth';
  */
 export function OrgSwitcher() {
   const { user, organizations, switchOrganization } = useAuth();
+  const toast = useToast();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -36,7 +41,11 @@ export function OrgSwitcher() {
     setSwitching(true);
     try {
       await switchOrganization(orgId);
+      clearPluginCache();
       setOpen(false);
+      const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
+      toast.success(`Switched to ${orgName}`);
+      router.replace(router.asPath);
     } finally {
       setSwitching(false);
     }

@@ -125,6 +125,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<RepoAnalysisData | null>(null);
     const [generatedProps, setGeneratedProps] = useState<BuilderProps | null>(null);
+    const [stageCount, setStageCount] = useState(0);
     const [generatedDescription, setGeneratedDescription] = useState('');
     const [generatedKeywords, setGeneratedKeywords] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -213,6 +214,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       setAnalyzing(true);
       setAnalysis(null);
       setGeneratedProps(null);
+      setStageCount(0);
       setPreviewJson(null);
       setGeneratedDescription('');
       setGeneratedKeywords('');
@@ -241,6 +243,8 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             case 'partial':
               if (event.data) {
                 setPreviewJson(formatJSON(event.data));
+                const d = event.data as Record<string, unknown>;
+                if (Array.isArray(d.stages)) setStageCount(d.stages.length);
               }
               break;
             case 'done':
@@ -432,7 +436,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                     Continue with Ollama
                   </button>
                   <button
-                    onClick={() => setShowOllamaWarning(false)}
+                    onClick={() => { setShowOllamaWarning(false); ollamaConfirmedRef.current = false; }}
                     className="btn btn-secondary text-sm"
                   >
                     Cancel
@@ -473,7 +477,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 {analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
               </p>
               <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                {analyzing ? 'Scanning files, languages, and frameworks' : 'AI is building your pipeline — this may take a minute with local models'}
+                {analyzing
+                  ? 'Scanning files, languages, and frameworks'
+                  : stageCount > 0
+                    ? `Building pipeline — ${stageCount} stage${stageCount > 1 ? 's' : ''} generated so far`
+                    : 'AI is building your pipeline — this may take a minute with local models'}
               </p>
             </div>
           </div>

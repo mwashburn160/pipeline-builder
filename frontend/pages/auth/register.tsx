@@ -27,7 +27,17 @@ export default function RegisterPage() {
   const [selectedPlan, setSelectedPlan] = useState('developer');
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
+
+  const validateField = (field: string, value: string) => {
+    let err = '';
+    if (field === 'username' && value && value.length < 3) err = 'Min 3 characters';
+    if (field === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = 'Invalid email';
+    if (field === 'password' && value && value.length < 8) err = 'Min 8 characters';
+    if (field === 'confirmPassword' && value && password && value !== password) err = 'Passwords do not match';
+    setFieldErrors(prev => ({ ...prev, [field]: err }));
+  };
 
   useEffect(() => {
     if (!billingEnabled) return;
@@ -57,7 +67,7 @@ export default function RegisterPage() {
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card p-8 max-w-xs text-center">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card p-8 max-w-xs text-center" role="status" aria-live="polite">
           <CheckCircle className="w-10 h-10 text-[var(--pb-success)] mx-auto mb-3" />
           <p className="font-bold">Account created!</p>
           <p className="text-sm text-[var(--pb-text-muted)] mt-1">Redirecting...</p>
@@ -86,11 +96,23 @@ export default function RegisterPage() {
             <form onSubmit={handleSubmit} className="space-y-3">
               {error && <div className="alert-error text-sm">{error}</div>}
 
-              <input id="reg-username" type="text" autoComplete="username" required className="input" placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isLoading} />
-              <input id="reg-email" type="email" autoComplete="email" required className="input" placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={isLoading} />
+              <div>
+                <input id="reg-username" type="text" autoComplete="username" required className={`input ${fieldErrors.username ? 'input-error' : ''}`} placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onBlur={() => validateField('username', username)} disabled={isLoading} />
+                {fieldErrors.username && <p className="form-error mt-1">{fieldErrors.username}</p>}
+              </div>
+              <div>
+                <input id="reg-email" type="email" autoComplete="email" required className={`input ${fieldErrors.email ? 'input-error' : ''}`} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isLoading} />
+                {fieldErrors.email && <p className="form-error mt-1">{fieldErrors.email}</p>}
+              </div>
               <input id="reg-org" type="text" className="input" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isLoading} />
-              <input id="reg-password" type="password" autoComplete="new-password" required className="input" placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isLoading} />
-              <input id="reg-confirm" type="password" autoComplete="new-password" required className="input" placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={isLoading} />
+              <div>
+                <input id="reg-password" type="password" autoComplete="new-password" required className={`input ${fieldErrors.password ? 'input-error' : ''}`} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isLoading} />
+                {fieldErrors.password && <p className="form-error mt-1">{fieldErrors.password}</p>}
+              </div>
+              <div>
+                <input id="reg-confirm" type="password" autoComplete="new-password" required className={`input ${fieldErrors.confirmPassword ? 'input-error' : ''}`} placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onBlur={() => validateField('confirmPassword', confirmPassword)} disabled={isLoading} />
+                {fieldErrors.confirmPassword && <p className="form-error mt-1">{fieldErrors.confirmPassword}</p>}
+              </div>
 
               {plans.length > 0 && (
                 <div className="grid grid-cols-3 gap-2 pt-1">
@@ -106,8 +128,10 @@ export default function RegisterPage() {
                           : 'border-[var(--pb-border)] hover:border-[var(--pb-text-muted)]'
                       }`}
                     >
-                      {selectedPlan === plan.id && <Check className="w-3 h-3 text-[var(--pb-brand)] float-right" />}
-                      <p className="font-bold">{plan.name}</p>
+                      <div className="flex items-start justify-between">
+                        <p className="font-bold">{plan.name}</p>
+                        {selectedPlan === plan.id && <Check className="w-3 h-3 text-[var(--pb-brand)] shrink-0" />}
+                      </div>
                       <p className="text-[var(--pb-brand)] font-bold mt-0.5">{formatPrice(plan.prices.monthly)}</p>
                     </button>
                   ))}
