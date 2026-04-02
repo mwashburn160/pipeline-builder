@@ -290,7 +290,7 @@ ${pluginList}
 1. **project** and **organization** are required. Infer them from the user's description. Use lowercase with hyphens.
 2. **synth** is required and must include:
    - source: one of {type: "github", options: {repo: "owner/repo", branch?: "main"}}, {type: "s3", options: {bucketName: "..."}}, {type: "codestar", options: {repo: "owner/repo", connectionArn: "..."}}, or {type: "codecommit", options: {repositoryName: "..."}}
-   - plugin: {name: "..."} — must reference an available plugin
+   - plugin: {name: "cdk-synth"} — ALWAYS use "cdk-synth" as the synth plugin. This is required for all pipelines.
    Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
 3. **stages** are optional arrays of {stageName, steps: [{plugin: {name}, ...}]}
 4. For source, default to "github" if the user mentions a repo. Default branch to "main" unless specified.
@@ -353,10 +353,18 @@ function validateGeneratedPlugins(
   const warnings: string[] = [];
   const pluginNames = new Set(availablePlugins.map(p => p.name));
 
-  // Check synth plugin
-  const synthPlugin = (props.synth as { plugin?: { name?: string } })?.plugin?.name;
-  if (synthPlugin && !pluginNames.has(synthPlugin)) {
-    warnings.push(`Synth plugin "${synthPlugin}" not found in available plugins`);
+  // Enforce cdk-synth as the synth plugin
+  const synth = props.synth as { plugin?: { name?: string } } | undefined;
+  const synthPlugin = synth?.plugin?.name;
+  if (synth && synthPlugin !== 'cdk-synth') {
+    if (synth.plugin) {
+      synth.plugin.name = 'cdk-synth';
+    } else {
+      (synth as Record<string, unknown>).plugin = { name: 'cdk-synth' };
+    }
+    if (synthPlugin) {
+      warnings.push(`Synth plugin changed from "${synthPlugin}" to "cdk-synth" (required for all pipelines)`);
+    }
   }
 
   // Check stage step plugins
