@@ -67,9 +67,10 @@ spec:
           args:
             - |
               ollama serve &
+              OLLAMA_PID=$!
               sleep 5
-              ollama pull ${OLLAMA_DEFAULT_MODEL:-llama3}
-              kill %1
+              ollama pull ${OLLAMA_DEFAULT_MODEL:-phi3:mini}
+              kill $OLLAMA_PID 2>/dev/null || true
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
