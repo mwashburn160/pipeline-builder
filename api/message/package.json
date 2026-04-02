@@ -36,9 +36,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.47.19",
-    "@mwashburn160/api-server": "1.44.18",
-    "@mwashburn160/pipeline-core": "1.48.17",
+    "@mwashburn160/api-core": "1.47.20",
+    "@mwashburn160/api-server": "1.44.19",
+    "@mwashburn160/pipeline-core": "1.48.18",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
     "pg": "8.18.0",
@@ -53,7 +53,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.23.18",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
