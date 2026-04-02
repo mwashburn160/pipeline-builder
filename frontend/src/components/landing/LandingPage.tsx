@@ -415,8 +415,6 @@ export default function LandingPage() {
       <Hero />
       <ValueProps />
       <AI />
-      <Plugins />
-      <Deploy />
       <CTA />
       <Footer />
     </div>
