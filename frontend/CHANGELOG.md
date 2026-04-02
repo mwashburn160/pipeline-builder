@@ -1,3 +1,13 @@
+## 1.47.19 (2026-04-02)
+
+### 🩹 Fixes
+
+- updated ux ([02f4fc92](https://github.com/mwashburn160/pipeline-builder/commit/02f4fc92))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.18 (2026-04-02)
 
 ### 🩹 Fixes
