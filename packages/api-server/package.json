@@ -60,7 +60,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.44.13",
+  "version": "1.44.14",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -1,3 +1,13 @@
+## 1.44.14 (2026-04-02)
+
+### 🩹 Fixes
+
+- added ebs storage ([1396a644](https://github.com/mwashburn160/pipeline-builder/commit/1396a644))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.13 (2026-04-02)
 
 ### 🩹 Fixes
