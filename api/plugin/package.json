@@ -39,10 +39,10 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/ai-core": "1.19.13",
-    "@mwashburn160/api-core": "1.47.14",
-    "@mwashburn160/api-server": "1.44.14",
-    "@mwashburn160/pipeline-core": "1.48.13",
+    "@mwashburn160/ai-core": "1.19.14",
+    "@mwashburn160/api-core": "1.47.15",
+    "@mwashburn160/api-server": "1.44.15",
+    "@mwashburn160/pipeline-core": "1.48.14",
     "adm-zip": "0.5.16",
     "bullmq": "5.34.8",
     "cors": "2.8.6",
@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.42.19",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
