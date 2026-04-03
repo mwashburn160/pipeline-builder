@@ -7,7 +7,7 @@ import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
 
-import { parsePluginZip, validateBuildArgs } from '../helpers/spec';
+import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec';
 import { createBuildJobData } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
 

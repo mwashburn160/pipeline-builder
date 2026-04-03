@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import path from 'path';
 import { ValidationError } from '@mwashburn160/api-core';
 import AdmZip from 'adm-zip';
-import { parsePluginZip, validateBuildArgs } from '../src/helpers/spec';
+import { parsePluginZip, validateBuildArgs } from '../src/helpers/plugin-spec';
 
 // Mock uuid to produce deterministic values
 jest.mock('uuid', () => ({

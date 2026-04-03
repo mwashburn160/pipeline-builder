@@ -16,7 +16,7 @@ import { Router, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import { validateBuildArgs } from '../helpers/spec';
+import { validateBuildArgs } from '../helpers/plugin-spec';
 import { createBuildJobData, generateImageTag } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
 
