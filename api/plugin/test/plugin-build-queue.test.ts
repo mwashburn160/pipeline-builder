@@ -155,7 +155,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       failureBehavior: 'fail',
       secrets: [],
       category: 'unknown',
-      buildType: 'dockerfile',
+      buildType: 'build_image',
     },
     ...overrides,
   };
