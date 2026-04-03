@@ -11,17 +11,6 @@ Shared AI provider registry for the pipeline-builder platform. Lazily initialize
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` | `@ai-sdk/google` |
 | xAI (Grok) | `XAI_API_KEY` | `@ai-sdk/xai` |
 | Amazon Bedrock | `AWS_ACCESS_KEY_ID` | `@ai-sdk/amazon-bedrock` |
-| Ollama (Local) | `OLLAMA_BASE_URL` | `@ai-sdk/openai-compatible` |
-
-## Ollama (Local LLM)
-
-Ollama runs locally and requires no API key. Set `OLLAMA_BASE_URL` (defaults to `http://localhost:11434/v1` when the env var is set) and pull a model:
-
-```bash
-ollama pull llama3
-```
-
-When `OLLAMA_BASE_URL` is configured, Ollama appears first in the provider list.
 
 ## Usage
 
@@ -37,7 +26,7 @@ import {
 const providers = getAvailableProviders();
 
 // Get models for a provider (static catalog, no env vars needed)
-const models = getProviderModels('ollama');
+const models = getProviderModels('anthropic');
 
 // Resolve a model from the registry (requires env var)
 const model = resolveModel('anthropic', 'claude-sonnet-4-20250514');

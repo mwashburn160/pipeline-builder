@@ -1,7 +1,15 @@
 import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { v7 as uuid } from 'uuid';
 
-import type { BuildRequest } from './docker-build';
+import type { BuildRequest, BuildType } from './docker-build';
+
+/** Plugin config parsed from config.yaml in the ZIP root. */
+export interface PluginConfig {
+  spec?: string;
+  dockerfile?: string;
+  buildType?: BuildType;
+  imageTar?: string;
+}
 
 // Image tag generation
 
@@ -20,6 +28,7 @@ export interface PluginRecordData {
   name: string;
   description: string | null;
   version: string;
+  category: string;
   metadata: Record<string, string | number | boolean>;
   pluginType: string;
   computeType: string;
@@ -34,6 +43,7 @@ export interface PluginRecordData {
   accessModifier: string;
   timeout: number | null;
   failureBehavior: string;
+  buildType: BuildType;
   secrets: Array<{ name: string; required: boolean; description?: string }>;
 }
 
@@ -71,6 +81,7 @@ export function createBuildJobData(params: CreateBuildJobParams): PluginBuildJob
     ...envelope,
     pluginRecord: {
       description: null,
+      category: 'unknown',
       metadata: {},
       pluginType: 'CodeBuildStep',
       computeType: 'SMALL',
@@ -82,6 +93,7 @@ export function createBuildJobData(params: CreateBuildJobParams): PluginBuildJob
       installCommands: [],
       timeout: null,
       failureBehavior: 'fail',
+      buildType: 'build_image',
       secrets: [],
       ...pluginRecord,
     },

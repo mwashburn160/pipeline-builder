@@ -1,5 +1,5 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
-import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
@@ -129,8 +129,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [generatedDescription, setGeneratedDescription] = useState('');
     const [generatedKeywords, setGeneratedKeywords] = useState('');
     const [error, setError] = useState<string | null>(null);
-    const [showOllamaWarning, setShowOllamaWarning] = useState(false);
-    const ollamaConfirmedRef = useRef(false);
     const [previewJson, setPreviewJson] = useState<string | null>(null);
     const [checkingPlugins, setCheckingPlugins] = useState(false);
     const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
@@ -200,14 +198,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         setError('Please select a provider and model.');
         return;
       }
-
-      // Show warning for Ollama — local models may struggle with large repos
-      if (ai.selectedProvider === 'ollama' && !ollamaConfirmedRef.current) {
-        setShowOllamaWarning(true);
-        return;
-      }
-      setShowOllamaWarning(false);
-      ollamaConfirmedRef.current = false;
 
       setError(null);
       setGenerating(true);
@@ -282,14 +272,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       }
     };
 
-    // Auto-generate when initialUrl + autoGenerate are set (skip if Ollama warning needed)
+    // Auto-generate when initialUrl + autoGenerate are set
     useEffect(() => {
       if (autoGenerate && initialUrl && ai.selectedProvider && ai.selectedModel && !ai.loading) {
-        if (ai.selectedProvider === 'ollama') {
-          setShowOllamaWarning(true);
-        } else {
-          handleGenerate();
-        }
+        handleGenerate();
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate to prevent infinite loops on prop changes
     }, [ai.loading]);
@@ -395,7 +381,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 onChange={(e) => ai.setCustomApiKey(e.target.value)}
                 placeholder={
                   ai.currentSource === 'none'
-                    ? (ai.selectedProvider === 'ollama' ? 'Ollama base URL (e.g., http://localhost:11434/v1)' : 'Enter API key for this provider')
+                    ? 'Enter API key for this provider'
                     : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
                 }
                 className="input text-sm"
@@ -409,43 +395,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             </div>
           )}
         </div>
-
-        {/* Ollama warning */}
-        {showOllamaWarning && (
-          <div className="card p-5 border-2 border-[var(--pb-accent)]">
-            <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-[var(--pb-accent)] p-2 shrink-0">
-                <AlertTriangle className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-[var(--pb-text)] mb-2">
-                  Local model — limited resources
-                </p>
-                <p className="text-sm text-[var(--pb-text-muted)] mb-4 leading-relaxed">
-                  Ollama runs on this server with limited CPU and memory. Generation may be slow,
-                  time out, or produce incomplete results with large repositories.
-                </p>
-                <p className="text-sm text-[var(--pb-text-muted)] mb-4">
-                  For better results, switch to a cloud provider: <strong>Anthropic</strong>, <strong>OpenAI</strong>, <strong>Google</strong>, or <strong>xAI</strong>.
-                </p>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => { ollamaConfirmedRef.current = true; handleGenerate(); }}
-                    className="btn btn-primary text-sm"
-                  >
-                    Continue with Ollama
-                  </button>
-                  <button
-                    onClick={() => { setShowOllamaWarning(false); ollamaConfirmedRef.current = false; }}
-                    className="btn btn-secondary text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Generate Button */}
         <div className="flex justify-end">

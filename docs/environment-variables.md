@@ -273,6 +273,5 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI API key |
 | `XAI_API_KEY` | xAI API key |
-| `OLLAMA_BASE_URL` | Ollama URL (default: `http://ollama:11434`) |
 
 At least one provider key is required for AI-powered pipeline and plugin generation. See the [AI plugins documentation](plugins/ai.md) for details on supported providers and models.

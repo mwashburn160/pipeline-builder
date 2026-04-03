@@ -214,7 +214,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
               onChange={(e) => ai.setCustomApiKey(e.target.value)}
               placeholder={
                 ai.currentSource === 'none'
-                  ? (ai.selectedProvider === 'ollama' ? 'Ollama base URL (e.g., http://localhost:11434/v1)' : 'Enter API key for this provider')
+                  ? 'Enter API key for this provider'
                   : ai.currentSource === 'org' ? 'Leave empty to use organization key' : 'Leave empty to use server key'
               }
               className="input text-sm"

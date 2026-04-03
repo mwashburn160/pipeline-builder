@@ -68,15 +68,6 @@ export const AI_PROVIDER_CATALOG: Record<string, AIProviderInfo> = {
       { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
     ],
   },
-  'ollama': {
-    id: 'ollama',
-    name: 'Ollama (Local)',
-    models: [
-      { id: 'tinyllama', name: 'TinyLlama (1.1B)' },
-      { id: 'phi3:mini', name: 'Phi-3 Mini (3.8B)' },
-      { id: 'llama3', name: 'Llama 3 (8B)' },
-    ],
-  },
 };
 
 /**
@@ -89,7 +80,6 @@ export const AI_PROVIDER_ENV_VARS: Record<string, string> = {
   'google': 'GOOGLE_GENERATIVE_AI_API_KEY',
   'xai': 'XAI_API_KEY',
   'amazon-bedrock': 'AWS_ACCESS_KEY_ID',
-  'ollama': 'OLLAMA_BASE_URL',
 };
 
 // Helpers

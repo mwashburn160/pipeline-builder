@@ -146,8 +146,6 @@ Resources:
                       - !ImportValue
                         Fn::Sub: "${StackPrefix}-GrafanaAccessPointArn"
                       - !ImportValue
-                        Fn::Sub: "${StackPrefix}-OllamaAccessPointArn"
-                      - !ImportValue
                         Fn::Sub: "${StackPrefix}-PgadminAccessPointArn"
                       - !ImportValue
                         Fn::Sub: "${StackPrefix}-KanikoCacheAccessPointArn"
@@ -574,17 +572,6 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
-  OllamaLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: /pipeline-builder/ollama
-      RetentionInDays: !Ref LogRetentionDays
-      Tags:
-        - Key: Project
-          Value: pipeline-builder
-
 # =============================================================================
 # Outputs
 # =============================================================================
@@ -773,8 +760,3 @@ Outputs:
     Export:
       Name: !Sub "${StackPrefix}-MongoExpressLogGroupName"
 
-  OllamaLogGroupName:
-    Description: CloudWatch log group for Ollama
-    Value: !Ref OllamaLogGroup
-    Export:
-      Name: !Sub "${StackPrefix}-OllamaLogGroupName"

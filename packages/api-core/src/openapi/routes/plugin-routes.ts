@@ -37,7 +37,7 @@ export function registerPluginRoutes(): void {
     method: 'post',
     path: '/plugins',
     summary: 'Upload a plugin',
-    description: 'Upload a plugin ZIP file with manifest. Builds Docker image and saves to database.',
+    description: 'Upload a plugin ZIP file with spec. Builds Docker image and saves to database.',
     tags,
     security: auth,
     responses: { 202: { description: 'Plugin build queued' }, 400: { description: 'Validation error' }, 429: { description: 'Quota exceeded' } },

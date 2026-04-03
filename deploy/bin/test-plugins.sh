@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validate all plugins: manifest schema, Dockerfile structure, optional Docker build.
+# Validate all plugins: spec schema, Dockerfile structure, optional Docker build.
 #
 # Usage:
 #   ./test-plugins.sh                       # test all plugins
 #   ./test-plugins.sh language/java         # test a specific plugin
-#   ./test-plugins.sh --manifest-only       # only validate manifests (no Docker checks)
+#   ./test-plugins.sh --spec-only           # only validate specs (no Docker checks)
 #   ./test-plugins.sh --build               # build Docker images (slow)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
-MANIFEST_ONLY=false
+SPEC_ONLY=false
 BUILD_IMAGES=false
 SPECIFIC_PLUGIN=""
 PASSED=0
@@ -26,14 +26,14 @@ ERRORS=()
 
 for arg in "$@"; do
   case "$arg" in
-    --manifest-only) MANIFEST_ONLY=true ;;
-    --build)         BUILD_IMAGES=true ;;
+    --spec-only) SPEC_ONLY=true ;;
+    --build)     BUILD_IMAGES=true ;;
     --help|-h)
       echo "Usage: $0 [options] [category/plugin]"
       echo ""
       echo "Options:"
-      echo "  --manifest-only  Only validate manifests (no Docker checks)"
-      echo "  --build          Build Docker images (slow, requires Docker)"
+      echo "  --spec-only  Only validate specs (no Docker checks)"
+      echo "  --build      Build Docker images (slow, requires Docker)"
       echo "  category/plugin  Test a specific plugin (e.g., language/java)"
       exit 0
       ;;
@@ -53,8 +53,8 @@ VALID_CATEGORIES=("language" "security" "quality" "monitoring" "artifact" "deplo
 
 # ---- Validation functions ----
 
-validate_manifest() {
-  local manifest="$1"
+validate_spec() {
+  local specfile="$1"
   local plugin_dir="$2"
   local plugin_name="$(basename "$plugin_dir")"
   local category="$(basename "$(dirname "$plugin_dir")")"
@@ -63,7 +63,7 @@ validate_manifest() {
 
   # Required fields
   for field in "${REQUIRED_FIELDS[@]}"; do
-    if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
+    if ! grep -q "^${field}:" "$specfile" 2>/dev/null; then
       log_fail "Missing required field: ${field}" "$fqn"
       all_pass=false
     fi
@@ -71,10 +71,10 @@ validate_manifest() {
 
   # CodeBuild-specific fields only required for CodeBuildStep plugins
   local plugin_type
-  plugin_type=$(get_manifest_field pluginType "$manifest")
+  plugin_type=$(get_spec_field pluginType "$specfile")
   if [ "$plugin_type" = "CodeBuildStep" ]; then
     for field in "${CODEBUILD_FIELDS[@]}"; do
-      if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
+      if ! grep -q "^${field}:" "$specfile" 2>/dev/null; then
         log_fail "Missing CodeBuild field: ${field}" "$fqn"
         all_pass=false
       fi
@@ -83,17 +83,17 @@ validate_manifest() {
 
   # V2 fields
   for field in "${V2_FIELDS[@]}"; do
-    if ! grep -q "^${field}:" "$manifest" 2>/dev/null; then
+    if ! grep -q "^${field}:" "$specfile" 2>/dev/null; then
       log_fail "Missing v2 field: ${field}" "$fqn"
       all_pass=false
     fi
   done
 
   # Name matches directory
-  local manifest_name
-  manifest_name=$(get_manifest_field name "$manifest")
-  if [ "$manifest_name" != "$plugin_name" ]; then
-    log_fail "Name mismatch: manifest='${manifest_name}' dir='${plugin_name}'" "$fqn"
+  local spec_name
+  spec_name=$(get_spec_field name "$specfile")
+  if [ "$spec_name" != "$plugin_name" ]; then
+    log_fail "Name mismatch: spec='${spec_name}' dir='${plugin_name}'" "$fqn"
     all_pass=false
   else
     log_pass "Name matches directory"
@@ -109,7 +109,7 @@ validate_manifest() {
 
   # Valid computeType
   local compute_type
-  compute_type=$(get_manifest_field computeType "$manifest")
+  compute_type=$(get_spec_field computeType "$specfile")
   if [[ ! " ${VALID_COMPUTE_TYPES[*]} " =~ " ${compute_type} " ]]; then
     log_fail "Invalid computeType: ${compute_type}" "$fqn"
     all_pass=false
@@ -119,7 +119,7 @@ validate_manifest() {
 
   # Valid semver
   local version
-  version=$(get_manifest_field version "$manifest")
+  version=$(get_spec_field version "$specfile")
   if ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     log_fail "Invalid version format: ${version} (expected semver)" "$fqn"
     all_pass=false
@@ -128,9 +128,9 @@ validate_manifest() {
   fi
 
   # Optional: failureBehavior
-  if grep -q "^failureBehavior:" "$manifest" 2>/dev/null; then
+  if grep -q "^failureBehavior:" "$specfile" 2>/dev/null; then
     local fb
-    fb=$(get_manifest_field failureBehavior "$manifest")
+    fb=$(get_spec_field failureBehavior "$specfile")
     if [[ ! " ${VALID_FAILURE_BEHAVIORS[*]} " =~ " ${fb} " ]]; then
       log_fail "Invalid failureBehavior: ${fb} (expected: fail|warn|ignore)" "$fqn"
       all_pass=false
@@ -140,9 +140,9 @@ validate_manifest() {
   fi
 
   # Optional: timeout
-  if grep -q "^timeout:" "$manifest" 2>/dev/null; then
+  if grep -q "^timeout:" "$specfile" 2>/dev/null; then
     local timeout_val
-    timeout_val=$(get_manifest_field timeout "$manifest")
+    timeout_val=$(get_spec_field timeout "$specfile")
     if ! echo "$timeout_val" | grep -qE '^[0-9]+$'; then
       log_fail "Invalid timeout: ${timeout_val} (expected integer minutes)" "$fqn"
       all_pass=false
@@ -152,14 +152,14 @@ validate_manifest() {
   fi
 
   # Valid category
-  if grep -q "^category:" "$manifest" 2>/dev/null; then
+  if grep -q "^category:" "$specfile" 2>/dev/null; then
     local cat_val
-    cat_val=$(get_manifest_field category "$manifest")
+    cat_val=$(get_spec_field category "$specfile")
     if [[ ! " ${VALID_CATEGORIES[*]} " =~ " ${cat_val} " ]]; then
       log_fail "Invalid category: ${cat_val} (expected: ${VALID_CATEGORIES[*]})" "$fqn"
       all_pass=false
     elif [ "$cat_val" != "$category" ]; then
-      log_fail "Category mismatch: manifest='${cat_val}' directory='${category}'" "$fqn"
+      log_fail "Category mismatch: spec='${cat_val}' directory='${category}'" "$fqn"
       all_pass=false
     else
       log_pass "Valid category: ${cat_val}"
@@ -168,7 +168,7 @@ validate_manifest() {
 
   # Description not empty
   local desc
-  desc=$(get_manifest_field description "$manifest")
+  desc=$(get_spec_field description "$specfile")
   if [ -z "$desc" ]; then
     log_fail "Empty description" "$fqn"
     all_pass=false
@@ -177,9 +177,9 @@ validate_manifest() {
   fi
 
   # Keywords not empty
-  if grep -q "^keywords:" "$manifest" 2>/dev/null; then
+  if grep -q "^keywords:" "$specfile" 2>/dev/null; then
     local keyword_count
-    keyword_count=$(grep -A 20 "^keywords:" "$manifest" | grep "^  - " | wc -l | tr -d ' ')
+    keyword_count=$(grep -A 20 "^keywords:" "$specfile" | grep "^  - " | wc -l | tr -d ' ')
     if [ "$keyword_count" -eq 0 ]; then
       log_fail "Empty keywords list" "$fqn"
       all_pass=false
@@ -188,7 +188,7 @@ validate_manifest() {
     fi
   fi
 
-  $all_pass && log_pass "Manifest schema valid"
+  $all_pass && log_pass "Spec schema valid"
 }
 
 validate_dockerfile() {
@@ -245,11 +245,25 @@ validate_plugin_zip() {
   fi
 
   local contents
-  contents=$(unzip -l "$zip_file" 2>/dev/null | grep -E "Dockerfile|manifest.yaml" | wc -l | tr -d ' ')
-  if [ "$contents" -lt 2 ]; then
-    log_fail "plugin.zip missing Dockerfile or manifest.yaml" "$fqn"
+  # Check for required files: spec.yaml (or config.yaml + spec.yaml) and Dockerfile
+  local has_spec has_dockerfile
+  has_spec=$(unzip -l "$zip_file" 2>/dev/null | grep -c "spec.yaml" | tr -d ' ')
+  has_dockerfile=$(unzip -l "$zip_file" 2>/dev/null | grep -c "Dockerfile" | tr -d ' ')
+  if [ "$has_spec" -lt 1 ] || [ "$has_dockerfile" -lt 1 ]; then
+    log_fail "plugin.zip missing Dockerfile or spec.yaml" "$fqn"
   else
-    log_pass "plugin.zip contains Dockerfile + manifest.yaml"
+    log_pass "plugin.zip contains Dockerfile + spec.yaml"
+  fi
+
+  # Check config.yaml is in zip if it exists on disk
+  if [ -f "${plugin_dir}/config.yaml" ]; then
+    local has_config
+    has_config=$(unzip -l "$zip_file" 2>/dev/null | grep -c "config.yaml" | tr -d ' ')
+    if [ "$has_config" -lt 1 ]; then
+      log_fail "plugin.zip missing config.yaml (exists on disk)" "$fqn"
+    else
+      log_pass "plugin.zip contains config.yaml"
+    fi
   fi
 }
 
@@ -257,19 +271,19 @@ test_plugin() {
   local plugin_dir="$1"
   local plugin_name="$(basename "$plugin_dir")"
   local category="$(basename "$(dirname "$plugin_dir")")"
-  local manifest="${plugin_dir}/manifest.yaml"
+  local specfile="${plugin_dir}/spec.yaml"
   local dockerfile="${plugin_dir}/Dockerfile"
 
   echo ""
   log_info "Testing ${category}/${plugin_name}"
 
-  if [ ! -f "$manifest" ]; then
-    log_fail "Missing manifest.yaml" "${category}/${plugin_name}"
+  if [ ! -f "$specfile" ]; then
+    log_fail "Missing spec.yaml" "${category}/${plugin_name}"
     return
   fi
 
   local plugin_type
-  plugin_type=$(get_manifest_field pluginType "$manifest")
+  plugin_type=$(get_spec_field pluginType "$specfile")
 
   # Only require Dockerfile for CodeBuildStep plugins
   if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "$dockerfile" ]; then
@@ -277,9 +291,9 @@ test_plugin() {
     return
   fi
 
-  validate_manifest "$manifest" "$plugin_dir"
+  validate_spec "$specfile" "$plugin_dir"
 
-  if [ "$MANIFEST_ONLY" = false ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
+  if [ "$SPEC_ONLY" = false ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
     validate_dockerfile "$dockerfile" "$plugin_dir"
     validate_plugin_zip "$plugin_dir"
   fi
@@ -290,7 +304,7 @@ test_plugin() {
 echo -e "${BLUE}Plugin Testing Framework${NC}"
 echo "========================"
 echo "  Plugins: ${PLUGINS_DIR}"
-echo "  Mode:    $([ "$MANIFEST_ONLY" = true ] && echo "manifest-only" || echo "full")$([ "$BUILD_IMAGES" = true ] && echo " +docker-build" || echo "")"
+echo "  Mode:    $([ "$SPEC_ONLY" = true ] && echo "spec-only" || echo "full")$([ "$BUILD_IMAGES" = true ] && echo " +docker-build" || echo "")"
 
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   plugin_path="${PLUGINS_DIR}/${SPECIFIC_PLUGIN}"

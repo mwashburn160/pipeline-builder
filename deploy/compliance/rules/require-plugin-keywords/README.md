@@ -1,6 +1,6 @@
 # require-plugin-keywords
 
-Requires plugins to include at least one keyword in their manifest. Keywords power catalog search and filtering.
+Requires plugins to include at least one keyword in their spec. Keywords power catalog search and filtering.
 
 **Target:** plugin
 **Severity:** warning
@@ -21,7 +21,7 @@ The plugin catalog supports keyword-based search and filtering. Plugins without 
 
 ## Remediation
 
-Add a `keywords` array to your plugin manifest:
+Add a `keywords` array to your plugin spec:
 
 ```yaml
 keywords:

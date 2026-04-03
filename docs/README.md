@@ -12,7 +12,7 @@
 ## Key Concepts
 
 - **Pipeline** — CI/CD definition composed of stages, each referencing plugins. Synthesized into AWS CDK stacks at deploy time.
-- **Plugin** — Reusable build step packaged as a Dockerfile + manifest. Runs as an isolated CodeBuild action inside CodePipeline.
+- **Plugin** — Reusable build step packaged as a Dockerfile + spec. Runs as an isolated CodeBuild action inside CodePipeline.
 - **Organization** — Multi-tenant isolation boundary. All resources are scoped to an org with RBAC access control.
 - **Compliance Rule** — Configurable constraint that validates plugins and pipelines before creation. Supports 18 operators, computed fields, and cross-field checks.
 - **Metadata Keys** — Typed configuration keys controlling CodePipeline and CodeBuild behavior (IAM, networking, compute). See [Metadata Keys](metadata-keys.md).

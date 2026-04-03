@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS plugins (
                              CHECK (failure_behavior IN ('fail', 'warn', 'ignore')),
     secrets                  JSONB NOT NULL DEFAULT '[]',
     dockerfile               TEXT,
+    build_type           VARCHAR(20) NOT NULL DEFAULT 'build_image',
     primary_output_directory VARCHAR(28),
     
     -- Runtime Configuration
@@ -203,7 +204,8 @@ ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAU
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile VARCHAR(100);
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile TEXT;
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS build_type VARCHAR(20) NOT NULL DEFAULT 'build_image';
 
 -- Pipelines table - add missing columns
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);

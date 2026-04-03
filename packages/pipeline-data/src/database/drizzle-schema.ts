@@ -135,6 +135,9 @@ export const plugin = pgTable('plugins', {
   imageTag: varchar('image_tag', { length: 255 })
     .notNull(),
   dockerfile: text('dockerfile'),
+  buildType: varchar('build_type', { length: 20 })
+    .default('build_image')
+    .notNull(),
 
   // Access and visibility
   accessModifier: varchar('access_modifier', { length: 10 })

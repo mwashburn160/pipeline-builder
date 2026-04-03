@@ -19,7 +19,7 @@ Next.js dashboard for the pipeline-builder platform. Provides pipeline managemen
 ### Pipeline Creation
 
 - **CreatePipelineModal** — Three-tab modal: Git URL (default), Upload, Wizard
-- **GitUrlTab** — Accepts a repo URL, analyzes it via backend (GitHub, GitLab, Bitbucket), streams AI-generated pipeline config. Includes editable Project/Organization fields, provider/model selection (Ollama pre-selected when available), and auto-plugin creation status.
+- **GitUrlTab** — Accepts a repo URL, analyzes it via backend (GitHub, GitLab, Bitbucket), streams AI-generated pipeline config. Includes editable Project/Organization fields, provider/model selection, and auto-plugin creation status.
 - **UploadConfigTab** — Paste or upload JSON pipeline config
 - **FormBuilderTab** — Multi-step wizard for manual pipeline configuration
 
@@ -35,7 +35,7 @@ Secondary actions: "Upload config" and "Create manually" open the modal on their
 
 ## AI Provider Selection
 
-The `useAIProviders` hook fetches available providers from the backend. When Ollama is available, it is sorted first and pre-selected as the default provider (no API key needed). Cloud providers (Anthropic, OpenAI, Google, xAI, Amazon Bedrock) require API keys configured on the server or provided per-request.
+The `useAIProviders` hook fetches available providers from the backend. Configured providers are sorted first. Cloud providers (Anthropic, OpenAI, Google, xAI, Amazon Bedrock) require API keys configured on the server or provided per-request.
 
 ## Simplified Filters
 

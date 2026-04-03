@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS plugins (
     name                VARCHAR(150) NOT NULL,
     description         TEXT,
     keywords            JSONB NOT NULL DEFAULT '{}',
-    version             VARCHAR(20) NOT NULL DEFAULT '1.0.0',
     category            VARCHAR(50) NOT NULL DEFAULT 'unknown',
+    version             VARCHAR(20) NOT NULL DEFAULT '1.0.0',
     metadata            JSONB NOT NULL DEFAULT '{}',
     
     -- Build Configuration
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS plugins (
                              CHECK (failure_behavior IN ('fail', 'warn', 'ignore')),
     secrets                  JSONB NOT NULL DEFAULT '[]',
     dockerfile               TEXT,
+    build_type           VARCHAR(20) NOT NULL DEFAULT 'build_image',
     primary_output_directory VARCHAR(28),
     
     -- Runtime Configuration
@@ -199,18 +200,41 @@ CREATE TABLE IF NOT EXISTS pipeline_events (
 -- ============================================================================
 
 -- Plugins table - add missing columns
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'unknown';
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE plugins ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile VARCHAR(100);
-ALTER TABLE plugins ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'unknown';
-CREATE INDEX IF NOT EXISTS idx_plugins_category ON plugins(category);
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS dockerfile TEXT;
+ALTER TABLE plugins ADD COLUMN IF NOT EXISTS build_type VARCHAR(20) NOT NULL DEFAULT 'build_image';
 
 -- Pipelines table - add missing columns
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS pipeline_name VARCHAR(150);
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
+
+-- ============================================================================
+-- ADMIN AUDIT LOG TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             TEXT NOT NULL,
+    user_email          TEXT,
+    org_id              VARCHAR(255),
+    action              VARCHAR(50) NOT NULL,
+    target_type         VARCHAR(50) NOT NULL,
+    target_id           VARCHAR(255),
+    target_name         VARCHAR(255),
+    detail              JSONB DEFAULT '{}',
+    ip_address          VARCHAR(45),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS admin_audit_user_idx ON admin_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS admin_audit_action_idx ON admin_audit_log(action);
+CREATE INDEX IF NOT EXISTS admin_audit_created_idx ON admin_audit_log(created_at);
+CREATE INDEX IF NOT EXISTS admin_audit_org_created_idx ON admin_audit_log(org_id, created_at);
 
 -- ============================================================================
 -- Triggers for automatic updated_at timestamp
@@ -260,6 +284,9 @@ CREATE INDEX IF NOT EXISTS idx_plugins_access_modifier
 CREATE INDEX IF NOT EXISTS idx_plugins_is_default
     ON plugins(name, is_default) WHERE is_default = true AND deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_plugins_category
+    ON plugins(category);
+
 CREATE INDEX IF NOT EXISTS idx_plugins_is_active
     ON plugins(is_active) WHERE deleted_at IS NULL;
 
@@ -269,6 +296,12 @@ CREATE INDEX IF NOT EXISTS idx_plugins_image_tag
 -- Plugins composite indexes (matching Drizzle schema)
 CREATE INDEX IF NOT EXISTS plugin_org_access_idx
     ON plugins(org_id, access_modifier);
+
+CREATE INDEX IF NOT EXISTS idx_plugins_org_created
+    ON plugins(org_id, created_at DESC) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_plugins_org_name
+    ON plugins(org_id, name) WHERE deleted_at IS NULL;
 
 -- Plugins unique constraint (required for ON CONFLICT upsert in plugin upload)
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_name_version_org_unique
@@ -307,6 +340,9 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_is_active
 -- Pipelines composite indexes (matching Drizzle schema)
 CREATE INDEX IF NOT EXISTS pipeline_org_access_idx
     ON pipelines(org_id, access_modifier);
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_org_created
+    ON pipelines(org_id, created_at DESC) WHERE deleted_at IS NULL;
 
 -- Pipelines unique constraint (required for ON CONFLICT upsert in pipeline create)
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
@@ -690,7 +726,8 @@ SELECT
     indexname,
     indexdef
 FROM pg_indexes
-WHERE tablename IN ('plugins', 'pipelines', 'messages', 'pipeline_registry', 'pipeline_events')
+WHERE tablename IN ('plugins', 'pipelines', 'messages', 'pipeline_registry', 'pipeline_events',
+    'compliance_policies', 'compliance_rules', 'compliance_scans', 'compliance_exemptions')
 ORDER BY tablename, indexname;
 
 \echo ''

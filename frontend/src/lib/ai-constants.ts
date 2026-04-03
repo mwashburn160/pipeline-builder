@@ -65,11 +65,6 @@ export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
     { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
     { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
   ],
-  ollama: [
-    { id: 'tinyllama', name: 'TinyLlama (1.1B)' },
-    { id: 'phi3:mini', name: 'Phi-3 Mini (3.8B)' },
-    { id: 'llama3', name: 'Llama 3 (8B)' },
-  ],
 };
 
 /**
@@ -82,14 +77,12 @@ export const AI_PROVIDER_NAMES: Record<string, string> = {
   google: 'Google',
   xai: 'xAI (Grok)',
   'amazon-bedrock': 'Amazon Bedrock',
-  ollama: 'Ollama (Local)',
 };
 
 /**
  * Returns a display label for a provider's source/configuration status.
  */
 export function getProviderSourceLabel(provider: AIProviderInfo): string {
-  if (provider.id === 'ollama' && provider.source !== 'none') return 'No API key needed';
   if (provider.source === 'none') return 'API key required';
   return provider.source;
 }

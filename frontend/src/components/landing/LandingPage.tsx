@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Shield, Package, BarChart3,
-  Cpu, Cloud, Server, Container,
+  Cloud, Server, Container,
   Bot, Globe, Zap, ArrowRight, Check, LogIn, Terminal, Sparkles,
   Menu, X, Moon, Sun,
 } from 'lucide-react';
@@ -231,7 +231,6 @@ function ValueProps() {
 // ---------------------------------------------------------------------------
 
 const aiProviders = [
-  { name: 'Ollama', icon: Cpu },
   { name: 'Anthropic', icon: Bot },
   { name: 'OpenAI', icon: Sparkles },
   { name: 'Google', icon: Globe },

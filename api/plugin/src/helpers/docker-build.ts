@@ -32,12 +32,16 @@ export interface RegistryInfo {
   insecure: boolean;
 }
 
+export type BuildType = 'build_image' | 'load_image';
+
 export interface BuildRequest {
   contextDir: string;
   dockerfile: string;
   imageTag: string;
   registry: RegistryInfo;
   buildArgs?: Record<string, string>;
+  buildType?: BuildType;
+  imageTarPath?: string;
 }
 
 export interface BuildResult {
@@ -176,6 +180,18 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   const s = strategies[cfg.strategy];
   const bin = s.binary(cfg);
 
+  switch (req.buildType) {
+    case 'load_image':
+      return loadAndPush(req, cfg, image, s, bin);
+    case 'build_image':
+    default:
+      return buildFromDockerfile(req, cfg, image, s, bin);
+  }
+}
+
+async function buildFromDockerfile(
+  req: BuildRequest, cfg: DockerBuildCfg, image: string, s: StrategyDef, bin: string,
+): Promise<BuildResult> {
   logger.info('Building image', { strategy: cfg.strategy, image });
 
   const authArgs = s.setupAuth(req.contextDir, req.registry);
@@ -189,6 +205,43 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
       await run(bin, push, cfg.pushTimeoutMs);
     } finally {
       s.cleanup(bin, image);
+    }
+  }
+
+  return { fullImage: image };
+}
+
+async function loadAndPush(
+  req: BuildRequest, cfg: DockerBuildCfg, image: string, s: StrategyDef, bin: string,
+): Promise<BuildResult> {
+  if (cfg.strategy === 'kaniko') {
+    throw new ValidationError('load_image build type is not supported with kaniko strategy');
+  }
+  if (!req.imageTarPath) {
+    throw new ValidationError('imageTarPath is required for load_image build type');
+  }
+
+  const tarPath = path.join(req.contextDir, req.imageTarPath);
+  logger.info('Loading image from tar', { strategy: cfg.strategy, image, tarPath });
+
+  const authArgs = s.setupAuth(req.contextDir, req.registry);
+
+  // Load the image tar and capture the loaded image name
+  const loadOutput = await runCapture(bin, ['load', '-i', tarPath], cfg.timeoutMs);
+  const loadedName = parseLoadedImageName(loadOutput);
+
+  // Re-tag to registry target
+  await run(bin, ['tag', loadedName, image], 30_000);
+
+  // Push
+  const push = s.pushCli(image, req.registry, authArgs);
+  if (push) {
+    try {
+      await run(bin, push, cfg.pushTimeoutMs);
+    } finally {
+      s.cleanup(bin, image);
+      // Also remove the loaded source image
+      try { execFileSync(bin, ['rmi', loadedName], { stdio: 'ignore' }); } catch { /* best-effort */ }
     }
   }
 
@@ -275,4 +328,43 @@ function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
     });
     child.on('error', (err) => { clearTimeout(timer); reject(err); });
   });
+}
+
+/** Like run() but captures and returns stdout. */
+function runCapture(binary: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let timedOut = false;
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+
+    child.stdout.on('data', (data: Buffer) => {
+      chunks.push(data);
+      for (const line of data.toString().split('\n').filter(Boolean)) logger.info(maskSecrets(line), { stream: 'stdout' });
+    });
+    child.stderr.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) logger.info(maskSecrets(line), { stream: 'stderr' });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (timedOut) reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      else if (code !== 0) reject(new Error(`Command failed with exit code ${code}`));
+      else resolve(Buffer.concat(chunks).toString());
+    });
+    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+/**
+ * Parse the image name from `docker load` / `podman load` output.
+ * Docker outputs: "Loaded image: name:tag"
+ * Podman outputs: "Loaded image(s): name:tag"
+ */
+function parseLoadedImageName(output: string): string {
+  const match = output.match(/Loaded image(?:\(s\))?:\s*(.+)/i);
+  if (!match?.[1]?.trim()) {
+    throw new Error(`Could not parse loaded image name from output: ${output.slice(0, 200)}`);
+  }
+  return match[1].trim();
 }

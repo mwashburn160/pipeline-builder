@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
       echo "Usage: $0 [options]"
       echo ""
       echo "Options:"
-      echo "  --dry-run              Validate manifests and rebuild zips, but skip upload"
+      echo "  --dry-run              Validate specs and rebuild zips, but skip upload"
       echo "  --rebuild              Force rebuild all plugin.zip files"
       echo "  --serial               Upload one at a time with delays (legacy mode)"
       echo "  --parallel N           Number of concurrent uploads (default: 4)"
@@ -69,35 +69,35 @@ done
 # ---- Helper functions ----
 
 is_eligible_plugin() {
-  [ -f "$1/manifest.yaml" ] || return 1
-  _pt=$(get_manifest_field pluginType "$1/manifest.yaml")
+  [ -f "$1/spec.yaml" ] || return 1
+  _pt=$(get_spec_field pluginType "$1/spec.yaml")
   [ "$_pt" = "ManualApprovalStep" ] || [ -f "$1/Dockerfile" ]
 }
 
-validate_manifest() {
-  manifest="$1"
+validate_spec() {
+  specfile="$1"
   plugin_name="$(basename "$2")"
   errors=""
-  _pt=$(get_manifest_field pluginType "$manifest")
+  _pt=$(get_spec_field pluginType "$specfile")
 
   for field in name description version pluginType computeType; do
-    grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}  Missing: ${field}\n"
+    grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}  Missing: ${field}\n"
   done
 
   if [ "$_pt" != "ManualApprovalStep" ]; then
     for field in primaryOutputDirectory dockerfile installCommands commands; do
-      grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}  Missing: ${field}\n"
+      grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}  Missing: ${field}\n"
     done
   fi
 
-  _mn=$(get_manifest_field name "$manifest")
-  [ "$_mn" = "$plugin_name" ] || errors="${errors}  Name mismatch: manifest='${_mn}' dir='${plugin_name}'\n"
+  _mn=$(get_spec_field name "$specfile")
+  [ "$_mn" = "$plugin_name" ] || errors="${errors}  Name mismatch: spec='${_mn}' dir='${plugin_name}'\n"
 
   [ "$_pt" = "CodeBuildStep" ] || [ "$_pt" = "ManualApprovalStep" ] || \
     errors="${errors}  Invalid pluginType: ${_pt}\n"
 
   if [ -n "$errors" ]; then
-    printf "    INVALID manifest:\n%b" "$errors" >&2
+    printf "    INVALID spec:\n%b" "$errors" >&2
     return 1
   fi
 }
@@ -105,23 +105,27 @@ validate_manifest() {
 maybe_rebuild_zip() {
   plugin_path="$1"
   zip_file="${plugin_path}/plugin.zip"
-  manifest="${plugin_path}/manifest.yaml"
+  specfile="${plugin_path}/spec.yaml"
+  config="${plugin_path}/config.yaml"
   dockerfile="${plugin_path}/Dockerfile"
 
-  zip_files="manifest.yaml"
-  [ -f "$dockerfile" ] && zip_files="Dockerfile manifest.yaml"
+  zip_files="spec.yaml"
+  [ -f "$config" ] && zip_files="config.yaml $zip_files"
+  [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
 
   if [ "$REBUILD" = true ] || [ ! -f "$zip_file" ]; then
     reason="Rebuilt plugin.zip"
-  elif [ "$manifest" -nt "$zip_file" ]; then
-    reason="Rebuilt plugin.zip (manifest changed)"
+  elif [ "$specfile" -nt "$zip_file" ]; then
+    reason="Rebuilt plugin.zip (spec changed)"
+  elif [ -f "$config" ] && [ "$config" -nt "$zip_file" ]; then
+    reason="Rebuilt plugin.zip (config changed)"
   elif [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ]; then
     reason="Rebuilt plugin.zip (Dockerfile changed)"
   else
     return 0
   fi
 
-  (cd "$plugin_path" && zip -q plugin.zip $zip_files)  # word-split intentional: 1-2 known filenames
+  (cd "$plugin_path" && zip -q plugin.zip $zip_files)  # word-split intentional: known filenames
   echo "    $reason"
 }
 
@@ -146,8 +150,8 @@ upload_one_plugin() {
   category="$(basename "$(dirname "$plugin_dir")")"
   label="${category}/${plugin_name}"
 
-  validate_manifest "$plugin_dir/manifest.yaml" "$plugin_dir" || {
-    echo "  FAIL $label (invalid manifest)"
+  validate_spec "$plugin_dir/spec.yaml" "$plugin_dir" || {
+    echo "  FAIL $label (invalid spec)"
     _increment_counter "failed"
     return
   }
@@ -323,10 +327,10 @@ label="${category}/${plugin_name}"
 
 # Validate
 errors=""
-manifest="$plugin_dir/manifest.yaml"
-_pt=$(get_manifest_field pluginType "$manifest")
+specfile="$plugin_dir/spec.yaml"
+_pt=$(get_spec_field pluginType "$specfile")
 for field in name description version pluginType computeType; do
-  grep -q "^${field}:" "$manifest" 2>/dev/null || errors="${errors}Missing ${field} "
+  grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}Missing ${field} "
 done
 if [ -n "$errors" ]; then
   echo "  FAIL $label ($errors)"
@@ -336,11 +340,14 @@ fi
 
 # Rebuild zip if needed
 zip_file="${plugin_dir}/plugin.zip"
-zip_files="manifest.yaml"
-[ -f "$plugin_dir/Dockerfile" ] && zip_files="Dockerfile manifest.yaml"
+config="$plugin_dir/config.yaml"
+zip_files="spec.yaml"
+[ -f "$config" ] && zip_files="config.yaml $zip_files"
+[ -f "$plugin_dir/Dockerfile" ] && zip_files="$zip_files Dockerfile"
 needs_rebuild=false
 [ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
-[ "$manifest" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+[ "$specfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+[ -f "$config" ] && [ "$config" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 [ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 if [ "$needs_rebuild" = true ]; then
   (cd "$plugin_dir" && zip -q plugin.zip $zip_files)

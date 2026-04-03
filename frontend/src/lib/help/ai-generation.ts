@@ -31,13 +31,12 @@ export const aiGenerationTopic: HelpTopic = {
             ['Google', 'Gemini 2.0 Flash, Gemini 2.5 Pro', 'GOOGLE_GENERATIVE_AI_API_KEY'],
             ['xAI (Grok)', 'Grok 3, Grok 3 Fast, Grok 3 Mini', 'XAI_API_KEY'],
             ['Amazon Bedrock', 'Claude 3.5 Sonnet, Nova Pro, Nova Lite', 'AWS_ACCESS_KEY_ID'],
-            ['Ollama (Local)', 'Llama 3, Code Llama, Mistral, etc.', 'OLLAMA_BASE_URL'],
           ],
         },
         {
           type: 'note',
           content:
-            'Providers are available when their API key is configured. Organization admins can configure API keys in Settings > AI Providers. Ollama runs locally and requires no API key.',
+            'Providers are available when their API key is configured. Organization admins can configure API keys in Settings > AI Providers.',
         },
       ],
     },
@@ -88,7 +87,7 @@ export const aiGenerationTopic: HelpTopic = {
           items: [
             'From the Plugins page, click "Create Plugin" and select the "AI Builder" tab.',
             'Describe the build environment and commands you need.',
-            'The AI generates both the manifest.yaml and Dockerfile.',
+            'The AI generates both the spec.yaml and Dockerfile.',
             'Review, edit if needed, then deploy the generated plugin.',
           ],
         },
@@ -116,32 +115,6 @@ export const aiGenerationTopic: HelpTopic = {
         {
           type: 'note',
           content: 'Supports GitHub, GitLab, Bitbucket, and self-hosted Git URLs (HTTPS, SSH, git@ formats).',
-        },
-      ],
-    },
-    {
-      id: 'ollama',
-      title: 'Ollama (Local AI)',
-      blocks: [
-        {
-          type: 'text',
-          content:
-            'Ollama runs locally and provides LLM inference with no API key required. When configured, it appears first in the provider list.',
-        },
-        {
-          type: 'table',
-          headers: ['Model', 'Command', 'Size'],
-          rows: [
-            ['Llama 3', 'docker exec ollama ollama pull llama3', '~4.7 GB'],
-            ['Code Llama', 'docker exec ollama ollama pull codellama', '~3.8 GB'],
-            ['Mistral', 'docker exec ollama ollama pull mistral', '~4.1 GB'],
-            ['DeepSeek Coder V2', 'docker exec ollama ollama pull deepseek-coder-v2', '~8.9 GB'],
-            ['Qwen 2.5 Coder', 'docker exec ollama ollama pull qwen2.5-coder', '~4.7 GB'],
-          ],
-        },
-        {
-          type: 'text',
-          content: 'Resource requirements: Minimum 8 GB RAM and 4 CPU cores for smaller models. 16 GB RAM recommended for 70B models. GPU optional but significantly improves speed.',
         },
       ],
     },

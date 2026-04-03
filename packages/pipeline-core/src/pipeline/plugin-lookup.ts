@@ -268,6 +268,7 @@ export class PluginLookup extends Construct {
       commands: ['echo "FALLBACK: Plugin lookup unresolved during synthesis — actual plugin will be resolved at deployment time"'],
       imageTag: 'no_image_tag',
       dockerfile: null,
+      buildType: 'dockerfile',
       accessModifier: 'public',
       isDefault: false,
       isActive: true,

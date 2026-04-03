@@ -21,7 +21,7 @@ The `latest` tag is mutable — the image it points to changes over time. This m
 
 ## Remediation
 
-Replace `latest` with a specific version tag in your plugin's Dockerfile or manifest:
+Replace `latest` with a specific version tag in your plugin's Dockerfile or spec:
 
 ```yaml
 # Before

@@ -66,10 +66,10 @@ export interface SynthOptions extends StepCustomization {
 }
 
 /**
- * Plugin manifest defining plugin behavior and requirements
- * This is typically loaded from a plugin definition file
+ * Plugin spec defining plugin behavior and requirements.
+ * This is typically loaded from a plugin spec file (spec.yaml).
  */
-export interface PluginManifest {
+export interface PluginSpec {
   /**
    * Unique identifier for the plugin
    * @example 'nodejs-build'
@@ -286,7 +286,7 @@ export interface CodeBuildStepOptions extends StepCustomization {
 
   /**
    * Plugin configuration from the database
-   * Contains all the plugin's manifest data and runtime information
+   * Contains all the plugin's spec data and runtime information
    */
   readonly plugin: Plugin;
 

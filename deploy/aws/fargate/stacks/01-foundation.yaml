@@ -510,23 +510,6 @@ Resources:
         - Key: Name
           Value: !Sub "${StackPrefix}-efs-grafana"
 
-  OllamaAccessPoint:
-    Type: AWS::EFS::AccessPoint
-    Properties:
-      FileSystemId: !Ref EFSFileSystem
-      PosixUser:
-        Uid: "0"
-        Gid: "0"
-      RootDirectory:
-        Path: /data/ollama
-        CreationInfo:
-          OwnerUid: "0"
-          OwnerGid: "0"
-          Permissions: "0755"
-      AccessPointTags:
-        - Key: Name
-          Value: !Sub "${StackPrefix}-efs-ollama"
-
   PgadminAccessPoint:
     Type: AWS::EFS::AccessPoint
     Properties:
@@ -700,12 +683,6 @@ Outputs:
     Value: !GetAtt GrafanaAccessPoint.Arn
     Export:
       Name: !Sub "${StackPrefix}-GrafanaAccessPointArn"
-
-  OllamaAccessPointArn:
-    Description: EFS Access Point ARN for Ollama
-    Value: !GetAtt OllamaAccessPoint.Arn
-    Export:
-      Name: !Sub "${StackPrefix}-OllamaAccessPointArn"
 
   PgadminAccessPointArn:
     Description: EFS Access Point ARN for pgAdmin

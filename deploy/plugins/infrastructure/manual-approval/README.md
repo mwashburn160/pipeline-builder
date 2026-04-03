@@ -37,6 +37,6 @@ This plugin runs as an AWS CDK `ManualApprovalStep` within the Pipeline Builder 
 
 | File | Description |
 |------|-------------|
-| `manifest.yaml` | Plugin configuration and build commands |
+| `spec.yaml` | Plugin configuration and build commands |
 | `plugin.zip` | Packaged plugin archive |
 | `README.md` | This documentation file |

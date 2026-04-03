@@ -13,7 +13,6 @@ resources:
   - mongodb.yaml
   - postgres.yaml
   - redis.yaml
-  - ollama.yaml
   - nginx.yaml
   - platform.yaml
   - pipeline.yaml

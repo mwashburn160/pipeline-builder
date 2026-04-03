@@ -26,20 +26,6 @@
 # AI PLUGINS
 # ═══════════════════════════════════════════════════════════════
 
-dockerfile_generator:
-  plugin: ai/dockerfile-generator
-  install_type: apt
-  note: "Node.js 24 via NodeSource + Ollama runtime. Model set via env var."
-  tools:
-    nodejs:
-      install_type: apt
-      versions: ["24"]
-      default: "24"
-    ollama_model:
-      install_type: script
-      versions: ["codellama:7b"]
-      default: "codellama:7b"
-
 dockerfile_multi_provider:
   plugin: ai/dockerfile-multi-provider
   install_type: none

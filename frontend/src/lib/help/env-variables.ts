@@ -169,7 +169,6 @@ export const envVariablesTopic: HelpTopic = {
             ['OPENAI_API_KEY', 'OpenAI API key'],
             ['GOOGLE_GENERATIVE_AI_API_KEY', 'Google AI API key'],
             ['XAI_API_KEY', 'xAI (Grok) API key'],
-            ['OLLAMA_BASE_URL', 'Ollama base URL (default: http://ollama:11434/v1)'],
           ],
         },
       ],

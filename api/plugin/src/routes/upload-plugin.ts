@@ -7,7 +7,7 @@ import { Config, CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response, RequestHandler } from 'express';
 import multer from 'multer';
 
-import { parsePluginZip, validateBuildArgs } from '../helpers/manifest';
+import { parsePluginZip, validateBuildArgs } from '../helpers/spec';
 import { createBuildJobData } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
 
@@ -80,38 +80,39 @@ export function createUploadPluginRoutes(
 
         // -- Parse & validate ZIP ---------------------------------------------
         const plugin = await parsePluginZip(zipPath);
-        validateBuildArgs(plugin.manifest.buildArgs);
+        validateBuildArgs(plugin.spec.buildArgs);
 
-        ctx.log('INFO', 'Manifest validated', {
-          pluginName: plugin.manifest.name,
-          version: plugin.manifest.version,
+        ctx.log('INFO', 'Spec validated', {
+          pluginName: plugin.spec.name,
+          version: plugin.spec.version,
         });
 
         // -- Compliance check (fail-closed) -----------------------------------
-        const m = plugin.manifest;
+        const s = plugin.spec;
         try {
           const complianceClient = createComplianceClient();
           const complianceResult = await complianceClient.validatePlugin(orgId, {
-            name: m.name,
-            version: m.version,
-            pluginType: m.pluginType,
-            computeType: m.computeType,
-            timeout: m.timeout,
-            failureBehavior: m.failureBehavior,
-            env: m.env,
-            buildArgs: m.buildArgs,
-            installCommands: m.installCommands,
-            commands: m.commands,
+            name: s.name,
+            version: s.version,
+            pluginType: s.pluginType,
+            computeType: s.computeType,
+            timeout: s.timeout,
+            failureBehavior: s.failureBehavior,
+            env: s.env,
+            buildArgs: s.buildArgs,
+            installCommands: s.installCommands,
+            commands: s.commands,
             accessModifier,
-            secrets: m.secrets,
+            secrets: s.secrets,
             imageTag: plugin.imageTag,
-            metadata: m.metadata,
-            keywords: m.keywords,
-          }, req.headers.authorization || '', undefined, m.name, 'upload');
+            metadata: s.metadata,
+            keywords: s.keywords,
+            buildType: plugin.buildType,
+          }, req.headers.authorization || '', undefined, s.name, 'upload');
 
           if (complianceResult.blocked) {
             ctx.log('WARN', 'Plugin upload blocked by compliance', {
-              pluginName: m.name,
+              pluginName: s.name,
               violations: complianceResult.violations.length,
             });
             return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
@@ -121,7 +122,7 @@ export function createUploadPluginRoutes(
 
           if (complianceResult.warnings.length > 0) {
             ctx.log('WARN', 'Compliance warnings on plugin upload', {
-              pluginName: m.name,
+              pluginName: s.name,
               warnings: complianceResult.warnings.length,
             });
           }
@@ -144,39 +145,42 @@ export function createUploadPluginRoutes(
             dockerfile: plugin.dockerfile,
             imageTag: plugin.imageTag,
             registry,
-            buildArgs: m.buildArgs || {},
+            buildArgs: s.buildArgs || {},
+            buildType: plugin.buildType,
+            imageTarPath: plugin.imageTarPath ?? undefined,
           },
           pluginRecord: (() => {
-            const manifest = m as unknown as Record<string, unknown>;
-            const category = typeof manifest.category === 'string' ? manifest.category : 'unknown';
+            const raw = s as unknown as Record<string, unknown>;
+            const category = typeof raw.category === 'string' ? raw.category : 'unknown';
 
             return {
               orgId,
-              name: m.name,
-              description: m.description || null,
-              version: m.version || '0.0.0',
+              name: s.name,
+              description: s.description || null,
+              version: s.version || '0.0.0',
               category,
-              metadata: (m.metadata || {}) as Record<string, string | number | boolean>,
-              pluginType: m.pluginType || 'CodeBuildStep',
-              computeType: m.computeType || 'SMALL',
-              primaryOutputDirectory: m.primaryOutputDirectory || null,
+              metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
+              pluginType: s.pluginType || 'CodeBuildStep',
+              computeType: s.computeType || 'SMALL',
+              primaryOutputDirectory: s.primaryOutputDirectory || null,
               dockerfile: plugin.dockerfileContent,
-              env: m.env || {},
-              buildArgs: m.buildArgs || {},
-              keywords: m.keywords || [],
-              installCommands: m.installCommands || [],
-              commands: m.commands || [],
+              env: s.env || {},
+              buildArgs: s.buildArgs || {},
+              keywords: s.keywords || [],
+              installCommands: s.installCommands || [],
+              commands: s.commands || [],
               imageTag: plugin.imageTag,
               accessModifier,
-              timeout: m.timeout ?? null,
-              failureBehavior: m.failureBehavior || 'fail',
-              secrets: m.secrets || [],
+              timeout: s.timeout ?? null,
+              failureBehavior: s.failureBehavior || 'fail',
+              secrets: s.secrets || [],
+              buildType: plugin.buildType,
             };
           })(),
         });
 
         try {
-          await getQueue().add(`upload-${m.name}-${plugin.imageTag}`, jobData);
+          await getQueue().add(`upload-${s.name}-${plugin.imageTag}`, jobData);
         } catch (queueErr) {
           ctx.log('ERROR', 'Failed to enqueue build job', {
             error: queueErr instanceof Error ? queueErr.message : String(queueErr),
@@ -185,13 +189,13 @@ export function createUploadPluginRoutes(
         }
 
         ctx.log('INFO', 'Build queued', {
-          pluginName: m.name,
+          pluginName: s.name,
           imageTag: plugin.imageTag,
         });
 
         return sendSuccess(res, 202, {
           requestId: ctx.requestId,
-          pluginName: m.name,
+          pluginName: s.name,
           imageTag: plugin.imageTag,
         }, 'Plugin build queued');
       } finally {

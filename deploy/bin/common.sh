@@ -25,11 +25,11 @@ log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
 # ---------------------------------------------------------------------------
-# get_manifest_field — extract a top-level field from a manifest.yaml
-#   $1 field name   $2 manifest file path
+# get_spec_field — extract a top-level field from a YAML file (e.g. spec.yaml)
+#   $1 field name   $2 YAML file path
 #   Echoes the value (trimmed), empty string if not found
 # ---------------------------------------------------------------------------
-get_manifest_field() {
+get_spec_field() {
   grep "^${1}:" "$2" 2>/dev/null | head -1 | sed "s/^${1}: *//"
 }
 

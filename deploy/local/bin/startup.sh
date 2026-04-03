@@ -78,7 +78,6 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/grafana" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
-         "$DEPLOY_DIR/data/ollama-data" \
          "$DEPLOY_DIR/data/registry-data" \
          "$DEPLOY_DIR/data/pgadmin-data" \
          "$DEPLOY_DIR/data/uploads" \

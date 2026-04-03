@@ -42,18 +42,17 @@ Pipeline Builder turns plugin definitions and pipeline configs into fully deploy
 
 ### AI-Powered Generation
 
-The AI builder analyzes a Git repository and generates stages and plugins automatically. Supports local and cloud providers:
+The AI builder analyzes a Git repository and generates stages and plugins automatically. Supports cloud providers:
 
 | Provider | Models |
 |----------|--------|
-| Ollama (local) | Llama 3, Code Llama, Mistral, DeepSeek, Qwen |
 | Anthropic | Claude Sonnet 4, Claude Haiku 4.5 |
 | OpenAI | GPT-4o, GPT-4o Mini |
 | Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
 | Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
 
-Ollama runs locally with no API key. Cloud providers available when API keys are configured.
+Cloud providers are available when API keys are configured.
 
 ### 125 Pre-Built Plugins
 

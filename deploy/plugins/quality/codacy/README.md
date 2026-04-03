@@ -77,7 +77,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 
 | File | Description |
 |------|-------------|
-| `manifest.yaml` | Plugin configuration and build commands |
+| `spec.yaml` | Plugin configuration and build commands |
 | `Dockerfile` | Container image definition |
 | `plugin.zip` | Packaged plugin archive |
 | `README.md` | This documentation file |

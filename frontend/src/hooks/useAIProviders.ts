@@ -115,14 +115,11 @@ export function useAIProviders(
           }
         }
 
-        // Sort: configured providers first (Ollama first among those),
-        // then unconfigured providers alphabetically
+        // Sort: configured providers first, then unconfigured alphabetically
         merged.sort((a, b) => {
           const aConfigured = a.source !== 'none' ? 0 : 1;
           const bConfigured = b.source !== 'none' ? 0 : 1;
           if (aConfigured !== bConfigured) return aConfigured - bConfigured;
-          if (a.id === 'ollama') return -1;
-          if (b.id === 'ollama') return 1;
           return a.name.localeCompare(b.name);
         });
 

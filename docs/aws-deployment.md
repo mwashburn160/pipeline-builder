@@ -302,7 +302,7 @@ bash bin/init-platform.sh ec2
 | `init-platform.sh` | Register admin + load plugins + pipelines (interactive) |
 | `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
 | `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
-| `test-plugins.sh` | Validate plugin manifests and Dockerfiles |
+| `test-plugins.sh` | Validate plugin specs and Dockerfiles |
 
 ### 2. Store Service Credentials
 

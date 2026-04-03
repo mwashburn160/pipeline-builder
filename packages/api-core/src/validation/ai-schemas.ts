@@ -95,13 +95,13 @@ export const AIGenerateFromUrlBodySchema = z.object({
   /** Git repository URL (HTTPS, SSH, or git@ format). */
   gitUrl: z.string().min(1, 'A Git repository URL is required').max(500, 'URL must be 500 characters or fewer'),
 
-  /** AI provider identifier (e.g. "ollama", "anthropic", "openai"). */
+  /** AI provider identifier (e.g. "anthropic", "openai", "google"). */
   provider: z.string().min(1, 'A provider is required'),
 
-  /** AI model identifier (e.g. "llama3", "claude-sonnet-4-20250514"). */
+  /** AI model identifier (e.g. "claude-sonnet-4-20250514", "gpt-4o"). */
   model: z.string().min(1, 'A model is required'),
 
-  /** Optional custom API key (or base URL for Ollama) to override the server config. */
+  /** Optional custom API key to override the server config. */
   apiKey: z.string().min(1).optional(),
 
   /** Optional authentication token for accessing private repositories. */

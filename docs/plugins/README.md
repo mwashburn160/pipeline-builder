@@ -11,7 +11,7 @@ Pipeline Builder ships with **125 plugins** across **10 categories**, covering t
 - [Requirements](#requirements) -- How plugins work with CodePipeline
 - [Secrets Reference](#secrets-reference) -- Required credentials per plugin
 - [How Secrets Work](#how-secrets-work) -- Secrets Manager naming, setup, and IAM
-- [Plugin Structure](#plugin-structure) -- Dockerfile + manifest layout
+- [Plugin Structure](#plugin-structure) -- Dockerfile + spec layout
 - [Version Management](#version-management) -- Centralized version control and update process
 
 ---
@@ -178,7 +178,7 @@ flowchart LR
 ## Requirements
 
 - **All plugins run as AWS CodeBuild steps** (`CodeBuildStep` in `CodePipeline`). The Pipeline Builder CDK construct wires each plugin into the pipeline as an isolated build action.
-- **Each plugin consists of three files**: a `Dockerfile` that defines the build environment, a `manifest.yaml` that declares metadata and commands, and a `plugin.zip` that packages both for upload.
+- **Each plugin consists of three files**: a `Dockerfile` that defines the build environment, a `spec.yaml` that declares metadata and commands, and a `plugin.zip` that packages both for upload.
 - **Plugins requiring tokens or API keys inject them at runtime** via CodeBuild environment secrets (backed by AWS Secrets Manager or SSM Parameter Store). Secrets are **never** baked into the Dockerfile via `ENV` or `ARG` instructions.
 
 Refer to the [Secrets Reference](#secrets-reference) table below for a complete list of vendor plugins and their required secrets.
@@ -250,7 +250,7 @@ pipeline-builder/acme-corp/SNYK_TOKEN
 
 ### Setup Steps
 
-1. **Check which secrets a plugin requires** — look at the `secrets` field in the plugin's manifest or the [Secrets Reference](#secrets-reference) table above.
+1. **Check which secrets a plugin requires** — look at the `secrets` field in the plugin's spec or the [Secrets Reference](#secrets-reference) table above.
 
 2. **Create secrets in AWS Secrets Manager** in your AWS account:
    ```bash
@@ -270,7 +270,7 @@ When a pipeline is synthesized, the builder:
 3. At build time, AWS CodeBuild resolves the secret name from Secrets Manager and injects the plaintext value into the build environment
 
 ```yaml
-# What the plugin manifest declares:
+# What the plugin spec declares:
 secrets:
   - name: SNYK_TOKEN
     required: true
@@ -321,13 +321,13 @@ Every plugin follows the same three-file layout:
 graph LR
     ROOT["my-plugin/"]
     ROOT --- A["Dockerfile — Build environment definition"]
-    ROOT --- B["manifest.yaml — Plugin metadata, commands, env vars"]
+    ROOT --- B["spec.yaml — Plugin metadata, commands, env vars"]
     ROOT --- C["plugin.zip — Packaged artifact"]
 
     style ROOT fill:#4A90D9,color:#fff
 ```
 
-The `manifest.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:
+The `spec.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:
 
 ```yaml
 name: my-plugin

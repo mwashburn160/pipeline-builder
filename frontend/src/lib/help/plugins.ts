@@ -9,7 +9,7 @@ export interface PluginEntry {
   secrets: string[];
 }
 
-/** Canonical lowercase category IDs matching manifest.yaml and report-schema.json. */
+/** Canonical lowercase category IDs matching spec.yaml and report-schema.json. */
 export const PLUGIN_CATEGORIES = [
   'language',
   'security',
@@ -122,8 +122,7 @@ export const PLUGIN_CATALOG: PluginEntry[] = [
   { name: 'pagerduty-notify', category: 'notification', description: 'Pipeline failure alerts to PagerDuty', secrets: ['PAGERDUTY_ROUTING_KEY'] },
   { name: 'opsgenie-notify', category: 'notification', description: 'Pipeline failure alerts to Opsgenie', secrets: ['OPSGENIE_API_KEY'] },
   { name: 'discord-notify', category: 'notification', description: 'Pipeline status alerts to Discord', secrets: ['DISCORD_WEBHOOK_URL'] },
-  // AI (2)
-  { name: 'dockerfile-generator', category: 'ai', description: 'AI-powered Dockerfile generation (local Ollama)', secrets: [] },
+  // AI (1)
   { name: 'dockerfile-multi-provider', category: 'ai', description: 'AI-powered Dockerfile generation (cloud providers)', secrets: ['AI_API_KEY'] },
 ];
 
@@ -140,7 +139,7 @@ export const pluginsTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'Plugins are reusable build step definitions — a Dockerfile and manifest.yaml packaged as a ZIP. Create them once, reference them across pipelines. Every plugin runs as an isolated container step inside AWS CodePipeline.',
+            'Plugins are reusable build step definitions — a Dockerfile and spec.yaml packaged as a ZIP. Create them once, reference them across pipelines. Every plugin runs as an isolated container step inside AWS CodePipeline.',
         },
       ],
     },
@@ -210,7 +209,7 @@ export const pluginsTopic: HelpTopic = {
           type: 'list',
           items: [
             'Dockerfile — Defines the build environment.',
-            'manifest.yaml — Declares metadata, commands, secrets, and environment variables.',
+            'spec.yaml — Declares metadata, commands, secrets, and environment variables.',
             'plugin.zip — Packages both files for upload.',
           ],
         },
@@ -240,8 +239,8 @@ env:
       ],
     },
     {
-      id: 'manifest-fields',
-      title: 'Manifest Fields',
+      id: 'spec-fields',
+      title: 'Spec Fields',
       blocks: [
         {
           type: 'table',
@@ -280,7 +279,7 @@ env:
         {
           type: 'list',
           items: [
-            'Check which secrets a plugin requires — look at the secrets field in the manifest or the catalog above.',
+            'Check which secrets a plugin requires — look at the secrets field in the spec or the catalog above.',
             'Create secrets in AWS Secrets Manager: aws secretsmanager create-secret --name "pipeline-builder/my-org/SNYK_TOKEN" --secret-string "your-token"',
             'Deploy your pipeline — the builder automatically injects each declared secret as a SECRETS_MANAGER-type environment variable.',
           ],

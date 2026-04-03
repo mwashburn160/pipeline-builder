@@ -1179,7 +1179,7 @@ paths:
                 plugin:
                   type: string
                   format: binary
-                  description: ZIP archive containing manifest and Dockerfile
+                  description: ZIP archive containing spec and Dockerfile
                 accessModifier:
                   type: string
                   enum: [public, private]
