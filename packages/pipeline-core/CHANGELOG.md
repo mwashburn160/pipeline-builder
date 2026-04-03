@@ -1,3 +1,18 @@
+## 1.48.20 (2026-04-03)
+
+### 🩹 Fixes
+
+- rebuild image ([5cd9d43d](https://github.com/mwashburn160/pipeline-builder/commit/5cd9d43d))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.48.20
+- Updated @mwashburn160/api-core to 1.47.22
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.48.19 (2026-04-02)
 
 ### 🩹 Fixes

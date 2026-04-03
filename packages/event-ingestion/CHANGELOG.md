@@ -1,3 +1,13 @@
+## 1.7.20 (2026-04-03)
+
+### 🩹 Fixes
+
+- rebuild image ([5cd9d43d](https://github.com/mwashburn160/pipeline-builder/commit/5cd9d43d))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.7.19 (2026-04-02)
 
 ### 🩹 Fixes
