@@ -12,15 +12,8 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Application hostname (custom domain or ALB DNS name)
-
-  BaseUrl:
-    Type: String
     Default: ""
-    Description: >
-      Full base URL including protocol (e.g. https://app.example.com or
-      http://pb-alb-123.us-east-1.elb.amazonaws.com). When empty, defaults
-      to https://${DomainName}.
+    Description: ALB DNS name used as application hostname
 
   PlatformImage:
     Type: String
@@ -86,6 +79,10 @@ Parameters:
     Type: String
     Default: nginx:1.27
 
+  AwsCliImage:
+    Type: String
+    Default: amazon/aws-cli:2.24.0
+
   FluentBitImage:
     Type: String
     Default: amazon/aws-for-fluent-bit:2.32.2
@@ -93,9 +90,6 @@ Parameters:
   DefaultDesiredCount:
     Type: Number
     Default: 1
-
-Conditions:
-  HasBaseUrl: !Not [!Equals [!Ref BaseUrl, ""]]
 
 Resources:
 
@@ -119,31 +113,57 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: nginx-config
       ContainerDefinitions:
+        - Name: config-init
+          Image: !Ref AwsCliImage
+          Essential: false
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub
+              - >-
+                mkdir -p /shared-config/njs &&
+                aws s3 cp s3://${ConfigBucket}/nginx/nginx.conf /shared-config/nginx.conf &&
+                aws s3 cp s3://${ConfigBucket}/nginx/jwt.js /shared-config/njs/jwt.js &&
+                aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /shared-config/njs/metrics.js
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: nginx-config
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: config-init
         - Name: nginx
           Image: !Ref NginxImage
           Essential: true
+          DependsOn:
+            - ContainerName: config-init
+              Condition: SUCCESS
           EntryPoint:
             - /bin/sh
             - -c
           Command:
-            - !Sub
-              - |
-                apt-get update && apt-get install -y awscli nginx-module-njs &&
-                aws s3 cp s3://${ConfigBucket}/nginx/nginx.conf /etc/nginx/nginx.conf &&
-                mkdir -p /etc/nginx/njs &&
-                aws s3 cp s3://${ConfigBucket}/nginx/jwt.js /etc/nginx/njs/jwt.js &&
-                aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /etc/nginx/njs/metrics.js &&
-                nginx -g 'daemon off;'
-              - ConfigBucket:
-                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+            - >-
+              apt-get update -qq && apt-get install -y -qq nginx-module-njs >/dev/null 2>&1 &&
+              cp /shared-config/nginx.conf /etc/nginx/nginx.conf &&
+              mkdir -p /etc/nginx/njs &&
+              cp /shared-config/njs/* /etc/nginx/njs/ &&
+              nginx -g 'daemon off;'
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: nginx-config
+              ReadOnly: true
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp
-          Environment:
-            - Name: CONFIG_BUCKET
-              Value:
-                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
@@ -279,7 +299,7 @@ Resources:
           Image: !Ref PlatformImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -313,9 +333,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: platform
           Secrets:
@@ -456,7 +476,7 @@ Resources:
           Image: !Ref PipelineImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -490,9 +510,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: pipeline
             - Name: OLLAMA_BASE_URL
@@ -663,7 +683,7 @@ Resources:
           Image: !Ref PluginImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -697,9 +717,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: plugin
             - Name: IMAGE_REGISTRY_HOST
@@ -879,7 +899,7 @@ Resources:
           Image: !Ref QuotaImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -913,9 +933,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: quota
           Secrets:
@@ -970,7 +990,7 @@ Resources:
       Cluster:
         Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref QuotaTaskDefinition
-      DesiredCount: 2
+      DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -1056,7 +1076,7 @@ Resources:
           Image: !Ref BillingImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1090,9 +1110,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED
@@ -1237,7 +1257,7 @@ Resources:
           Image: !Ref MessageImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1271,9 +1291,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_FRONTEND_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: message
           Secrets:
@@ -1412,7 +1432,7 @@ Resources:
           Image: !Ref ReportingImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1432,7 +1452,7 @@ Resources:
             - Name: DATABASE
               Value: pipeline_builder
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: reporting
           Secrets:
@@ -1571,7 +1591,7 @@ Resources:
           Image: !Ref ComplianceImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1607,7 +1627,7 @@ Resources:
             - Name: PIPELINE_SERVICE_PORT
               Value: "3000"
             - Name: PLATFORM_BASE_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: SERVICE_NAME
               Value: compliance
           Secrets:
@@ -1749,7 +1769,7 @@ Resources:
           Image: !Ref FrontendImage
           Essential: true
           RepositoryCredentials:
-            CredentialsParameter: !Ref GhcrAuthSecretName
+            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
             - ContainerPort: 3000
               Protocol: tcp
@@ -1760,7 +1780,7 @@ Resources:
               SourceVolume: tmp
           Environment:
             - Name: NEXT_PUBLIC_API_URL
-              Value: !If [HasBaseUrl, !Ref BaseUrl, !Sub "https://${DomainName}"]
+              Value: !Sub "http://${DomainName}"
             - Name: PLATFORM_BASE_URL
               Value: "http://nginx.pipeline-builder.local:8080"
           HealthCheck:

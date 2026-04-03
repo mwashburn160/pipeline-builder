@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pipeline Builder Foundation Infrastructure - VPC, ALB, EFS, DNS, S3, and Service Discovery
-  for Fargate-based deployment.
+  Pipeline Builder Foundation Infrastructure - VPC, ALB, EFS, S3, and Service Discovery
+  for Fargate-based deployment. Uses the ALB DNS name (CNAME) directly.
 
 Parameters:
   StackPrefix:
@@ -9,32 +9,17 @@ Parameters:
     Default: pb
     Description: Prefix for resource naming and export references
 
-  DomainName:
-    Type: String
-    Default: ""
-    Description: >
-      Fully qualified domain name for the application (e.g. app.example.com).
-      Leave empty to use the ALB DNS name directly (HTTP only, no custom domain).
-
-  HostedZoneId:
-    Type: String
-    Default: ""
-    Description: Route53 hosted zone ID for the domain (required when DomainName is set)
-
-  CertificateArn:
-    Type: String
-    Default: ""
-    Description: >
-      ARN of the ACM certificate. Required when DomainName is set.
-      Can also be provided without a domain (e.g. self-signed cert) for HTTPS on the ALB DNS name.
-
   ServiceDiscoveryNamespace:
     Type: String
     Default: pipeline-builder.local
     Description: Private DNS namespace for Cloud Map service discovery
 
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN for HTTPS. When provided, adds an HTTPS listener on port 443.
+
 Conditions:
-  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
   HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
 
 Resources:
@@ -335,11 +320,9 @@ Resources:
           Value: !Sub "${StackPrefix}-nginx-tg"
 
   # ---------------------------------------------------------------------------
-  # Load Balancer - Listeners
+  # Load Balancer - Listener
   # ---------------------------------------------------------------------------
 
-  # When a certificate is available, port 80 redirects to HTTPS.
-  # Without a certificate, port 80 forwards directly to Nginx (HTTP only).
   HTTPListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -347,15 +330,8 @@ Resources:
       Port: 80
       Protocol: HTTP
       DefaultActions:
-        - !If
-          - HasCertificate
-          - Type: redirect
-            RedirectConfig:
-              Protocol: HTTPS
-              Port: "443"
-              StatusCode: HTTP_301
-          - Type: forward
-            TargetGroupArn: !Ref NginxTargetGroup
+        - Type: forward
+          TargetGroupArn: !Ref NginxTargetGroup
 
   HTTPSListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -370,22 +346,6 @@ Resources:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref NginxTargetGroup
-
-  # ---------------------------------------------------------------------------
-  # DNS - Route53 (only when a custom domain is configured)
-  # ---------------------------------------------------------------------------
-
-  Route53RecordSet:
-    Type: AWS::Route53::RecordSet
-    Condition: HasDomain
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Ref DomainName
-      Type: A
-      AliasTarget:
-        DNSName: !GetAtt ALB.DNSName
-        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
-        EvaluateTargetHealth: true
 
   # ---------------------------------------------------------------------------
   # Storage - EFS File System
@@ -687,8 +647,8 @@ Outputs:
       Name: !Sub "${StackPrefix}-ALBDnsName"
 
   ALBListenerArn:
-    Description: Active ALB Listener ARN (HTTPS when domain is configured, HTTP otherwise)
-    Value: !If [HasCertificate, !Ref HTTPSListener, !Ref HTTPListener]
+    Description: ALB HTTP Listener ARN
+    Value: !Ref HTTPListener
     Export:
       Name: !Sub "${StackPrefix}-ALBListenerArn"
 
@@ -804,9 +764,9 @@ Outputs:
     Export:
       Name: !Sub "${StackPrefix}-EFSSecurityGroupId"
 
-  # Domain / Base URL
+  # Base URL
   DomainName:
-    Description: Application base hostname (custom domain or ALB DNS)
-    Value: !If [HasDomain, !Ref DomainName, !GetAtt ALB.DNSName]
+    Description: ALB DNS name used as application hostname
+    Value: !GetAtt ALB.DNSName
     Export:
       Name: !Sub "${StackPrefix}-DomainName"

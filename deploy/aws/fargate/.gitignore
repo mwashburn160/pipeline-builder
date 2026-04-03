@@ -1,9 +1,6 @@
 # Secrets
 .env
 
-# Generated certificates
-certs/
-
 # Registry auth
 auth/
 

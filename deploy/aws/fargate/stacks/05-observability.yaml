@@ -11,12 +11,8 @@ Parameters:
 
   DomainName:
     Type: String
-    Description: Application hostname (custom domain or ALB DNS name)
-
-  BaseUrl:
-    Type: String
     Default: ""
-    Description: Full base URL including protocol. When empty, defaults to https://${DomainName}.
+    Description: ALB DNS name used as application hostname
 
   AppSecretsName:
     Type: String
@@ -41,9 +37,6 @@ Parameters:
     Type: Number
     Default: 7
     Description: Number of days to retain Prometheus metrics data
-
-Conditions:
-  HasBaseUrl: !Not [!Equals [!Ref BaseUrl, ""]]
 
 Resources:
 
@@ -92,10 +85,6 @@ Resources:
               - "aws s3 cp s3://${ConfigBucket}/prometheus/prometheus.yml /shared-config/prometheus.yml"
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
-          Environment:
-            - Name: CONFIG_BUCKET
-              Value:
-                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume
@@ -241,10 +230,6 @@ Resources:
               - "aws s3 cp s3://${ConfigBucket}/loki/loki-config.yml /shared-config/loki-config.yml"
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
-          Environment:
-            - Name: CONFIG_BUCKET
-              Value:
-                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume
@@ -391,10 +376,6 @@ Resources:
                 aws s3 sync s3://${ConfigBucket}/grafana/ /shared-config/dashboards/ --exclude "*.yml" --exclude "*.yaml"
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
-          Environment:
-            - Name: CONFIG_BUCKET
-              Value:
-                Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume
@@ -417,10 +398,7 @@ Resources:
               Protocol: tcp
           Environment:
             - Name: GF_SERVER_ROOT_URL
-              Value: !If
-                - HasBaseUrl
-                - !Sub "${BaseUrl}/grafana/"
-                - !Sub "https://${DomainName}/grafana/"
+              Value: !Sub "http://${DomainName}/grafana/"
             - Name: GF_SERVER_SERVE_FROM_SUB_PATH
               Value: "true"
             - Name: GF_SECURITY_ADMIN_USER
