@@ -245,14 +245,14 @@ validate_plugin_zip() {
   fi
 
   local contents
-  # Check for required files: spec.yaml (or config.yaml + spec.yaml) and Dockerfile
+  # Check for required files: plugin-spec.yaml (or config.yaml + plugin-spec.yaml) and Dockerfile
   local has_spec has_dockerfile
-  has_spec=$(unzip -l "$zip_file" 2>/dev/null | grep -c "spec.yaml" | tr -d ' ')
+  has_spec=$(unzip -l "$zip_file" 2>/dev/null | grep -c "plugin-spec.yaml" | tr -d ' ')
   has_dockerfile=$(unzip -l "$zip_file" 2>/dev/null | grep -c "Dockerfile" | tr -d ' ')
   if [ "$has_spec" -lt 1 ] || [ "$has_dockerfile" -lt 1 ]; then
-    log_fail "plugin.zip missing Dockerfile or spec.yaml" "$fqn"
+    log_fail "plugin.zip missing Dockerfile or plugin-spec.yaml" "$fqn"
   else
-    log_pass "plugin.zip contains Dockerfile + spec.yaml"
+    log_pass "plugin.zip contains Dockerfile + plugin-spec.yaml"
   fi
 
   # Check config.yaml is in zip if it exists on disk
@@ -271,14 +271,14 @@ test_plugin() {
   local plugin_dir="$1"
   local plugin_name="$(basename "$plugin_dir")"
   local category="$(basename "$(dirname "$plugin_dir")")"
-  local specfile="${plugin_dir}/spec.yaml"
+  local specfile="${plugin_dir}/plugin-spec.yaml"
   local dockerfile="${plugin_dir}/Dockerfile"
 
   echo ""
   log_info "Testing ${category}/${plugin_name}"
 
   if [ ! -f "$specfile" ]; then
-    log_fail "Missing spec.yaml" "${category}/${plugin_name}"
+    log_fail "Missing plugin-spec.yaml" "${category}/${plugin_name}"
     return
   fi
 

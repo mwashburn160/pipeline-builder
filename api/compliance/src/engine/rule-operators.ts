@@ -97,29 +97,29 @@ function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
 /** Operator lookup table — each entry returns true if condition is SATISFIED. */
 const OPERATORS: Record<string, (fv: unknown, rv: unknown) => boolean> = {
   // Equality
-  eq:          (fv, rv) => fv === rv || String(fv) === String(rv),
-  neq:         (fv, rv) => fv !== rv && String(fv) !== String(rv),
+  eq: (fv, rv) => fv === rv || String(fv) === String(rv),
+  neq: (fv, rv) => fv !== rv && String(fv) !== String(rv),
   // String / array containment
-  contains:    evalContains,
+  contains: evalContains,
   notContains: (fv, rv) => !evalContains(fv, rv),
   // Regex
-  regex:       (fv, rv) => typeof rv === 'string' && safeRegexTest(rv, String(fv ?? '')),
+  regex: (fv, rv) => typeof rv === 'string' && safeRegexTest(rv, String(fv ?? '')),
   // Numeric comparison
-  gt:          (fv, rv) => Number(fv) > Number(rv),
-  gte:         (fv, rv) => Number(fv) >= Number(rv),
-  lt:          (fv, rv) => Number(fv) < Number(rv),
-  lte:         (fv, rv) => Number(fv) <= Number(rv),
+  gt: (fv, rv) => Number(fv) > Number(rv),
+  gte: (fv, rv) => Number(fv) >= Number(rv),
+  lt: (fv, rv) => Number(fv) < Number(rv),
+  lte: (fv, rv) => Number(fv) <= Number(rv),
   // Set membership
-  in:          (fv, rv) => Array.isArray(rv) && rv.some((v) => String(v) === String(fv)),
-  notIn:       (fv, rv) => !Array.isArray(rv) || !rv.some((v) => String(v) === String(fv)),
+  in: (fv, rv) => Array.isArray(rv) && rv.some((v) => String(v) === String(fv)),
+  notIn: (fv, rv) => !Array.isArray(rv) || !rv.some((v) => String(v) === String(fv)),
   // Existence
-  exists:      (fv) => fv !== null && fv !== undefined,
-  notExists:   (fv) => fv === null || fv === undefined,
+  exists: (fv) => fv !== null && fv !== undefined,
+  notExists: (fv) => fv === null || fv === undefined,
   // Count/length aliases (used with computed $count/$length fields)
-  countGt:     (fv, rv) => Number(fv) > Number(rv),
-  countLt:     (fv, rv) => Number(fv) < Number(rv),
-  lengthGt:    (fv, rv) => Number(fv) > Number(rv),
-  lengthLt:    (fv, rv) => Number(fv) < Number(rv),
+  countGt: (fv, rv) => Number(fv) > Number(rv),
+  countLt: (fv, rv) => Number(fv) < Number(rv),
+  lengthGt: (fv, rv) => Number(fv) > Number(rv),
+  lengthLt: (fv, rv) => Number(fv) < Number(rv),
 };
 
 export function evaluateOperator(

@@ -12,7 +12,7 @@ const { app, sseManager } = createApp({
   checkDependencies: async () => ({
     mongodb: mongoose.connection.readyState === 1 ? 'connected'
       : mongoose.connection.readyState === 0 ? 'unknown' as const
-      : 'disconnected',
+        : 'disconnected',
   }),
 });
 

@@ -1,12 +1,14 @@
-import { existsSync } from 'fs';
+import { createWriteStream, existsSync } from 'fs';
 import * as fs from 'fs/promises';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 
 import { ValidationError } from '@mwashburn160/api-core';
 import type { PluginSpec } from '@mwashburn160/pipeline-core';
-import AdmZip from 'adm-zip';
 import { v7 as uuid } from 'uuid';
+import yauzl from 'yauzl';
 import YAML from 'yaml';
+import { z } from 'zod';
 
 import { BUILD_TEMP_ROOT } from './docker-build';
 import type { BuildType } from './docker-build';
@@ -19,7 +21,7 @@ import type { PluginConfig } from './plugin-helpers';
 
 /** Parsed and validated result from a plugin ZIP. */
 export interface ParsedPlugin {
-  spec: PluginSpec;
+  pluginSpec: PluginSpec;
   /** Extracted directory containing the plugin source. */
   extractDir: string;
   /** Validated Dockerfile path relative to extractDir. */
@@ -30,8 +32,6 @@ export interface ParsedPlugin {
   imageTag: string;
   /** Build type from config.yaml (defaults to 'build_image'). */
   buildType: BuildType;
-  /** Path to image tar within extractDir (only for load_image). */
-  imageTarPath: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -54,68 +54,113 @@ function validateSafePath(label: string, rawPath: string): string {
 }
 
 // -----------------------------------------------------------------------------
-// Config parsing
+// ZIP helpers (streaming via yauzl)
 // -----------------------------------------------------------------------------
 
-const VALID_CONFIG_KEYS = new Set(['spec', 'dockerfile', 'buildType', 'imageTar']);
-const VALID_TAR_EXTENSIONS = ['.tar', '.tar.gz', '.tgz'];
+/** Read specific text entries and extract all files in a single pass. */
+async function readAndExtractZip(
+  zipPath: string,
+  textEntries: string[],
+  extractDir: string,
+): Promise<Map<string, string>> {
+  const results = new Map<string, string>();
+  const wanted = new Set(textEntries);
 
-/** Parse and validate config.yaml from the ZIP root (optional). */
-function parsePluginConfig(zip: AdmZip): PluginConfig {
-  const configEntry = zip.getEntry('config.yaml') || zip.getEntry('config.yml');
-  if (!configEntry) {
-    return {};
-  }
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err);
+      zipfile.readEntry();
 
-  const raw = YAML.parse(zip.readAsText(configEntry));
+      zipfile.on('entry', (entry) => {
+        const targetPath = path.join(extractDir, entry.fileName);
+
+        // Prevent path traversal
+        if (!targetPath.startsWith(extractDir + path.sep) && targetPath !== extractDir) {
+          return reject(new ValidationError(`ZIP entry escapes target directory: ${entry.fileName}`));
+        }
+
+        if (entry.fileName.endsWith('/')) {
+          fs.mkdir(targetPath, { recursive: true }).then(() => zipfile.readEntry()).catch(reject);
+          return;
+        }
+
+        // Stream file to disk
+        fs.mkdir(path.dirname(targetPath), { recursive: true })
+          .then(() => {
+            zipfile.openReadStream(entry, (streamErr, stream) => {
+              if (streamErr) return reject(streamErr);
+
+              if (wanted.has(entry.fileName)) {
+                // Capture text content AND write to disk
+                const chunks: Buffer[] = [];
+                const writeStream = createWriteStream(targetPath);
+                stream.on('data', (chunk: Buffer) => { chunks.push(chunk); writeStream.write(chunk); });
+                stream.on('end', () => {
+                  writeStream.end();
+                  results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
+                  zipfile.readEntry();
+                });
+                stream.on('error', reject);
+              } else {
+                // Just write to disk
+                const writeStream = createWriteStream(targetPath);
+                pipeline(stream, writeStream)
+                  .then(() => zipfile.readEntry())
+                  .catch(reject);
+              }
+            });
+          })
+          .catch(reject);
+      });
+
+      zipfile.on('end', () => { zipfile.close(); resolve(results); });
+      zipfile.on('error', reject);
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Config schema (Zod)
+// -----------------------------------------------------------------------------
+
+const PluginConfigSchema = z.object({
+  pluginSpec: z.string().optional(),
+  dockerfile: z.string().optional(),
+  buildType: z.enum(['build_image', 'prebuilt']).optional(),
+  imageTag: z.string().regex(/^p-[a-z0-9]+-[a-f0-9]{12}$/, 'imageTag must match p-{name}-{hash12}').optional(),
+}).strict()
+  .refine(d => !(d.buildType === 'prebuilt' && d.dockerfile), {
+    message: 'dockerfile is not allowed when buildType is prebuilt',
+  })
+  .refine(d => !(d.buildType === 'prebuilt' && !d.imageTag), {
+    message: 'imageTag is required when buildType is prebuilt',
+  })
+  .refine(d => !(d.buildType === 'build_image' && d.imageTag), {
+    message: 'imageTag is not allowed when buildType is build_image',
+  });
+
+/** Parse and validate config.yaml text. */
+function parsePluginConfig(configText: string | undefined): PluginConfig {
+  if (!configText) return {};
+
+  const raw = YAML.parse(configText);
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new ValidationError('config.yaml must be a YAML mapping');
   }
 
-  // Reject unknown keys
-  for (const key of Object.keys(raw)) {
-    if (!VALID_CONFIG_KEYS.has(key)) {
-      throw new ValidationError(`config.yaml: unknown key '${key}'`);
-    }
+  const result = PluginConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const msg = result.error.issues.map(i => i.message).join('; ');
+    throw new ValidationError(`config.yaml: ${msg}`);
   }
 
-  const config: PluginConfig = {};
-
-  if (raw.spec !== undefined) {
-    if (typeof raw.spec !== 'string') throw new ValidationError('config.yaml: spec must be a string');
-    config.spec = validateSafePath('spec', raw.spec);
-  }
-
-  if (raw.dockerfile !== undefined) {
-    if (typeof raw.dockerfile !== 'string') throw new ValidationError('config.yaml: dockerfile must be a string');
-    config.dockerfile = validateSafePath('dockerfile', raw.dockerfile);
-  }
-
-  if (raw.buildType !== undefined) {
-    if (raw.buildType !== 'build_image' && raw.buildType !== 'load_image') {
-      throw new ValidationError('config.yaml: buildType must be "build_image" or "load_image"');
-    }
-    config.buildType = raw.buildType;
-  }
-
-  if (raw.imageTar !== undefined) {
-    if (typeof raw.imageTar !== 'string') throw new ValidationError('config.yaml: imageTar must be a string');
-    config.imageTar = validateSafePath('imageTar', raw.imageTar);
-  }
-
-  // Cross-field validation
-  const buildType = config.buildType ?? 'build_image';
-  if (buildType === 'load_image' && config.dockerfile) {
-    throw new ValidationError('config.yaml: dockerfile is not allowed when buildType is load_image');
-  }
-  if (buildType === 'build_image' && config.imageTar) {
-    throw new ValidationError('config.yaml: imageTar is not allowed when buildType is build_image');
-  }
-  if (buildType === 'load_image' && !config.imageTar) {
-    throw new ValidationError('config.yaml: imageTar is required when buildType is load_image');
-  }
-
-  return config;
+  const { data } = result;
+  return {
+    pluginSpec: data.pluginSpec ? validateSafePath('pluginSpec', data.pluginSpec) : undefined,
+    dockerfile: data.dockerfile ? validateSafePath('dockerfile', data.dockerfile) : undefined,
+    buildType: data.buildType,
+    imageTag: data.imageTag,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -123,87 +168,74 @@ function parsePluginConfig(zip: AdmZip): PluginConfig {
 // -----------------------------------------------------------------------------
 
 /**
- * Parse, validate, and extract a plugin ZIP archive.
- *
- * @param zipPath - Path to the uploaded ZIP file
- * @returns Parsed plugin with extracted directory and metadata
- * @throws Error with a user-facing message on validation failure
+ * Parse, validate, and extract a plugin ZIP archive in a single pass.
+ * Opens the ZIP once: reads config + spec as text, extracts all files to disk.
  */
 export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
-  const zip = new AdmZip(zipPath);
-
-  // --- Config (optional) ---------------------------------------------------
-  const config = parsePluginConfig(zip);
-  const buildType: BuildType = config.buildType ?? 'build_image';
-
-  // --- Spec ----------------------------------------------------------------
-  const specPath = config.spec ?? 'spec.yaml';
-  const specEntry = zip.getEntry(specPath);
-  if (!specEntry) {
-    throw new ValidationError('spec.yaml file missing in ZIP');
-  }
-
-  const spec: PluginSpec = YAML.parse(zip.readAsText(specEntry));
-
-  const isApprovalStep = spec.pluginType === 'ManualApprovalStep';
-
-  if (!spec.name || !spec.version || (!isApprovalStep && !spec.commands)) {
-    throw new ValidationError('Invalid spec: name, version, and commands are required');
-  }
-
-  // Reject buildArgs for load_image (meaningless without a build step)
-  if (buildType === 'load_image' && spec.buildArgs && Object.keys(spec.buildArgs).length > 0) {
-    throw new ValidationError('buildArgs are not allowed when buildType is load_image');
-  }
-
-  // --- Extract -------------------------------------------------------------
   const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
   await fs.mkdir(extractDir, { recursive: true });
-  zip.extractAllTo(extractDir, true);
 
-  // --- Dockerfile / image tar validation -----------------------------------
-  let dockerfile = '';
-  let dockerfileContent: string | null = null;
-  let imageTarPath: string | null = null;
+  try {
+    // --- Single-pass: extract all + capture text entries ---------------------
+    const textEntries = ['config.yaml', 'config.yml', 'plugin-spec.yaml'];
+    const texts = await readAndExtractZip(zipPath, textEntries, extractDir);
 
-  if (buildType === 'load_image') {
-    // Validate image tar
-    const tarFile = config.imageTar!;
-    if (!VALID_TAR_EXTENSIONS.some((ext) => tarFile.endsWith(ext))) {
-      throw new ValidationError(`Invalid imageTar: must end in ${VALID_TAR_EXTENSIONS.join(', ')}`);
-    }
-    const tarFullPath = path.join(extractDir, tarFile);
-    if (!existsSync(tarFullPath)) {
-      throw new ValidationError(`imageTar file not found in ZIP: ${tarFile}`);
-    }
-    const realTarPath = await fs.realpath(tarFullPath);
-    if (!realTarPath.startsWith(extractDir + path.sep)) {
-      throw new ValidationError('Invalid imageTar path: resolves outside extraction directory');
-    }
-    imageTarPath = tarFile;
-  } else if (!isApprovalStep) {
-    // Dockerfile validation (build_image)
-    const rawDockerfile = config.dockerfile ?? spec.dockerfile ?? 'Dockerfile';
-    dockerfile = validateSafePath('dockerfile', rawDockerfile);
+    // --- Config -------------------------------------------------------------
+    const config = parsePluginConfig(texts.get('config.yaml') ?? texts.get('config.yml'));
+    const buildType: BuildType = config.buildType ?? 'build_image';
 
-    const dockerfilePath = path.join(extractDir, dockerfile);
-    const realDockerfilePath = existsSync(dockerfilePath)
-      ? await fs.realpath(dockerfilePath)
-      : null;
+    // --- Spec ---------------------------------------------------------------
+    const specPath = config.pluginSpec ?? 'plugin-spec.yaml';
+    const specText = texts.get(specPath)
+      ?? (specPath !== 'plugin-spec.yaml' ? await fs.readFile(path.join(extractDir, specPath), 'utf-8').catch(() => null) : null);
 
-    if (realDockerfilePath && !realDockerfilePath.startsWith(extractDir + path.sep)) {
-      throw new ValidationError('Invalid dockerfile path: resolves outside extraction directory');
+    if (!specText) {
+      throw new ValidationError('plugin-spec.yaml file missing in ZIP');
     }
 
-    dockerfileContent = realDockerfilePath
-      ? await fs.readFile(realDockerfilePath, 'utf-8')
-      : null;
+    const pluginSpec: PluginSpec = YAML.parse(specText);
+    const isApprovalStep = pluginSpec.pluginType === 'ManualApprovalStep';
+
+    if (!pluginSpec.name || !pluginSpec.version || (!isApprovalStep && !pluginSpec.commands)) {
+      throw new ValidationError('Invalid spec: name, version, and commands are required');
+    }
+
+    // --- Dockerfile validation (build_image only) ---------------------------
+    let dockerfile = '';
+    let dockerfileContent: string | null = null;
+
+    if (buildType === 'build_image' && !isApprovalStep) {
+      const rawDockerfile = config.dockerfile ?? pluginSpec.dockerfile ?? 'Dockerfile';
+      dockerfile = validateSafePath('dockerfile', rawDockerfile);
+
+      const dockerfilePath = path.join(extractDir, dockerfile);
+      const realDockerfilePath = existsSync(dockerfilePath)
+        ? await fs.realpath(dockerfilePath)
+        : null;
+
+      if (realDockerfilePath && !realDockerfilePath.startsWith(extractDir + path.sep)) {
+        throw new ValidationError('Invalid dockerfile path: resolves outside extraction directory');
+      }
+
+      dockerfileContent = realDockerfilePath
+        ? await fs.readFile(realDockerfilePath, 'utf-8')
+        : null;
+    }
+
+    // --- Prebuilt validation: image.tar must exist in ZIP --------------------
+    if (buildType === 'prebuilt' && !existsSync(path.join(extractDir, 'image.tar'))) {
+      throw new ValidationError('image.tar is required in ZIP when buildType is prebuilt');
+    }
+
+    // --- Image tag -----------------------------------------------------------
+    const imageTag = config.imageTag ?? generateImageTag(pluginSpec.name);
+
+    return { pluginSpec, extractDir, dockerfile, dockerfileContent, imageTag, buildType };
+  } catch (err) {
+    // Clean up extracted files on any validation failure
+    await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
   }
-
-  // --- Image tag -----------------------------------------------------------
-  const imageTag = generateImageTag(spec.name);
-
-  return { spec, extractDir, dockerfile, dockerfileContent, imageTag, buildType, imageTarPath };
 }
 
 // -----------------------------------------------------------------------------

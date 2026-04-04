@@ -125,8 +125,9 @@ if [ -t 0 ]; then
   case "$choice" in
     1) SELECTED="docker" ;; 2) SELECTED="podman" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
   esac
+  _sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
   if [ "$SELECTED" != "$CURRENT_STRATEGY" ]; then
-    sed -i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env"
+    _sed_i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env"
     export DOCKER_BUILD_STRATEGY="$SELECTED"
     echo "  Updated to $SELECTED"
   fi

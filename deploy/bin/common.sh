@@ -25,12 +25,78 @@ log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
 # ---------------------------------------------------------------------------
-# get_spec_field — extract a top-level field from a YAML file (e.g. spec.yaml)
+# get_spec_field — extract a top-level field from a YAML file (e.g. plugin-spec.yaml)
 #   $1 field name   $2 YAML file path
 #   Echoes the value (trimmed), empty string if not found
 # ---------------------------------------------------------------------------
 get_spec_field() {
   grep "^${1}:" "$2" 2>/dev/null | head -1 | sed "s/^${1}: *//"
+}
+
+# ---------------------------------------------------------------------------
+# sed_inplace — portable in-place sed (macOS uses -i '', Linux uses -i)
+#   $1 sed expression   $2 file path
+# ---------------------------------------------------------------------------
+sed_inplace() {
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$1" "$2"
+  else
+    sed -i '' "$1" "$2"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# sha256_hash — portable SHA-256 (works on Linux and macOS)
+#   Reads stdin, outputs 64-char hex digest
+# ---------------------------------------------------------------------------
+sha256_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  else
+    shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# compute_image_tag — deterministic image tag from plugin name + Dockerfile + buildArgs
+#   $1 plugin directory
+#   Outputs: p-{name}-{sha256-first-12}
+# ---------------------------------------------------------------------------
+compute_image_tag() {
+  local _plugin_dir="$1"
+  local _name
+  _name=$(get_spec_field name "$_plugin_dir/plugin-spec.yaml")
+  local _name_clean
+  _name_clean=$(echo "$_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
+
+  local _dockerfile_content=""
+  [ -f "$_plugin_dir/Dockerfile" ] && _dockerfile_content=$(cat "$_plugin_dir/Dockerfile")
+
+  local _build_args=""
+  if grep -q "^buildArgs:" "$_plugin_dir/plugin-spec.yaml" 2>/dev/null; then
+    _build_args=$(awk '
+      /^buildArgs:/ { capture=1; next }
+      capture && /^  [A-Za-z_]/ { gsub(/^  /,""); gsub(/: */,"="); gsub(/"/,""); print; next }
+      capture && /^[^ ]/ { exit }
+    ' "$_plugin_dir/plugin-spec.yaml" | sort)
+  fi
+
+  local _hash
+  _hash=$(printf '%s\n%s' "$_dockerfile_content" "$_build_args" | sha256_hash)
+  echo "p-${_name_clean}-${_hash:0:12}"
+}
+
+# ---------------------------------------------------------------------------
+# generate_self_signed_cert — create a self-signed TLS certificate
+#   $1 output dir   $2 name prefix (e.g. nginx, registry)
+#   $3 CN           $4 SAN (e.g. "DNS:localhost,IP:127.0.0.1")
+# ---------------------------------------------------------------------------
+generate_self_signed_cert() {
+  local _dir="$1" _name="$2" _cn="$3" _san="$4"
+  mkdir -p "$_dir"
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$_dir/${_name}.key" -out "$_dir/${_name}.crt" \
+    -subj "/CN=${_cn}" -addext "subjectAltName=${_san}" 2>&1
 }
 
 # ---------------------------------------------------------------------------
@@ -66,11 +132,12 @@ print_errors_and_exit() {
 #   $2  interval sec (default 5)
 # ---------------------------------------------------------------------------
 wait_for_health() {
-  _max="${1:-30}"
-  _interval="${2:-5}"
+  local _max="${1:-30}"
+  local _interval="${2:-5}"
   echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/health ..."
-  _i=1
+  local _i=1
   while [ "$_i" -le "$_max" ]; do
+    local _status
     _status=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/health" 2>/dev/null || true)
     if [ "$_status" = "200" ]; then
       echo "Platform is healthy."

@@ -126,6 +126,8 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
+| `PLUGIN_BUILD_STRATEGY` | `build_image` | Plugin build strategy: `build_image` (build from Dockerfile at upload) or `prebuilt` (use pre-built image.tar) |
+| `PLUGIN_MAX_UPLOAD_MB` | `1024` | Max plugin ZIP upload size in MB (1 GB, supports prebuilt image.tar) |
 
 The plugin Docker image is published with target-specific tags: `plugin:<version>-podman`, `plugin:<version>-kaniko`, `plugin:<version>-docker`. Each deploy target pulls the image matching its strategy.
 
@@ -261,7 +263,6 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 | `MAX_PAGE_LIMIT` | `1000` | Max page size |
 | `DEFAULT_PAGE_LIMIT` | `100` | Default page size |
 | `MAX_PROMPT_LENGTH` | `5000` | Max AI prompt length |
-| `MAX_PLUGIN_UPLOAD_BYTES` | `104857600` | Max plugin upload (100 MB) |
 
 ---
 

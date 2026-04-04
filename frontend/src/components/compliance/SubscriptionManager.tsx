@@ -5,12 +5,7 @@ import { BookOpen, ToggleLeft, ToggleRight, GitFork, Pin, PinOff, Loader2, Zap, 
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
-
-const SEVERITY_COLORS: Record<string, string> = {
-  warning: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
-  error: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-  critical: 'bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-300',
-};
+import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 
 interface SubscriptionWithRule extends ComplianceRuleSubscription {
   rule: ComplianceRule | null;

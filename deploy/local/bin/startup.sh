@@ -115,12 +115,14 @@ case "$choice" in
   *) SELECTED_STRATEGY="$CURRENT_STRATEGY" ;;
 esac
 
+_sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
+
 if [ "$SELECTED_STRATEGY" != "$CURRENT_STRATEGY" ]; then
-  sed -i '' "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY/" "$DEPLOY_DIR/.env"
+  _sed_i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY/" "$DEPLOY_DIR/.env"
   # Update plugin image tag to match selected strategy
   PLUGIN_VERSION=$(grep 'ghcr.io/mwashburn160/plugin:' "$DEPLOY_DIR/docker-compose.yml" | head -1 | sed 's/.*plugin:\([0-9.]*\).*/\1/')
   if [ -n "$PLUGIN_VERSION" ]; then
-    sed -i '' "s|ghcr.io/mwashburn160/plugin:[0-9.]*-[a-z]*|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$DEPLOY_DIR/docker-compose.yml"
+    _sed_i "s|ghcr.io/mwashburn160/plugin:[0-9.]*-[a-z]*|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$DEPLOY_DIR/docker-compose.yml"
   fi
   echo "  Updated: strategy=$SELECTED_STRATEGY, image=plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}"
 fi

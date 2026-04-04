@@ -9,7 +9,7 @@ export interface PluginEntry {
   secrets: string[];
 }
 
-/** Canonical lowercase category IDs matching spec.yaml and report-schema.json. */
+/** Canonical lowercase category IDs matching plugin-spec.yaml and report-schema.json. */
 export const PLUGIN_CATEGORIES = [
   'language',
   'security',
@@ -139,7 +139,7 @@ export const pluginsTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'Plugins are reusable build step definitions — a Dockerfile and spec.yaml packaged as a ZIP. Create them once, reference them across pipelines. Every plugin runs as an isolated container step inside AWS CodePipeline.',
+            'Plugins are reusable build step definitions — a Dockerfile and plugin-spec.yaml packaged as a ZIP. Create them once, reference them across pipelines. Every plugin runs as an isolated container step inside AWS CodePipeline.',
         },
       ],
     },
@@ -209,7 +209,7 @@ export const pluginsTopic: HelpTopic = {
           type: 'list',
           items: [
             'Dockerfile — Defines the build environment.',
-            'spec.yaml — Declares metadata, commands, secrets, and environment variables.',
+            'plugin-spec.yaml — Declares metadata, commands, secrets, and environment variables.',
             'plugin.zip — Packages both files for upload.',
           ],
         },

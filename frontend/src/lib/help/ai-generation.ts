@@ -87,7 +87,7 @@ export const aiGenerationTopic: HelpTopic = {
           items: [
             'From the Plugins page, click "Create Plugin" and select the "AI Builder" tab.',
             'Describe the build environment and commands you need.',
-            'The AI generates both the spec.yaml and Dockerfile.',
+            'The AI generates both the plugin-spec.yaml and Dockerfile.',
             'Review, edit if needed, then deploy the generated plugin.',
           ],
         },

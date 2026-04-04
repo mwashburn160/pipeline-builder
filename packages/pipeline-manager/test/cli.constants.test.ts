@@ -26,7 +26,7 @@ describe('cli constants', () => {
 
   describe('FILE_SIZE_LIMITS', () => {
     it('should have expected file size limits', () => {
-      expect(FILE_SIZE_LIMITS.PLUGIN).toBe(100 * 1024 * 1024);
+      expect(FILE_SIZE_LIMITS.PLUGIN).toBe(1024 * 1024 * 1024);
       expect(FILE_SIZE_LIMITS.PIPELINE_PROPS).toBe(10 * 1024 * 1024);
     });
   });
@@ -114,7 +114,7 @@ describe('formatFileSize', () => {
   });
 
   it('should format large sizes', () => {
-    expect(formatFileSize(FILE_SIZE_LIMITS.PLUGIN)).toBe('100.00 MB');
+    expect(formatFileSize(FILE_SIZE_LIMITS.PLUGIN)).toBe('1.00 GB');
   });
 });
 

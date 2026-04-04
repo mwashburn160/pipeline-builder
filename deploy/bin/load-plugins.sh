@@ -69,15 +69,23 @@ done
 # ---- Helper functions ----
 
 is_eligible_plugin() {
-  [ -f "$1/spec.yaml" ] || return 1
-  _pt=$(get_spec_field pluginType "$1/spec.yaml")
-  [ "$_pt" = "ManualApprovalStep" ] || [ -f "$1/Dockerfile" ]
+  [ -f "$1/plugin-spec.yaml" ] || return 1
+  local _pt
+  _pt=$(get_spec_field pluginType "$1/plugin-spec.yaml")
+  [ "$_pt" = "ManualApprovalStep" ] && return 0
+  [ -f "$1/Dockerfile" ] && return 0
+  # Accept prebuilt plugins with image.tar (no Dockerfile needed)
+  local _bt
+  _bt=$(grep '^buildType:' "$1/config.yaml" 2>/dev/null | sed 's/^buildType: *//')
+  [ "$_bt" = "prebuilt" ] && return 0
+  return 1
 }
 
 validate_spec() {
-  specfile="$1"
-  plugin_name="$(basename "$2")"
-  errors=""
+  local specfile="$1"
+  local plugin_name="$(basename "$2")"
+  local errors=""
+  local _pt
   _pt=$(get_spec_field pluginType "$specfile")
 
   for field in name description version pluginType computeType; do
@@ -103,15 +111,25 @@ validate_spec() {
 }
 
 maybe_rebuild_zip() {
-  plugin_path="$1"
-  zip_file="${plugin_path}/plugin.zip"
-  specfile="${plugin_path}/spec.yaml"
-  config="${plugin_path}/config.yaml"
-  dockerfile="${plugin_path}/Dockerfile"
+  local plugin_path="$1"
+  local zip_file="${plugin_path}/plugin.zip"
+  local specfile="${plugin_path}/plugin-spec.yaml"
+  local config="${plugin_path}/config.yaml"
+  local dockerfile="${plugin_path}/Dockerfile"
+  local image_tar="${plugin_path}/image.tar"
+  local reason=""
 
-  zip_files="spec.yaml"
+  # Determine buildType from config.yaml
+  local _build_type="build_image"
+  [ -f "$config" ] && _build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
+
+  local zip_files="plugin-spec.yaml"
   [ -f "$config" ] && zip_files="config.yaml $zip_files"
-  [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
+  if [ "$_build_type" = "prebuilt" ]; then
+    [ -f "$image_tar" ] && zip_files="$zip_files image.tar"
+  else
+    [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
+  fi
 
   if [ "$REBUILD" = true ] || [ ! -f "$zip_file" ]; then
     reason="Rebuilt plugin.zip"
@@ -119,8 +137,10 @@ maybe_rebuild_zip() {
     reason="Rebuilt plugin.zip (spec changed)"
   elif [ -f "$config" ] && [ "$config" -nt "$zip_file" ]; then
     reason="Rebuilt plugin.zip (config changed)"
-  elif [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ]; then
+  elif [ "$_build_type" != "prebuilt" ] && [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ]; then
     reason="Rebuilt plugin.zip (Dockerfile changed)"
+  elif [ "$_build_type" = "prebuilt" ] && [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ]; then
+    reason="Rebuilt plugin.zip (image.tar changed)"
   else
     return 0
   fi
@@ -145,12 +165,12 @@ _increment_counter() {
 
 # Upload a single plugin — used by both serial and parallel modes
 upload_one_plugin() {
-  plugin_dir="$1"
-  plugin_name="$(basename "$plugin_dir")"
-  category="$(basename "$(dirname "$plugin_dir")")"
-  label="${category}/${plugin_name}"
+  local plugin_dir="$1"
+  local plugin_name="$(basename "$plugin_dir")"
+  local category="$(basename "$(dirname "$plugin_dir")")"
+  local label="${category}/${plugin_name}"
 
-  validate_spec "$plugin_dir/spec.yaml" "$plugin_dir" || {
+  validate_spec "$plugin_dir/plugin-spec.yaml" "$plugin_dir" || {
     echo "  FAIL $label (invalid spec)"
     _increment_counter "failed"
     return
@@ -193,7 +213,7 @@ upload_one_plugin() {
 }
 
 resolve_category() {
-  _target=$1; _idx=0
+  local _target=$1 _idx=0 _cat
   for _cat in $CATEGORIES; do
     _idx=$((_idx + 1))
     [ "$_idx" -eq "$_target" ] 2>/dev/null && echo "$_cat" && return
@@ -203,7 +223,7 @@ resolve_category() {
 prompt_categories() {
   echo ""
   echo "  Available categories:"
-  _i=0
+  local _i=0 category count
   for category in $CATEGORIES; do
     _i=$((_i + 1))
     count=$(find "${PLUGINS_DIR}/${category}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
@@ -211,13 +231,15 @@ prompt_categories() {
   done
 
   echo ""
+  local _answer
   printf "  Load all categories? [Y/n]: "
   read -r _answer
   [ "$_answer" = "n" ] || [ "$_answer" = "N" ] || return 0
 
+  local _selected
   printf "  Enter category numbers (comma-separated, e.g. 1,3,4): "
   read -r _selected
-  SELECTED=""
+  local SELECTED="" num resolved
   for num in $(echo "$_selected" | tr ',' ' '); do
     resolved=$(resolve_category "$num")
     [ -n "$resolved" ] && SELECTED="${SELECTED} ${resolved}"
@@ -327,7 +349,7 @@ label="${category}/${plugin_name}"
 
 # Validate
 errors=""
-specfile="$plugin_dir/spec.yaml"
+specfile="$plugin_dir/plugin-spec.yaml"
 _pt=$(get_spec_field pluginType "$specfile")
 for field in name description version pluginType computeType; do
   grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}Missing ${field} "
@@ -341,14 +363,26 @@ fi
 # Rebuild zip if needed
 zip_file="${plugin_dir}/plugin.zip"
 config="$plugin_dir/config.yaml"
-zip_files="spec.yaml"
+_build_type="build_image"
+[ -f "$config" ] && _build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
+
+zip_files="plugin-spec.yaml"
 [ -f "$config" ] && zip_files="config.yaml $zip_files"
-[ -f "$plugin_dir/Dockerfile" ] && zip_files="$zip_files Dockerfile"
+if [ "$_build_type" = "prebuilt" ]; then
+  [ -f "$plugin_dir/image.tar" ] && zip_files="$zip_files image.tar"
+else
+  [ -f "$plugin_dir/Dockerfile" ] && zip_files="$zip_files Dockerfile"
+fi
+
 needs_rebuild=false
 [ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
 [ "$specfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 [ -f "$config" ] && [ "$config" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-[ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+if [ "$_build_type" != "prebuilt" ]; then
+  [ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+else
+  [ -f "$plugin_dir/image.tar" ] && [ "$plugin_dir/image.tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+fi
 if [ "$needs_rebuild" = true ]; then
   (cd "$plugin_dir" && zip -q plugin.zip $zip_files)
 fi

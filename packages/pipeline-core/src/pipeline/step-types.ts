@@ -67,7 +67,7 @@ export interface SynthOptions extends StepCustomization {
 
 /**
  * Plugin spec defining plugin behavior and requirements.
- * This is typically loaded from a plugin spec file (spec.yaml).
+ * This is typically loaded from a plugin spec file (plugin-spec.yaml).
  */
 export interface PluginSpec {
   /**

@@ -1,6 +1,4 @@
 import { createLogger, createQuotaService, registerComplianceQueueBackend } from '@mwashburn160/api-core';
-import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
-import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import {
   createApp,
   runServer,
@@ -10,7 +8,9 @@ import {
 } from '@mwashburn160/api-server';
 import { db } from '@mwashburn160/pipeline-core';
 import { sql } from 'drizzle-orm';
+import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
+import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
 import { createAuditRoutes } from './routes/audit';
 import { createCreatePolicyRoutes } from './routes/create-policies';
 import { createCreateRuleRoutes } from './routes/create-rules';
@@ -32,8 +32,7 @@ const logger = createLogger('compliance');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
   checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
-    catch { return { postgres: 'unknown' as const }; }
+    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
   },
 });
 

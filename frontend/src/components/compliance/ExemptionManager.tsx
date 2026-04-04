@@ -4,14 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
-import type { ComplianceExemption, ExemptionStatus } from '@/types/compliance';
-
-const STATUS_STYLES: Record<ExemptionStatus, { bg: string; text: string }> = {
-  pending: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400' },
-  approved: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
-  rejected: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
-  expired: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-500 dark:text-gray-400' },
-};
+import type { ComplianceExemption } from '@/types/compliance';
+import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
 
 interface ExemptionManagerProps {
   readOnly?: boolean;

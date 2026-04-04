@@ -9,7 +9,7 @@ import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
 import IORedis from 'ioredis';
 
-import { buildAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
+import { buildAndPush, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 import type { PluginInsert } from '../services/plugin-service';
@@ -121,6 +121,7 @@ function classifyFailure(error: Error): FailureCategory {
   // Permanent: DB schema errors, constraint violations, compliance, validation
   if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
   if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';
+  if (msg.includes('missing image.tar') || msg.includes('not supported with kaniko') || msg.includes('Could not parse loaded image')) return 'permanent';
 
   return 'retryable';
 }
@@ -303,8 +304,23 @@ export function startWorker(
         let fullImage = '';
 
         if (!isApprovalStep) {
-          const buildResult = await buildAndPush(buildRequest);
-          fullImage = buildResult.fullImage;
+          switch (buildRequest.buildType) {
+            case 'prebuilt': {
+              const tarPath = path.join(buildRequest.contextDir, 'image.tar');
+              if (!fs.existsSync(tarPath)) {
+                throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
+              }
+              const result = await loadAndPush(tarPath, buildRequest.imageTag, buildRequest.registry);
+              fullImage = result.fullImage;
+              break;
+            }
+            case 'build_image':
+            default: {
+              const result = await buildAndPush(buildRequest);
+              fullImage = result.fullImage;
+              break;
+            }
+          }
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 

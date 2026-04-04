@@ -111,7 +111,35 @@ echo ""
 printf "Load plugins? [y/N] "
 read -r LOAD_PLUGINS
 if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh"
+
+  # ---- Plugin build strategy ----
+  BUILD_STRATEGY="${PLUGIN_BUILD_STRATEGY:-}"
+  if [ -z "$BUILD_STRATEGY" ] && [ -t 0 ]; then
+    echo ""
+    echo "  Plugin build strategy:"
+    echo "    1) build_image  — Build from Dockerfile at upload time (default)"
+    echo "    2) prebuilt     — Pre-build images now, bundle as image.tar"
+    echo ""
+    printf "  Select [1/2] (default: 1): "
+    read -r _strategy_choice
+    case "$_strategy_choice" in
+      2|prebuilt) BUILD_STRATEGY="prebuilt" ;;
+      *)          BUILD_STRATEGY="build_image" ;;
+    esac
+  fi
+  BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
+
+  if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
+    echo ""
+    echo "=== Building plugin images ==="
+    BUILD_ARGS=""
+    # Reuse existing image.tar files if unchanged
+    [ "$FORCE_REBUILD" != "true" ] 2>/dev/null || BUILD_ARGS="$BUILD_ARGS --force"
+    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS
+    echo ""
+  fi
+
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild
 else
   echo "  Skipping plugin loading."
 fi

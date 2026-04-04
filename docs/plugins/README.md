@@ -178,7 +178,7 @@ flowchart LR
 ## Requirements
 
 - **All plugins run as AWS CodeBuild steps** (`CodeBuildStep` in `CodePipeline`). The Pipeline Builder CDK construct wires each plugin into the pipeline as an isolated build action.
-- **Each plugin consists of three files**: a `Dockerfile` that defines the build environment, a `spec.yaml` that declares metadata and commands, and a `plugin.zip` that packages both for upload.
+- **Each plugin consists of three files**: a `Dockerfile` that defines the build environment, a `plugin-spec.yaml` that declares metadata and commands, and a `plugin.zip` that packages both for upload.
 - **Plugins requiring tokens or API keys inject them at runtime** via CodeBuild environment secrets (backed by AWS Secrets Manager or SSM Parameter Store). Secrets are **never** baked into the Dockerfile via `ENV` or `ARG` instructions.
 
 Refer to the [Secrets Reference](#secrets-reference) table below for a complete list of vendor plugins and their required secrets.
@@ -315,19 +315,36 @@ Replace `{orgId}` with your actual organization ID or use a wildcard for multi-o
 
 ## Plugin Structure
 
-Every plugin follows the same three-file layout:
+Every plugin follows this layout:
 
 ```mermaid
 graph LR
     ROOT["my-plugin/"]
     ROOT --- A["Dockerfile — Build environment definition"]
-    ROOT --- B["spec.yaml — Plugin metadata, commands, env vars"]
-    ROOT --- C["plugin.zip — Packaged artifact"]
+    ROOT --- B["plugin-spec.yaml — Plugin metadata, commands, env vars"]
+    ROOT --- C["config.yaml — Build configuration (buildType, dockerfile path)"]
+    ROOT --- D["plugin.zip — Packaged artifact"]
 
     style ROOT fill:#4A90D9,color:#fff
 ```
 
-The `spec.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:
+### Build Types
+
+Plugins support two build strategies, configured via `config.yaml`:
+
+| buildType | Description | config.yaml | plugin.zip contains |
+|-----------|-------------|-------------|---------------------|
+| `build_image` (default) | Build Docker image from Dockerfile at upload time | `buildType: build_image` + `dockerfile: Dockerfile` | plugin-spec.yaml + config.yaml + Dockerfile |
+| `prebuilt` | Use a pre-built Docker image (via `build-plugin-images.sh`) | `buildType: prebuilt` + `imageTag: p-{name}-{hash}` | plugin-spec.yaml + config.yaml + image.tar |
+
+To pre-build all plugin images:
+```bash
+./deploy/bin/build-plugin-images.sh          # build all, prompt for existing
+./deploy/bin/build-plugin-images.sh --force  # rebuild all
+./deploy/bin/build-plugin-images.sh --reset  # revert all to build_image
+```
+
+The `plugin-spec.yaml` declares everything the pipeline builder needs to wire the plugin into a CodeBuild step:
 
 ```yaml
 name: my-plugin

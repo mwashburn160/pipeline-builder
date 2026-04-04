@@ -80,15 +80,15 @@ export function createUploadPluginRoutes(
 
         // -- Parse & validate ZIP ---------------------------------------------
         const plugin = await parsePluginZip(zipPath);
-        validateBuildArgs(plugin.spec.buildArgs);
+        validateBuildArgs(plugin.pluginSpec.buildArgs);
 
         ctx.log('INFO', 'Spec validated', {
-          pluginName: plugin.spec.name,
-          version: plugin.spec.version,
+          pluginName: plugin.pluginSpec.name,
+          version: plugin.pluginSpec.version,
         });
 
         // -- Compliance check (fail-closed) -----------------------------------
-        const s = plugin.spec;
+        const s = plugin.pluginSpec;
         try {
           const complianceClient = createComplianceClient();
           const complianceResult = await complianceClient.validatePlugin(orgId, {
@@ -147,7 +147,6 @@ export function createUploadPluginRoutes(
             registry,
             buildArgs: s.buildArgs || {},
             buildType: plugin.buildType,
-            imageTarPath: plugin.imageTarPath ?? undefined,
           },
           pluginRecord: (() => {
             const raw = s as unknown as Record<string, unknown>;

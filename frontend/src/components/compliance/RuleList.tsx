@@ -1,15 +1,10 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Shield, Plus, Pencil, Trash2, AlertTriangle, AlertCircle, Info, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
+import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
 import type { ComplianceRule, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
 import { useComplianceRules } from '@/hooks/useComplianceRules';
-
-const severityConfig: Record<RuleSeverity, { icon: typeof AlertCircle; color: string; bg: string }> = {
-  critical: { icon: AlertCircle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' },
-  error: { icon: AlertTriangle, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' },
-  warning: { icon: Info, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
-};
+import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -136,7 +131,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
               {filteredRules.map((rule) => {
-                const sev = severityConfig[rule.severity];
+                const sev = SEVERITY_CONFIG[rule.severity];
                 const SevIcon = sev.icon;
                 return (
                   <tr key={rule.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">

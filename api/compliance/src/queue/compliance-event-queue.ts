@@ -1,6 +1,6 @@
-import { Queue, Worker } from 'bullmq';
 import { createLogger } from '@mwashburn160/api-core';
 import type { ComplianceEvent } from '@mwashburn160/api-core';
+import { Queue, Worker } from 'bullmq';
 
 const logger = createLogger('compliance-event-queue');
 

@@ -32,7 +32,7 @@ export interface RegistryInfo {
   insecure: boolean;
 }
 
-export type BuildType = 'build_image' | 'load_image';
+export type BuildType = 'build_image' | 'prebuilt';
 
 export interface BuildRequest {
   contextDir: string;
@@ -40,8 +40,7 @@ export interface BuildRequest {
   imageTag: string;
   registry: RegistryInfo;
   buildArgs?: Record<string, string>;
-  buildType?: BuildType;
-  imageTarPath?: string;
+  buildType: BuildType;
 }
 
 export interface BuildResult {
@@ -169,84 +168,99 @@ function getConfig(): DockerBuildCfg {
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 // -----------------------------------------------------------------------------
+// Shared setup
+// -----------------------------------------------------------------------------
+
+interface BuildContext {
+  cfg: DockerBuildCfg;
+  image: string;
+  strategy: StrategyDef;
+  bin: string;
+}
+
+function resolveContext(imageTag: string, registry: RegistryInfo): BuildContext {
+  const cfg = getConfig();
+  const strategy = strategies[cfg.strategy];
+  return {
+    cfg,
+    image: `${registry.host}:${registry.port}/plugin:${imageTag}`,
+    strategy,
+    bin: strategy.binary(cfg),
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
 
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   validate(req);
+  const ctx = resolveContext(req.imageTag, req.registry);
 
-  const cfg = getConfig();
-  const image = `${req.registry.host}:${req.registry.port}/plugin:${req.imageTag}`;
-  const s = strategies[cfg.strategy];
-  const bin = s.binary(cfg);
+  logger.info('Building image', { strategy: ctx.cfg.strategy, image: ctx.image });
 
-  switch (req.buildType) {
-    case 'load_image':
-      return loadAndPush(req, cfg, image, s, bin);
-    case 'build_image':
-    default:
-      return buildFromDockerfile(req, cfg, image, s, bin);
-  }
+  const authArgs = ctx.strategy.setupAuth(req.contextDir, req.registry);
+  patchDockerfile(req.contextDir, req.dockerfile, ctx.strategy.patchConfnew);
+
+  await run(ctx.bin, ctx.strategy.buildCli(ctx.cfg, req, ctx.image, authArgs), ctx.cfg.timeoutMs);
+  await pushImage(ctx, req.registry, authArgs);
+
+  return { fullImage: ctx.image };
 }
 
-async function buildFromDockerfile(
-  req: BuildRequest, cfg: DockerBuildCfg, image: string, s: StrategyDef, bin: string,
+/**
+ * Load a prebuilt image tar, tag it for the registry, and push.
+ * Used when buildType is 'prebuilt' — the image.tar is already extracted from the ZIP.
+ */
+export async function loadAndPush(
+  tarPath: string, imageTag: string, registry: RegistryInfo,
 ): Promise<BuildResult> {
-  logger.info('Building image', { strategy: cfg.strategy, image });
+  validateRegistryAndTag(imageTag, registry);
+  const ctx = resolveContext(imageTag, registry);
 
-  const authArgs = s.setupAuth(req.contextDir, req.registry);
-  patchDockerfile(req.contextDir, req.dockerfile, s.patchConfnew);
+  if (ctx.cfg.strategy === 'kaniko') {
+    throw new ValidationError('prebuilt build type is not supported with kaniko strategy');
+  }
 
-  await run(bin, s.buildCli(cfg, req, image, authArgs), cfg.timeoutMs);
+  const authArgs = ctx.strategy.setupAuth(path.dirname(tarPath), registry);
+  logger.info('Loading prebuilt image', { image: ctx.image, tarPath });
 
-  const push = s.pushCli(image, req.registry, authArgs);
+  // Load tar → parse loaded image name
+  const loadOutput = await runCapture(ctx.bin, ['load', '-i', tarPath], ctx.cfg.timeoutMs);
+  const match = loadOutput.match(/Loaded image(?:\(s\))?:\s*(.+)/i);
+  const loadedName = match?.[1]?.trim();
+  if (!loadedName) {
+    throw new Error(`Could not parse loaded image name from: ${loadOutput.slice(0, 200)}`);
+  }
+
+  // Tag to registry target
+  execFileSync(ctx.bin, ['tag', loadedName, ctx.image], { timeout: 30_000 });
+
+  await pushImage(ctx, registry, authArgs, loadedName);
+
+  return { fullImage: ctx.image };
+}
+
+/** Push image to registry and clean up. */
+async function pushImage(
+  { cfg, image, strategy: s, bin }: BuildContext,
+  registry: RegistryInfo,
+  authArgs: string[],
+  extraCleanup?: string,
+): Promise<void> {
+  const push = s.pushCli(image, registry, authArgs);
   if (push) {
     try {
       await run(bin, push, cfg.pushTimeoutMs);
     } finally {
       s.cleanup(bin, image);
+      if (extraCleanup) {
+        try { execFileSync(bin, ['rmi', extraCleanup], { stdio: 'ignore' }); } catch { /* best-effort */ }
+      }
     }
   }
-
-  return { fullImage: image };
 }
 
-async function loadAndPush(
-  req: BuildRequest, cfg: DockerBuildCfg, image: string, s: StrategyDef, bin: string,
-): Promise<BuildResult> {
-  if (cfg.strategy === 'kaniko') {
-    throw new ValidationError('load_image build type is not supported with kaniko strategy');
-  }
-  if (!req.imageTarPath) {
-    throw new ValidationError('imageTarPath is required for load_image build type');
-  }
-
-  const tarPath = path.join(req.contextDir, req.imageTarPath);
-  logger.info('Loading image from tar', { strategy: cfg.strategy, image, tarPath });
-
-  const authArgs = s.setupAuth(req.contextDir, req.registry);
-
-  // Load the image tar and capture the loaded image name
-  const loadOutput = await runCapture(bin, ['load', '-i', tarPath], cfg.timeoutMs);
-  const loadedName = parseLoadedImageName(loadOutput);
-
-  // Re-tag to registry target
-  await run(bin, ['tag', loadedName, image], 30_000);
-
-  // Push
-  const push = s.pushCli(image, req.registry, authArgs);
-  if (push) {
-    try {
-      await run(bin, push, cfg.pushTimeoutMs);
-    } finally {
-      s.cleanup(bin, image);
-      // Also remove the loaded source image
-      try { execFileSync(bin, ['rmi', loadedName], { stdio: 'ignore' }); } catch { /* best-effort */ }
-    }
-  }
-
-  return { fullImage: image };
-}
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -283,11 +297,15 @@ const RE_TAG = /^[a-z0-9][a-z0-9._-]*$/;
 const RE_NET = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const RE_ARG_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function validate({ registry, imageTag, buildArgs }: BuildRequest) {
+function validateRegistryAndTag(imageTag: string, registry: RegistryInfo) {
   if (!RE_HOST.test(registry.host)) throw new ValidationError(`Invalid registry host: ${registry.host}`);
   if (!Number.isInteger(registry.port) || registry.port < 1 || registry.port > 65535) throw new ValidationError(`Invalid registry port: ${registry.port}`);
   if (!RE_TAG.test(imageTag)) throw new ValidationError(`Invalid image tag: ${imageTag}`);
   if (registry.network && !RE_NET.test(registry.network)) throw new ValidationError(`Invalid network: ${registry.network}`);
+}
+
+function validate({ registry, imageTag, buildArgs }: BuildRequest) {
+  validateRegistryAndTag(imageTag, registry);
   for (const [k, v] of Object.entries(buildArgs || {})) {
     if (!RE_ARG_KEY.test(k)) throw new ValidationError(`Invalid build arg key: ${k}`);
     if (typeof v !== 'string' || v.length > 4096) throw new ValidationError(`Invalid build arg value for ${k}`);
@@ -356,15 +374,3 @@ function runCapture(binary: string, args: string[], timeoutMs: number): Promise<
   });
 }
 
-/**
- * Parse the image name from `docker load` / `podman load` output.
- * Docker outputs: "Loaded image: name:tag"
- * Podman outputs: "Loaded image(s): name:tag"
- */
-function parseLoadedImageName(output: string): string {
-  const match = output.match(/Loaded image(?:\(s\))?:\s*(.+)/i);
-  if (!match?.[1]?.trim()) {
-    throw new Error(`Could not parse loaded image name from output: ${output.slice(0, 200)}`);
-  }
-  return match[1].trim();
-}

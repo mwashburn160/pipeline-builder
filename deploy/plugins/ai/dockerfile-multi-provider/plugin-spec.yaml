@@ -1,0 +1,159 @@
+name: dockerfile-multi-provider
+description: AI-powered Dockerfile generator that analyzes project source code and produces an optimized, production-ready Dockerfile using cloud AI providers (Anthropic, OpenAI, Google, xAI)
+keywords:
+  - dockerfile
+  - ai
+  - anthropic
+  - openai
+  - code-generation
+category: ai
+version: 1.0.0
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 15
+failureBehavior: fail
+secrets:
+  - name: AI_API_KEY
+    required: false
+    description: "Required for all providers except bedrock"
+primaryOutputDirectory: generated
+dockerfile: Dockerfile
+installCommands:
+  - test -d generated || mkdir -p generated
+  - echo "AI Provider=${AI_PROVIDER} Model=${AI_MODEL}"
+commands:
+  # Scan project files and call AI provider to generate Dockerfile
+  - |
+    # --- Collect project context from known config files ---
+    PROJECT_CONTEXT=""
+    PROJECT_FILES="package.json tsconfig.json requirements.txt pyproject.toml Pipfile go.mod Cargo.toml Gemfile CMakeLists.txt .nvmrc .python-version .tool-versions"
+    for f in $PROJECT_FILES; do
+      [ -f "$f" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${f} ---\n$(cat "$f")"
+    done
+
+    # Large files: include first N lines only
+    [ -f pom.xml ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- pom.xml (first 100 lines) ---\n$(head -100 pom.xml)"
+    [ -f Makefile ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- Makefile (first 50 lines) ---\n$(head -50 Makefile)"
+
+    # Gradle (two possible filenames)
+    GRADLE_FILE=$(ls build.gradle build.gradle.kts 2>/dev/null | head -1)
+    [ -n "$GRADLE_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${GRADLE_FILE} ---\n$(cat "$GRADLE_FILE")"
+
+    # .NET project files
+    CSPROJ_FILE=$(ls *.csproj 2>/dev/null | head -1)
+    [ -n "$CSPROJ_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${CSPROJ_FILE} ---\n$(cat "$CSPROJ_FILE")"
+    ls *.sln >/dev/null 2>&1 && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- $(ls *.sln | head -1) detected ---"
+
+    # Docker compose
+    COMPOSE_FILE=$(ls docker-compose.yml docker-compose.yaml 2>/dev/null | head -1)
+    [ -n "$COMPOSE_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${COMPOSE_FILE} ---\n$(cat "$COMPOSE_FILE")"
+
+    PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- Directory listing ---\n$(ls -la)"
+
+    SYSTEM_PROMPT="You are a Dockerfile generation expert. Analyze the project files provided and generate a single, production-ready, optimized Dockerfile. Follow these rules:
+    1. Use official slim/alpine base images when possible
+    2. Use multi-stage builds to minimize final image size
+    3. Order layers from least to most frequently changed (OS deps -> lang deps -> app code)
+    4. Combine RUN commands with && to minimize layers
+    5. Clean up package manager caches (apt-get clean, rm -rf /var/lib/apt/lists/*)
+    6. Set appropriate environment variables (NODE_ENV=production, PYTHONDONTWRITEBYTECODE=1, etc.)
+    7. Use .dockerignore patterns in comments at the top
+    8. Add HEALTHCHECK when appropriate for web services
+    9. Use non-root USER for security
+    10. Pin base image versions for reproducibility
+    11. COPY dependency files first, then install, then copy source (for layer caching)
+    Output ONLY the Dockerfile content. No explanations, no markdown fences, just the raw Dockerfile."
+
+    USER_PROMPT="Generate an optimized, production-ready Dockerfile for this project:\n\n$(echo -e "${PROJECT_CONTEXT}")"
+
+    # --- Shared function for OpenAI-compatible APIs (openai, xai) ---
+    call_openai_compatible() {
+      local _url="$1" _auth="$2"
+      curl -sf --max-time 120 "$_url" \
+        -H "Authorization: $_auth" \
+        -H "content-type: application/json" \
+        -d "$(jq -n \
+          --arg model "${AI_MODEL}" \
+          --arg system "${SYSTEM_PROMPT}" \
+          --arg prompt "${USER_PROMPT}" \
+          '{model: $model, max_tokens: 4096, messages: [{role: "system", content: $system}, {role: "user", content: $prompt}]}')" \
+      | jq -r '.choices[0].message.content'
+    }
+
+    # --- Route to the correct AI provider ---
+    case "${AI_PROVIDER}" in
+      anthropic)
+        echo "Calling Anthropic API (${AI_MODEL})..."
+        RESULT=$(curl -sf --max-time 120 https://api.anthropic.com/v1/messages \
+          -H "x-api-key: ${AI_API_KEY}" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "content-type: application/json" \
+          -d "$(jq -n \
+            --arg model "${AI_MODEL}" \
+            --arg system "${SYSTEM_PROMPT}" \
+            --arg prompt "${USER_PROMPT}" \
+            '{model: $model, max_tokens: 4096, system: $system, messages: [{role: "user", content: $prompt}]}')" \
+        | jq -r '.content[0].text')
+        ;;
+      openai)
+        echo "Calling OpenAI API (${AI_MODEL})..."
+        RESULT=$(call_openai_compatible "https://api.openai.com/v1/chat/completions" "Bearer ${AI_API_KEY}")
+        ;;
+      google)
+        echo "Calling Google Gemini API (${AI_MODEL})..."
+        RESULT=$(curl -sf --max-time 120 "https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent?key=${AI_API_KEY}" \
+          -H "content-type: application/json" \
+          -d "$(jq -n \
+            --arg system "${SYSTEM_PROMPT}" \
+            --arg prompt "${USER_PROMPT}" \
+            '{system_instruction: {parts: [{text: $system}]}, contents: [{parts: [{text: $prompt}]}], generationConfig: {maxOutputTokens: 4096}}')" \
+        | jq -r '.candidates[0].content.parts[0].text')
+        ;;
+      xai)
+        echo "Calling xAI Grok API (${AI_MODEL})..."
+        RESULT=$(call_openai_compatible "https://api.x.ai/v1/chat/completions" "Bearer ${AI_API_KEY}")
+        ;;
+      bedrock)
+        echo "Calling Amazon Bedrock (${AI_MODEL})..."
+        BEDROCK_TMP="/tmp/bedrock-response-$$.json"
+        aws bedrock-runtime invoke-model \
+          --model-id "${AI_MODEL}" \
+          --content-type "application/json" \
+          --body "$(jq -n \
+            --arg system "${SYSTEM_PROMPT}" \
+            --arg prompt "${USER_PROMPT}" \
+            '{anthropic_version: "bedrock-2023-05-31", max_tokens: 4096, system: $system, messages: [{role: "user", content: $prompt}]}')" \
+          "$BEDROCK_TMP" 2>/dev/null
+        RESULT=$(jq -r '.content[0].text' "$BEDROCK_TMP")
+        rm -f "$BEDROCK_TMP"
+        ;;
+      *)
+        echo "ERROR: Unknown AI_PROVIDER '${AI_PROVIDER}'. Supported: anthropic, openai, google, xai, bedrock"
+        exit 1
+        ;;
+    esac
+
+    # --- Validate result ---
+    if [ -z "$RESULT" ] || [ "$RESULT" = "null" ]; then
+      echo "ERROR: AI provider returned empty or null response"
+      exit 1
+    fi
+
+    # Strip markdown fences if present and write output
+    echo "$RESULT" | sed '/^```/d' > generated/Dockerfile
+
+    if [ ! -s generated/Dockerfile ]; then
+      echo "ERROR: Generated Dockerfile is empty"
+      exit 1
+    fi
+
+    echo "--- Generated Dockerfile ---"
+    cat generated/Dockerfile
+    echo "--- Generation complete ---"
+  - "echo \"Dockerfile generated successfully. Output saved to generated/Dockerfile\""
+# AI_API_KEY must be provided at runtime via CodeBuild secrets or environment variables
+# Do NOT define AI_API_KEY here or in the Dockerfile
+# For bedrock provider, use AWS IAM credentials instead of AI_API_KEY
+env:
+  AI_PROVIDER: anthropic
+  AI_MODEL: claude-sonnet-4

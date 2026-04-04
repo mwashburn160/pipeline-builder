@@ -370,10 +370,10 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     deps: [
       'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
       'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-      'adm-zip@0.5.16', 'multer@2.0.2', `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+      'adm-zip@0.5.16', 'yauzl@3.3.0', 'multer@2.0.2', `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
       'bullmq@5.34.8', 'ioredis@5.6.1',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/multer@2.0.0'],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/yauzl@2.10.3', '@types/multer@2.0.0'],
   },
   {
     name: 'pipeline',

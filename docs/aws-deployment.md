@@ -295,11 +295,12 @@ export PLATFORM_PASSWORD=SecurePassword123!
 bash bin/init-platform.sh ec2
 ```
 
-`init-platform.sh` does: health check → register admin → login → load plugins → load pipelines.
+`init-platform.sh` does: health check → register admin → login → select build strategy → load plugins → load pipelines.
 
 | Script | Purpose |
 |--------|---------|
-| `init-platform.sh` | Register admin + load plugins + pipelines (interactive) |
+| `init-platform.sh` | Register admin + select build strategy + load plugins + pipelines (interactive) |
+| `build-plugin-images.sh` | Pre-build Docker images for plugins (prebuilt strategy) |
 | `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
 | `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
 | `test-plugins.sh` | Validate plugin specs and Dockerfiles |

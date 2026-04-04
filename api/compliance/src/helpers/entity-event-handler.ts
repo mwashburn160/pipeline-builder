@@ -1,7 +1,7 @@
 import { createLogger, errorMessage } from '@mwashburn160/api-core';
 import type { RuleTarget } from '@mwashburn160/pipeline-core';
-import { evaluateRules } from '../engine/rule-engine';
 import { logComplianceCheck } from './audit-logger';
+import { evaluateRules } from '../engine/rule-engine';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('entity-event-handler');

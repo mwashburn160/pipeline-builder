@@ -5,10 +5,10 @@ import type { BuildRequest, BuildType } from './docker-build';
 
 /** Plugin config parsed from config.yaml in the ZIP root. */
 export interface PluginConfig {
-  spec?: string;
+  pluginSpec?: string;
   dockerfile?: string;
   buildType?: BuildType;
-  imageTar?: string;
+  imageTag?: string;
 }
 
 // Image tag generation

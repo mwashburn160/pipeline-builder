@@ -3,13 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Shield, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
-import type { ComplianceRule, RuleTarget, RuleSeverity } from '@/types/compliance';
-
-const SEVERITY_COLORS: Record<RuleSeverity, string> = {
-  warning: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
-  error: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-  critical: 'bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-300',
-};
+import type { ComplianceRule, RuleTarget } from '@/types/compliance';
+import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 
 export default function EnforcedRulesView() {
   const [rules, setRules] = useState<ComplianceRule[]>([]);

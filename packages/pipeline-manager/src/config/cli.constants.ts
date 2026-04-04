@@ -41,7 +41,7 @@ export const TIMEOUTS = {
  * File size limits (in bytes)
  */
 export const FILE_SIZE_LIMITS = {
-  PLUGIN: 100 * 1024 * 1024, // 100MB
+  PLUGIN: 1024 * 1024 * 1024, // 1GB
   PIPELINE_PROPS: 10 * 1024 * 1024, // 10MB
 } as const;
 

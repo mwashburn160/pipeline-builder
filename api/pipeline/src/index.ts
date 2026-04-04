@@ -15,8 +15,7 @@ const logger = createLogger('pipeline');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
   checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; }
-    catch { return { postgres: 'unknown' as const }; }
+    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
   },
 });
 

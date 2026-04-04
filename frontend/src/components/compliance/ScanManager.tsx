@@ -1,18 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Scan, Play, Square, Loader2, CheckCircle, XCircle, Clock, Eye } from 'lucide-react';
+import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
-import type { ComplianceScan, ScanStatus } from '@/types/compliance';
-
-const STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
-  pending: { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
-  running: { icon: Loader2, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' },
-  completed: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
-  failed: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30' },
-  cancelled: { icon: Square, color: 'text-gray-500', bg: 'bg-gray-100 dark:bg-gray-700' },
-};
+import type { ComplianceScan } from '@/types/compliance';
+import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
 
 interface ScanManagerProps {
   onViewScan?: (scanId: string) => void;

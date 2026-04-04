@@ -97,7 +97,7 @@ paths:
                 plugin:
                   type: string
                   format: binary
-                  description: ZIP archive containing spec.yaml and Dockerfile
+                  description: ZIP archive containing plugin-spec.yaml and Dockerfile
                 accessModifier:
                   type: string
                   enum: [public, private]

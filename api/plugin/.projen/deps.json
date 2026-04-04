@@ -50,6 +50,11 @@
       "type": "build"
     },
     {
+      "name": "@types/yauzl",
+      "version": "2.10.3",
+      "type": "build"
+    },
+    {
       "name": "@typescript-eslint/eslint-plugin",
       "version": "^8",
       "type": "build"
@@ -173,6 +178,11 @@
     {
       "name": "yaml",
       "version": "2.8.2",
+      "type": "runtime"
+    },
+    {
+      "name": "yauzl",
+      "version": "3.3.0",
       "type": "runtime"
     },
     {
