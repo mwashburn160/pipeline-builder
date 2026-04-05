@@ -1,3 +1,19 @@
+## 1.5.1 (2026-04-05)
+
+### 🩹 Fixes
+
+- upgraded apiCore=1.48.0 ([5aa7e509](https://github.com/mwashburn160/pipeline-builder/commit/5aa7e509))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.49.1
+- Updated @mwashburn160/pipeline-data to 1.49.1
+- Updated @mwashburn160/api-server to 1.45.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.5.0 (2026-04-05)
 
 ### 🚀 Features
