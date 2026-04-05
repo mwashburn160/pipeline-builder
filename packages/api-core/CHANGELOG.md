@@ -1,3 +1,13 @@
+## 1.48.0 (2026-04-05)
+
+### 🚀 Features
+
+- code review ([051e7c69](https://github.com/mwashburn160/pipeline-builder/commit/051e7c69))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.47.22 (2026-04-03)
 
 ### 🩹 Fixes
