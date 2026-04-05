@@ -109,6 +109,7 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
     contextDir: '/tmp/build-ctx',
     dockerfile: 'Dockerfile',
     imageTag: 'p-test-abc123',
+    buildType: 'build_image' as const,
     registry: makeRegistry(),
     ...overrides,
   };

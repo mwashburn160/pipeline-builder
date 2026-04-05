@@ -70,6 +70,7 @@ describe('plugin-helpers', () => {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
           imageTag: 'p-test-1234',
+          buildType: 'build_image',
           registry: { host: 'reg', port: 5000, user: 'u', token: 't', network: '', http: true, insecure: true },
         },
         pluginRecord: {
@@ -100,6 +101,7 @@ describe('plugin-helpers', () => {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
           imageTag: 'p-test-1234',
+          buildType: 'build_image',
           registry: { host: 'reg', port: 5000, user: 'u', token: 't', network: '', http: true, insecure: true },
         },
         pluginRecord: {
