@@ -130,12 +130,34 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
 
   if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
+    # ---- Category selection ----
+    CATEGORY_ARG=""
+    if [ -n "${PLUGIN_CATEGORY:-}" ]; then
+      CATEGORY_ARG="--category $PLUGIN_CATEGORY"
+    elif [ -t 0 ]; then
+      AVAILABLE=$(find "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+      echo ""
+      echo "  Available categories:"
+      for _cat in $AVAILABLE; do
+        _count=$(find "$DEPLOY_DIR/plugins/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        echo "    - $_cat ($_count plugins)"
+      done
+      echo ""
+      printf "  Build all categories? [Y/n]: "
+      read -r _build_all
+      if [ "$_build_all" = "n" ] || [ "$_build_all" = "N" ]; then
+        printf "  Enter categories (comma-separated, e.g. language,security): "
+        read -r _cats
+        [ -n "$_cats" ] && CATEGORY_ARG="--category $_cats"
+      fi
+    fi
+
     echo ""
     echo "=== Building plugin images ==="
     BUILD_ARGS=""
-    # Reuse existing image.tar files if unchanged
     [ "$FORCE_REBUILD" != "true" ] 2>/dev/null || BUILD_ARGS="$BUILD_ARGS --force"
-    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS
+    # shellcheck disable=SC2086
+    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG
     echo ""
   fi
 
