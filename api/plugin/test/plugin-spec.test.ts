@@ -197,6 +197,7 @@ imageTag: p-prebuilttest-aabbccddee11
     const zipPath = buildZip({
       'plugin-spec.yaml': pluginSpecYaml,
       'config.yaml': configYaml,
+      'image.tar': 'fake-tar-content',
     });
 
     const result = await parsePluginZip(zipPath);
