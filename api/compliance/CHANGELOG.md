@@ -1,3 +1,18 @@
+## 1.8.2 (2026-04-05)
+
+### 🩹 Fixes
+
+- upgraded pipelineData=1.49.1 ([4706e87a](https://github.com/mwashburn160/pipeline-builder/commit/4706e87a))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-core to 1.49.2
+- Updated @mwashburn160/api-server to 1.45.2
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.8.1 (2026-04-05)
 
 ### 🩹 Fixes
