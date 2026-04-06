@@ -1,3 +1,13 @@
+## 1.21.6 (2026-04-06)
+
+### 🩹 Fixes
+
+- updated dashboard ([ab143772](https://github.com/mwashburn160/pipeline-builder/commit/ab143772))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.21.5 (2026-04-06)
 
 ### 🩹 Fixes
