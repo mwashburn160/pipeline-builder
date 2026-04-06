@@ -129,29 +129,42 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   fi
   BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
 
-  if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
-    # ---- Category selection ----
-    CATEGORY_ARG=""
-    if [ -n "${PLUGIN_CATEGORY:-}" ]; then
-      CATEGORY_ARG="--category $PLUGIN_CATEGORY"
-    elif [ -t 0 ]; then
-      AVAILABLE=$(find "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
-      echo ""
-      echo "  Available categories:"
-      for _cat in $AVAILABLE; do
-        _count=$(find "$DEPLOY_DIR/plugins/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-        echo "    - $_cat ($_count plugins)"
+  # ---- Category selection (shared between build and load) ----
+  SELECTED_CATEGORIES=""
+  if [ -n "${PLUGIN_CATEGORY:-}" ]; then
+    SELECTED_CATEGORIES="$PLUGIN_CATEGORY"
+  elif [ -t 0 ]; then
+    AVAILABLE=$(find "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+    echo ""
+    echo "  Available categories:"
+    _i=0
+    for _cat in $AVAILABLE; do
+      _i=$((_i + 1))
+      _count=$(find "$DEPLOY_DIR/plugins/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+      echo "    ${_i}) ${_cat} (${_count} plugins)"
+    done
+    echo ""
+    printf "  Load all categories? [Y/n]: "
+    read -r _load_all
+    if [ "$_load_all" = "n" ] || [ "$_load_all" = "N" ]; then
+      printf "  Enter category numbers (comma-separated, e.g. 1,3,4): "
+      read -r _selected_nums
+      _picked=""
+      for num in $(echo "$_selected_nums" | tr ',' ' '); do
+        _idx=0
+        for _cat in $AVAILABLE; do
+          _idx=$((_idx + 1))
+          [ "$_idx" = "$num" ] && _picked="${_picked}${_cat},"
+        done
       done
-      echo ""
-      printf "  Build all categories? [Y/n]: "
-      read -r _build_all
-      if [ "$_build_all" = "n" ] || [ "$_build_all" = "N" ]; then
-        printf "  Enter categories (comma-separated, e.g. language,security): "
-        read -r _cats
-        [ -n "$_cats" ] && CATEGORY_ARG="--category $_cats"
-      fi
+      SELECTED_CATEGORIES="${_picked%,}"
     fi
+  fi
 
+  CATEGORY_ARG=""
+  [ -n "$SELECTED_CATEGORIES" ] && CATEGORY_ARG="--category $SELECTED_CATEGORIES"
+
+  if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
     echo ""
     echo "=== Building plugin images ==="
     BUILD_ARGS=""
@@ -161,7 +174,8 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     echo ""
   fi
 
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild
+  # shellcheck disable=SC2086
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG
 else
   echo "  Skipping plugin loading."
 fi

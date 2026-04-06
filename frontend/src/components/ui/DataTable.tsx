@@ -84,16 +84,19 @@ export function DataTable<T>({
     direction: defaultSortDirection,
   });
 
-  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  // Initialize hiddenColumns with columns marked hidden by default
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(
+    () => new Set(columns.filter((c) => c.hidden).map((c) => c.id)),
+  );
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
   const visibleColumns = useMemo(
-    () => columns.filter((c) => !c.hidden && !hiddenColumns.has(c.id)),
+    () => columns.filter((c) => !hiddenColumns.has(c.id)),
     [columns, hiddenColumns],
   );
 
   const toggleableColumns = useMemo(
-    () => columns.filter((c) => !c.hidden && !c.locked),
+    () => columns.filter((c) => !c.locked),
     [columns],
   );
 
