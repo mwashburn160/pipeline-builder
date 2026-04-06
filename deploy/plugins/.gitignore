@@ -1,0 +1,21 @@
+# Whitelist: only allow known plugin file types in deploy/plugins/{category}/{name}/
+# This prevents accidental commits of zip mktemp files (e.g., zixMjgGB), build
+# artifacts, IDE files, and other junk inside plugin directories.
+
+# Ignore everything in plugin subdirectories
+/*/*/*
+
+# Allow known plugin files
+!/*/*/Dockerfile
+!/*/*/README.md
+!/*/*/plugin-spec.yaml
+!/*/*/config.yaml
+!/*/*/*.sh
+!/*/*/.dockerignore
+
+# Allow the .gitignore in this directory itself
+!.gitignore
+
+# Allow category-level files (plugin-versions.yaml, etc.)
+!/*.yaml
+!/*.md
