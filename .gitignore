@@ -43,6 +43,7 @@ registry-data
 .aws-sam
 deploy/**/.env
 image.tar
+plugin.zip
 !/.github/pull_request_template.md
 !/.npmrc
 !/test/

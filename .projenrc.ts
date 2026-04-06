@@ -24,12 +24,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* for local, or pin for npm
 //const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.48.4',
-  pipelineData:   '1.49.4',
-  pipelineCore:   '1.49.4',
-  apiServer:      '1.45.4',
-  aiCore:         '1.20.4',
-  eventIngestion: '1.8.4',
+  apiCore:        '1.48.5',
+  pipelineData:   '1.49.5',
+  pipelineCore:   '1.49.5',
+  apiServer:      '1.45.5',
+  aiCore:         '1.20.5',
+  eventIngestion: '1.8.5',
 };
 
 // =============================================================================
@@ -47,7 +47,7 @@ const root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar'],
+  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar', 'plugin.zip'],
   licensed: true,
   projenrcTs: true,
   jest: false,
