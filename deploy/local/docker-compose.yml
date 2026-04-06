@@ -800,7 +800,17 @@ services:
     image: 'grafana/promtail:3.4.2'
     container_name: promtail
     restart: always
-    command: -config.file=/etc/promtail/promtail-config.yml
+    # Wrap promtail to auto-clean corrupted positions file on startup.
+    # The named volume preserves read positions across restarts for log dedup,
+    # but unclean shutdowns can corrupt the YAML — purge it before launching.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /tmp/positions.yaml ] && ! grep -q '^positions:' /tmp/positions.yaml 2>/dev/null; then
+          echo "Removing corrupted positions file"
+          rm -f /tmp/positions.yaml
+        fi
+        exec /usr/bin/promtail -config.file=/etc/promtail/promtail-config.yml
     volumes:
       - './config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro'
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
