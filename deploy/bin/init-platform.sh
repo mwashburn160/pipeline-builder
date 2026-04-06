@@ -166,7 +166,6 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
 
   if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
     echo ""
-    echo "=== Building plugin images ==="
     BUILD_ARGS=""
     [ "${FORCE_REBUILD:-}" != "true" ] || BUILD_ARGS="$BUILD_ARGS --force"
     # shellcheck disable=SC2086
