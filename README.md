@@ -15,7 +15,7 @@
 
 Pipeline Builder turns plugin definitions and pipeline configs into fully deployed AWS CodePipeline infrastructure — inside the client's AWS account with zero lock-in.
 
-## Why Pipeline Builder
+## Highlights
 
 | Challenge | How Pipeline Builder Solves It |
 |-----------|-------------------------------|
@@ -28,7 +28,7 @@ Pipeline Builder turns plugin definitions and pipeline configs into fully deploy
 
 ---
 
-## Core Capabilities
+## Features
 
 ### Five Ways to Create Pipelines
 
@@ -38,11 +38,11 @@ Pipeline Builder turns plugin definitions and pipeline configs into fully deploy
 | **AI Prompt** | Paste a Git URL, get a complete pipeline generated from your repo |
 | **CLI** | `pipeline-manager create-pipeline` for scripted workflows and CI integration |
 | **REST API** | Full CRUD + AI generation endpoints for programmatic control |
-| **CDK Construct** | `PipelineBuilder` construct for infrastructure-as-code, version-controlled alongside your app |
+| **CDK Construct** | `PipelineBuilder` construct for infrastructure-as-code |
 
 ### AI-Powered Generation
 
-The AI builder analyzes a Git repository and generates stages and plugins automatically. Supports cloud providers:
+Analyzes a Git repository and generates stages and plugins automatically.
 
 | Provider | Models |
 |----------|--------|
@@ -51,8 +51,6 @@ The AI builder analyzes a Git repository and generates stages and plugins automa
 | Google | Gemini 2.0 Flash, Gemini 2.5 Pro |
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
 | Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
-
-Cloud providers are available when API keys are configured.
 
 ### 125 Pre-Built Plugins
 
@@ -71,48 +69,22 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 | Notification | 5 | Slack, Teams, PagerDuty, email, GitHub status |
 | AI | 2 | Dockerfile generation (local + cloud) |
 
-Teams upload private plugins or share public ones. Plugins are versioned, and organizations control which versions are available.
-
 ### Compliance Engine
 
-Per-organization rule enforcement that validates plugins and pipelines before creation. Fail-closed design — if the compliance service is unreachable, operations are rejected.
+Per-organization rule enforcement that validates plugins and pipelines before creation.
 
-- **18 operators** — equals, contains, regex, numeric comparison, array count, string length, field existence
-- **Computed fields** — `$count(stages)`, `$length(name)`, `$keys(env)`, `$lines(dockerfile)`
-- **Cross-field conditions** — multi-field rules with `all`/`any` logic and rule dependencies
-- **Published catalog** — system org publishes recommended rules; sub-orgs subscribe and customize
-- **Severity levels** — `warning` (non-blocking), `error` / `critical` (blocking with 403 response)
-- **Audit trail** — every check result logged, with retention and notification preferences
-- **Bulk scans** — on-demand or scheduled (cron) across all plugins/pipelines in an org
-- **10 sample rules** included — naming conventions, image tag restrictions, timeout enforcement, privilege blocking
+- 18 operators — equals, contains, regex, numeric comparison, array count, string length
+- Computed fields, cross-field conditions, published rule catalog
+- Severity levels — `warning` (non-blocking), `error` / `critical` (blocking)
+- Bulk scans, audit trail, 10 sample rules included
 
 ### Multi-Tenant Organizations
 
-Organizations are the core isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization.
-
-| Capability | Details |
-|------------|---------|
-| **Roles** | Owner, Admin, Member — with invite-based membership |
-| **Feature tiers** | Developer, Pro, Unlimited — gate AI generation, bulk ops, audit logs |
-| **Per-org secrets** | Stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`, injected at build time |
-| **Per-org quotas** | Configurable limits on pipelines, plugins, and API calls |
-| **Per-org billing** | Subscription plans with usage tracking |
-| **Per-org compliance** | Each org owns its rules and chooses which published rules to subscribe to |
+Every resource — pipelines, plugins, compliance rules, quotas, secrets, billing — scoped to an organization with role-based access (Owner, Admin, Member), feature tiers (Developer, Pro, Unlimited), and per-org quotas.
 
 ### Execution Analytics
 
-EventBridge captures CodePipeline and CodeBuild state changes. Reports include execution counts, success rates, duration percentiles (p95), stage failure heatmaps, bottleneck analysis, and error categorization.
-
-Plugin Docker builds are tracked automatically. All analytics scoped per organization.
-
-### Infrastructure & Security
-
-- **56 metadata keys** for fine-grained CodePipeline/CodeBuild configuration (IAM, networking, compute, notifications, operations)
-- **VPC-isolated builds** with security group and subnet control
-- **Cross-account deployments** with imported IAM roles and CodeStar connections
-- **Secrets injection** via AWS Secrets Manager — never stored in images or logs
-- **Google OAuth** support alongside email/password authentication
-- **Rate limiting** and per-org API call quotas
+EventBridge captures CodePipeline and CodeBuild state changes. Reports include execution counts, success rates, duration percentiles, stage failure heatmaps, and error categorization.
 
 ---
 
@@ -166,17 +138,6 @@ flowchart TB
 
 ---
 
-## Deployment Options
-
-| Target | Best for | Cost |
-|--------|----------|------|
-| **[Local](deploy/local/)** | Development | Free |
-| **[Minikube](deploy/minikube/)** | Local Kubernetes | Free |
-| **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$30-80/mo |
-| **[Fargate](docs/aws-deployment.md#fargate)** | Production | ~$100-300/mo |
-
----
-
 ## Quick Start
 
 ```bash
@@ -192,11 +153,22 @@ Open **https://localhost:8443** — register, create an org, and start building 
 
 ---
 
+## Deployment Options
+
+| Target | Best for | Cost |
+|--------|----------|------|
+| **[Local](deploy/local/)** | Development | Free |
+| **[Minikube](deploy/minikube/)** | Local Kubernetes | Free |
+| **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$30-80/mo |
+| **[Fargate](docs/aws-deployment.md#fargate)** | Production | ~$100-300/mo |
+
+---
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](docs/README.md) | Setup guides, usage how-to's, and key concepts |
+| [Getting Started](docs/README.md) | Key concepts, usage guides, operational how-to |
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
 | [Environment Variables](docs/environment-variables.md) | Full config reference for all services |

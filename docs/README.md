@@ -1,5 +1,7 @@
 # Documentation
 
+Operational guides, usage how-to's, and detailed reference for Pipeline Builder.
+
 ## Getting Started
 
 1. **Deploy** — choose [Local](../deploy/local/), [Minikube](../deploy/minikube/), [EC2, or Fargate](aws-deployment.md)
@@ -12,7 +14,7 @@
 ## Key Concepts
 
 - **Pipeline** — CI/CD definition composed of stages, each referencing plugins. Synthesized into AWS CDK stacks at deploy time.
-- **Plugin** — Reusable build step packaged as a Dockerfile + spec. Runs as an isolated CodeBuild action inside CodePipeline.
+- **Plugin** — Reusable build step packaged as a Dockerfile + plugin-spec.yaml. Runs as an isolated CodeBuild action inside CodePipeline. Supports `build_image` (build at upload) or `prebuilt` (pre-built image.tar bundled in zip).
 - **Organization** — Multi-tenant isolation boundary. All resources are scoped to an org with RBAC access control.
 - **Compliance Rule** — Configurable constraint that validates plugins and pipelines before creation. Supports 18 operators, computed fields, and cross-field checks.
 - **Metadata Keys** — Typed configuration keys controlling CodePipeline and CodeBuild behavior (IAM, networking, compute). See [Metadata Keys](metadata-keys.md).
@@ -34,7 +36,7 @@
 
 ---
 
-## Setting Up Organizations
+## Organizations
 
 Organizations are the core isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization.
 
@@ -42,7 +44,7 @@ Organizations are the core isolation boundary. Every resource — pipelines, plu
 
 Register an account, then create one or more organizations. The creator becomes the **owner**.
 
-**From the dashboard** — navigate to **Team** and click **Create Organization**. Available to org admins, org owners, and system admins. Use the **org switcher** in the sidebar to switch between organizations.
+**From the dashboard** — navigate to **Team** and click **Create Organization**.
 
 **From the API:**
 
@@ -60,11 +62,9 @@ curl -X POST https://localhost:8443/api/organization \
 | **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
 | **Member** | Create and manage their own pipelines and plugins |
 
-Invite members via email from the dashboard or API. Invitees join with the role specified at invite time. A user can belong to multiple organizations and switch between them.
+Invite members via email from the dashboard or API. A user can belong to multiple organizations.
 
 ### Feature Tiers
-
-AI generation and bulk operations are gated by the organization's subscription tier:
 
 | Feature | Developer | Pro | Unlimited |
 |---------|-----------|-----|-----------|
@@ -76,33 +76,19 @@ AI generation and bulk operations are gated by the organization's subscription t
 | Custom integrations | - | - | yes |
 | Priority support | - | yes | yes |
 
-System org users always have access to all features. Per-user overrides can be set by admins to grant or revoke individual features regardless of tier.
-
-### Example Team Structures
-
-Different teams use separate organizations to maintain isolation while sharing the same platform:
-
-| Organization | Team | Purpose |
-|-------------|------|---------|
-| `acme-platform` | Platform / DevOps | Approved base plugins, org-wide compliance rules, shared pipeline templates |
-| `acme-backend` | Backend engineering | Java/Go service pipelines, internal plugins, team-specific quotas |
-| `acme-frontend` | Frontend engineering | Node.js/React pipelines, Cypress testing plugins, deploy-to-CDN workflows |
-| `acme-data` | Data engineering | Python/Spark pipelines, notebook linting, S3 artifact publishing |
-| `acme-security` | Security | Strict compliance rules (required scans, no public plugins), audit trail review |
+System org users always have access to all features.
 
 ### What Each Org Controls
 
 - **Plugins** — upload private plugins or use shared public ones; control which versions are available
-- **Compliance rules** — enforce security standards, naming conventions, resource limits, and banned commands
+- **Compliance rules** — enforce security standards, naming conventions, resource limits
 - **Quotas** — set limits on pipelines, plugins, and API calls
 - **Billing** — per-org subscription plans and usage tracking
-- **Secrets** — stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`, injected at build time
+- **Secrets** — stored in AWS Secrets Manager, injected at build time
 
 ---
 
 ## Creating Pipelines
-
-Five ways to create a pipeline — pick the one that fits your workflow:
 
 ### Dashboard and AI
 
@@ -114,13 +100,8 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 npm install -g @mwashburn160/pipeline-manager
 export PLATFORM_TOKEN=<jwt-from-login>
 
-# Upload a plugin
 pipeline-manager upload-plugin --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
-
-# Create a pipeline
 pipeline-manager create-pipeline --file ./pipeline-props.json --project my-app --organization my-org
-
-# Deploy
 pipeline-manager deploy --id <pipeline-id> --profile production
 ```
 
@@ -140,10 +121,7 @@ curl -X POST https://localhost:8443/api/pipelines \
       "project": "my-app",
       "organization": "my-org",
       "synth": {
-        "source": {
-          "type": "github",
-          "options": { "repo": "my-org/my-app", "branch": "main" }
-        },
+        "source": { "type": "github", "options": { "repo": "my-org/my-app", "branch": "main" } },
         "plugin": { "name": "cdk-synth", "version": "1.0.0" }
       }
     }
@@ -153,14 +131,10 @@ curl -X POST https://localhost:8443/api/pipelines \
 curl -X POST https://localhost:8443/api/pipelines/generate \
   -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK",
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
-  }'
+  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-4"}'
 ```
 
-See the [API Reference](api-reference.md) for the full endpoint list with query parameters and response formats.
+See the [API Reference](api-reference.md) for the full endpoint list.
 
 ### CDK Construct
 
@@ -185,20 +159,13 @@ new PipelineBuilder(stack, 'MyPipeline', {
     plugin: { name: 'cdk-synth', version: '1.0.0' },
   },
   stages: [
-    {
-      stageName: 'Test',
-      steps: [{ name: 'unit-tests', plugin: { name: 'jest', version: '1.0.0' } }],
-    },
-    {
-      stageName: 'Deploy',
-      steps: [{ name: 'deploy-prod', plugin: { name: 'cdk-deploy', version: '1.0.0' },
-        env: { ENVIRONMENT: 'production' } }],
-    },
+    { stageName: 'Test', steps: [{ name: 'unit-tests', plugin: { name: 'jest', version: '1.0.0' } }] },
+    { stageName: 'Deploy', steps: [{ name: 'deploy-prod', plugin: { name: 'cdk-deploy', version: '1.0.0' }, env: { ENVIRONMENT: 'production' } }] },
   ],
 });
 ```
 
-See the [Samples](samples.md) page for CDK examples including VPC-isolated builds, cross-account deployments, monorepo pipelines, and custom IAM role configurations.
+See [Samples](samples.md) for more CDK patterns.
 
 ---
 
@@ -207,85 +174,64 @@ See the [Samples](samples.md) page for CDK examples including VPC-isolated build
 ### Local (Docker Compose)
 
 ```bash
-# Start
-cd deploy/local && ./bin/startup.sh
-
-# Stop
-cd deploy/local && docker compose down
-
-# Stop and remove volumes
-cd deploy/local && docker compose down -v
+cd deploy/local && ./bin/startup.sh        # Start
+cd deploy/local && docker compose down     # Stop
+cd deploy/local && docker compose down -v  # Stop + remove volumes
 ```
 
-### Minikube (local Kubernetes)
+### Minikube
 
 ```bash
-# Start
-bash deploy/minikube/bin/startup.sh
-
-# Stop (deletes cluster + port-forwards)
-bash deploy/minikube/bin/shutdown.sh
-
-# Check pods
-kubectl get pods -n pipeline-builder
+bash deploy/minikube/bin/startup.sh        # Start
+bash deploy/minikube/bin/shutdown.sh       # Stop
+kubectl get pods -n pipeline-builder       # Check
 ```
 
-### AWS EC2 (SSH into instance first)
+### AWS EC2
 
 ```bash
-# Start (after reboot or shutdown)
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
-
-# Stop
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
-
-# Check pods
-sudo -u minikube kubectl get pods -n pipeline-builder
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh    # Start
+sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh   # Stop
+sudo -u minikube kubectl get pods -n pipeline-builder             # Check
 ```
 
 ### AWS Fargate
 
 ```bash
 cd deploy/aws/fargate
-
-# Deploy all stacks
-bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com
-
-# Teardown all stacks
-bash bin/teardown.sh --stack-prefix pb --region us-east-1
+bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com  # Deploy
+bash bin/teardown.sh --stack-prefix pb --region us-east-1                          # Teardown
 ```
 
-See the [AWS Deployment](aws-deployment.md) guide for full deployment instructions, parameters, post-deploy steps, and troubleshooting.
+See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy setup.
 
 ---
 
 ## Architecture
 
 ```
-                    ┌─────────────────────┐
-                    │   Dashboard / CLI    │
-                    └──────────┬──────────┘
-                               │
-                         ┌─────┴─────┐
-                         │   Nginx   │  TLS, routing, JWT
-                         └─────┬─────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          │                    │                     │
-   ┌──────┴──────┐     ┌──────┴──────┐     ┌───────┴───────┐
-   │  Pipeline   │     │   Plugin    │     │   Platform    │
-   │  Service    │     │   Service   │     │   Service     │
-   └──────┬──────┘     └──────┬──────┘     └───────┬───────┘
-          │                   │                     │
-          ├───────────────────┤                     │
-          │                   │                     │
-   ┌──────┴──────┐     ┌─────┴──────┐     ┌───────┴───────┐
-   │ Compliance  │     │  Reporting │     │ Quota/Billing │
-   └─────────────┘     └────────────┘     └───────────────┘
-          │                   │                     │
-   ┌──────┴───────────────────┴─────────────────────┴──────┐
-   │         PostgreSQL  ·  MongoDB  ·  Redis              │
-   └───────────────────────────────────────────────────────┘
+                    +-----------------------+
+                    |   Dashboard / CLI     |
+                    +----------+------------+
+                               |
+                         +-----+-----+
+                         |   Nginx   |  TLS, routing
+                         +-----+-----+
+                               |
+          +--------------------+--------------------+
+          |                    |                     |
+   +------+------+     +------+------+     +--------+--------+
+   |  Pipeline   |     |   Plugin    |     |    Platform     |
+   |  Service    |     |   Service   |     |    Service      |
+   +------+------+     +------+------+     +--------+--------+
+          |                   |                      |
+   +------+------+     +-----+------+     +---------+---------+
+   | Compliance  |     |  Reporting |     | Quota / Billing   |
+   +-------------+     +------------+     +-------------------+
+          |                   |                      |
+   +------+-------------------+----------------------+------+
+   |         PostgreSQL  .  MongoDB  .  Redis               |
+   +--------------------------------------------------------+
 ```
 
 | Service | Purpose |
@@ -303,9 +249,9 @@ See the [AWS Deployment](aws-deployment.md) guide for full deployment instructio
 
 ## Plugin Categories
 
-125 plugins ship across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list with secrets reference and version management details.
+125 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
 
-| Category | Count | Examples |
+| Category | Count | Details |
 |----------|-------|---------|
 | [Language](plugins/language.md) | 11 | Java, Python, Node.js, Go, Rust, .NET |
 | [Security](plugins/security.md) | 40 | Snyk, SonarCloud, Trivy, Veracode, Semgrep |

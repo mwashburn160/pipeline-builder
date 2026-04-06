@@ -155,7 +155,7 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     echo ""
     echo "=== Building plugin images ==="
     BUILD_ARGS=""
-    [ "$FORCE_REBUILD" != "true" ] 2>/dev/null || BUILD_ARGS="$BUILD_ARGS --force"
+    [ "${FORCE_REBUILD:-}" != "true" ] || BUILD_ARGS="$BUILD_ARGS --force"
     # shellcheck disable=SC2086
     "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG
     echo ""

@@ -233,6 +233,73 @@ export default function PluginsPage() {
       render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
     },
     {
+      id: 'imageTag',
+      header: 'Image Tag',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
+      sortValue: (p) => p.imageTag,
+      render: (p) => <span title={p.imageTag}>{p.imageTag}</span>,
+    },
+    {
+      id: 'timeout',
+      header: 'Timeout',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.timeout ?? 0,
+      render: (p) => <>{p.timeout ? `${p.timeout} min` : '-'}</>,
+    },
+    {
+      id: 'failureBehavior',
+      header: 'On Failure',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.failureBehavior || '',
+      render: (p) => <>{p.failureBehavior || '-'}</>,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      hidden: true,
+      sortValue: (p) => p.isActive,
+      render: (p) => (
+        <div className="flex gap-1">
+          {p.isDefault && <Badge color="blue">Default</Badge>}
+          <Badge color={p.isActive ? 'green' : 'red'}>{p.isActive ? 'Active' : 'Inactive'}</Badge>
+        </div>
+      ),
+    },
+    {
+      id: 'createdBy',
+      header: 'Created By',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.createdBy,
+      render: (p) => <>{p.createdBy}</>,
+    },
+    {
+      id: 'createdAt',
+      header: 'Created',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.createdAt,
+      render: (p) => <>{new Date(p.createdAt).toLocaleDateString()}</>,
+    },
+    {
+      id: 'updatedAt',
+      header: 'Updated',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      sortValue: (p) => p.updatedAt,
+      render: (p) => <>{new Date(p.updatedAt).toLocaleDateString()}</>,
+    },
+    {
+      id: 'keywords',
+      header: 'Keywords',
+      hidden: true,
+      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
+      render: (p) => <>{(p.keywords || []).join(', ')}</>,
+    },
+    {
       id: 'actions',
       header: 'Actions',
       cellClassName: 'text-sm',
