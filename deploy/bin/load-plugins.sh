@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     --dry-run)   DRY_RUN=true; shift ;;
     --rebuild)   REBUILD=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
-    --parallel)  PARALLEL_JOBS="$2"; [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }; shift 2 ;;
+    --parallel)  PARALLEL_JOBS="$2"; PARALLEL_JOBS_EXPLICIT=true; [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }; shift 2 ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
     --timeout)   UPLOAD_TIMEOUT="$2"; [[ "$UPLOAD_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }; shift 2 ;;
     --help|-h)
@@ -289,6 +289,26 @@ else
 fi
 
 count_eligible
+
+# Auto-lower parallelism if any plugins are prebuilt with large image.tar files.
+# Prebuilt zips are CPU/memory-heavy to parse server-side and parallel uploads
+# can collide on the single-threaded zip parser, causing 503 retries.
+# Override with --parallel N to force higher concurrency.
+if [ -z "${PARALLEL_JOBS_EXPLICIT:-}" ]; then
+  for category in $CATEGORIES; do
+    for plugin_dir in "${PLUGINS_DIR}/${category}"/*/; do
+      [ -f "$plugin_dir/image.tar" ] || continue
+      _bt=$(grep '^buildType:' "$plugin_dir/config.yaml" 2>/dev/null | sed 's/^buildType: *//')
+      if [ "$_bt" = "prebuilt" ]; then
+        if [ "$PARALLEL_JOBS" -gt 1 ]; then
+          echo "  NOTE: prebuilt plugins detected, lowering parallelism to 1 (override with --parallel N)"
+          PARALLEL_JOBS=1
+        fi
+        break 2
+      fi
+    done
+  done
+fi
 
 START_TIME=$(date +%s)
 echo ""
