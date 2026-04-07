@@ -158,6 +158,9 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
         done
       done
       SELECTED_CATEGORIES="${_picked%,}"
+    else
+      # User picked "all" — expand to full category list so child scripts don't re-prompt
+      SELECTED_CATEGORIES=$(echo "$AVAILABLE" | tr ' ' ',' | tr '\n' ',' | sed 's/,$//')
     fi
   fi
 
