@@ -38,9 +38,9 @@
   },
   "dependencies": {
     "@mwashburn160/ai-core": "1.21.10",
-    "@mwashburn160/api-core": "1.49.11",
-    "@mwashburn160/api-server": "1.46.10",
-    "@mwashburn160/pipeline-core": "1.50.12",
+    "@mwashburn160/api-core": "1.49.12",
+    "@mwashburn160/api-server": "1.46.12",
+    "@mwashburn160/pipeline-core": "1.50.13",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.43.12",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
