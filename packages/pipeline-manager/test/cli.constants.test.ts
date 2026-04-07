@@ -114,7 +114,7 @@ describe('formatFileSize', () => {
   });
 
   it('should format large sizes', () => {
-    expect(formatFileSize(FILE_SIZE_LIMITS.PLUGIN)).toBe('1.00 GB');
+    expect(formatFileSize(FILE_SIZE_LIMITS.PLUGIN)).toBe('4.00 GB');
   });
 });
 
