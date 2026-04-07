@@ -181,13 +181,16 @@ while IFS= read -r plugin_dir; do
 
     # Build image
     build_args=$(parse_build_arg_flags "$plugin_dir/plugin-spec.yaml")
+    build_log="$plugin_dir/.build.log"
     # shellcheck disable=SC2086
     if ! docker build --progress plain $build_args \
-        -t "plugin:${tag}" -f "$plugin_dir/Dockerfile" "$plugin_dir" > /dev/null 2>&1; then
-      echo "    FAIL (docker build failed)"
+        -t "plugin:${tag}" -f "$plugin_dir/Dockerfile" "$plugin_dir" > "$build_log" 2>&1; then
+      echo "    FAIL (docker build failed — last 20 lines:)"
+      tail -20 "$build_log" | sed 's/^/      /'
       FAILED=$((FAILED + 1))
       continue
     fi
+    rm -f "$build_log"
 
     # Save to tar
     tar_path="$plugin_dir/image.tar"
