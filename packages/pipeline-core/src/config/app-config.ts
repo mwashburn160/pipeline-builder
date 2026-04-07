@@ -52,7 +52,7 @@ export class CoreConstants {
   static readonly MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
   static readonly DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
   static readonly MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
-  static readonly PLUGIN_MAX_UPLOAD_MB = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '1024', 10);
+  static readonly PLUGIN_MAX_UPLOAD_MB = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '4096', 10);
   static readonly PIPELINE_NAME_MAX_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100', 10);
   static readonly DEFAULT_PLUGIN_VERSION = process.env.DEFAULT_PLUGIN_VERSION || '1.0.0';
 

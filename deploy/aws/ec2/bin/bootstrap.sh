@@ -153,18 +153,24 @@ if [ -n "$DOMAIN" ]; then
   dnf install -y certbot
 
   echo "  Obtaining Let's Encrypt certificate for ${DOMAIN}..."
-  certbot certonly --standalone \
-    --non-interactive \
-    --agree-tos \
-    --email "admin@${DOMAIN}" \
-    -d "${DOMAIN}" \
-    --preferred-challenges http
-
-  # Symlink to standard location
-  ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$TLS_CERT_DIR/tls.crt"
-  ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" "$TLS_CERT_DIR/tls.key"
-
-  echo "  Certificate obtained: /etc/letsencrypt/live/${DOMAIN}/"
+  if ! certbot certonly --standalone \
+      --non-interactive \
+      --agree-tos \
+      --email "admin@${DOMAIN}" \
+      -d "${DOMAIN}" \
+      --preferred-challenges http; then
+    echo "  ERROR: certbot failed to obtain certificate for ${DOMAIN}" >&2
+    echo "  Common causes: domain not pointing to this instance, port 80 blocked, Let's Encrypt rate limit" >&2
+    echo "  Falling back to self-signed certificate" >&2
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "$TLS_CERT_DIR/tls.key" -out "$TLS_CERT_DIR/tls.crt" \
+      -subj "/CN=${DOMAIN}" -addext "subjectAltName=DNS:${DOMAIN}"
+  else
+    # Symlink to standard location
+    ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$TLS_CERT_DIR/tls.crt"
+    ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" "$TLS_CERT_DIR/tls.key"
+    echo "  Certificate obtained: /etc/letsencrypt/live/${DOMAIN}/"
+  fi
 
   # Setup auto-renewal cron
   cat > /etc/cron.d/certbot-renew << CRON
@@ -195,6 +201,9 @@ if ! id minikube &>/dev/null; then
 else
   echo "  User 'minikube' already exists"
 fi
+# Ensure minikube user is in the docker group (idempotent — handles upgrades)
+usermod -aG docker minikube
+echo "  Ensured 'minikube' is in docker group"
 
 # Data directory on dedicated EBS volume (mounted by UserData at /mnt/data)
 if mountpoint -q "/mnt/data" 2>/dev/null; then
@@ -226,9 +235,9 @@ cd "$DEPLOY_DIR"
 
 cp .env.example .env
 
-# Generate secrets
-JWT_SECRET=$(openssl rand -base64 32)
-REFRESH_SECRET=$(openssl rand -base64 32)
+# Generate secrets — strip base64 special chars (+/=) to avoid sed delimiter conflicts
+JWT_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
+REFRESH_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
 PG_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
 MONGO_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
 GRAFANA_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')

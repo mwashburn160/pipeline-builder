@@ -178,6 +178,7 @@ prompt_credentials() {
 #   Requires PLATFORM_IDENTIFIER and PLATFORM_PASSWORD to be set.
 # ---------------------------------------------------------------------------
 login() {
+  local _resp
   _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \

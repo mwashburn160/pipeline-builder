@@ -24,7 +24,7 @@ FORCE=false
 RESET=false
 DRY_RUN=false
 CATEGORY_FILTER=""
-MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-1024}"
+MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
 # ---- Argument parsing ----
 
