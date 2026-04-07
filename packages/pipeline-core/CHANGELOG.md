@@ -1,3 +1,13 @@
+## 1.50.12 (2026-04-07)
+
+### 🩹 Fixes
+
+- set upload limit to 4GB ([87f4c476](https://github.com/mwashburn160/pipeline-builder/commit/87f4c476))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.11 (2026-04-07)
 
 ### 🩹 Fixes

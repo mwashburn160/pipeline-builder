@@ -1,3 +1,13 @@
+## 1.49.12 (2026-04-07)
+
+### 🩹 Fixes
+
+- updated dashboard ([38bc79a8](https://github.com/mwashburn160/pipeline-builder/commit/38bc79a8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.49.11 (2026-04-07)
 
 ### 🩹 Fixes
