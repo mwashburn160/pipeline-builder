@@ -110,108 +110,7 @@ validate_spec() {
   fi
 }
 
-maybe_rebuild_zip() {
-  local plugin_path="$1"
-  local zip_file="${plugin_path}/plugin.zip"
-  local specfile="${plugin_path}/plugin-spec.yaml"
-  local config="${plugin_path}/config.yaml"
-  local dockerfile="${plugin_path}/Dockerfile"
-  local image_tar="${plugin_path}/image.tar"
-  local reason=""
-
-  # Determine buildType from config.yaml
-  local _build_type="build_image"
-  [ -f "$config" ] && _build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
-
-  local zip_files="plugin-spec.yaml"
-  [ -f "$config" ] && zip_files="config.yaml $zip_files"
-  if [ "$_build_type" = "prebuilt" ]; then
-    [ -f "$image_tar" ] && zip_files="$zip_files image.tar"
-  else
-    [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
-  fi
-
-  if [ "$REBUILD" = true ] || [ ! -f "$zip_file" ]; then
-    reason="Rebuilt plugin.zip"
-  elif [ "$specfile" -nt "$zip_file" ]; then
-    reason="Rebuilt plugin.zip (spec changed)"
-  elif [ -f "$config" ] && [ "$config" -nt "$zip_file" ]; then
-    reason="Rebuilt plugin.zip (config changed)"
-  elif [ "$_build_type" != "prebuilt" ] && [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ]; then
-    reason="Rebuilt plugin.zip (Dockerfile changed)"
-  elif [ "$_build_type" = "prebuilt" ] && [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ]; then
-    reason="Rebuilt plugin.zip (image.tar changed)"
-  else
-    return 0
-  fi
-
-  # shellcheck disable=SC2086
-  (cd "$plugin_path" && zip -q plugin.zip -- $zip_files)  # word-split intentional: known filenames
-  echo "    $reason"
-}
-
-# Increment a counter — writes to COUNTER_DIR file in parallel mode,
-# updates global variable in serial mode.
-_increment_counter() {
-  if [ -n "${COUNTER_DIR:-}" ]; then
-    echo "1" >> "$COUNTER_DIR/$1"
-  else
-    case "$1" in
-      succeeded) SUCCEEDED=$((SUCCEEDED + 1)) ;;
-      skipped)   SKIPPED=$((SKIPPED + 1)) ;;
-      failed)    FAILED=$((FAILED + 1)) ;;
-    esac
-  fi
-}
-
-# Upload a single plugin — used by both serial and parallel modes
-upload_one_plugin() {
-  local plugin_dir="$1"
-  local plugin_name="$(basename "$plugin_dir")"
-  local category="$(basename "$(dirname "$plugin_dir")")"
-  local label="${category}/${plugin_name}"
-
-  validate_spec "$plugin_dir/plugin-spec.yaml" "$plugin_dir" || {
-    echo "  FAIL $label (invalid spec)"
-    _increment_counter "failed"
-    return
-  }
-  maybe_rebuild_zip "$plugin_dir"
-
-  if [ "$DRY_RUN" = true ]; then
-    echo "  OK   $label (dry-run)"
-    _increment_counter "succeeded"
-    return
-  fi
-
-  _attempt=1
-  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-    status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-      -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
-      -H "Authorization: Bearer ${JWT_TOKEN}" \
-      -H "x-org-id: system" \
-      -H "x-internal-service: true" \
-      -F "plugin=@${plugin_dir}/plugin.zip" \
-      -F "accessModifier=public" \
-      --insecure 2>/dev/null || echo "000")
-
-    _result="$(classify_status "$status")"
-
-    if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-      echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
-      sleep "$UPLOAD_RETRY_DELAY"
-      _attempt=$((_attempt + 1))
-      continue
-    fi
-
-    case "$_result" in
-      ok)     echo "  OK   $label (HTTP ${status})"; _increment_counter "succeeded" ;;
-      exists) echo "  SKIP $label (exists)";         _increment_counter "skipped" ;;
-      fail)   echo "  FAIL $label (HTTP ${status})"; _increment_counter "failed" ;;
-    esac
-    break
-  done
-}
+WORKER_SCRIPT="$SCRIPT_DIR/load-plugin-worker.sh"
 
 resolve_category() {
   local _target=$1 _idx=0 _cat
@@ -326,10 +225,18 @@ for category in $CATEGORIES; do
   done
 done
 
+# Set up counter dir (parallel mode writes counts to files; serial mode does too for consistency)
+COUNTER_DIR=$(mktemp -d)
+[ -n "$COUNTER_DIR" ] && [ -d "$COUNTER_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
+trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
+touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
+
+export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
+export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
+
 if [ "$SERIAL_MODE" = true ]; then
-  # Legacy serial mode with delays
   UPLOAD_DELAY=${UPLOAD_DELAY:-5}
-  SUCCEEDED=0; FAILED=0; SKIPPED=0; PROCESSED=0
+  PROCESSED=0
 
   for category in $CATEGORIES; do
     category_dir="${PLUGINS_DIR}/${category}"
@@ -340,120 +247,18 @@ if [ "$SERIAL_MODE" = true ]; then
       is_eligible_plugin "$plugin_dir" || continue
       PROCESSED=$((PROCESSED + 1))
       echo "  [$PROCESSED/$TOTAL] $(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
-      # Inline upload for serial (uses global counters directly)
-      COUNTER_DIR=""
-      upload_one_plugin "$plugin_dir"
+      "$WORKER_SCRIPT" "$plugin_dir" || true
       remaining=$((TOTAL - PROCESSED))
       [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
     done
   done
 else
-  # Parallel mode — no delays, concurrent uploads via temp worker script
-  COUNTER_DIR=$(mktemp -d)
-  [ -n "$COUNTER_DIR" ] && [ -d "$COUNTER_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
-  trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
-  touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
-
-  export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
-  export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
-
-  # Write worker script to temp file (avoids xargs -I{} + bash -c quoting issues)
-  WORKER_SCRIPT="$COUNTER_DIR/worker.sh"
-  cat > "$WORKER_SCRIPT" <<'WORKER_EOF'
-#!/usr/bin/env bash
-. "$SCRIPT_DIR/common.sh"
-
-plugin_dir="$1"
-[ -d "$plugin_dir" ] || exit 0
-
-plugin_name="$(basename "$plugin_dir")"
-category="$(basename "$(dirname "$plugin_dir")")"
-label="${category}/${plugin_name}"
-
-# Validate
-errors=""
-specfile="$plugin_dir/plugin-spec.yaml"
-_pt=$(get_spec_field pluginType "$specfile")
-for field in name description version pluginType computeType; do
-  grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}Missing ${field} "
-done
-if [ -n "$errors" ]; then
-  echo "  FAIL $label ($errors)"
-  echo "1" >> "$COUNTER_DIR/failed"
-  exit 0
+  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} "$WORKER_SCRIPT" "{}"
 fi
 
-# Rebuild zip if needed
-zip_file="${plugin_dir}/plugin.zip"
-config="$plugin_dir/config.yaml"
-_build_type="build_image"
-[ -f "$config" ] && _build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
-
-zip_files="plugin-spec.yaml"
-[ -f "$config" ] && zip_files="config.yaml $zip_files"
-if [ "$_build_type" = "prebuilt" ]; then
-  [ -f "$plugin_dir/image.tar" ] && zip_files="$zip_files image.tar"
-else
-  [ -f "$plugin_dir/Dockerfile" ] && zip_files="$zip_files Dockerfile"
-fi
-
-needs_rebuild=false
-[ "$REBUILD" = true ] || [ ! -f "$zip_file" ] && needs_rebuild=true
-[ "$specfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-[ -f "$config" ] && [ "$config" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-if [ "$_build_type" != "prebuilt" ]; then
-  [ -f "$plugin_dir/Dockerfile" ] && [ "$plugin_dir/Dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-else
-  [ -f "$plugin_dir/image.tar" ] && [ "$plugin_dir/image.tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-fi
-if [ "$needs_rebuild" = true ]; then
-  # shellcheck disable=SC2086
-  (cd "$plugin_dir" && zip -q plugin.zip -- $zip_files)
-fi
-
-if [ "$DRY_RUN" = true ]; then
-  echo "  OK   $label (dry-run)"
-  echo "1" >> "$COUNTER_DIR/succeeded"
-  exit 0
-fi
-
-_attempt=1
-while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-  status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-    -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "x-org-id: system" \
-    -H "x-internal-service: true" \
-    -F "plugin=@${plugin_dir}/plugin.zip" \
-    -F "accessModifier=public" \
-    --insecure 2>/dev/null || echo "000")
-
-  _result="$(classify_status "$status")"
-
-  if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-    echo "  RETRY $label (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES}"
-    sleep "$UPLOAD_RETRY_DELAY"
-    _attempt=$((_attempt + 1))
-    continue
-  fi
-
-  case "$_result" in
-    ok)     echo "  OK   $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/succeeded" ;;
-    exists) echo "  SKIP $label (exists)";         echo "1" >> "$COUNTER_DIR/skipped" ;;
-    fail)   echo "  FAIL $label (HTTP ${status})"; echo "1" >> "$COUNTER_DIR/failed" ;;
-  esac
-  break
-done
-WORKER_EOF
-  chmod +x "$WORKER_SCRIPT"
-
-  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} bash "$WORKER_SCRIPT" "{}"
-
-  SUCCEEDED=$(wc -l < "$COUNTER_DIR/succeeded" | tr -d ' ')
-  SKIPPED=$(wc -l < "$COUNTER_DIR/skipped" | tr -d ' ')
-  FAILED=$(wc -l < "$COUNTER_DIR/failed" | tr -d ' ')
-  # Cleanup handled by EXIT trap
-fi
+SUCCEEDED=$(wc -l < "$COUNTER_DIR/succeeded" | tr -d ' ')
+SKIPPED=$(wc -l < "$COUNTER_DIR/skipped" | tr -d ' ')
+FAILED=$(wc -l < "$COUNTER_DIR/failed" | tr -d ' ')
 
 DURATION=$(( $(date +%s) - START_TIME ))
 print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
