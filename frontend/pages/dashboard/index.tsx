@@ -112,9 +112,7 @@ export default function DashboardPage() {
     setRecent(loadRecent());
   }, []);
 
-  if (!isReady || !user) return <LoadingPage />;
-
-  // ─── Computed ───
+  // ─── Computed (must run on every render — hooks before early return) ───
 
   const stats = useMemo(() => {
     const totalExec = executions.reduce((s, p) => s + p.total, 0);
@@ -147,6 +145,8 @@ export default function DashboardPage() {
     () => Math.max(1, ...timeline.map(e => e.succeeded + e.failed + e.canceled)),
     [timeline],
   );
+
+  if (!isReady || !user) return <LoadingPage />;
 
   const trackVisit = (name: string) => {
     if (typeof window === 'undefined') return;
