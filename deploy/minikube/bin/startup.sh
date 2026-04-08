@@ -214,7 +214,7 @@ kubectl apply -k "$K8S_DIR"
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && minikube ssh --profile="$PROFILE" -- \
-  "grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > /tmp/hosts.tmp; echo '$REGISTRY_IP registry' >> /tmp/hosts.tmp; sudo cp /tmp/hosts.tmp /etc/hosts; rm /tmp/hosts.tmp; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
+  "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
 echo "  registry -> ${REGISTRY_IP:-unknown}"
 
 # -- Wait for pods ------------------------------------------------------------

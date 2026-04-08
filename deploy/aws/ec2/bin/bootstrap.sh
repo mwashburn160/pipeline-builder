@@ -215,6 +215,9 @@ else
   chown minikube:minikube /mnt/data
 fi
 chown -R minikube:minikube "$DEPLOY_DIR"
+# Plugin directory is outside DEPLOY_DIR (deploy/aws/ec2) — chown for prebuilt image.tar
+chown -R minikube:minikube "$INSTALL_DIR/deploy/plugins"
+chown -R minikube:minikube "$INSTALL_DIR/deploy/bin"
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then

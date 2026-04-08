@@ -145,7 +145,8 @@ maybe_rebuild_zip() {
     return 0
   fi
 
-  (cd "$plugin_path" && zip -q plugin.zip $zip_files)  # word-split intentional: known filenames
+  # shellcheck disable=SC2086
+  (cd "$plugin_path" && zip -q plugin.zip -- $zip_files)  # word-split intentional: known filenames
   echo "    $reason"
 }
 
@@ -349,6 +350,8 @@ if [ "$SERIAL_MODE" = true ]; then
 else
   # Parallel mode — no delays, concurrent uploads via temp worker script
   COUNTER_DIR=$(mktemp -d)
+  [ -n "$COUNTER_DIR" ] && [ -d "$COUNTER_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
+  trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
   touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
 
   export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
@@ -404,7 +407,8 @@ else
   [ -f "$plugin_dir/image.tar" ] && [ "$plugin_dir/image.tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 fi
 if [ "$needs_rebuild" = true ]; then
-  (cd "$plugin_dir" && zip -q plugin.zip $zip_files)
+  # shellcheck disable=SC2086
+  (cd "$plugin_dir" && zip -q plugin.zip -- $zip_files)
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -448,7 +452,7 @@ WORKER_EOF
   SUCCEEDED=$(wc -l < "$COUNTER_DIR/succeeded" | tr -d ' ')
   SKIPPED=$(wc -l < "$COUNTER_DIR/skipped" | tr -d ' ')
   FAILED=$(wc -l < "$COUNTER_DIR/failed" | tr -d ' ')
-  rm -rf "$COUNTER_DIR"
+  # Cleanup handled by EXIT trap
 fi
 
 DURATION=$(( $(date +%s) - START_TIME ))

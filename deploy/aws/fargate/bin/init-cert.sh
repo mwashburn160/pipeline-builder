@@ -54,6 +54,8 @@ fi
 
 # Generate self-signed cert
 CERT_DIR="$(mktemp -d)"
+[ -n "$CERT_DIR" ] && [ -d "$CERT_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
+trap 'rm -rf "$CERT_DIR"' EXIT
 openssl req -x509 -newkey rsa:2048 \
   -keyout "$CERT_DIR/key.pem" \
   -out "$CERT_DIR/cert.pem" \
@@ -79,6 +81,5 @@ else
     --query "CertificateArn" --output text)
 fi
 
-rm -rf "$CERT_DIR"
 echo "  Certificate imported: $CERT_ARN" >&2
 echo "CERTIFICATE_ARN=${CERT_ARN}"
