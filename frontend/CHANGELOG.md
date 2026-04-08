@@ -1,3 +1,13 @@
+## 1.49.16 (2026-04-08)
+
+### 🩹 Fixes
+
+- early return if ([effca59e](https://github.com/mwashburn160/pipeline-builder/commit/effca59e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.49.15 (2026-04-07)
 
 ### 🩹 Fixes
