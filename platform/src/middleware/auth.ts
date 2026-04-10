@@ -4,6 +4,7 @@
 import { sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { User, Organization, UserOrganization } from '../models';
+import { toOrgId } from '../helpers/controller-helper';
 import type { OrgMemberRole } from '../models/user-organization';
 import { AccessTokenPayload, UserRole } from '../types';
 import {
@@ -40,7 +41,7 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
   let organizationName: string | undefined;
 
   if (orgId) {
-    const membership = await UserOrganization.findOne({ userId, organizationId: orgId, isActive: true }).lean();
+    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId), isActive: true }).lean();
     if (membership) {
       role = membership.role as OrgMemberRole;
       organizationId = orgId;

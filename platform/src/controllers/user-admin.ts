@@ -8,7 +8,7 @@ import { config } from '../config';
 import { formatUserResponse, toOverridesRecord } from './user-profile';
 import type { OrgSummary, OrgMembership } from './user-profile';
 import { audit } from '../helpers/audit';
-import { requireAdminContext, withController } from '../helpers/controller-helper';
+import { requireAdminContext, toOrgId, withController } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
 import { parsePagination } from '../utils/pagination';
 
@@ -32,16 +32,14 @@ export const listAllUsers = withController('List users', async (req, res) => {
   let scopedUserIds: Types.ObjectId[] | null = null;
 
   if (admin.isOrgAdmin) {
-    const reqOrgId = req.user!.organizationId;
+    const reqOrgId = req.user!.organizationId!;
     if (organizationId && organizationId !== reqOrgId) {
       return sendError(res, 403, 'Forbidden: Can only view users in your organization');
     }
-    // Get all user IDs that belong to the admin's org
-    const memberships = await UserOrganization.find({ organizationId: reqOrgId, isActive: true }).distinct('userId');
+    const memberships = await UserOrganization.find({ organizationId: toOrgId(reqOrgId), isActive: true }).distinct('userId');
     scopedUserIds = memberships as Types.ObjectId[];
   } else if (organizationId) {
-    // System admin filtering by a specific org
-    const memberships = await UserOrganization.find({ organizationId, isActive: true }).distinct('userId');
+    const memberships = await UserOrganization.find({ organizationId: toOrgId(organizationId as string), isActive: true }).distinct('userId');
     scopedUserIds = memberships as Types.ObjectId[];
   }
 
@@ -49,12 +47,6 @@ export const listAllUsers = withController('List users', async (req, res) => {
     filter._id = { $in: scopedUserIds };
   }
 
-  if (role && ['user', 'admin'].includes(role as string)) {
-    // Role filtering now applies to UserOrganization, but for backward compat
-    // we still accept the query param. If scoped to an org, filter by org role.
-    // For now, skip user-level role filter since role lives in UserOrganization.
-    // Role filtering is handled below after fetching memberships.
-  }
   if (search) {
     filter.$or = [
       { username: { $regex: search, $options: 'i' } },
@@ -68,7 +60,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
   if (role && ['owner', 'admin', 'member'].includes(role as string)) {
     const orgIdForRole = admin.isOrgAdmin ? req.user!.organizationId : (organizationId as string | undefined);
     if (orgIdForRole) {
-      const roleMembers = await UserOrganization.find({ organizationId: orgIdForRole, role, isActive: true }).distinct('userId');
+      const roleMembers = await UserOrganization.find({ organizationId: toOrgId(orgIdForRole), role, isActive: true }).distinct('userId');
       if (scopedUserIds !== null) {
         // Intersect with existing scoped IDs
         const roleSet = new Set(roleMembers.map((id: Types.ObjectId) => id.toString()));
@@ -151,7 +143,7 @@ export const getUserById = withController('Get user', async (req, res) => {
   if (admin.isOrgAdmin) {
     const membership = await UserOrganization.findOne({
       userId: user._id,
-      organizationId: req.user!.organizationId,
+      organizationId: toOrgId(req.user!.organizationId!),
       isActive: true,
     });
     if (!membership) {
@@ -232,7 +224,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
   if (admin.isOrgAdmin) {
     const membership = await UserOrganization.findOne({
       userId: user._id,
-      organizationId: req.user!.organizationId,
+      organizationId: toOrgId(req.user!.organizationId!),
       isActive: true,
     });
     if (!membership) {
@@ -276,7 +268,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
     const targetOrgId = admin.isOrgAdmin ? req.user!.organizationId : (organizationId || user.lastActiveOrgId?.toString());
     if (targetOrgId) {
       await UserOrganization.updateOne(
-        { userId: user._id, organizationId: targetOrgId },
+        { userId: user._id, organizationId: toOrgId(targetOrgId) },
         { $set: { role } },
       );
       changes.push('role');
@@ -308,13 +300,13 @@ export const updateUserById = withController('Update user', async (req, res) => 
       // Check if already a member of the target org
       const existingMembership = await UserOrganization.findOne({
         userId: user._id,
-        organizationId,
+        organizationId: toOrgId(organizationId),
       });
 
       if (!existingMembership) {
         await UserOrganization.create({
           userId: user._id,
-          organizationId,
+          organizationId: toOrgId(organizationId),
           role: 'member',
         });
       }
@@ -368,7 +360,7 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
   if (admin.isOrgAdmin) {
     const membership = await UserOrganization.findOne({
       userId: user._id,
-      organizationId: req.user!.organizationId,
+      organizationId: toOrgId(req.user!.organizationId!),
       isActive: true,
     });
     if (!membership) {
@@ -429,7 +421,7 @@ export const updateUserFeatures = withController('Update user features', async (
   if (admin.isOrgAdmin) {
     const membership = await UserOrganization.findOne({
       userId: user._id,
-      organizationId: req.user!.organizationId,
+      organizationId: toOrgId(req.user!.organizationId!),
       isActive: true,
     });
     if (!membership) {

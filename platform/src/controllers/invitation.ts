@@ -4,7 +4,7 @@
 import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config';
-import { requireOrgMembership, withController } from '../helpers/controller-helper';
+import { requireOrgMembership, toOrgId, withController } from '../helpers/controller-helper';
 import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument, UserOrganization } from '../models';
 import { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
@@ -128,7 +128,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
       if (existingUser) {
         const existingMembership = await UserOrganization.findOne({
           userId: existingUser._id,
-          organizationId: orgId,
+          organizationId: toOrgId(orgId),
         }).session(session);
         if (existingMembership) {
           throw new Error('ALREADY_MEMBER');
@@ -137,7 +137,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
 
       const existingInvitation = await Invitation.findOne({
         email: email.toLowerCase(),
-        organizationId: orgId,
+        organizationId: toOrgId(orgId),
         status: 'pending',
       }).session(session);
 
@@ -145,7 +145,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
         throw new Error('INVITATION_ALREADY_SENT');
       }
 
-      const pendingCount = await Invitation.countDocuments({ organizationId: orgId, status: 'pending' }).session(session);
+      const pendingCount = await Invitation.countDocuments({ organizationId: toOrgId(orgId), status: 'pending' }).session(session);
       if (pendingCount >= config.invitation.maxPendingPerOrg) {
         throw new Error('MAX_INVITATIONS_REACHED');
       }
@@ -157,7 +157,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
 
       const invitationData: Record<string, unknown> = {
         email: email.toLowerCase(),
-        organizationId: orgId,
+        organizationId: toOrgId(orgId),
         invitedBy: inviterId,
         role,
         expiresAt: getExpirationDate(),
@@ -194,7 +194,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
     logger.info('[SEND INVITATION] Invitation sent', {
       invitationId: result?._id,
       email,
-      organizationId: orgId,
+      organizationId: toOrgId(orgId),
       role,
       invitationType,
     });
@@ -458,7 +458,7 @@ export const listInvitations = withController('List invitations', async (req, re
   const { status, invitationType } = req.query;
   const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
-  const query: Record<string, unknown> = { organizationId: orgId };
+  const query: Record<string, unknown> = { organizationId: toOrgId(orgId) };
   if (status && ['pending', 'accepted', 'expired', 'revoked'].includes(status as string)) {
     query.status = status;
   }
@@ -493,7 +493,7 @@ export const revokeInvitation = withController('Revoke invitation', async (req, 
 
   const { invitationId } = req.params;
 
-  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId });
+  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: toOrgId(orgId) });
   if (!invitation) {
     return sendError(res, 404, 'Invitation not found');
   }
@@ -525,7 +525,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
 
   const { invitationId } = req.params;
 
-  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: orgId, status: 'pending' });
+  const invitation = await Invitation.findOne({ _id: invitationId, organizationId: toOrgId(orgId), status: 'pending' });
   if (!invitation) {
     return sendError(res, 404, 'Pending invitation not found');
   }
