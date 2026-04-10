@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota, createComplianceClient } from '@mwashburn160/api-core';
 import type { QuotaService } from '@mwashburn160/api-core';
 import { createProtectedRoute, withRoute } from '@mwashburn160/api-server';

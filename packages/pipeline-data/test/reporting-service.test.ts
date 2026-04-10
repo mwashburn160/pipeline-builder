@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Tests for ReportingService.
  * Mocks the db module and verifies correct SQL template usage.

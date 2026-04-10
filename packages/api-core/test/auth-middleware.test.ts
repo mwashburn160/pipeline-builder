@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireAuth, requireOrganization, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier } from '../src/middleware/auth';

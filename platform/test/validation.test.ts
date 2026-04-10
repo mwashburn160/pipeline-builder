@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Mock config before importing schemas that depend on it
 jest.mock('../src/config', () => ({
   config: {

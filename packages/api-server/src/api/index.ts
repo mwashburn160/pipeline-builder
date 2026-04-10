@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Middleware
 export * from './middleware';
 export * from './middleware-factory';

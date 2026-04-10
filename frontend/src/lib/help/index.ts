@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 export type { ContentBlock, HelpSection, HelpTopic } from './types';
 export type { PluginEntry, PluginCategory } from './plugins';
 export { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES, PLUGIN_CATALOG } from './plugins';

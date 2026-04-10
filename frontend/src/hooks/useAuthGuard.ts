@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Route-level authentication guard hook.
  * Redirects unauthenticated users to the login page and optionally

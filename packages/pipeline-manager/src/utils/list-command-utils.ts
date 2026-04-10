@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { printInfo, printKeyValue } from './output-utils';
 import { formatDuration, validateBoolean, validateNumber, validateSort } from '../config/cli.constants';
 

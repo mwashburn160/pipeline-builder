@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Set PLATFORM_SECRET_NAME before import — module-level check throws if missing
 process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
 

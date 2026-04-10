@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { ErrorCode, ErrorCodeStatus, getStatusForErrorCode } from '../src/types/error-codes';
 
 describe('ErrorCode enum', () => {

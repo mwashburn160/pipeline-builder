@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Parses readonly BuilderProps (API response) into mutable FormBuilderState (UI)
  * for populating the Pipeline Form Builder in edit mode. Each helper reverses

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Tests for metrics utilities.
  * normalizeRoute is not exported directly, so we test the regex logic used by it.

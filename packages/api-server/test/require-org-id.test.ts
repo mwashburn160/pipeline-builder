@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Mock api-core before imports
 jest.mock('@mwashburn160/api-core', () => ({
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },

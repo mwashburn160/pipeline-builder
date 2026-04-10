@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Mutable form state types for the Pipeline Form Builder.
  * These parallel the readonly BuilderProps types from pipeline-core

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Mock dependencies
 jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({

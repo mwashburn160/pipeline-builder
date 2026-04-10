@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Mock external dependencies — must be set up before importing the service
 
 const mockGenerateText = jest.fn();

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { z } from 'zod';
 import { AccessModifierSchema } from './common-schemas';
 

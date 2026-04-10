@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { validateFormState } from '../src/types/props-validation';
 import { createInitialFormState, createEmptyStep, createEmptyStage, createEmptyPlugin } from '../src/types/form-types';
 import type { FormBuilderState } from '../src/types/form-types';

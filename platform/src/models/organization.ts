@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { QuotaTier } from '@mwashburn160/api-core';
 import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { z } from 'zod';
 import { VALID_QUOTA_TYPES } from '../helpers/quota-helpers';
 const VALID_TIERS = ['developer', 'pro', 'unlimited'] as const;

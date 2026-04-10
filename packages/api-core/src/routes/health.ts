@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Request, Response, Router } from 'express';
 import { HealthCheckResponse } from '../types/common';
 import { sendSuccess, sendError } from '../utils/response';

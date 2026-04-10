@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * @module lib/artifact-keys
  * @description Utility for computing available artifact key options from

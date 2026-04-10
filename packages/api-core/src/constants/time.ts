@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Named time constants to prevent magic-number confusion.
  * All values include their unit in the name to avoid ms/s ambiguity.

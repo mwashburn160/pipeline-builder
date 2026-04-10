@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events';
 
 function makeEvent(overrides: Partial<EntityEvent> = {}): EntityEvent {

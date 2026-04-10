@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createHash } from 'crypto';
 import path from 'path';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';

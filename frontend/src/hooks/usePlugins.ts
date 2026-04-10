@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Plugin fetching hook with module-level caching.
  * Shares a single cached plugin list across all hook instances to avoid

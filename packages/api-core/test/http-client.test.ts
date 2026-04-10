@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Unit tests for HTTP client retry logic: parseRetryAfter, addJitter, and requestWithRetry.
  */

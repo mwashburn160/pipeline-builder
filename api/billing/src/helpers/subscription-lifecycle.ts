@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createLogger, createSafeClient, errorMessage } from '@mwashburn160/api-core';
 import { config } from '../config';
 import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';

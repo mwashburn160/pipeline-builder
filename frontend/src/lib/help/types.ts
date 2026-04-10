@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { LucideIcon } from 'lucide-react';
 
 /** A block of content within a help section. */

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createSafeClient, RequestOptions } from './http-client';
 import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createHealthCheck, createHealthRouter } from '../src/routes/health';
 
 // Mock sendSuccess and sendError from response utilities

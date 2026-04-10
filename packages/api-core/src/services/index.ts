@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 export * from './cache-service';
 export * from './compliance-client';
 export * from './compliance-event-subscriber';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants';
 import {

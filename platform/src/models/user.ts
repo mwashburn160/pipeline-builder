@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import bcrypt from 'bcryptjs';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { config } from '../config';

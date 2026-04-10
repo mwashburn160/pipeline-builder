@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess, createSafeClient, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import mongoose from 'mongoose';

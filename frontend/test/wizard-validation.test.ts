@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Tests for wizard-validation.ts: WIZARD_STEPS, validateStep, getStepStatuses.
  */

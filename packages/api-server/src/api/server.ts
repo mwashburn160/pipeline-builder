@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Server } from 'http';
 import { createLogger } from '@mwashburn160/api-core';
 import { Config, getConnection, closeConnection } from '@mwashburn160/pipeline-core';

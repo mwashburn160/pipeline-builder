@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createLogger, errorMessage } from '@mwashburn160/api-core';
 import { messageClient } from './message-client';
 import type { Violation } from '../engine/rule-engine';

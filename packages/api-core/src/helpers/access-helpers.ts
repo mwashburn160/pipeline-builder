@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Request, Response } from 'express';
 import { isSystemAdmin } from '../middleware/auth';
 import { ErrorCode } from '../types/error-codes';

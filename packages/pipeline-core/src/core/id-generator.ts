@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Generates unique CDK construct IDs by appending auto-incrementing counters to labels.
  * Labels that already end with a numeric counter (e.g., 'cdk:pipeline:1') are returned as-is.

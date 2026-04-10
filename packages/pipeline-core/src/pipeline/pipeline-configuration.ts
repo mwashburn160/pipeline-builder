@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { BuilderProps } from './pipeline-builder';
 import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options } from './source-types';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types';

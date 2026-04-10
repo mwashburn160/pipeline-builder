@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Filter an object to only include entries where the value is not `undefined`.
  * Keeps `null`, `false`, `0`, and empty string — only removes `undefined`.

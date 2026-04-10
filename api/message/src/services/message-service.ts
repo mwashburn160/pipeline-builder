@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
 import { CoreConstants, CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@mwashburn160/pipeline-core';
 import { SQL, eq, and } from 'drizzle-orm';

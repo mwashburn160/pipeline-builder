@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Build status hook using Server-Sent Events (SSE).
  * Connects to the plugin service's SSE endpoint and streams build events in real time.

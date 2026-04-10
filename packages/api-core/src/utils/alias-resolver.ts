@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { SYSTEM_ORG_ID } from '../middleware/auth';
 
 /** Lazily-cached set of support aliases, parsed from SUPPORT_ALIASES on first access. */

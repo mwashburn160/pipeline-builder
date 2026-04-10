@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Numeric exit-code constants mapped to error categories.
  * Used by {@link handleError} to set the process exit code.

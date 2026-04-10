@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Tests for the compliance entity-events route.
  * Verifies internal service-to-service authentication, validation,

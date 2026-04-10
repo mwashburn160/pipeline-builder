@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Mock heavy dependencies to avoid open handles from CDK/Winston in test workers
 const mockCodeBuildStep = jest.fn();
 const mockShellStep = jest.fn();

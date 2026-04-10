@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Dark mode toggle hook with localStorage persistence.
  * On mount, reads the stored theme preference from localStorage.

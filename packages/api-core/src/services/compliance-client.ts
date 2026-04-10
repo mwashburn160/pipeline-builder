@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { InternalHttpClient } from './http-client';
 import { ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Generic SSE (Server-Sent Events) connection hook with exponential backoff retry.
  * Extracts the common retry/reconnect pattern used by useBuildStatus and useMessageNotifications.

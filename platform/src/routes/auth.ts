@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Router } from 'express';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
 import { requireAuth, isValidRefreshToken } from '../middleware';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import https from 'https';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';

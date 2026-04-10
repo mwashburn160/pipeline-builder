@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { sendBadRequest, sendSuccess, ErrorCode, errorMessage, resolveAccessModifier } from '@mwashburn160/api-core';
 import { withRoute } from '@mwashburn160/api-server';
 import { CoreConstants, AccessModifier, replaceNonAlphanumeric } from '@mwashburn160/pipeline-core';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createQuotaService } from '@mwashburn160/api-core';
 import type { QuotaType, QuotaCheckResult } from '@mwashburn160/api-core';
 import { config } from '../config';

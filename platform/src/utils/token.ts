@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import crypto from 'crypto';
 import { createLogger, resolveUserFeatures, isSystemOrgId } from '@mwashburn160/api-core';
 import type { QuotaTier } from '@mwashburn160/api-core';

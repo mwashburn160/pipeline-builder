@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Router } from 'express';
 import { queryLogs, getLogServices, getLogLevels } from '../controllers';
 import { requireAuth } from '../middleware';

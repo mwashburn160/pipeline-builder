@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { createCacheService } from '@mwashburn160/api-core';
 import { sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service';

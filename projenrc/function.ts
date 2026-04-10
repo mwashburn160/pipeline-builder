@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { execSync } from 'node:child_process';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptAppProject, TypeScriptProjectOptions } from 'projen/lib/typescript';

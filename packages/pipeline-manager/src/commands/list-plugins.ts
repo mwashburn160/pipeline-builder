@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { Command } from 'commander';
 import { formatDuration, formatFileSize } from '../config/cli.constants';
 import { PluginListResponse, Plugin } from '../types';

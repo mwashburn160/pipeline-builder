@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Generic hook for CRUD resource management — fetch, create, update, delete
  * with loading/error state. Used by useComplianceRules and useCompliancePolicies.

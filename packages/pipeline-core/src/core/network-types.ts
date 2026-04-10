@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { SecretValue } from 'aws-cdk-lib';
 import type { MetaDataType } from './pipeline-types';
 import type { SecurityGroupConfig } from './security-group-types';

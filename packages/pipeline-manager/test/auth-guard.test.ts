@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { decodeTokenPayload, warnIfNotAdmin } from '../src/utils/auth-guard';
 
 // Mock output-utils

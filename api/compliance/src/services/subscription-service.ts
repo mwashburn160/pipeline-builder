@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { SYSTEM_ORG_ID, createLogger } from '@mwashburn160/api-core';
 import { schema, db } from '@mwashburn160/pipeline-core';
 import type { RuleScope } from '@mwashburn160/pipeline-core';

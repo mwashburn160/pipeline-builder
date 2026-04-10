@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { CoreConstants } from '@mwashburn160/pipeline-core';
 import axios from 'axios';
 import { Command } from 'commander';

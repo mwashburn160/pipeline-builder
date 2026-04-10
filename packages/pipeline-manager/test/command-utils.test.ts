@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { validateEntityId, printCommandHeader, printSslWarning, printExecutionSummary } from '../src/utils/command-utils';
 
 // Mock output-utils to capture console output

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody } from '@mwashburn160/api-core';
 import type { RuleTarget } from '@mwashburn160/pipeline-core';
 import { Router, Request, Response } from 'express';

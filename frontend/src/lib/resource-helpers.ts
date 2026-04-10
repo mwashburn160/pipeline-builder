@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared helpers for pipeline and plugin resource pages.
  * Centralizes common filter-to-API parameter mapping and permission checks.

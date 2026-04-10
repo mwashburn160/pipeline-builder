@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Standardized error codes used across all API microservices.
  * Use these codes in error responses for consistent client handling.

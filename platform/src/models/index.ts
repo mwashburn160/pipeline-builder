@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 export { default as User, UserDocument } from './user';
 export { default as Organization, OrganizationDocument } from './organization';
 export { default as UserOrganization, UserOrganizationDocument, OrgMemberRole } from './user-organization';

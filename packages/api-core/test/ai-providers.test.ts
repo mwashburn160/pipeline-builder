@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import { execSync } from 'child_process';
 import { Command } from 'commander';
 import pico from 'picocolors';

@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Feature #9: Starter rule templates for new orgs.
  * These are org-scoped rule suggestions (not published rules) that orgs can

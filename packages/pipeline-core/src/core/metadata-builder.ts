@@ -1,3 +1,6 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
 import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
 import { CDK_METADATA_PREFIX } from './pipeline-types';
