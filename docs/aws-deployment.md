@@ -283,7 +283,7 @@ Register the admin user and load pre-built plugins and sample pipelines:
 ```bash
 cd deploy
 
-# Interactive — prompts for admin credentials
+# Interactive — prompts for admin credentials, build strategy, and categories
 bash bin/init-platform.sh ec2         # EC2 (resolves URL from CloudFormation)
 bash bin/init-platform.sh local       # Docker Compose
 bash bin/init-platform.sh minikube    # Minikube
@@ -293,9 +293,38 @@ export PLATFORM_BASE_URL=https://pipeline.example.com
 export PLATFORM_IDENTIFIER=admin@internal
 export PLATFORM_PASSWORD=SecurePassword123!
 bash bin/init-platform.sh ec2
+
+# Non-interactive with prebuilt images
+PLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2
+
+# Non-interactive with prebuilt + specific categories
+PLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2
+
+# Control upload parallelism (default: 4, auto-lowered to 1 for prebuilt)
+PARALLEL_JOBS=2 bash bin/init-platform.sh local
+
+# Force rebuild all prebuilt images even if image.tar exists
+PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2
+
+# EC2 with sudo (required for minikube user context)
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip PARALLEL_JOBS=2 bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
 ```
 
 `init-platform.sh` does: health check → register admin → login → select build strategy → load plugins → load pipelines.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLATFORM_BASE_URL` | auto-detected | Platform API URL (skips CloudFormation lookup when set) |
+| `PLATFORM_IDENTIFIER` | `admin@internal` | Admin email |
+| `PLATFORM_PASSWORD` | `SecurePassword123!` | Admin password |
+| `PLUGIN_BUILD_STRATEGY` | `build_image` | `build_image` or `prebuilt` |
+| `PLUGIN_CATEGORY` | all | Comma-separated categories (e.g., `language,security`) |
+| `PARALLEL_JOBS` | 4 (1 for prebuilt) | Upload concurrency. Passed through to `load-plugins.sh`. Override with `--parallel N` on CLI. |
+| `FORCE_REBUILD` | `false` | Force rebuild all prebuilt image.tar files |
+| `PLUGIN_S3_CLEAR` | `false` | Clear S3 bucket before upload (S3 strategy only) |
 
 | Script | Purpose |
 |--------|---------|

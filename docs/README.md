@@ -206,6 +206,24 @@ bash bin/teardown.sh --stack-prefix pb --region us-east-1                       
 
 See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy setup.
 
+### Post-Deploy: Initialize Platform
+
+After starting any target, run `init-platform.sh` to register the admin user and load plugins:
+
+```bash
+# Local / Minikube — interactive
+./deploy/bin/init-platform.sh local
+./deploy/bin/init-platform.sh minikube
+
+# EC2 — requires minikube user context
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
+
+# Non-interactive with prebuilt images and controlled parallelism
+PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh local
+```
+
+Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
+
 ---
 
 ## Architecture
