@@ -52,7 +52,7 @@ Parameters:
 
   ComplianceImage:
     Type: String
-    Default: ghcr.io/mwashburn160/compliance:1.9.14
+    Default: ghcr.io/mwashburn160/compliance:1.9.15
     Description: Docker image for the Compliance service
 
   FrontendImage:
