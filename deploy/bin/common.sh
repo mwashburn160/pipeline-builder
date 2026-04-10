@@ -256,6 +256,50 @@ check_docker_image() {
 }
 
 # ---------------------------------------------------------------------------
+# select_categories — interactive numbered category picker
+#   $1 plugins directory
+#   Sets: SELECTED_CATEGORIES (comma-separated, empty if "all" chosen)
+#   Returns 0 if categories selected, 1 if user cancelled
+# ---------------------------------------------------------------------------
+select_categories() {
+  local _plugins_dir="$1"
+  local _available
+  _available=$(find "$_plugins_dir" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+
+  echo ""
+  echo "  Available categories:"
+  local _i=0 _cat _count
+  for _cat in $_available; do
+    _i=$((_i + 1))
+    _count=$(find "$_plugins_dir/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    echo "    ${_i}) ${_cat} (${_count} plugins)"
+  done
+
+  echo ""
+  local _answer
+  printf "  Load all categories? [Y/n]: "
+  read -r _answer
+
+  if [ "$_answer" = "n" ] || [ "$_answer" = "N" ]; then
+    local _selected_nums _picked="" _num _idx
+    printf "  Enter category numbers (comma-separated, e.g. 1,3,4): "
+    read -r _selected_nums
+    for _num in $(echo "$_selected_nums" | tr ',' ' '); do
+      _idx=0
+      for _cat in $_available; do
+        _idx=$((_idx + 1))
+        [ "$_idx" = "$_num" ] && _picked="${_picked}${_cat},"
+      done
+    done
+    SELECTED_CATEGORIES="${_picked%,}"
+    [ -n "$SELECTED_CATEGORIES" ] || { echo "  No valid categories selected."; return 1; }
+    echo "  Selected: $SELECTED_CATEGORIES"
+  else
+    SELECTED_CATEGORIES=$(echo "$_available" | tr ' ' ',' | tr '\n' ',' | sed 's/,$//')
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # classify_status — map an HTTP status code to a result keyword
 #   $1  HTTP status code
 #   Echoes: "ok", "exists", or "fail"

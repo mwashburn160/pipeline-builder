@@ -141,39 +141,12 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   fi
   BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
 
-  # ---- Category selection (shared between build and load) ----
+  # ---- Category selection ----
   SELECTED_CATEGORIES=""
   if [ -n "${PLUGIN_CATEGORY:-}" ]; then
     SELECTED_CATEGORIES="$PLUGIN_CATEGORY"
   elif [ -t 0 ]; then
-    AVAILABLE=$(find "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
-    echo ""
-    echo "  Available categories:"
-    _i=0
-    for _cat in $AVAILABLE; do
-      _i=$((_i + 1))
-      _count=$(find "$DEPLOY_DIR/plugins/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-      echo "    ${_i}) ${_cat} (${_count} plugins)"
-    done
-    echo ""
-    printf "  Load all categories? [Y/n]: "
-    read -r _load_all
-    if [ "$_load_all" = "n" ] || [ "$_load_all" = "N" ]; then
-      printf "  Enter category numbers (comma-separated, e.g. 1,3,4): "
-      read -r _selected_nums
-      _picked=""
-      for num in $(echo "$_selected_nums" | tr ',' ' '); do
-        _idx=0
-        for _cat in $AVAILABLE; do
-          _idx=$((_idx + 1))
-          [ "$_idx" = "$num" ] && _picked="${_picked}${_cat},"
-        done
-      done
-      SELECTED_CATEGORIES="${_picked%,}"
-    else
-      # User picked "all" — expand to full category list so child scripts don't re-prompt
-      SELECTED_CATEGORIES=$(echo "$AVAILABLE" | tr ' ' ',' | tr '\n' ',' | sed 's/,$//')
-    fi
+    select_categories "$DEPLOY_DIR/plugins" || exit 0
   fi
 
   CATEGORY_ARG=""
@@ -188,25 +161,11 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     echo ""
   fi
 
-  # shellcheck disable=SC2086
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG
+  CLEANUP_ARG=""
+  [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"
 
-  # Clean up build artifacts to reclaim disk space
-  if [ "$CLEANUP_AFTER_UPLOAD" = true ]; then
-    echo ""
-    echo "=== Cleaning up plugin build artifacts ==="
-    _cleaned=0
-    for _pdir in "$DEPLOY_DIR/plugins"/*/*/; do
-      [ -d "$_pdir" ] || continue
-      for _artifact in "$_pdir/plugin.zip" "$_pdir/image.tar"; do
-        if [ -f "$_artifact" ]; then
-          rm -f "$_artifact"
-          _cleaned=$((_cleaned + 1))
-        fi
-      done
-    done
-    echo "  Removed ${_cleaned} artifact file(s)"
-  fi
+  # shellcheck disable=SC2086
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
 else
   echo "  Skipping plugin loading."
 fi

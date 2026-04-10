@@ -218,9 +218,25 @@ else
   chown minikube:minikube /mnt/data
 fi
 chown -R minikube:minikube "$DEPLOY_DIR"
-# Plugin directory is outside DEPLOY_DIR (deploy/aws/ec2) — chown for prebuilt image.tar
-chown -R minikube:minikube "$INSTALL_DIR/deploy/plugins"
 chown -R minikube:minikube "$INSTALL_DIR/deploy/bin"
+
+# Move plugin build artifacts to data volume (image.tar + plugin.zip are large)
+# Symlink keeps deploy/plugins/ path working while using data volume storage
+PLUGIN_DATA_DIR="/mnt/data/plugin-builds"
+PLUGIN_SRC_DIR="$INSTALL_DIR/deploy/plugins"
+if mountpoint -q /mnt/data 2>/dev/null && [ ! -L "$PLUGIN_SRC_DIR" ]; then
+  mkdir -p "$PLUGIN_DATA_DIR"
+  if [ -d "$PLUGIN_SRC_DIR" ] && [ ! -L "$PLUGIN_SRC_DIR" ]; then
+    # Move existing plugin files to data volume
+    cp -a "$PLUGIN_SRC_DIR/." "$PLUGIN_DATA_DIR/"
+    rm -rf "$PLUGIN_SRC_DIR"
+  fi
+  ln -sf "$PLUGIN_DATA_DIR" "$PLUGIN_SRC_DIR"
+  chown -R minikube:minikube "$PLUGIN_DATA_DIR"
+  echo "  Plugin artifacts: $PLUGIN_DATA_DIR (symlinked from deploy/plugins)"
+else
+  chown -R minikube:minikube "$PLUGIN_SRC_DIR"
+fi
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then

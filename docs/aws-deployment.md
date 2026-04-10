@@ -86,9 +86,45 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `InstanceType` | No | `t3.xlarge` | EC2 instance type (4 vCPU / 16 GiB recommended) |
 | `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
 | `SshCidr` | No | `0.0.0.0/0` | CIDR for SSH access |
-| `EbsVolumeSize` | No | `50` | Root volume size (GiB) |
+| `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
+| `DataVolumeSize` | No | `500` | Data volume size in GiB (Docker, plugins, registry, databases) |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
 | `GitBranch` | No | `main` | Branch to deploy |
+
+### Storage Requirements
+
+The EC2 deployment uses two EBS volumes:
+
+| Volume | Default | Mount | Contents |
+|--------|---------|-------|----------|
+| **Root** | 60 GiB | `/` | OS, Docker/minikube binaries, app code |
+| **Data** | 500 GiB | `/mnt/data` | Docker layers, plugin artifacts, registry, databases, logs |
+
+Data volume breakdown:
+
+| Component | build_image | prebuilt | prebuilt + --cleanup |
+|-----------|-------------|----------|---------------------|
+| Docker build cache + images | 20-30 GB | 60-90 GB | 60-90 GB |
+| Plugin artifacts (image.tar + plugin.zip) | 0 GB | 130-190 GB | 0 GB |
+| Registry (pushed images) | 40-60 GB | 40-60 GB | 40-60 GB |
+| PostgreSQL + MongoDB | 5-15 GB | 5-15 GB | 5-15 GB |
+| Minikube + logs + metrics | 15-25 GB | 15-25 GB | 15-25 GB |
+| **Total** | **80-130 GB** | **250-380 GB** | **120-190 GB** |
+
+**Recommendations:**
+
+| Plugin strategy | Data volume | Notes |
+|----------------|-------------|-------|
+| `build_image` (default) | 200 GB | Builds from Dockerfile at upload time |
+| `prebuilt` with `--cleanup` | 250 GB | Removes artifacts after upload |
+| `prebuilt` without cleanup | 500 GB | Keeps artifacts for re-runs |
+
+Daily runtime operations (after initial plugin load) add ~1-5 GB/month from database growth and logs. Add a weekly Docker prune cron to reclaim build cache:
+
+```bash
+# /etc/cron.weekly/docker-prune
+docker system prune -af --filter "until=168h"
+```
 
 ### What Happens
 
@@ -217,6 +253,50 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Frontend |
 | **05-observability** | Prometheus, Loki, Grafana |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
+
+### Storage Requirements
+
+Fargate uses managed services — no EBS volumes to manage. Plugin builds use `build_image` with kaniko (prebuilt is not supported on Fargate).
+
+| Resource | Type | Size | Notes |
+|----------|------|------|-------|
+| Task ephemeral | Per-task | 20 GB (30 GB for plugin) | Non-persistent, cleared on task restart |
+| RDS PostgreSQL | RDS gp3 | 50 GB (autoscaling) | Pipelines, plugins, compliance, messages |
+| DocumentDB / MongoDB Atlas | Managed | 10-20 GB | Quota + billing records |
+| ECR | Managed | 40-60 GB | Plugin container images |
+| EFS | Managed | 5-10 GB | Shared config, TLS certs |
+| CloudWatch Logs | Managed | ~5 GB/month | 30-day retention recommended |
+| S3 | Managed | <1 GB | CDK assets, CloudFormation templates |
+
+**Recommendations:**
+
+| Resource | Setting |
+|----------|---------|
+| RDS storage | 50 GB gp3 with autoscaling enabled |
+| ECR lifecycle | Keep last 10 tags per repository |
+| CloudWatch retention | 30 days |
+| Plugin task ephemeral | 30 GB (kaniko builds need temp space) |
+
+**Task sizing:**
+
+| Service | CPU | Memory | Ephemeral |
+|---------|-----|--------|-----------|
+| Plugin | 2048 | 4096 | 30 GB |
+| Pipeline | 512 | 1024 | 20 GB |
+| Platform | 512 | 1024 | 20 GB |
+| Compliance | 512 | 1024 | 20 GB |
+| Frontend | 256 | 512 | 20 GB |
+| Reporting, Quota, Billing, Message | 256 | 512 | 20 GB |
+
+**Monthly cost estimate (storage only):**
+
+| Resource | Cost |
+|----------|------|
+| RDS (50 GB gp3) | ~$5 |
+| ECR (60 GB) | ~$6 |
+| EFS (10 GB) | ~$3 |
+| CloudWatch | ~$3 |
+| **Total** | **~$17/mo** |
 
 ### K8s → Fargate Translation
 
