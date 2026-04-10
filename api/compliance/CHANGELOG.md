@@ -1,3 +1,13 @@
+## 1.9.15 (2026-04-10)
+
+### 🩹 Fixes
+
+- updated scan-executor ([4b998a98](https://github.com/mwashburn160/pipeline-builder/commit/4b998a98))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.9.14 (2026-04-07)
 
 ### 🩹 Fixes
