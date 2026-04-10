@@ -8,9 +8,21 @@ set -euo pipefail
 #   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
 #   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
+#   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
+
+CLEANUP_AFTER_UPLOAD=false
+
+# Parse flags before the target argument
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cleanup) CLEANUP_AFTER_UPLOAD=true; shift ;;
+    -*) echo "Unknown flag: $1" >&2; exit 1 ;;
+    *) break ;;
+  esac
+done
 
 TARGET="${1:-local}"
 NAMESPACE="pipeline-builder"
@@ -178,6 +190,23 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
 
   # shellcheck disable=SC2086
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG
+
+  # Clean up build artifacts to reclaim disk space
+  if [ "$CLEANUP_AFTER_UPLOAD" = true ]; then
+    echo ""
+    echo "=== Cleaning up plugin build artifacts ==="
+    _cleaned=0
+    for _pdir in "$DEPLOY_DIR/plugins"/*/*/; do
+      [ -d "$_pdir" ] || continue
+      for _artifact in "$_pdir/plugin.zip" "$_pdir/image.tar"; do
+        if [ -f "$_artifact" ]; then
+          rm -f "$_artifact"
+          _cleaned=$((_cleaned + 1))
+        fi
+      done
+    done
+    echo "  Removed ${_cleaned} artifact file(s)"
+  fi
 else
   echo "  Skipping plugin loading."
 fi

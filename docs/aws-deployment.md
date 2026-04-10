@@ -306,9 +306,13 @@ PARALLEL_JOBS=2 bash bin/init-platform.sh local
 # Force rebuild all prebuilt images even if image.tar exists
 PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2
 
+# Clean up plugin.zip and image.tar after upload (reclaim disk space)
+./deploy/bin/init-platform.sh --cleanup local
+./deploy/bin/load-plugins.sh --rebuild --cleanup
+
 # EC2 with sudo (required for minikube user context)
 sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip PARALLEL_JOBS=2 bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2
 ```
 
 `init-platform.sh` does: health check → register admin → login → select build strategy → load plugins → load pipelines.
@@ -325,6 +329,8 @@ sudo -u minikube PLATFORM_BASE_URL=https://your-ip PARALLEL_JOBS=2 bash /opt/pip
 | `PARALLEL_JOBS` | 4 (1 for prebuilt) | Upload concurrency. Passed through to `load-plugins.sh`. Override with `--parallel N` on CLI. |
 | `FORCE_REBUILD` | `false` | Force rebuild all prebuilt image.tar files |
 | `PLUGIN_S3_CLEAR` | `false` | Clear S3 bucket before upload (S3 strategy only) |
+
+Use `--cleanup` flag on `init-platform.sh` or `load-plugins.sh` to remove `plugin.zip` and `image.tar` files after upload. Useful on EC2 where prebuilt images can consume 25-75GB of disk.
 
 | Script | Purpose |
 |--------|---------|
