@@ -234,37 +234,23 @@ validate_dockerfile() {
   fi
 }
 
-validate_plugin_zip() {
+validate_config() {
   local plugin_dir="$1"
   local fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
-  local zip_file="${plugin_dir}/plugin.zip"
+  local config="${plugin_dir}/config.yaml"
 
-  if [ ! -f "$zip_file" ]; then
-    log_fail "Missing plugin.zip" "$fqn"
+  if [ ! -f "$config" ]; then
+    log_skip "No config.yaml"
     return
   fi
 
-  local contents
-  # Check for required files: plugin-spec.yaml (or config.yaml + plugin-spec.yaml) and Dockerfile
-  local has_spec has_dockerfile
-  has_spec=$(unzip -l "$zip_file" 2>/dev/null | grep -c "plugin-spec.yaml" | tr -d ' ')
-  has_dockerfile=$(unzip -l "$zip_file" 2>/dev/null | grep -c "Dockerfile" | tr -d ' ')
-  if [ "$has_spec" -lt 1 ] || [ "$has_dockerfile" -lt 1 ]; then
-    log_fail "plugin.zip missing Dockerfile or plugin-spec.yaml" "$fqn"
-  else
-    log_pass "plugin.zip contains Dockerfile + plugin-spec.yaml"
-  fi
-
-  # Check config.yaml is in zip if it exists on disk
-  if [ -f "${plugin_dir}/config.yaml" ]; then
-    local has_config
-    has_config=$(unzip -l "$zip_file" 2>/dev/null | grep -c "config.yaml" | tr -d ' ')
-    if [ "$has_config" -lt 1 ]; then
-      log_fail "plugin.zip missing config.yaml (exists on disk)" "$fqn"
-    else
-      log_pass "plugin.zip contains config.yaml"
-    fi
-  fi
+  local bt
+  bt=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//')
+  case "$bt" in
+    build_image|prebuilt) log_pass "Valid buildType: ${bt}" ;;
+    "") log_fail "Missing buildType in config.yaml" "$fqn" ;;
+    *)  log_fail "Invalid buildType: ${bt} (expected build_image or prebuilt)" "$fqn" ;;
+  esac
 }
 
 test_plugin() {
@@ -293,9 +279,10 @@ test_plugin() {
 
   validate_spec "$specfile" "$plugin_dir"
 
+  validate_config "$plugin_dir"
+
   if [ "$SPEC_ONLY" = false ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
     validate_dockerfile "$dockerfile" "$plugin_dir"
-    validate_plugin_zip "$plugin_dir"
   fi
 }
 
@@ -329,114 +316,8 @@ fi
 print_results
 print_errors_and_exit "All tests passed!"
 
-# ---- Supported Versions Matrix (from plugin-versions.yaml) ----
+# ---- Versions Matrix (optional) ----
 
-VERSIONS_FILE="$DEPLOY_DIR/plugins/plugin-versions.yaml"
-
-if [ -f "$VERSIONS_FILE" ]; then
-  echo ""
-  echo -e "${BLUE}Supported Versions Matrix${NC}"
-  echo "========================"
-  printf "  %-35s %-15s %-30s %-15s\n" "PLUGIN" "DEFAULT" "VERSIONS" "INSTALL"
-  printf "  %-35s %-15s %-30s %-15s\n" "------" "-------" "--------" "-------"
-
-  # Parse plugin-versions.yaml — lightweight state machine
-  # Collects versions from both top-level and nested tools: blocks
-  _current="" _plugin="" _type="" _default="" _versions="" _tool_versions=""
-  _in_versions=false _in_tools=false _nested_tool=""
-
-  _append_ver() {
-    [ -z "$1" ] && return
-    if [ -n "$_tool_versions" ]; then
-      _tool_versions="${_tool_versions}, $1"
-    else
-      _tool_versions="$1"
-    fi
-  }
-
-  print_entry() {
-    [ -z "$_current" ] && return
-    [ -z "$_plugin" ] && _plugin="$_current"
-    [ -z "$_type" ] && _type="n/a"
-    # Prefer top-level versions; fall back to aggregated nested tool versions
-    local display_ver="${_versions:-${_tool_versions:--}}"
-    printf "  %-35s %-15s %-30s %-15s\n" "$_plugin" "${_default:--}" "$display_ver" "$_type"
-  }
-
-  while IFS= read -r line; do
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-
-    # Top-level key — new tool entry
-    if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*): ]]; then
-      print_entry
-      _current="${BASH_REMATCH[1]}" _plugin="" _type="" _default="" _versions="" _tool_versions=""
-      _in_versions=false _in_tools=false _nested_tool=""
-      continue
-    fi
-
-    # Enter nested tools: block
-    if [[ "$line" =~ ^[[:space:]]+tools:[[:space:]]*$ ]]; then
-      _in_tools=true; _in_versions=false; _nested_tool=""
-      continue
-    fi
-
-    # Inside nested tools block — collect versions from sub-tools
-    if $_in_tools; then
-      # Exit tools block when we hit a 2-space indented key (not 4+)
-      if [[ "$line" =~ ^[[:space:]]{2}[a-zA-Z] ]] && ! [[ "$line" =~ ^[[:space:]]{4} ]]; then
-        _in_tools=false _in_versions=false
-      else
-        # Nested tool name (4-space indent)
-        if [[ "$line" =~ ^[[:space:]]{4}([a-zA-Z_][a-zA-Z0-9_]*): ]]; then
-          _nested_tool="${BASH_REMATCH[1]}"
-          _in_versions=false
-        # Nested default (6-space indent)
-        elif [[ "$line" =~ ^[[:space:]]{6}default:[[:space:]]*\"?([^\"]+)\"? ]]; then
-          # Use first nested tool's default as the entry default if not set
-          [ -z "$_default" ] && _default="${BASH_REMATCH[1]}"
-          _in_versions=false
-        # Nested inline versions
-        elif [[ "$line" =~ ^[[:space:]]{6}versions:[[:space:]]*\[(.+)\] ]]; then
-          _raw=$(echo "${BASH_REMATCH[1]}" | sed 's/"//g')
-          IFS=',' read -ra _parts <<< "$_raw"
-          for _p in "${_parts[@]}"; do
-            _p="${_p## }"; _p="${_p%% }"
-            _append_ver "$_p"
-          done
-          _in_versions=false
-        elif [[ "$line" =~ ^[[:space:]]{6}versions: ]]; then
-          _in_versions=true
-        elif $_in_versions && [[ "$line" =~ ^[[:space:]]+-[[:space:]]*\"?([^\"]+)\"? ]]; then
-          _append_ver "${BASH_REMATCH[1]}"
-        else
-          _in_versions=false
-        fi
-        continue
-      fi
-    fi
-
-    # Top-level properties (2-space indent)
-    if [[ "$line" =~ ^[[:space:]]+plugin:[[:space:]]*(.+) ]]; then
-      _plugin="${BASH_REMATCH[1]}"
-      _in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+install_type:[[:space:]]*(.+) ]]; then
-      _type="${BASH_REMATCH[1]}"
-      _in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+default:[[:space:]]*\"?([^\"]+)\"? ]]; then
-      _default="${BASH_REMATCH[1]}"
-      _in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+versions:[[:space:]]*\[(.+)\] ]]; then
-      _versions=$(echo "${BASH_REMATCH[1]}" | sed 's/"//g; s/,  */, /g')
-      _in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+versions: ]]; then
-      _in_versions=true; _versions=""
-    elif $_in_versions && [[ "$line" =~ ^[[:space:]]+-[[:space:]]*\"?([^\"]+)\"? ]]; then
-      [ -n "$_versions" ] && _versions="${_versions}, "
-      _versions="${_versions}${BASH_REMATCH[1]}"
-    else
-      _in_versions=false
-    fi
-  done < "$VERSIONS_FILE"
-  print_entry  # flush last entry
+if [ -x "$SCRIPT_DIR/show-plugin-versions.sh" ]; then
+  "$SCRIPT_DIR/show-plugin-versions.sh"
 fi
