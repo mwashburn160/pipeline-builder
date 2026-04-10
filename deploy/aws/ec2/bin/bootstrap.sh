@@ -105,6 +105,9 @@ if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
 }
 DAEMONJSON
   echo "  Docker data-root: $DOCKER_DATA_ROOT"
+else
+  echo "  WARNING: Data volume not mounted at $DATA_MOUNT — Docker using root volume (/var/lib/docker)" >&2
+  echo "  Prebuilt plugin images may exhaust root disk. Attach a data volume and re-run bootstrap." >&2
 fi
 
 systemctl enable docker
