@@ -29,6 +29,15 @@ export async function executeScan(scanId: string): Promise<void> {
 
   if (!scan || scan.status !== 'pending') return;
 
+  // System org is exempt from all compliance scans
+  if (scan.orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    logger.info('Skipping scan for system org (exempt)', { scanId });
+    await db.update(schema.complianceScan)
+      .set({ status: 'completed', startedAt: new Date(), completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0 })
+      .where(eq(schema.complianceScan.id, scanId));
+    return;
+  }
+
   const isDryRun = scan.triggeredBy === 'rule-dry-run';
 
   // Mark as running
@@ -150,17 +159,18 @@ export async function executeScan(scanId: string): Promise<void> {
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   try {
+    // Only scan the org's own entities — system org entities are exempt from compliance
     if (target === 'plugin') {
       return await db
         .select({ id: schema.plugin.id, name: schema.plugin.name })
         .from(schema.plugin)
-        .where(and(eq(schema.plugin.isActive, true), or(eq(schema.plugin.orgId, orgId), eq(schema.plugin.orgId, SYSTEM_ORG_ID))))
+        .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
         .limit(1000) as EntityRecord[];
     }
     return await db
       .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
       .from(schema.pipeline)
-      .where(and(eq(schema.pipeline.isActive, true), or(eq(schema.pipeline.orgId, orgId), eq(schema.pipeline.orgId, SYSTEM_ORG_ID))))
+      .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
       .limit(1000) as EntityRecord[];
   } catch (err) {
     logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });

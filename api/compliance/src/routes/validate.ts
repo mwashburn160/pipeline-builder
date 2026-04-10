@@ -133,75 +133,39 @@ async function validateEntity(
 export function createValidateRoutes(): Router {
   const router = Router();
 
-  // POST /validate/plugin — validate plugin attributes (blocking check)
-  router.post('/plugin', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const validation = validateBody(req, ValidateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { attributes, entityId, entityName, action } = validation.value;
+  // Shared handler for both plugin and pipeline validation (live + dry-run)
+  function registerValidateRoute(target: RuleTarget, defaultAction: string) {
+    // POST /validate/{target} — blocking check with audit + notifications
+    router.post(`/${target}`, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const validation = validateBody(req, ValidateSchema);
+      if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+      const { attributes, entityId, entityName, action } = validation.value;
 
-    const result = await validateEntity(
-      orgId, userId, 'plugin',
-      action || 'upload', entityId, entityName,
-      attributes, req.headers.authorization || '', false,
-    );
+      const result = await validateEntity(
+        orgId, userId, target, action || defaultAction, entityId, entityName,
+        attributes, req.headers.authorization || '', false,
+      );
+      ctx.log('COMPLETED', `${target} compliance check`, {
+        blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
+      });
+      return sendSuccess(res, 200, result);
+    }));
 
-    ctx.log('COMPLETED', 'Plugin compliance check', {
-      blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
-    });
+    // POST /validate/{target}/dry-run — no audit, no notifications
+    router.post(`/${target}/dry-run`, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const validation = validateBody(req, DryRunSchema);
+      if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
-    return sendSuccess(res, 200, result);
-  }));
+      const result = await validateEntity(
+        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, '', true,
+      );
+      ctx.log('COMPLETED', `${target} compliance dry-run`, { blocked: result.blocked, violations: result.violations.length });
+      return sendSuccess(res, 200, result);
+    }));
+  }
 
-  // POST /validate/pipeline — validate pipeline attributes (blocking check)
-  router.post('/pipeline', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const validation = validateBody(req, ValidateSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-    const { attributes, entityId, entityName, action } = validation.value;
-
-    const result = await validateEntity(
-      orgId, userId, 'pipeline',
-      action || 'create', entityId, entityName,
-      attributes, req.headers.authorization || '', false,
-    );
-
-    ctx.log('COMPLETED', 'Pipeline compliance check', {
-      blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
-    });
-
-    return sendSuccess(res, 200, result);
-  }));
-
-  // POST /validate/plugin/dry-run — pre-flight check (no audit, no notification)
-  router.post('/plugin/dry-run', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const validation = validateBody(req, DryRunSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const result = await validateEntity(
-      orgId, userId, 'plugin', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
-    );
-    ctx.log('COMPLETED', 'Plugin compliance dry-run', { blocked: result.blocked, violations: result.violations.length });
-    return sendSuccess(res, 200, result);
-  }));
-
-  // POST /validate/pipeline/dry-run — pre-flight check (no audit, no notification)
-  router.post('/pipeline/dry-run', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const validation = validateBody(req, DryRunSchema);
-    if (!validation.ok) {
-      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const result = await validateEntity(
-      orgId, userId, 'pipeline', 'dry-run', undefined, undefined, validation.value.attributes, '', true,
-    );
-    ctx.log('COMPLETED', 'Pipeline compliance dry-run', { blocked: result.blocked, violations: result.violations.length });
-    return sendSuccess(res, 200, result);
-  }));
+  registerValidateRoute('plugin', 'upload');
+  registerValidateRoute('pipeline', 'create');
 
   return router;
 }
