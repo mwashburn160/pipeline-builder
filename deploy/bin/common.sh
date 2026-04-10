@@ -264,14 +264,14 @@ check_docker_image() {
 select_categories() {
   local _plugins_dir="$1"
   local _available
-  _available=$(find "$_plugins_dir" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+  _available=$(find -L "$_plugins_dir" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
 
   echo ""
   echo "  Available categories:"
   local _i=0 _cat _count
   for _cat in $_available; do
     _i=$((_i + 1))
-    _count=$(find "$_plugins_dir/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    _count=$(find -L "$_plugins_dir/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
     echo "    ${_i}) ${_cat} (${_count} plugins)"
   done
 

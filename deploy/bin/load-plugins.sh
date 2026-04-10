@@ -94,7 +94,7 @@ has_prebuilt_plugins() {
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
-  CATEGORIES=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
   # Interactive prompt (skipped when --category is passed or non-interactive)
   if [ -t 0 ]; then
     echo ""
@@ -102,7 +102,7 @@ else
     local_i=0
     for _cat in $CATEGORIES; do
       local_i=$((local_i + 1))
-      _count=$(find "${PLUGINS_DIR}/${_cat}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+      _count=$(find -L "${PLUGINS_DIR}/${_cat}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
       echo "    ${local_i}) ${_cat} (${_count} plugins)"
     done
     echo ""
