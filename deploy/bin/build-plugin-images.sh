@@ -17,6 +17,7 @@ set -euo pipefail
 # separately. This is not implemented — documented as a limitation.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 . "$SCRIPT_DIR/common.sh"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"

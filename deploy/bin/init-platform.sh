@@ -11,6 +11,7 @@ set -euo pipefail
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 . "$SCRIPT_DIR/common.sh"
 
 CLEANUP_AFTER_UPLOAD=false
