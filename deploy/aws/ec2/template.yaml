@@ -62,7 +62,7 @@ Parameters:
 
   DataVolumeSize:
     Type: Number
-    Default: 500
+    Default: 200
     MinValue: 50
     MaxValue: 1000
     Description: >

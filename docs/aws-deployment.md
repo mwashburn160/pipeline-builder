@@ -87,7 +87,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
 | `SshCidr` | No | `0.0.0.0/0` | CIDR for SSH access |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
-| `DataVolumeSize` | No | `500` | Data volume size in GiB (Docker, plugins, registry, databases) |
+| `DataVolumeSize` | No | `200` | Data volume size in GiB (Docker, plugins, registry, databases). Increase to 500 for prebuilt. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
 | `GitBranch` | No | `main` | Branch to deploy |
 
@@ -98,7 +98,7 @@ The EC2 deployment uses two EBS volumes:
 | Volume | Default | Mount | Contents |
 |--------|---------|-------|----------|
 | **Root** | 60 GiB | `/` | OS, Docker/minikube binaries, app code |
-| **Data** | 500 GiB | `/mnt/data` | Docker layers, plugin artifacts, registry, databases, logs |
+| **Data** | 200 GiB | `/mnt/data` | Docker layers, plugin artifacts, registry, databases, logs |
 
 Data volume breakdown:
 
@@ -124,6 +124,51 @@ Daily runtime operations (after initial plugin load) add ~1-5 GB/month from data
 ```bash
 # /etc/cron.weekly/docker-prune
 docker system prune -af --filter "until=168h"
+```
+
+### Expanding EBS Volume
+
+If you need more storage after deployment (e.g., switching to prebuilt), expand the data volume live — no reboot required:
+
+```bash
+# 1. Find the data volume ID
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT \
+  http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+
+VOL_ID=$(aws ec2 describe-volumes \
+  --filters "Name=attachment.instance-id,Values=$INSTANCE_ID" "Name=tag:Name,Values=*data*" \
+  --query 'Volumes[0].VolumeId' --output text)
+
+# 2. Expand to desired size (e.g., 500 GiB for prebuilt)
+aws ec2 modify-volume --volume-id $VOL_ID --size 500
+
+# 3. Wait for modification to complete (~30s)
+watch -n5 "aws ec2 describe-volumes-modifications --volume-ids $VOL_ID \
+  --query 'VolumesModifications[0].ModificationState' --output text"
+# Wait until it shows "optimizing" or "completed"
+
+# 4. Grow the partition and filesystem (on the EC2 instance)
+DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /mnt/data))
+PART=$(lsblk -no PARTNUM $(findmnt -n -o SOURCE /mnt/data) 2>/dev/null)
+[ -n "$PART" ] && sudo growpart /dev/$DEVICE $PART
+sudo xfs_growfs /mnt/data    # XFS filesystem
+# or: sudo resize2fs $(findmnt -n -o SOURCE /mnt/data)   # ext4 filesystem
+
+# 5. Verify
+df -h /mnt/data
+```
+
+Deploy with a larger data volume upfront:
+```bash
+aws cloudformation deploy \
+  --stack-name pipeline-builder \
+  --template-file template.yaml \
+  --parameter-overrides \
+    DataVolumeSize=500 \
+    KeyPairName=my-key \
+    GhcrToken=ghp_xxx \
+  --capabilities CAPABILITY_IAM
 ```
 
 ### What Happens
@@ -297,6 +342,61 @@ Fargate uses managed services — no EBS volumes to manage. Plugin builds use `b
 | EFS (10 GB) | ~$3 |
 | CloudWatch | ~$3 |
 | **Total** | **~$17/mo** |
+
+### Expanding Fargate Storage
+
+Unlike EC2, Fargate storage is per-service. Expand each independently:
+
+**RDS PostgreSQL — increase allocated storage:**
+```bash
+aws rds modify-db-instance \
+  --db-instance-identifier pb-postgres \
+  --allocated-storage 100 \
+  --apply-immediately
+
+# Enable autoscaling to avoid manual expansion in the future
+aws rds modify-db-instance \
+  --db-instance-identifier pb-postgres \
+  --max-allocated-storage 200 \
+  --apply-immediately
+```
+
+**ECR — add lifecycle policy to prevent unbounded growth:**
+```bash
+aws ecr put-lifecycle-policy \
+  --repository-name plugin \
+  --lifecycle-policy-text '{
+    "rules": [{
+      "rulePriority": 1,
+      "description": "Keep last 10 images",
+      "selection": {
+        "tagStatus": "any",
+        "countType": "imageCountMoreThan",
+        "countNumber": 10
+      },
+      "action": { "type": "expire" }
+    }]
+  }'
+```
+
+**CloudWatch Logs — set retention to control growth:**
+```bash
+# List log groups
+aws logs describe-log-groups --log-group-name-prefix /ecs/pb- --query 'logGroups[*].logGroupName' --output table
+
+# Set 30-day retention on all
+for lg in $(aws logs describe-log-groups --log-group-name-prefix /ecs/pb- --query 'logGroups[*].logGroupName' --output text); do
+  aws logs put-retention-policy --log-group-name "$lg" --retention-in-days 30
+done
+```
+
+**Task ephemeral storage — increase in CloudFormation stack:**
+
+Update `EphemeralStorage` in `04-services.yaml` and redeploy:
+```bash
+cd deploy/aws/fargate
+bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com
+```
 
 ### K8s → Fargate Translation
 
