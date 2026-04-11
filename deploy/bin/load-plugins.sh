@@ -13,7 +13,6 @@ set -euo pipefail
 #   ./load-plugins.sh --cleanup                              # remove plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR" || exit 1
 . "$SCRIPT_DIR/common.sh"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"

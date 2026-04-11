@@ -4,9 +4,9 @@
 # Note: Requires bash (uses arrays, ERRORS+=(), ${#ERRORS[@]}).
 
 # Common paths (caller may override SCRIPT_DIR before sourcing)
-COMMON_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMMON_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
 SCRIPT_DIR="${SCRIPT_DIR:-$COMMON_DIR}"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 
 # ---- Colors ----

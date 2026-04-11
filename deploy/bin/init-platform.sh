@@ -11,7 +11,6 @@ set -euo pipefail
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR" || exit 1
 . "$SCRIPT_DIR/common.sh"
 
 CLEANUP_AFTER_UPLOAD=false
@@ -161,6 +160,11 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG
     echo ""
   fi
+
+  # Re-authenticate before upload (token may have expired during prebuilt image builds)
+  echo ""
+  echo "=== Refreshing auth token ==="
+  login
 
   CLEANUP_ARG=""
   [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"

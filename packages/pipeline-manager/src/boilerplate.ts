@@ -1,7 +1,6 @@
+#!/usr/bin/env node
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
-
-#!/usr/bin/env node
 
 import { PipelineBuilder, BuilderProps } from '@mwashburn160/pipeline-core';
 import { App, Stack } from 'aws-cdk-lib';
