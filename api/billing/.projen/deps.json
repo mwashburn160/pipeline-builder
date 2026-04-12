@@ -87,17 +87,17 @@
     },
     {
       "name": "@mwashburn160/api-core",
-      "version": "1.49.16",
+      "version": "1.49.17",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/api-server",
-      "version": "1.46.14",
+      "version": "1.46.17",
       "type": "runtime"
     },
     {
       "name": "@mwashburn160/pipeline-core",
-      "version": "1.50.17",
+      "version": "1.50.18",
       "type": "runtime"
     },
     {
