@@ -49,14 +49,15 @@ done
 # ---- Helper functions ----
 
 upload_pipeline_single() {
-  pipeline_dir="$1"
-  dir_name="$(basename "$pipeline_dir")"
+  local pipeline_dir="$1"
+  local dir_name="$(basename "$pipeline_dir")"
 
-  BODY=$(jq ".accessModifier = \"public\"" "${pipeline_dir}/pipeline.json") || {
+  local BODY
+  BODY=$(jq '.accessModifier = "public"' "${pipeline_dir}/pipeline.json") || {
     echo "    FAIL (invalid JSON)"; FAILED=$((FAILED + 1)); return
   }
 
-  _attempt=1
+  local _attempt=1 status _result
   while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
     status=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
       -s -o /dev/null -w "%{http_code}" \
@@ -88,32 +89,9 @@ upload_pipeline_single() {
 upload_pipelines_bulk() {
   echo "  Building bulk payload..."
 
-  # Build JSON array of all pipeline configs
-  BULK_PAYLOAD="["
-  _first=true
-  _count=0
-
-  for pipeline_dir in "$PIPELINES_DIR"/*/; do
-    [ -d "$pipeline_dir" ] || continue
-    [ -f "${pipeline_dir}/pipeline.json" ] || continue
-
-    BODY=$(jq ".accessModifier = \"public\"" "${pipeline_dir}/pipeline.json" 2>/dev/null) || {
-      echo "    SKIP $(basename "$pipeline_dir") (invalid JSON)"
-      FAILED=$((FAILED + 1))
-      continue
-    }
-
-    if [ "$_first" = true ]; then
-      _first=false
-    else
-      BULK_PAYLOAD="${BULK_PAYLOAD},"
-    fi
-
-    BULK_PAYLOAD="${BULK_PAYLOAD}${BODY}"
-    _count=$((_count + 1))
-  done
-
-  BULK_PAYLOAD="${BULK_PAYLOAD}]"
+  # Build JSON array using jq
+  BULK_PAYLOAD=$(find "$PIPELINES_DIR" -maxdepth 2 -name "pipeline.json" -exec jq '.accessModifier = "public"' {} \; 2>/dev/null | jq -s '.')
+  _count=$(echo "$BULK_PAYLOAD" | jq 'length')
 
   if [ "$_count" -eq 0 ]; then
     echo "  No valid pipelines to upload"

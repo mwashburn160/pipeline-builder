@@ -20,7 +20,7 @@ WORKER_SCRIPT="$SCRIPT_DIR/load-plugin-worker.sh"
 UPLOAD_TIMEOUT=900
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
-PARALLEL_JOBS=${PARALLEL_JOBS:-4}
+PARALLEL_JOBS=${PARALLEL_JOBS:-1}
 SERIAL_MODE=false
 DRY_RUN=false
 REBUILD=false
@@ -35,7 +35,7 @@ while [ $# -gt 0 ]; do
     --rebuild)   REBUILD=true; shift ;;
     --cleanup)   CLEANUP=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
-    --parallel)  PARALLEL_JOBS="$2"; PARALLEL_JOBS_EXPLICIT=true
+    --parallel)  PARALLEL_JOBS="$2"
                  [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
@@ -50,7 +50,7 @@ while [ $# -gt 0 ]; do
       echo "  --rebuild              Force rebuild all plugin.zip files"
       echo "  --cleanup              Remove plugin.zip and image.tar after upload"
       echo "  --serial               Upload one at a time with delays"
-      echo "  --parallel N           Number of concurrent uploads (default: 4)"
+      echo "  --parallel N           Number of concurrent uploads (default: 1)"
       echo "  --category CATEGORIES  Comma-separated categories (e.g., language,security)"
       echo "  --timeout SECONDS      Upload timeout in seconds (default: 900)"
       echo ""
@@ -59,7 +59,7 @@ while [ $# -gt 0 ]; do
       echo "  PLATFORM_BASE_URL      Platform API URL (default: https://localhost:8443)"
       echo "  UPLOAD_RETRIES         Max retries on 503/connection failure (default: 3)"
       echo "  UPLOAD_RETRY_DELAY     Seconds between retries (default: 30)"
-      echo "  PARALLEL_JOBS          Concurrent uploads (default: 4)"
+      echo "  PARALLEL_JOBS          Concurrent uploads (default: 1)"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -80,49 +80,15 @@ is_eligible_plugin() {
   return 1
 }
 
-has_prebuilt_plugins() {
-  for _dir in "${PLUGINS_DIR}"/*/*/; do
-    [ -f "$_dir/image.tar" ] || continue
-    grep -q '^buildType: prebuilt' "$_dir/config.yaml" 2>/dev/null && return 0
-  done
-  return 1
-}
-
 # ---- Category selection ----
 
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
+elif [ -t 0 ]; then
+  select_categories "$PLUGINS_DIR" || exit 0
+  CATEGORIES=$(echo "$SELECTED_CATEGORIES" | tr ',' ' ')
 else
   CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
-  # Interactive prompt (skipped when --category is passed or non-interactive)
-  if [ -t 0 ]; then
-    echo ""
-    echo "  Available categories:"
-    local_i=0
-    for _cat in $CATEGORIES; do
-      local_i=$((local_i + 1))
-      _count=$(find -L "${PLUGINS_DIR}/${_cat}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-      echo "    ${local_i}) ${_cat} (${_count} plugins)"
-    done
-    echo ""
-    printf "  Load all categories? [Y/n]: "
-    read -r _answer
-    if [ "$_answer" = "n" ] || [ "$_answer" = "N" ]; then
-      printf "  Enter category numbers (comma-separated, e.g. 1,3,4): "
-      read -r _selected
-      PICKED=""
-      for num in $(echo "$_selected" | tr ',' ' '); do
-        _idx=0
-        for _cat in $CATEGORIES; do
-          _idx=$((_idx + 1))
-          [ "$_idx" -eq "$num" ] 2>/dev/null && PICKED="${PICKED} ${_cat}"
-        done
-      done
-      CATEGORIES=$(echo "$PICKED" | xargs)
-      [ -n "$CATEGORIES" ] || { echo "  No valid categories selected."; exit 0; }
-      echo "  Selected: $CATEGORIES"
-    fi
-  fi
 fi
 
 # ---- Build plugin list + count ----
@@ -136,13 +102,6 @@ for category in $CATEGORIES; do
     TOTAL=$((TOTAL + 1))
   done
 done
-
-# ---- Auto-lower parallelism for prebuilt ----
-
-if [ -z "${PARALLEL_JOBS_EXPLICIT:-}" ] && [ "$PARALLEL_JOBS" -gt 1 ] && has_prebuilt_plugins; then
-  echo "  NOTE: prebuilt plugins detected, lowering parallelism to 1 (override with --parallel N)"
-  PARALLEL_JOBS=1
-fi
 
 # ---- Auth ----
 
