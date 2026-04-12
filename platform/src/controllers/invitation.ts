@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { requireOrgMembership, toOrgId, withController } from '../helpers/controller-helper';
@@ -105,6 +105,10 @@ async function processInvitationAcceptance(
 export const sendInvitation = withController('Send invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
+
+  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    return sendError(res, 400, 'System org does not support invitations');
+  }
 
   const body = validateBody(sendInvitationSchema, req.body, res);
   if (!body) return;
@@ -454,6 +458,14 @@ export const getInvitation = withController('Get invitation', async (req, res) =
 export const listInvitations = withController('List invitations', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
+
+  // System org doesn't use invitations — return empty list
+  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    return sendSuccess(res, 200, {
+      invitations: [],
+      pagination: { total: 0, offset: 0, limit: 25, hasMore: false },
+    });
+  }
 
   const { status, invitationType } = req.query;
   const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
