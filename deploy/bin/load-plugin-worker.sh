@@ -65,7 +65,13 @@ build_type="build_image"
 zip_files="plugin-spec.yaml"
 [ -f "$config" ] && zip_files="config.yaml $zip_files"
 if [ "$build_type" = "prebuilt" ]; then
-  [ -f "$image_tar" ] && zip_files="$zip_files image.tar"
+  if [ -f "$image_tar" ]; then
+    zip_files="$zip_files image.tar"
+  else
+    echo "  FAIL $label (buildType=prebuilt but image.tar missing — run build-plugin-images.sh)"
+    _count failed
+    exit 1
+  fi
 else
   [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
 fi
