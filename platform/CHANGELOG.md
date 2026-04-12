@@ -1,3 +1,13 @@
+## 1.43.21 (2026-04-12)
+
+### 🩹 Fixes
+
+- sys org invitation schema ([9f861ea8](https://github.com/mwashburn160/pipeline-builder/commit/9f861ea8))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.43.20 (2026-04-12)
 
 ### 🩹 Fixes
