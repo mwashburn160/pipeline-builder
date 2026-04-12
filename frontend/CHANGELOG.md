@@ -1,3 +1,13 @@
+## 1.49.20 (2026-04-12)
+
+### 🩹 Fixes
+
+- upgraded apiServer=1.46.17 ([5842d715](https://github.com/mwashburn160/pipeline-builder/commit/5842d715))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.49.19 (2026-04-12)
 
 ### 🩹 Fixes
