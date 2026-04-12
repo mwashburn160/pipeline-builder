@@ -223,7 +223,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:1.43.20'
+    image: 'ghcr.io/mwashburn160/platform:1.43.21'
     container_name: platform
     restart: always
     stop_grace_period: 10s

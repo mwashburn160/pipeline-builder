@@ -200,10 +200,10 @@ spec:
       volumes:
         - name: tmp
           emptyDir:
-            sizeLimit: 1Gi
+            sizeLimit: 10Gi
         - name: uploads
           emptyDir:
-            sizeLimit: 512Mi
+            sizeLimit: 5Gi
         - name: dind-storage
           emptyDir: {}
 
