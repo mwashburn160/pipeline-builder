@@ -727,6 +727,8 @@ Resources:
               Value: "kaniko"
             - Name: DOCKER_BUILD_TIMEOUT_MS
               Value: "900000"
+            - Name: PLUGIN_MAX_UPLOAD_MB
+              Value: "4096"
             - Name: DOCKER_REGISTRY_HTTP
               Value: "true"
             - Name: DOCKER_REGISTRY_INSECURE

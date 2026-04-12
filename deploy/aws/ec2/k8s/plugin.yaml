@@ -113,6 +113,10 @@ spec:
               value: "3000"
             - name: COMPLIANCE_BYPASS
               value: "false"
+            - name: PLUGIN_MAX_UPLOAD_MB
+              value: "4096"
+            - name: DOCKER_BUILD_TIMEOUT_MS
+              value: "900000"
             - name: DIND_HOST
               value: "localhost"
             - name: TMPDIR
