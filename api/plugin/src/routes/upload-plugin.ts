@@ -42,8 +42,17 @@ export function createUploadPluginRoutes(
 ): Router {
   const router: Router = Router();
 
+  // Upload timeout: 5 minutes for large plugin ZIPs (overrides global HANDLER_TIMEOUT_MS)
+  const UPLOAD_TIMEOUT_MS = parseInt(process.env.PLUGIN_UPLOAD_TIMEOUT_MS || '300000', 10);
+
   router.post(
     '/',
+    // Extend timeout before multer starts reading the body
+    ((req: Request, res: Response, next: () => void) => {
+      res.setTimeout(UPLOAD_TIMEOUT_MS);
+      req.setTimeout(UPLOAD_TIMEOUT_MS);
+      next();
+    }) as RequestHandler,
     upload.single('plugin') as RequestHandler,
     // Handle multer/busboy errors (e.g. "Unexpected end of form") before proceeding
     ((err: Error, _req: Request, res: Response, next: (err?: Error) => void) => {
