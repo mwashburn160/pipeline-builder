@@ -178,12 +178,12 @@ mkdir -p "$CERT_DIR" "$AUTH_DIR"
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" 2>&1
-chmod 600 "$CERT_DIR/nginx.key"
+chmod 644 "$CERT_DIR/nginx.key"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
   -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost" 2>&1
-chmod 600 "$CERT_DIR/registry.key"
+chmod 644 "$CERT_DIR/registry.key"
 kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
 
 if command -v htpasswd >/dev/null 2>&1; then

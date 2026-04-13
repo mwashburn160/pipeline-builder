@@ -186,17 +186,13 @@ else
   CN="${DOMAIN:-localhost}"
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
     -subj "/CN=${CN}" -addext "subjectAltName=DNS:${CN},DNS:localhost,IP:127.0.0.1" 2>&1
-  chown root:minikube "$CERT_DIR/nginx.key"
-  chmod 640 "$CERT_DIR/nginx.key"
-  chmod 644 "$CERT_DIR/nginx.crt"
+  chmod 644 "$CERT_DIR/nginx.key" "$CERT_DIR/nginx.crt"
   kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
 fi
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
   -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost" 2>&1
-chown root:minikube "$CERT_DIR/registry.key"
-chmod 640 "$CERT_DIR/registry.key"
-chmod 644 "$CERT_DIR/registry.crt"
+chmod 644 "$CERT_DIR/registry.key" "$CERT_DIR/registry.crt"
 kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
 
 if command -v htpasswd >/dev/null 2>&1; then
@@ -204,8 +200,7 @@ if command -v htpasswd >/dev/null 2>&1; then
 else
   mk docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 fi
-chown root:minikube "$AUTH_DIR/registry.passwd"
-chmod 640 "$AUTH_DIR/registry.passwd"
+chmod 644 "$AUTH_DIR/registry.passwd"
 secret registry-auth-secret --from-file=registry.passwd="$AUTH_DIR/registry.passwd"
 echo "  TLS + registry auth done"
 

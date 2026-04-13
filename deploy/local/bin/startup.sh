@@ -38,7 +38,7 @@ if [ ! -f "$CERT_DIR/nginx.crt" ] || [ ! -f "$CERT_DIR/nginx.key" ]; then
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
     -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-  chmod 600 "$CERT_DIR/nginx.key"
+  chmod 644 "$CERT_DIR/nginx.key"
 fi
 
 if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
@@ -47,7 +47,7 @@ if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
     -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost"
-  chmod 600 "$CERT_DIR/registry.key"
+  chmod 644 "$CERT_DIR/registry.key"
 fi
 
 if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
