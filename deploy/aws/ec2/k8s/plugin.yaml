@@ -207,9 +207,8 @@ spec:
             path: /mnt/data/plugins-data/uploads
             type: DirectoryOrCreate
         - name: dind-storage
-          hostPath:
-            path: /mnt/data/plugins-data/dind
-            type: DirectoryOrCreate
+          emptyDir:
+            sizeLimit: 20Gi
 
 ---
 # =============================================================================

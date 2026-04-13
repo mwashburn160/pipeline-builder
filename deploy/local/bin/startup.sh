@@ -144,7 +144,7 @@ echo ""
 # -----------------------------------------------------------------------
 # Create plugin working directories
 # -----------------------------------------------------------------------
-mkdir -p data/plugins-data/builds data/plugins-data/uploads data/plugins-data/dind
+mkdir -p data/plugins-data/builds data/plugins-data/uploads
 
 # -----------------------------------------------------------------------
 # Start services

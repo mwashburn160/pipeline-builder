@@ -239,11 +239,11 @@ else
 fi
 
 # Create plugin working directories on data volume (hostPath mounts for K8s)
-# These back the plugin pod's /app/tmp, /app/uploads, and dind storage
-mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads /mnt/data/plugins-data/dind
+# These back the plugin pod's /app/tmp and /app/uploads (dind uses emptyDir per-pod)
+mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads
 # UID 1000 matches the plugin container's user inside minikube
 chown -R 1000:1000 /mnt/data/plugins-data
-echo "  Plugin working dirs: /mnt/data/plugins-data/{builds,uploads,dind}"
+echo "  Plugin working dirs: /mnt/data/plugins-data/{builds,uploads}"
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then
