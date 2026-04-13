@@ -70,7 +70,7 @@ upload_pipeline_single() {
 
     _result="$(classify_status "$status")"
 
-    if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+    if [ "$_result" = "fail" ] && is_retryable_status "$status" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
       echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
       sleep "$UPLOAD_RETRY_DELAY"
       _attempt=$((_attempt + 1))
@@ -116,7 +116,7 @@ upload_pipelines_bulk() {
 
     _result="$(classify_status "$status")"
 
-    if [ "$_result" = "fail" ] && { [ "$status" = "429" ] || [ "$status" = "502" ] || [ "$status" = "503" ] || [ "$status" = "504" ] || [ "$status" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+    if [ "$_result" = "fail" ] && is_retryable_status "$status" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
       echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
       sleep "$UPLOAD_RETRY_DELAY"
       _attempt=$((_attempt + 1))

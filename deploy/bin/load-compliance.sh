@@ -41,7 +41,7 @@ post_with_retry() {
 
     _result="$(classify_status "$STATUS")"
 
-    if [ "$_result" = "fail" ] && { [ "$STATUS" = "429" ] || [ "$STATUS" = "502" ] || [ "$STATUS" = "503" ] || [ "$STATUS" = "504" ] || [ "$STATUS" = "000" ]; } && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
+    if [ "$_result" = "fail" ] && is_retryable_status "$STATUS" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
       echo -e "  ${YELLOW}RETRY${NC} $_name (HTTP $STATUS) — waiting ${UPLOAD_RETRY_DELAY}s"
       sleep "$UPLOAD_RETRY_DELAY"
       _attempt=$((_attempt + 1))

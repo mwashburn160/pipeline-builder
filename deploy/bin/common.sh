@@ -87,19 +87,6 @@ compute_image_tag() {
 }
 
 # ---------------------------------------------------------------------------
-# generate_self_signed_cert — create a self-signed TLS certificate
-#   $1 output dir   $2 name prefix (e.g. nginx, registry)
-#   $3 CN           $4 SAN (e.g. "DNS:localhost,IP:127.0.0.1")
-# ---------------------------------------------------------------------------
-generate_self_signed_cert() {
-  local _dir="$1" _name="$2" _cn="$3" _san="$4"
-  mkdir -p "$_dir"
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$_dir/${_name}.key" -out "$_dir/${_name}.crt" \
-    -subj "/CN=${_cn}" -addext "subjectAltName=${_san}" 2>&1
-}
-
-# ---------------------------------------------------------------------------
 # print_results — display test/verify results summary
 #   Uses: PASSED, FAILED, SKIPPED
 # ---------------------------------------------------------------------------
@@ -309,6 +296,18 @@ classify_status() {
     200|201|202) echo "ok" ;;
     409)         echo "exists" ;;
     *)           echo "fail" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# is_retryable_status — check if an HTTP status code is worth retrying
+#   $1  HTTP status code
+#   Returns 0 (retryable) or 1 (not retryable)
+# ---------------------------------------------------------------------------
+is_retryable_status() {
+  case "$1" in
+    429|502|503|504|000) return 0 ;;
+    *) return 1 ;;
   esac
 }
 

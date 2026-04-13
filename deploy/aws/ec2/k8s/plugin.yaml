@@ -199,13 +199,17 @@ spec:
             failureThreshold: 3
       volumes:
         - name: tmp
-          emptyDir:
-            sizeLimit: 10Gi
+          hostPath:
+            path: /mnt/data/tmp
+            type: DirectoryOrCreate
         - name: uploads
-          emptyDir:
-            sizeLimit: 5Gi
+          hostPath:
+            path: /mnt/data/plugin-uploads
+            type: DirectoryOrCreate
         - name: dind-storage
-          emptyDir: {}
+          hostPath:
+            path: /mnt/data/plugin-dind
+            type: DirectoryOrCreate
 
 ---
 # =============================================================================

@@ -220,6 +220,9 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 
 # -- Deploy -------------------------------------------------------------------
 
+# Ensure plugin hostPath directories exist on data volume
+mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/tmp /mnt/data/plugin-uploads /mnt/data/plugin-dind && sudo chown -R 1000:1000 /mnt/data/tmp /mnt/data/plugin-uploads /mnt/data/plugin-dind'
+
 log "Applying Kubernetes manifests"
 mk kubectl apply -k "$K8S_DIR"
 

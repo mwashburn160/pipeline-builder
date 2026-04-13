@@ -115,10 +115,8 @@ while [ "$attempt" -le "$UPLOAD_RETRIES" ]; do
     --insecure 2>/dev/null || echo "000")
 
   result="$(classify_status "$status")"
-  retryable_status=false
-  case "$status" in 429|502|503|504|000) retryable_status=true ;; esac
 
-  if [ "$result" = "fail" ] && [ "$retryable_status" = true ] && [ "$attempt" -lt "$UPLOAD_RETRIES" ]; then
+  if [ "$result" = "fail" ] && is_retryable_status "$status" && [ "$attempt" -lt "$UPLOAD_RETRIES" ]; then
     echo "  RETRY $label (HTTP ${status}) attempt ${attempt}/${UPLOAD_RETRIES}"
     sleep "$UPLOAD_RETRY_DELAY"
     attempt=$((attempt + 1))

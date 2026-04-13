@@ -238,6 +238,14 @@ else
   chown -R minikube:minikube "$PLUGIN_SRC_DIR"
 fi
 
+# Create plugin working directories on data volume (hostPath mounts for K8s)
+# These back the plugin pod's /app/tmp, /app/uploads, and dind storage
+for _dir in /mnt/data/tmp /mnt/data/plugin-uploads /mnt/data/plugin-dind; do
+  mkdir -p "$_dir"
+  chown minikube:minikube "$_dir"
+done
+echo "  Plugin working dirs: /mnt/data/{tmp,plugin-uploads,plugin-dind}"
+
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then
   setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
