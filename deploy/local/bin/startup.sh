@@ -38,6 +38,7 @@ if [ ! -f "$CERT_DIR/nginx.crt" ] || [ ! -f "$CERT_DIR/nginx.key" ]; then
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
     -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+  chmod 600 "$CERT_DIR/nginx.key"
 fi
 
 if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
@@ -46,6 +47,7 @@ if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
     -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost"
+  chmod 600 "$CERT_DIR/registry.key"
 fi
 
 if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
@@ -64,9 +66,11 @@ fi
 # Ensure MongoDB keyfile has correct permissions
 # -----------------------------------------------------------------------
 KEYFILE="$DEPLOY_DIR/mongodb-keyfile"
-if [ -f "$KEYFILE" ]; then
-  chmod 400 "$KEYFILE"
+if [ ! -f "$KEYFILE" ]; then
+  echo "=== Generating MongoDB keyfile ==="
+  openssl rand -base64 756 > "$KEYFILE"
 fi
+chmod 400 "$KEYFILE"
 
 # -----------------------------------------------------------------------
 # Ensure data directories exist
@@ -89,7 +93,7 @@ export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/tmp}"
 mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
-chmod 777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
+chmod 1777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
 
 # Docker-in-Docker TLS certs (dind auto-generates certs on first start)
 mkdir -p "$DEPLOY_DIR/certs/dind"
@@ -140,7 +144,7 @@ echo ""
 # -----------------------------------------------------------------------
 # Create plugin working directories
 # -----------------------------------------------------------------------
-mkdir -p data/plugins/builds data/plugins/uploads data/plugins/dind
+mkdir -p data/plugins-data/builds data/plugins-data/uploads data/plugins-data/dind
 
 # -----------------------------------------------------------------------
 # Start services

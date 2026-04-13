@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
       echo "  --reset              Revert all plugins to buildType: build_image"
       echo "  --dry-run            Show what would be built without building"
       echo "  --category CATS      Comma-separated categories (e.g., language,security)"
-      echo "  --max-image-size MB  Skip images larger than MB (default: 1024)"
+      echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;

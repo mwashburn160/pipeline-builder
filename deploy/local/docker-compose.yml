@@ -155,7 +155,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - './data/db-data/postgres/:/var/lib/postgresql:rw'
+      - './data/db-data/postgres/:/var/lib/postgresql/data:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
@@ -323,8 +323,8 @@ services:
       DIND_HOST: plugin-dind
       TMPDIR: /tmp
     volumes:
-      - './data/plugins/builds:/tmp:rw'
-      - './data/plugins/uploads:/app/uploads:rw'
+      - './data/plugins-data/builds:/tmp:rw'
+      - './data/plugins-data/uploads:/app/uploads:rw'
     networks:
       - backend-network
     depends_on:
@@ -358,8 +358,8 @@ services:
       DOCKER_TLS_CERTDIR: ${DOCKER_TLS_CERTDIR:-}
       TMPDIR: /tmp
     volumes:
-      - './data/plugins/builds:/tmp:rw'
-      - './data/plugins/dind:/var/lib/docker'
+      - './data/plugins-data/builds:/tmp:rw'
+      - './data/plugins-data/dind:/var/lib/docker'
     networks:
       - backend-network
     healthcheck:

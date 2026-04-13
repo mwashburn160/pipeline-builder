@@ -58,13 +58,18 @@ ENV_FILE="$DEPLOY_DIR/.env"
 log "Loading environment"
 set -a; . "$ENV_FILE"; set +a
 
-[ "$(id -u)" = "0" ] && chmod -R o+rX "$DEPLOY_DIR" 2>/dev/null || true
+# Grant minikube user read access to deploy assets (manifests, configs, nginx)
+# Exclude .env and auth dirs which contain secrets
+if [ "$(id -u)" = "0" ]; then
+  chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
+  chmod o-rwx "$DEPLOY_DIR/.env" 2>/dev/null || true
+fi
 [ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
 
 # -- Data directories ---------------------------------------------------------
 
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,grafana,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/plugins/builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/plugins-data/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -143,10 +148,9 @@ log "Creating namespace + secrets + configmaps"
 kube create namespace "$NS"
 
 # app-env ConfigMap from .env (includes DOCKER_BUILD_STRATEGY from prompt above)
+# Use envsubst to safely expand variables without eval
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | while IFS='=' read -r key value; do
-  eval "printf '%s=%s\n' \"\$key\" \"\${$key}\""
-done > "$CLEAN_ENV"
+grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
 chmod 644 "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
@@ -165,7 +169,7 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   GHCR_USER="${GHCR_USER:-mwashburn160}"
   kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NS"
   mk kubectl patch sa default -n "$NS" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
-  mk minikube ssh --profile="$PROFILE" -- "echo '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null 2>&1 || true
+  mk minikube ssh --profile="$PROFILE" -- "docker login ghcr.io -u '$GHCR_USER' --password-stdin" <<< "$GHCR_TOKEN" >/dev/null 2>&1 || true
   echo "  ghcr-secret"
 fi
 
@@ -182,13 +186,15 @@ else
   CN="${DOMAIN:-localhost}"
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
     -subj "/CN=${CN}" -addext "subjectAltName=DNS:${CN},DNS:localhost,IP:127.0.0.1" 2>&1
-  chmod 644 "$CERT_DIR/nginx.key" "$CERT_DIR/nginx.crt"
+  chmod 600 "$CERT_DIR/nginx.key"
+  chmod 644 "$CERT_DIR/nginx.crt"
   kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
 fi
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
   -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost" 2>&1
-chmod 644 "$CERT_DIR/registry.key" "$CERT_DIR/registry.crt"
+chmod 600 "$CERT_DIR/registry.key"
+chmod 644 "$CERT_DIR/registry.crt"
 kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
 
 if command -v htpasswd >/dev/null 2>&1; then
@@ -196,7 +202,7 @@ if command -v htpasswd >/dev/null 2>&1; then
 else
   mk docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 fi
-chmod 644 "$AUTH_DIR/registry.passwd"
+chmod 640 "$AUTH_DIR/registry.passwd"
 secret registry-auth-secret --from-file=registry.passwd="$AUTH_DIR/registry.passwd"
 echo "  TLS + registry auth done"
 
@@ -221,7 +227,7 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 # -- Deploy -------------------------------------------------------------------
 
 # Ensure plugin hostPath directories exist on data volume
-mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins/builds /mnt/data/plugins/uploads /mnt/data/plugins/dind && sudo chown -R 1000:1000 /mnt/data/plugins'
+mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads /mnt/data/plugins-data/dind && sudo chown -R 1000:1000 /mnt/data/plugins-data'
 
 log "Applying Kubernetes manifests"
 mk kubectl apply -k "$K8S_DIR"

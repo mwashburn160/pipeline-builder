@@ -29,7 +29,7 @@ done
 # Check for existing valid cert
 EXISTING_ARN=$(aws acm list-certificates \
   --region "$REGION" \
-  --query "CertificateSummaryList[?DomainName=='${CN}'].CertificateArn" \
+  --query "CertificateSummaryList[?DomainName=='${CN}'].CertificateArn | [0]" \
   --output text 2>/dev/null || true)
 
 if [ -n "$EXISTING_ARN" ] && [ "$EXISTING_ARN" != "None" ]; then

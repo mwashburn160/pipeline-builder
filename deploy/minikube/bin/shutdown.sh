@@ -34,7 +34,6 @@ kubectl delete namespace "$NS" --ignore-not-found 2>/dev/null || true
 
 log "Stopping Minikube"
 minikube stop --profile="$PROFILE" || true
-minikube delete --profile="$PROFILE" --purge
 docker network rm "$PROFILE" 2>/dev/null || true
 
 echo ""

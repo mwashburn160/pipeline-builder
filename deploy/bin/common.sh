@@ -206,7 +206,7 @@ require_auth() {
 #   Uses/increments: PASSED, FAILED, ERRORS[], CHECK_TIMEOUT (default 15)
 # ---------------------------------------------------------------------------
 check_url() {
-  _curl_code=$(curl -fsSL -o /dev/null -w "%{http_code}" -L --head --max-time "${CHECK_TIMEOUT:-15}" "$1" 2>/dev/null) || _curl_code="000"
+  _curl_code=$(curl -sSL -o /dev/null -w "%{http_code}" --head --max-time "${CHECK_TIMEOUT:-15}" "$1" 2>/dev/null) || _curl_code="000"
   if [ "$_curl_code" = "200" ] || [ "$_curl_code" = "302" ] || [ "$_curl_code" = "301" ]; then
     echo -e "    ${GREEN}OK${NC}  $2"
     PASSED=$((PASSED + 1))

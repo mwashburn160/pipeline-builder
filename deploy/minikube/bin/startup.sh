@@ -77,8 +77,13 @@ docker network rm "$PROFILE" 2>/dev/null || true
 # -- Start Minikube -----------------------------------------------------------
 
 log "Detecting resources"
-TOTAL_CPU=$(nproc)
-TOTAL_MEM=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024))
+if command -v nproc >/dev/null 2>&1; then
+  TOTAL_CPU=$(nproc)
+  TOTAL_MEM=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024))
+else
+  TOTAL_CPU=$(sysctl -n hw.ncpu)
+  TOTAL_MEM=$(($(sysctl -n hw.memsize) / 1024 / 1024))
+fi
 MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
 MK_MEM=$((TOTAL_MEM * 75 / 100))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, 30g disk"
@@ -141,10 +146,9 @@ log "Creating namespace + secrets + configmaps"
 kube create namespace "$NS"
 
 # app-env ConfigMap (includes DOCKER_BUILD_STRATEGY from prompt above)
+# Use envsubst to safely expand variables without eval
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
-grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | while IFS='=' read -r key value; do
-  eval "printf '%s=%s\n' \"\$key\" \"\${$key}\""
-done > "$CLEAN_ENV"
+grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
@@ -174,10 +178,12 @@ mkdir -p "$CERT_DIR" "$AUTH_DIR"
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" 2>&1
+chmod 600 "$CERT_DIR/nginx.key"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
 
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
   -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost" 2>&1
+chmod 600 "$CERT_DIR/registry.key"
 kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
 
 if command -v htpasswd >/dev/null 2>&1; then
@@ -209,7 +215,7 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 # -- Deploy -------------------------------------------------------------------
 
 # Ensure plugin hostPath directories exist on data volume
-minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins/builds /mnt/data/plugins/uploads /mnt/data/plugins/dind && sudo chown -R 1000:1000 /mnt/data/plugins'
+minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads /mnt/data/plugins-data/dind && sudo chown -R 1000:1000 /mnt/data/plugins-data'
 
 log "Applying Kubernetes manifests"
 kubectl apply -k "$K8S_DIR"

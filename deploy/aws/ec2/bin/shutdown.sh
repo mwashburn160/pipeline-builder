@@ -30,8 +30,8 @@ if [ -n "$MINIKUBE_IP" ]; then
   done
   echo "  Rules removed for ${MINIKUBE_IP}"
 else
-  echo "  Unknown minikube IP — flushing NAT PREROUTING"
-  iptables -t nat -F PREROUTING 2>/dev/null || true
+  echo "  WARNING: Unknown minikube IP — cannot remove specific rules."
+  echo "  Run 'iptables -t nat -L PREROUTING -n --line-numbers' to inspect manually."
 fi
 
 iptables-save > /etc/sysconfig/iptables 2>/dev/null || true

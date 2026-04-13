@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --stack-prefix) STACK_PREFIX="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
-    *) shift ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
@@ -68,5 +68,5 @@ echo "=== Teardown complete ==="
 echo ""
 echo "  Note: Secrets Manager secrets are NOT deleted automatically."
 echo "  To delete secrets:"
-echo "    aws secretsmanager delete-secret --secret-id pipeline-builder/app-secrets --force-delete-without-recovery --region $REGION"
-echo "    aws secretsmanager delete-secret --secret-id pipeline-builder/ghcr-auth --force-delete-without-recovery --region $REGION"
+echo "    aws secretsmanager delete-secret --secret-id ${STACK_PREFIX}/app-secrets --force-delete-without-recovery --region $REGION"
+echo "    aws secretsmanager delete-secret --secret-id ${STACK_PREFIX}/ghcr-auth --force-delete-without-recovery --region $REGION"

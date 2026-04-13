@@ -222,7 +222,7 @@ chown -R minikube:minikube "$INSTALL_DIR/deploy/bin"
 
 # Move plugin build artifacts to data volume (image.tar + plugin.zip are large)
 # Symlink keeps deploy/plugins/ path working while using data volume storage
-PLUGIN_DATA_DIR="/mnt/data/plugin-builds"
+PLUGIN_DATA_DIR="/mnt/data/plugin-artifacts"
 PLUGIN_SRC_DIR="$INSTALL_DIR/deploy/plugins"
 if mountpoint -q /mnt/data 2>/dev/null && [ ! -L "$PLUGIN_SRC_DIR" ]; then
   mkdir -p "$PLUGIN_DATA_DIR"
@@ -240,18 +240,24 @@ fi
 
 # Create plugin working directories on data volume (hostPath mounts for K8s)
 # These back the plugin pod's /app/tmp, /app/uploads, and dind storage
-mkdir -p /mnt/data/plugins/builds /mnt/data/plugins/uploads /mnt/data/plugins/dind
+mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads /mnt/data/plugins-data/dind
 # UID 1000 matches the plugin container's user inside minikube
-chown -R 1000:1000 /mnt/data/plugins
-echo "  Plugin working dirs: /mnt/data/plugins/{builds,uploads,dind}"
+chown -R 1000:1000 /mnt/data/plugins-data
+echo "  Plugin working dirs: /mnt/data/plugins-data/{builds,uploads,dind}"
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then
   setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
-    chmod -R o+rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/
+    # Copy certs to a separate dir rather than making LE privkeys world-readable
+    cp "$LE_DIR/fullchain.pem" "$TLS_CERT_DIR/fullchain.pem"
+    cp "$LE_DIR/privkey.pem" "$TLS_CERT_DIR/privkey.pem"
+    chown minikube:minikube "$TLS_CERT_DIR/fullchain.pem" "$TLS_CERT_DIR/privkey.pem"
   }
 fi
-chmod -R o+rx "$TLS_CERT_DIR"
+# Set cert files readable, private keys restricted
+find "$TLS_CERT_DIR" -name '*.key' -o -name 'privkey.pem' | xargs -r chmod 640
+find "$TLS_CERT_DIR" -name '*.crt' -o -name '*.pem' ! -name 'privkey.pem' ! -name '*.key' | xargs -r chmod 644
+chown -R root:minikube "$TLS_CERT_DIR"
 
 # =============================================================================
 # Phase 7: Generate .env from template
