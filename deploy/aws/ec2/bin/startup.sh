@@ -169,7 +169,7 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   GHCR_USER="${GHCR_USER:-mwashburn160}"
   kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NS"
   mk kubectl patch sa default -n "$NS" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
-  mk minikube ssh --profile="$PROFILE" -- "docker login ghcr.io -u '$GHCR_USER' --password-stdin" <<< "$GHCR_TOKEN" >/dev/null 2>&1 || true
+  mk minikube ssh --profile="$PROFILE" -- "printf '%s' '$GHCR_TOKEN' | docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null 2>&1 || true
   echo "  ghcr-secret"
 fi
 
