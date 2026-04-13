@@ -64,7 +64,7 @@ set -a; . "$ENV_FILE"; set +a
 # -- Data directories ---------------------------------------------------------
 
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,grafana,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/plugins/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -221,7 +221,7 @@ configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/
 # -- Deploy -------------------------------------------------------------------
 
 # Ensure plugin hostPath directories exist on data volume
-mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/tmp /mnt/data/plugin-uploads /mnt/data/plugin-dind && sudo chown -R 1000:1000 /mnt/data/tmp /mnt/data/plugin-uploads /mnt/data/plugin-dind'
+mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins/builds /mnt/data/plugins/uploads /mnt/data/plugins/dind && sudo chown -R 1000:1000 /mnt/data/plugins'
 
 log "Applying Kubernetes manifests"
 mk kubectl apply -k "$K8S_DIR"

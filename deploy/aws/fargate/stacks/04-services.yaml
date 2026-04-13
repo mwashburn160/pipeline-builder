@@ -658,8 +658,8 @@ Resources:
       EphemeralStorage:
         SizeInGiB: 30
       Volumes:
-        - Name: plugin-tmp
-        - Name: plugin-uploads
+        - Name: plugins-builds
+        - Name: plugins-uploads
         - Name: kaniko-cache
           EFSVolumeConfiguration:
             FilesystemId:
@@ -743,9 +743,9 @@ Resources:
             - ContainerPath: /kaniko/cache
               SourceVolume: kaniko-cache
             - ContainerPath: /app/tmp
-              SourceVolume: plugin-tmp
+              SourceVolume: plugins-builds
             - ContainerPath: /app/uploads
-              SourceVolume: plugin-uploads
+              SourceVolume: plugins-uploads
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"

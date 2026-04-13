@@ -323,8 +323,8 @@ services:
       DIND_HOST: plugin-dind
       TMPDIR: /tmp
     volumes:
-      - './data/tmp:/tmp:rw'
-      - './data/uploads:/app/uploads:rw'
+      - './data/plugins/builds:/tmp:rw'
+      - './data/plugins/uploads:/app/uploads:rw'
     networks:
       - backend-network
     depends_on:
@@ -358,8 +358,8 @@ services:
       DOCKER_TLS_CERTDIR: ${DOCKER_TLS_CERTDIR:-}
       TMPDIR: /tmp
     volumes:
-      - './data/tmp:/tmp:rw'
-      - 'dind-storage:/var/lib/docker'
+      - './data/plugins/builds:/tmp:rw'
+      - './data/plugins/dind:/var/lib/docker'
     networks:
       - backend-network
     healthcheck:
@@ -840,7 +840,6 @@ services:
 # =============================================================================
 volumes:
   promtail-positions:
-  dind-storage:
 
 networks:
   proxy-network:
