@@ -1,3 +1,13 @@
+## 1.44.20 (2026-04-13)
+
+### 🩹 Fixes
+
+- upload route gets 5 minute timeout ([ed6adf42](https://github.com/mwashburn160/pipeline-builder/commit/ed6adf42))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.19 (2026-04-12)
 
 ### 🩹 Fixes
