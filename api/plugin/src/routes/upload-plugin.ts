@@ -191,7 +191,7 @@ export function createUploadPluginRoutes(
         });
 
         try {
-          await getQueue().add(`upload-${s.name}-${plugin.imageTag}`, jobData);
+          await getQueue().add(plugin.imageTag, jobData);
         } catch (queueErr) {
           ctx.log('ERROR', 'Failed to enqueue build job', {
             error: queueErr instanceof Error ? queueErr.message : String(queueErr),
