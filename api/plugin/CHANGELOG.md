@@ -1,3 +1,13 @@
+## 1.44.21 (2026-04-14)
+
+### 🩹 Fixes
+
+- job name for plugin ([02623c64](https://github.com/mwashburn160/pipeline-builder/commit/02623c64))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.20 (2026-04-13)
 
 ### 🩹 Fixes
