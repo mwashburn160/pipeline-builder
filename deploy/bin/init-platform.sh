@@ -130,7 +130,7 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     echo ""
     echo "  Plugin build strategy:"
     echo "    1) prebuilt     — Use pre-built images bundled as image.tar (default)"
-    echo "    2) build_image  — Build from Dockerfile at upload time"
+    echo "    2) build_image  — Build from Dockerfile at upload time (slow)"
     echo ""
     printf "  Select [1/2] (default: 1): "
     read -r _strategy_choice
