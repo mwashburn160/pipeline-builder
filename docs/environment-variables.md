@@ -23,7 +23,10 @@ Complete reference for all environment variables used across Pipeline Builder se
 - [Email](#email) -- SMTP and SES configuration
 - [Billing](#billing) -- Subscription billing provider
 - [AWS CDK / Lambda](#aws-cdk--lambda) -- Lambda runtime, CodeBuild compute
-- [Admin UIs](#admin-uis) -- Grafana, pgAdmin, Mongo Express credentials
+- [Timeouts](#timeouts) -- Request, build, and connection timeouts
+- [Caching](#caching) -- Response and entity cache TTLs
+- [SSE](#server-sent-events) -- Server-sent events configuration
+- [Admin UIs](#admin-uis-infrastructure) -- Grafana, pgAdmin, Mongo Express credentials
 - [Pagination & Limits](#pagination--limits) -- API response limits
 - [AI Providers](#ai-providers-optional) -- API keys for AI-powered generation
 
@@ -40,6 +43,8 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, `debug` |
 | `LOG_FORMAT` | `json` | `json` (structured) or `text` (human-readable) |
 | `SERVICE_NAME` | `api` | Service name in logs |
+| `CORS_CREDENTIALS` | `true` | Allow credentials in CORS requests |
+| `CORS_ORIGIN` | — | CORS allowed origins (optional) |
 
 ---
 
@@ -54,7 +59,6 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `JWT_SALT_ROUNDS` | `12` | bcrypt salt rounds |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `12` | Minimum password length |
-| `MAX_LOGIN_ATTEMPTS` | `5` | Lockout threshold |
 
 ### Google OAuth (Optional)
 
@@ -63,6 +67,15 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `OAUTH_GOOGLE_CLIENT_ID` | — | Client ID (empty = disabled) |
 | `OAUTH_GOOGLE_CLIENT_SECRET` | — | Client Secret |
 | `OAUTH_CALLBACK_BASE_URL` | `${PLATFORM_FRONTEND_URL}` | OAuth redirect origin |
+| `OAUTH_STATE_TTL_MS` | `600000` | OAuth state token TTL (10 min) |
+| `OAUTH_CLEANUP_INTERVAL_MS` | `60000` | Stale state cleanup interval |
+
+### GitHub OAuth (Optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OAUTH_GITHUB_CLIENT_ID` | — | Client ID (empty = disabled) |
+| `OAUTH_GITHUB_CLIENT_SECRET` | — | Client Secret |
 
 ---
 
@@ -80,8 +93,12 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `DB_USER` | `postgres` | User for services |
 | `DB_PASSWORD` | — | Password for services |
 | `DRIZZLE_MAX_POOL_SIZE` | `20` | Connection pool size |
+| `DRIZZLE_IDLE_TIMEOUT_MILLIS` | `30000` | Idle connection timeout (ms) |
+| `DRIZZLE_CONNECTION_TIMEOUT_MILLIS` | `10000` | Connection timeout (ms) |
 | `DB_MAX_RETRIES` | `3` | Connection retry attempts |
 | `DB_RETRY_DELAY_MS` | `1000` | Retry delay (ms) |
+| `DB_TRANSACTION_TIMEOUT_MS` | `30000` | Transaction timeout (ms) |
+| `DB_CLOSE_TIMEOUT_MS` | `5000` | Connection close timeout (ms) |
 
 ### MongoDB
 
@@ -125,9 +142,9 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `DOCKER_BUILD_STRATEGY` | `docker` | Build strategy: `docker` (dind sidecar, default for local/K8s), `podman` (daemonless), `kaniko` (daemonless, Fargate) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload HTTP timeout (5 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route |
 | `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
-| `PLUGIN_BUILD_STRATEGY` | `build_image` | Plugin build strategy: `build_image` (build from Dockerfile at upload) or `prebuilt` (use pre-built image.tar) |
-| `PLUGIN_MAX_UPLOAD_MB` | `1024` | Max plugin ZIP upload size in MB (1 GB, supports prebuilt image.tar) |
+| `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 
 The plugin Docker image is published with target-specific tags: `plugin:<version>-podman`, `plugin:<version>-kaniko`, `plugin:<version>-docker`. Each deploy target pulls the image matching its strategy.
 
@@ -139,9 +156,9 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 | `podman` | Standard podman with `SYS_ADMIN` capability | Pod with `SYS_ADMIN`, `SETUID`, `SETGID` capabilities | Alternative for K8s |
 | `kaniko` | Daemonless image builder | EFS mount for layer cache | Fargate (ECS) |
 
-**Podman** runs as a standard (non-rootless) container build tool inside the plugin pod. The pod requires `SYS_ADMIN` capability for namespace creation and overlayfs mounts. No Docker daemon or sidecar needed.
+**Docker (dind sidecar)** runs an isolated Docker daemon as a sidecar container. Plugin builds cannot see or affect host containers. The dind connection (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`) is configured per-process by `docker-build.ts` at build time — do **not** set these in `.env` files as they override the host Docker CLI and break `docker compose`. Each pod gets its own `emptyDir` for dind storage (isolated, auto-cleaned on pod termination).
 
-**Docker (dind sidecar)** runs an isolated Docker daemon as a sidecar container. Plugin builds cannot see or affect host containers. The dind connection (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`) is configured per-process by `docker-build.ts` at build time — do **not** set these in `.env` files as they override the host Docker CLI and break `docker compose`.
+**Podman** runs as a standard (non-rootless) container build tool inside the plugin pod. The pod requires `SYS_ADMIN` capability for namespace creation and overlayfs mounts. No Docker daemon or sidecar needed.
 
 **Kaniko** builds images without a daemon or elevated privileges. Used on Fargate where privileged containers and podman are not available.
 
@@ -152,9 +169,14 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 | `PLUGIN_BUILD_CONCURRENCY` | `1` | Max concurrent builds per container |
 | `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name |
 | `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts before moving to DLQ |
+| `PLUGIN_BUILD_BACKOFF_DELAY_MS` | `5000` | Backoff delay between retries (ms) |
+| `PLUGIN_BUILD_COMPLETED_RETENTION_SECS` | `3600` | Completed job retention (1 hour) |
+| `PLUGIN_BUILD_FAILED_RETENTION_SECS` | `86400` | Failed job retention (24 hours) |
+| `PLUGIN_BUILD_WORKER_TIMEOUT_MS` | `10000` | Worker ready timeout (ms) |
 | `PLUGIN_DLQ_MAX_ATTEMPTS` | `3` | Max DLQ retry attempts (exponential backoff) |
-| `PLUGIN_DLQ_BACKOFF_BASE_MS` | `300000` | DLQ backoff base delay (5 min; scales 5m → 15m → 45m) |
+| `PLUGIN_DLQ_BACKOFF_BASE_MS` | `300000` | DLQ backoff base delay (5 min; scales 5m, 15m, 45m) |
 | `PLUGIN_DLQ_MAX_SIZE` | `20` | Max DLQ jobs before oldest are purged |
+| `TEMP_DIR_MAX_AGE_MS` | `14400000` | Stale temp dir cleanup threshold (4 hours) |
 
 ---
 
@@ -171,6 +193,10 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 | `QUOTA_BYPASS_ORG_ID` | `system` | Org that bypasses all quotas |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
 | `LIMITER_WINDOWMS` | `900000` | Global rate limit window (15 min) |
+| `RATE_LIMIT_MAX` | `100` | Per-route rate limit |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Per-route rate limit window (1 min) |
+| `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
+| `AUTH_LIMITER_WINDOWMS` | `900000` | Auth rate limit window (15 min) |
 
 Per-operation limits follow the pattern `QUOTA_{ACTION}_{RESOURCE}_LIMIT` and `QUOTA_{ACTION}_{RESOURCE}_WINDOW_MS`.
 
@@ -188,6 +214,10 @@ Per-operation limits follow the pattern `QUOTA_{ACTION}_{RESOURCE}_LIMIT` and `Q
 | `MESSAGE_SERVICE_PORT` | `3000` | Message service port |
 | `COMPLIANCE_SERVICE_HOST` | `compliance` | Compliance service hostname |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Compliance service port |
+| `BILLING_SERVICE_HOST` | `billing` | Billing service hostname |
+| `BILLING_SERVICE_PORT` | `3000` | Billing service port |
+| `QUOTA_SERVICE_HOST` | `quota` | Quota service hostname |
+| `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
 
 ---
 
@@ -196,6 +226,7 @@ Per-operation limits follow the pattern `QUOTA_{ACTION}_{RESOURCE}_LIMIT` and `Q
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `COMPLIANCE_BYPASS` | `false` | Bypass compliance checks when service is unavailable (dev/DR only) |
+| `COMPLIANCE_ENABLED` | `true` | Enable compliance enforcement |
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Compliance scan scheduler interval (ms) |
 
 ---
@@ -206,9 +237,11 @@ Per-operation limits follow the pattern `QUOTA_{ACTION}_{RESOURCE}_LIMIT` and `Q
 |----------|---------|-------------|
 | `EMAIL_ENABLED` | `false` | Enable email sending |
 | `EMAIL_FROM` | `noreply@example.com` | Sender address |
+| `EMAIL_FROM_NAME` | `pipeline-builder` | Sender display name |
 | `EMAIL_PROVIDER` | `smtp` | `smtp` or `ses` |
 | `SMTP_HOST` | `localhost` | SMTP host |
 | `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_SECURE` | `false` | Use TLS |
 | `SMTP_USER` | — | SMTP username |
 | `SMTP_PASS` | — | SMTP password |
 
@@ -221,9 +254,12 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BILLING_ENABLED` | `false` | Enable billing |
-| `BILLING_PROVIDER` | `stub` | `stub` or `aws-marketplace` |
+| `BILLING_PROVIDER` | `stub` | `stub`, `aws-marketplace`, or `stripe` |
 | `BILLING_SERVICE_HOST` | `billing` | Service hostname |
 | `BILLING_SERVICE_PORT` | `3000` | Service port |
+| `BILLING_LIFECYCLE_CHECK_INTERVAL_MS` | `3600000` | Subscription lifecycle check interval (1 hour) |
+| `PAYMENT_GRACE_PERIOD_DAYS` | `7` | Grace period for overdue payments |
+| `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 
 Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer free, Pro $7.99/mo, Unlimited $11.99/mo.
 
@@ -235,15 +271,61 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 |----------|---------|-------------|
 | `LAMBDA_RUNTIME` | `nodejs24.x` | Lambda runtime |
 | `LAMBDA_TIMEOUT` | `900` | Timeout (seconds) |
-| `LAMBDA_MEMORY_SIZE` | `128` | Memory (MB) |
+| `LAMBDA_MEMORY_SIZE` | `512` | Memory (MB) |
 | `LAMBDA_ARCHITECTURE` | `ARM_64` | `ARM_64` or `x86_64` |
 | `CODEBUILD_COMPUTE_TYPE` | `SMALL` | `SMALL`, `MEDIUM`, `LARGE`, `X2_LARGE` |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
-| `LOG_RETENTION` | `1` | Log retention (days) |
+| `LOG_RETENTION` | `7` | Log retention (days) |
+| `SECRETS_PATH_PREFIX` | `pipeline-builder` | AWS Secrets Manager path prefix |
 
 ---
 
-## Admin UIs
+## Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HANDLER_TIMEOUT_MS` | `25000` | Global HTTP request timeout (25s) |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload route timeout override (5 min) |
+| `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Docker build timeout (15 min) |
+| `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Docker push timeout (5 min) |
+| `SERVICE_TIMEOUT` | `30000` | Inter-service HTTP call timeout |
+| `HTTP_CLIENT_TIMEOUT` | `5000` | Internal HTTP client timeout |
+| `HTTP_CLIENT_MAX_RETRIES` | `2` | Internal HTTP client retries |
+| `HTTP_CLIENT_RETRY_DELAY_MS` | `200` | Internal HTTP client retry delay |
+| `QUOTA_SERVICE_TIMEOUT` | `5000` | Quota service call timeout |
+| `BILLING_SERVICE_TIMEOUT` | `5000` | Billing service call timeout |
+
+---
+
+## Caching
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CACHE_TTL_ENTITY` | `60` | Entity cache TTL (seconds) |
+| `CACHE_TTL_MESSAGE` | `300` | Message cache TTL (seconds) |
+| `CACHE_TTL_REPORT_INVENTORY` | `300` | Report inventory cache TTL (seconds) |
+| `CACHE_TTL_REPORT_TIMESERIES` | `120` | Report timeseries cache TTL (seconds) |
+| `CACHE_TTL_COMPLIANCE_RULES` | `60` | Compliance rules cache TTL (seconds) |
+| `CACHE_TTL_BILLING_PLANS` | `14400` | Billing plans cache TTL (4 hours) |
+| `CACHE_CLEANUP_INTERVAL_MS` | `30000` | Cache cleanup interval (30s) |
+
+---
+
+## Server-Sent Events
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SSE_MAX_CLIENTS_PER_REQUEST` | `10` | Max SSE clients per request ID |
+| `SSE_CLIENT_TIMEOUT_MS` | `1800000` | SSE client timeout (30 min) |
+| `SSE_CLEANUP_INTERVAL_MS` | `300000` | SSE cleanup interval (5 min) |
+| `SSE_STREAM_TIMEOUT_MS` | `300000` | SSE stream timeout (5 min) |
+| `SSE_BACKPRESSURE_THRESHOLD` | `10` | SSE backpressure threshold |
+
+---
+
+## Admin UIs (Infrastructure)
+
+These variables configure infrastructure admin tools, not application code.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -263,6 +345,10 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 | `MAX_PAGE_LIMIT` | `1000` | Max page size |
 | `DEFAULT_PAGE_LIMIT` | `100` | Default page size |
 | `MAX_PROMPT_LENGTH` | `5000` | Max AI prompt length |
+| `MAX_BULK_ITEMS` | `100` | Max items per bulk operation |
+| `MAX_EVENTS_PER_BATCH` | `100` | Max events per batch ingestion |
+| `INVITATION_EXPIRATION_DAYS` | `7` | Org invitation expiry |
+| `INVITATION_MAX_PENDING_PER_ORG` | `50` | Max pending invitations per org |
 
 ---
 
