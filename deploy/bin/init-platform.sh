@@ -129,17 +129,17 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   if [ -z "$BUILD_STRATEGY" ] && [ -t 0 ]; then
     echo ""
     echo "  Plugin build strategy:"
-    echo "    1) build_image  — Build from Dockerfile at upload time (default)"
-    echo "    2) prebuilt     — Pre-build images now, bundle as image.tar"
+    echo "    1) prebuilt     — Use pre-built images bundled as image.tar (default)"
+    echo "    2) build_image  — Build from Dockerfile at upload time"
     echo ""
     printf "  Select [1/2] (default: 1): "
     read -r _strategy_choice
     case "$_strategy_choice" in
-      2|prebuilt) BUILD_STRATEGY="prebuilt" ;;
-      *)          BUILD_STRATEGY="build_image" ;;
+      2|build_image) BUILD_STRATEGY="build_image" ;;
+      *)             BUILD_STRATEGY="prebuilt" ;;
     esac
   fi
-  BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
+  BUILD_STRATEGY="${BUILD_STRATEGY:-prebuilt}"
 
   # ---- Category selection ----
   SELECTED_CATEGORIES=""
