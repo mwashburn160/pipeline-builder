@@ -153,13 +153,15 @@ spec:
               cpu: "750m"
               memory: 1024Mi
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sf http://localhost:3000/health > /dev/null && curl -sf http://localhost:2375/version > /dev/null"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /health
