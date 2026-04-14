@@ -136,6 +136,8 @@ flowchart TB
 | **Billing** | Subscriptions and plans |
 | **Message** | Org announcements and messaging |
 
+For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md).
+
 ---
 
 ## Quick Start
