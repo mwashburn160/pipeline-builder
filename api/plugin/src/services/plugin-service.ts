@@ -94,9 +94,6 @@ export class PluginService extends CrudService<
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
     this.invalidateAndEmit('deleted', id, entity, entity.updatedBy);
-      timestamp: new Date(),
-      attributes: entity,
-    });
   }
 
   /** Atomically deploy a new plugin version as default (clears old defaults for same name+org). */
