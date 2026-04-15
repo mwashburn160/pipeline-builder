@@ -1,3 +1,13 @@
+## 1.44.22 (2026-04-15)
+
+### 🩹 Fixes
+
+- addded metadata-only plugins ([aac57162](https://github.com/mwashburn160/pipeline-builder/commit/aac57162))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.21 (2026-04-14)
 
 ### 🩹 Fixes
