@@ -1,3 +1,13 @@
+## 1.50.21 (2026-04-15)
+
+### 🩹 Fixes
+
+- updated lambda environment variables ([9bfb3129](https://github.com/mwashburn160/pipeline-builder/commit/9bfb3129))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.20 (2026-04-12)
 
 ### 🩹 Fixes
