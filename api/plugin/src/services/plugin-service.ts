@@ -77,46 +77,23 @@ export class PluginService extends CrudService<
 
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
-  protected async onAfterCreate(entity: Plugin): Promise<void> {
+  private invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Plugin, userId: string) {
     pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin create', { orgId: entity.orgId, error: errorMessage(err) });
+      logger.debug(`Cache invalidation failed after plugin ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
     });
-    entityEvents.emit({
-      eventType: 'created',
-      target: 'plugin',
-      entityId: entity.id,
-      orgId: entity.orgId,
-      userId: entity.createdBy,
-      timestamp: new Date(),
-      attributes: entity,
-    });
+    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes: entity });
+  }
+
+  protected async onAfterCreate(entity: Plugin): Promise<void> {
+    this.invalidateAndEmit('created', entity.id, entity, entity.createdBy);
   }
 
   protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin update', { orgId: entity.orgId, error: errorMessage(err) });
-    });
-    entityEvents.emit({
-      eventType: 'updated',
-      target: 'plugin',
-      entityId: id,
-      orgId: entity.orgId,
-      userId: entity.updatedBy,
-      timestamp: new Date(),
-      attributes: entity,
-    });
+    this.invalidateAndEmit('updated', id, entity, entity.updatedBy);
   }
 
   protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after plugin delete', { orgId: entity.orgId, error: errorMessage(err) });
-    });
-    entityEvents.emit({
-      eventType: 'deleted',
-      target: 'plugin',
-      entityId: id,
-      orgId: entity.orgId,
-      userId: entity.updatedBy,
+    this.invalidateAndEmit('deleted', id, entity, entity.updatedBy);
       timestamp: new Date(),
       attributes: entity,
     });

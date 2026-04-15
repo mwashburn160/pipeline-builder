@@ -306,7 +306,7 @@ export function startWorker(
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
         let fullImage = '';
 
-        if (!isApprovalStep) {
+        if (!isApprovalStep && buildRequest.buildType !== 'metadata_only') {
           switch (buildRequest.buildType) {
             case 'prebuilt': {
               const tarPath = path.join(buildRequest.contextDir, 'image.tar');

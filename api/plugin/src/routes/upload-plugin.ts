@@ -13,6 +13,8 @@ import multer from 'multer';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec';
 import { createBuildJobData } from '../helpers/plugin-helpers';
 import { getQueue } from '../queue/plugin-build-queue';
+import { pluginService } from '../services/plugin-service';
+import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('upload-plugin');
 
@@ -146,6 +148,52 @@ export function createUploadPluginRoutes(
           return sendError(res, 503, 'Compliance service unavailable — plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
+        // -- Build plugin record --------------------------------------------------
+        const raw = s as unknown as Record<string, unknown>;
+        const category = typeof raw.category === 'string' ? raw.category : 'unknown';
+
+        const pluginRecord = {
+          orgId,
+          name: s.name,
+          description: s.description || null,
+          version: s.version || '0.0.0',
+          category,
+          metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
+          pluginType: s.pluginType || 'CodeBuildStep',
+          computeType: s.computeType || 'SMALL',
+          primaryOutputDirectory: s.primaryOutputDirectory || null,
+          dockerfile: plugin.dockerfileContent,
+          env: s.env || {},
+          buildArgs: s.buildArgs || {},
+          keywords: s.keywords || [],
+          installCommands: s.installCommands || [],
+          commands: s.commands || [],
+          imageTag: plugin.imageTag,
+          accessModifier,
+          timeout: s.timeout ?? null,
+          failureBehavior: s.failureBehavior || 'fail',
+          secrets: s.secrets || [],
+          buildType: plugin.buildType,
+        };
+
+        // -- metadata_only: deploy directly (no Docker build needed) -----------
+        if (plugin.buildType === 'metadata_only') {
+          const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId || 'system');
+
+          ctx.log('INFO', 'Metadata-only plugin deployed', {
+            pluginName: s.name,
+            pluginId: result.id,
+          });
+
+          return sendSuccess(res, 201, {
+            requestId: ctx.requestId,
+            pluginId: result.id,
+            pluginName: s.name,
+            version: s.version,
+            buildType: 'metadata_only',
+          });
+        }
+
         // -- Queue build job (returns immediately) ----------------------------
         const jobData = createBuildJobData({
           requestId: ctx.requestId,
@@ -160,34 +208,7 @@ export function createUploadPluginRoutes(
             buildArgs: s.buildArgs || {},
             buildType: plugin.buildType,
           },
-          pluginRecord: (() => {
-            const raw = s as unknown as Record<string, unknown>;
-            const category = typeof raw.category === 'string' ? raw.category : 'unknown';
-
-            return {
-              orgId,
-              name: s.name,
-              description: s.description || null,
-              version: s.version || '0.0.0',
-              category,
-              metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
-              pluginType: s.pluginType || 'CodeBuildStep',
-              computeType: s.computeType || 'SMALL',
-              primaryOutputDirectory: s.primaryOutputDirectory || null,
-              dockerfile: plugin.dockerfileContent,
-              env: s.env || {},
-              buildArgs: s.buildArgs || {},
-              keywords: s.keywords || [],
-              installCommands: s.installCommands || [],
-              commands: s.commands || [],
-              imageTag: plugin.imageTag,
-              accessModifier,
-              timeout: s.timeout ?? null,
-              failureBehavior: s.failureBehavior || 'fail',
-              secrets: s.secrets || [],
-              buildType: plugin.buildType,
-            };
-          })(),
+          pluginRecord,
         });
 
         try {

@@ -129,7 +129,7 @@ async function readAndExtractZip(
 const PluginConfigSchema = z.object({
   pluginSpec: z.string().optional(),
   dockerfile: z.string().optional(),
-  buildType: z.enum(['build_image', 'prebuilt']).optional(),
+  buildType: z.enum(['build_image', 'prebuilt', 'metadata_only']).optional(),
   imageTag: z.string().regex(/^p-[a-z0-9]+-[a-f0-9]{12}$/, 'imageTag must match p-{name}-{hash12}').optional(),
 }).strict()
   .refine(d => !(d.buildType === 'prebuilt' && d.dockerfile), {
@@ -140,6 +140,12 @@ const PluginConfigSchema = z.object({
   })
   .refine(d => !(d.buildType === 'build_image' && d.imageTag), {
     message: 'imageTag is not allowed when buildType is build_image',
+  })
+  .refine(d => !(d.buildType === 'metadata_only' && d.dockerfile), {
+    message: 'dockerfile is not allowed when buildType is metadata_only',
+  })
+  .refine(d => !(d.buildType === 'metadata_only' && d.imageTag), {
+    message: 'imageTag is not allowed when buildType is metadata_only',
   });
 
 /** Parse and validate config.yaml text. */
@@ -230,8 +236,10 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
       throw new ValidationError('image.tar is required in ZIP when buildType is prebuilt');
     }
 
-    // --- Image tag -----------------------------------------------------------
-    const imageTag = config.imageTag ?? generateImageTag(pluginSpec.name);
+    // --- Image tag (not needed for metadata_only) ----------------------------
+    const imageTag = buildType === 'metadata_only'
+      ? ''
+      : (config.imageTag ?? generateImageTag(pluginSpec.name));
 
     return { pluginSpec, extractDir, dockerfile, dockerfileContent, imageTag, buildType };
   } catch (err) {

@@ -62,19 +62,30 @@ image_tar="$plugin_dir/image.tar"
 build_type="build_image"
 [ -f "$config" ] && build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
 
+# Auto-detect metadata_only: no Dockerfile and no image.tar
+if [ "$build_type" = "build_image" ] && [ ! -f "$dockerfile" ] && [ ! -f "$image_tar" ]; then
+  build_type="metadata_only"
+fi
+
 zip_files="plugin-spec.yaml"
 [ -f "$config" ] && zip_files="config.yaml $zip_files"
-if [ "$build_type" = "prebuilt" ]; then
-  if [ -f "$image_tar" ]; then
-    zip_files="$zip_files image.tar"
-  else
-    echo "  FAIL $label (buildType=prebuilt but image.tar missing — run build-plugin-images.sh)"
-    _count failed
-    exit 1
-  fi
-else
-  [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
-fi
+case "$build_type" in
+  prebuilt)
+    if [ -f "$image_tar" ]; then
+      zip_files="$zip_files image.tar"
+    else
+      echo "  FAIL $label (buildType=prebuilt but image.tar missing — run build-plugin-images.sh)"
+      _count failed
+      exit 1
+    fi
+    ;;
+  build_image)
+    [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile"
+    ;;
+  metadata_only)
+    # No Dockerfile or image.tar needed — commands run in default CodeBuild image
+    ;;
+esac
 
 # ---- Decide whether to rebuild plugin.zip ----
 
@@ -82,11 +93,14 @@ needs_rebuild=false
 { [ "${REBUILD:-}" = "true" ] || [ ! -f "$zip_file" ]; } && needs_rebuild=true
 [ "$specfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 [ -f "$config" ] && [ "$config" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-if [ "$build_type" = "prebuilt" ]; then
-  [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-else
-  [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
-fi
+case "$build_type" in
+  prebuilt)
+    [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
+  build_image)
+    [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
+  metadata_only)
+    ;; # no additional files to check
+esac
 
 if [ "$needs_rebuild" = true ]; then
   # shellcheck disable=SC2086

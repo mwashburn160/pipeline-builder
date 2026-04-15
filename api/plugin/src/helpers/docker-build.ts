@@ -35,7 +35,7 @@ export interface RegistryInfo {
   insecure: boolean;
 }
 
-export type BuildType = 'build_image' | 'prebuilt';
+export type BuildType = 'build_image' | 'prebuilt' | 'metadata_only';
 
 export interface BuildRequest {
   contextDir: string;
