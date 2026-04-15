@@ -170,6 +170,10 @@ export class PluginLookup extends Construct {
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       environment: {
         PLATFORM_SECRET_NAME: secretName,
+        // Allow self-signed certs when platform uses HTTPS without a CA-signed certificate
+        ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
+          NODE_TLS_REJECT_UNAUTHORIZED: '0',
+        }),
       },
       bundling: {
         minify: true,

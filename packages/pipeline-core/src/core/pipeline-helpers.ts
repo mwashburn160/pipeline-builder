@@ -194,7 +194,11 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ? toSecretEnvVars(plugin.secrets, orgId)
     : {};
 
-  const env = buildEnv(plugin, merged, customEnv);
+  const env = {
+    ...buildEnv(plugin, merged, customEnv),
+    // Resolved variable — must be in step env (action-level), not buildEnvironment (project-level)
+    PIPELINE_EXECUTION_ID: '#{codepipeline.PipelineExecutionId}',
+  };
 
   const outputDir = plugin.primaryOutputDirectory;
   const ensureOutputDir = (outputDir && !outputDir.includes('*'))

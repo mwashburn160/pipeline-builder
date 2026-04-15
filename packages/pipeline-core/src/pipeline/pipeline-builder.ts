@@ -306,9 +306,10 @@ export class PipelineBuilder extends Construct {
       : undefined;
 
     // Pipeline-level env vars available to all CodeBuild actions
+    // Note: #{codepipeline.*} resolved variables must go through CodeBuildStep.env
+    // (action-level), not buildEnvironment.environmentVariables (project-level).
     const pipelineEnvVars: Record<string, { value: string }> = {
       PLATFORM_BASE_URL: { value: platformUrl },
-      PIPELINE_EXECUTION_ID: { value: '#{codepipeline.PipelineExecutionId}' },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
       ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
     };
