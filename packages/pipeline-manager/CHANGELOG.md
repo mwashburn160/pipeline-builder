@@ -1,3 +1,13 @@
+## 1.44.24 (2026-04-16)
+
+### 🩹 Fixes
+
+- set default region=us-east-1 ([3bc9aa13](https://github.com/mwashburn160/pipeline-builder/commit/3bc9aa13))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.44.23 (2026-04-16)
 
 ### 🩹 Fixes
