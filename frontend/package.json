@@ -32,9 +32,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.49.29",
-    "@mwashburn160/api-server": "1.46.29",
-    "@mwashburn160/pipeline-core": "1.50.33",
+    "@mwashburn160/api-core": "1.49.30",
+    "@mwashburn160/api-server": "1.46.30",
+    "@mwashburn160/pipeline-core": "1.50.34",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",
     "next": "^16.1.6",
@@ -51,7 +51,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.49.32",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testEnvironment": "node",
