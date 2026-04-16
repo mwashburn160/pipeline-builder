@@ -230,7 +230,8 @@ export class PipelineBuilder extends Construct {
       }
     }
 
-    // Shorthand — avoids repeated this.pipeline.pipeline access
+    // Build the internal pipeline before accessing its properties
+    this.pipeline.buildPipeline();
     const cdkPipeline = this.pipeline.pipeline;
     const meta = this.config.metadata.merged;
 
