@@ -1,3 +1,13 @@
+## 1.50.27 (2026-04-16)
+
+### 🩹 Fixes
+
+- response object is too long ([6fa295ea](https://github.com/mwashburn160/pipeline-builder/commit/6fa295ea))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.26 (2026-04-16)
 
 ### 🩹 Fixes
