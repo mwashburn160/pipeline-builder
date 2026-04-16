@@ -1,3 +1,13 @@
+## 1.50.34 (2026-04-16)
+
+### 🩹 Fixes
+
+- upgraded pipelineCore=1.50.33 ([31365fa0](https://github.com/mwashburn160/pipeline-builder/commit/31365fa0))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.33 (2026-04-16)
 
 ### 🩹 Fixes
