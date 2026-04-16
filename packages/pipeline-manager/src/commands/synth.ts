@@ -9,7 +9,8 @@ import { auditLog } from '../utils/audit-log';
 import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import type { Pipeline } from '../types/pipeline';
 
 const { dim } = pico;
 
@@ -28,18 +29,15 @@ async function fetchPipelineConfig(
     `${config.api.pipelineUrl}/${pipelineId}`,
   );
 
-  // Extract props from response envelope
-  const inner = (response?.data as Record<string, unknown>) ?? response;
-  const pipeline = (inner?.pipeline as Record<string, unknown>) ?? undefined;
+  const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
 
   if (!pipeline?.props) {
     printError('Pipeline has no props', { id: pipelineId });
     throw new Error(`Failed to retrieve pipeline props for ID: ${pipelineId}`);
   }
 
-  const props = pipeline.props as Record<string, unknown>;
   const propsWithIds: Record<string, unknown> = {
-    ...props,
+    ...pipeline.props as Record<string, unknown>,
     pipelineId: pipeline.id || pipelineId,
   };
   if (pipeline.orgId) propsWithIds.orgId = pipeline.orgId;

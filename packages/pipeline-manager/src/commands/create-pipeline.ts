@@ -201,7 +201,7 @@ export function createPipeline(program: Command): void {
         try {
           const requestStart = Date.now();
           rawResponse = await client.post<PipelineResponse>(
-            config.api.pipelinePostUrl,
+            config.api.pipelineUrl,
             payload,
           );
           requestDuration = Date.now() - requestStart;

@@ -5,7 +5,7 @@ import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { generateExecutionId, TIMEOUTS } from '../config/cli.constants';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printDebug, printError, printInfo, printSection, printSuccess } from '../utils/output-utils';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter';
@@ -103,7 +103,7 @@ export function login(program: Command): void {
             {
               headers: { 'Content-Type': 'application/json' },
               httpsAgent,
-              timeout: 30000,
+              timeout: TIMEOUTS.HTTP_REQUEST,
             },
           );
 
@@ -121,7 +121,7 @@ export function login(program: Command): void {
             {
               headers: { 'Content-Type': 'application/json' },
               httpsAgent,
-              timeout: 30000,
+              timeout: TIMEOUTS.HTTP_REQUEST,
             },
           );
 
@@ -154,7 +154,7 @@ export function login(program: Command): void {
                 'Authorization': `Bearer ${token}`,
               },
               httpsAgent,
-              timeout: 30000,
+              timeout: TIMEOUTS.HTTP_REQUEST,
             },
           );
 

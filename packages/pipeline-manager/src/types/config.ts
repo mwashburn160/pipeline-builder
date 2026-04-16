@@ -19,8 +19,6 @@ export interface ApiConfig {
   pluginUrl: string;
   /** URL path for plugin list/query operations. */
   pluginListUrl: string;
-  /** URL path for pipeline creation (POST). */
-  pipelinePostUrl: string;
   /** URL path for plugin upload (multipart POST). */
   pluginUploadUrl: string;
   /** When `false`, disables TLS certificate verification. */

@@ -4,7 +4,6 @@
 import { CoreConstants } from '@mwashburn160/pipeline-core';
 import axios from 'axios';
 import { Command } from 'commander';
-import pico from 'picocolors';
 import { validateNumber } from '../config/cli.constants';
 import { auditLog } from '../utils/audit-log';
 import { decodeTokenPayload } from '../utils/auth-guard';
@@ -12,9 +11,7 @@ import { upsertSecret, getSecretArn } from '../utils/aws-secrets';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { getConfigWithOptions } from '../utils/config-loader';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
-
-const { dim } = pico;
+import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
 /**
  * Build the secret name from the JWT token's organizationId.
@@ -67,12 +64,7 @@ export function storeToken(program: Command): void {
       try {
         printSslWarning(options.verifySsl);
 
-        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION;
-        if (!region) {
-          printError('AWS region is required');
-          console.log(dim('Provide --region <region> or set AWS_REGION environment variable'));
-          throw new Error('AWS region not provided');
-        }
+        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
 
         const days = validateNumber(options.days, 'days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;
@@ -94,9 +86,8 @@ export function storeToken(program: Command): void {
               : undefined,
           });
 
-          const loginData = loginResponse.data as Record<string, unknown>;
-          const loginToken = (loginData.data as Record<string, unknown> | undefined)?.accessToken
-            ?? loginData.accessToken;
+          const loginData = loginResponse.data?.data ?? loginResponse.data;
+          const loginToken = loginData?.accessToken;
 
           if (!loginToken || typeof loginToken !== 'string') {
             throw new Error('Login failed — no access token in response');
@@ -131,10 +122,10 @@ export function storeToken(program: Command): void {
           { expiresIn: expiresInSeconds },
         );
 
-        const data = (tokenResponse as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
-        const accessToken = (data?.accessToken || (tokenResponse as Record<string, unknown>)?.accessToken) as string | undefined;
-        const refreshToken = (data?.refreshToken || (tokenResponse as Record<string, unknown>)?.refreshToken) as string | undefined;
-        const actualExpiresIn = ((data?.expiresIn || (tokenResponse as Record<string, unknown>)?.expiresIn) as number) ?? expiresInSeconds;
+        const tokenData = (tokenResponse as Record<string, unknown>)?.data ?? tokenResponse;
+        const accessToken = (tokenData as Record<string, unknown>)?.accessToken as string | undefined;
+        const refreshToken = (tokenData as Record<string, unknown>)?.refreshToken as string | undefined;
+        const actualExpiresIn = ((tokenData as Record<string, unknown>)?.expiresIn as number) ?? expiresInSeconds;
 
         if (!accessToken) {
           throw new Error('Token generation failed — no access token in response');

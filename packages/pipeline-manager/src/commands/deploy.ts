@@ -148,7 +148,7 @@ export function deploy(program: Command): void {
             const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION });
             const identity = await stsClient.send(new GetCallerIdentityCommand({}));
             const account = identity.Account ?? '';
-            const region = process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
+            const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
 
             const pipelineName = pipeline.pipelineName
               || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();

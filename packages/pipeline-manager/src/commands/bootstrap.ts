@@ -16,7 +16,7 @@ const { bold, cyan, dim } = pico;
  * Resolves the AWS account ID from the CLI option or environment variable.
  * @returns The account ID string, or `undefined` if not available.
  */
-export function resolveAccount(optionValue?: string): string | undefined {
+function resolveAccount(optionValue?: string): string | undefined {
   return optionValue || process.env.AWS_ACCOUNT_ID || process.env.CDK_DEFAULT_ACCOUNT;
 }
 
@@ -24,14 +24,14 @@ export function resolveAccount(optionValue?: string): string | undefined {
  * Resolves the AWS region from the CLI option or environment variable.
  * @returns The region string, or `undefined` if not available.
  */
-export function resolveRegion(optionValue?: string): string | undefined {
-  return optionValue || process.env[ENV_VARS.AWS_REGION] || process.env.CDK_DEFAULT_REGION;
+function resolveRegion(optionValue?: string): string {
+  return optionValue || process.env[ENV_VARS.AWS_REGION] || process.env.CDK_DEFAULT_REGION || 'us-east-1';
 }
 
 /**
  * Builds the `cdk bootstrap` command string from the resolved options.
  */
-export function buildBootstrapCommand(options: {
+function buildBootstrapCommand(options: {
   account: string;
   region: string;
   profile?: string;
@@ -101,12 +101,6 @@ export function bootstrap(program: Command): void {
           printError('AWS account ID is required');
           console.log(dim('Provide --account <id> or set AWS_ACCOUNT_ID / CDK_DEFAULT_ACCOUNT environment variable'));
           throw new Error('AWS account ID not provided');
-        }
-
-        if (!region) {
-          printError('AWS region is required');
-          console.log(dim('Provide --region <region> or set AWS_REGION / CDK_DEFAULT_REGION environment variable'));
-          throw new Error('AWS region not provided');
         }
 
         printInfo('Bootstrap parameters', {

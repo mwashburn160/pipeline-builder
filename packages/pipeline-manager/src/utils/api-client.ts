@@ -4,6 +4,7 @@
 import https from 'https';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
+import { TIMEOUTS } from '../config/cli.constants';
 import { ApiError } from '../types';
 import { Config } from './config-loader';
 import { NetworkError } from './error-handler';
@@ -36,7 +37,7 @@ export class ApiClient {
 
     this.client = axios.create({
       baseURL: config.api.baseUrl,
-      timeout: config.api.timeout || 30000,
+      timeout: config.api.timeout || TIMEOUTS.HTTP_REQUEST,
       httpsAgent,
       headers: { 'Content-Type': 'application/json' },
     });
