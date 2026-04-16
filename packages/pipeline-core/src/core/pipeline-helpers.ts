@@ -128,7 +128,7 @@ function toSecretEnvVars(
 ): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
   return Object.fromEntries(
     secrets.map(({ name }) => {
-      const secretPath = `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/${name}`;
+      const secretPath = CoreConstants.secretPath(orgId, name);
       if (!VALID_SECRET_NAME.test(secretPath)) {
         throw new Error(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);
       }

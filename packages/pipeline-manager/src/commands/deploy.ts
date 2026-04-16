@@ -13,6 +13,7 @@ import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { resolveSynthPlugin } from '../utils/synth-plugin-resolver';
 
 const { bold, cyan, dim } = pico;
 
@@ -103,11 +104,15 @@ export function deploy(program: Command): void {
         });
 
         // Encode pipeline props (inject orgId and pipelineId for autonomous synth)
-        const propsWithIds = {
-          ...pipeline.props,
+        const baseProps: Record<string, unknown> = {
+          ...pipeline.props as Record<string, unknown>,
           ...(pipeline.orgId && { orgId: pipeline.orgId }),
           pipelineId: pipeline.id,
         };
+
+        // Pre-resolve the synth plugin so CDK has real commands at synthesis time
+        const propsWithIds = await resolveSynthPlugin(client, baseProps);
+
         const encoded = Buffer.from(JSON.stringify(propsWithIds), 'utf-8').toString('base64');
         const outputPath = options.output;
 

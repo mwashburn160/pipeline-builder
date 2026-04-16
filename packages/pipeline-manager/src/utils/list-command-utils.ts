@@ -52,20 +52,6 @@ export function displayPaginationInfo(filterParams: CommonFilterParams): void {
   });
 }
 
-/**
- * Display statistics for list results (count and active count).
- */
-export function displayListStatistics(items: Array<{ isActive?: boolean }>, entityName: string): void {
-  if (items.length === 0) return;
-
-  const activeCount = items.filter(p => p.isActive).length;
-
-  console.log('');
-  printInfo('Statistics');
-  printKeyValue({
-    [`Active ${entityName}`]: `${activeCount}/${items.length}`,
-  });
-}
 
 /**
  * Display result summary after a list query completes.

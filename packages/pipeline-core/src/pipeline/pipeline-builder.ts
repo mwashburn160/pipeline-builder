@@ -12,6 +12,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
+import type { Plugin } from '@mwashburn160/pipeline-data';
 import { PluginLookup } from './plugin-lookup';
 import { SourceBuilder } from './source-builder';
 import { StageBuilder } from './stage-builder';
@@ -28,6 +29,14 @@ import type { MetaDataType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
 import type { RoleConfig } from '../core/role-types';
 import { resolveSecurityGroup } from '../core/security-group';
+
+const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
+  FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
+  SUCCEEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUCCEEDED,
+  STARTED: PipelineNotificationEvents.PIPELINE_EXECUTION_STARTED,
+  CANCELED: PipelineNotificationEvents.PIPELINE_EXECUTION_CANCELED,
+  SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
+};
 
 /**
  * Configuration properties for the PipelineBuilder construct
@@ -78,6 +87,14 @@ export interface BuilderProps {
 
   /** Custom tags applied to all pipeline resources. */
   readonly tags?: Record<string, string>;
+
+  /**
+   * Pre-resolved synth plugin data — bypasses CloudFormation custom resource lookup.
+   * Set by pipeline-manager when the plugin API is reachable at synthesis time.
+   * Required because CDK needs the synth step commands during synthesis, before
+   * CloudFormation custom resources execute.
+   */
+  readonly resolvedSynthPlugin?: Record<string, unknown>;
 }
 
 /**
@@ -136,7 +153,12 @@ export class PipelineBuilder extends Construct {
     // Create source and build step
     const sourceBuilder = new SourceBuilder(this, this.config);
     const source = sourceBuilder.create(uniqueId);
-    const plugin = pluginLookup.plugin(this.config.plugin);
+
+    // Use pre-resolved synth plugin if available (required for synthesis-time resolution),
+    // otherwise fall back to custom resource lookup (resolved at deploy time)
+    const plugin = props.resolvedSynthPlugin
+      ? (props.resolvedSynthPlugin as unknown as Plugin)
+      : pluginLookup.plugin(this.config.plugin);
     const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
@@ -160,7 +182,7 @@ export class PipelineBuilder extends Construct {
     // Resolve pipeline-level defaults into codeBuildDefaults
     // Build the per-org platform secret name for CodeBuild env vars
     const platformSecretName = props.orgId
-      ? `${CoreConstants.SECRETS_PATH_PREFIX}/${props.orgId}/platform`
+      ? CoreConstants.secretPath(props.orgId, 'platform')
       : undefined;
 
     const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl);
@@ -221,14 +243,7 @@ export class PipelineBuilder extends Construct {
         : typeof customEvents === 'string'
           ? String(customEvents).split(',').map(s => s.trim())
           : ['FAILED', 'SUCCEEDED'];
-      const eventMap: Record<string, PipelineNotificationEvents> = {
-        FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
-        SUCCEEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUCCEEDED,
-        STARTED: PipelineNotificationEvents.PIPELINE_EXECUTION_STARTED,
-        CANCELED: PipelineNotificationEvents.PIPELINE_EXECUTION_CANCELED,
-        SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
-      };
-      const notificationEvents = eventList.map((e: unknown) => eventMap[String(e).toUpperCase()]).filter(Boolean);
+      const notificationEvents = eventList.map((e: unknown) => PIPELINE_EVENT_MAP[String(e).toUpperCase()]).filter(Boolean);
       if (notificationEvents.length > 0) {
         this.pipeline.pipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
       }

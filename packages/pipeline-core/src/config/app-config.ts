@@ -74,6 +74,11 @@ export class CoreConstants {
   // Secrets Manager path prefix for org-scoped secrets
   static readonly SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
 
+  /** Build a Secrets Manager path: {prefix}/{orgId}/{name} */
+  static secretPath(orgId: string, name: string): string {
+    return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/${name}`;
+  }
+
   // Database connection
   static readonly DB_MAX_RETRIES = parseInt(process.env.DB_MAX_RETRIES || '3', 10);
   static readonly DB_RETRY_DELAY_MS = parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10); // 1s

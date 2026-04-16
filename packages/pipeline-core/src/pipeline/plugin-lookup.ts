@@ -158,7 +158,7 @@ export class PluginLookup extends Construct {
     if (!orgId) {
       throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
     }
-    const secretName = `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/platform`;
+    const secretName = CoreConstants.secretPath(orgId, 'platform');
 
     const fn = new NodejsFunction(this, handlerId, {
       runtime: this._runtime,

@@ -10,6 +10,7 @@ import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { resolveSynthPlugin } from '../utils/synth-plugin-resolver';
 import type { Pipeline } from '../types/pipeline';
 
 const { dim } = pico;
@@ -36,13 +37,16 @@ async function fetchPipelineConfig(
     throw new Error(`Failed to retrieve pipeline props for ID: ${pipelineId}`);
   }
 
-  const propsWithIds: Record<string, unknown> = {
+  const baseProps: Record<string, unknown> = {
     ...pipeline.props as Record<string, unknown>,
     pipelineId: pipeline.id || pipelineId,
   };
-  if (pipeline.orgId) propsWithIds.orgId = pipeline.orgId;
+  if (pipeline.orgId) baseProps.orgId = pipeline.orgId;
 
-  process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
+  // Pre-resolve the synth plugin so CDK has real commands at synthesis time
+  const resolvedProps = await resolveSynthPlugin(client, baseProps);
+
+  process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(resolvedProps)).toString('base64');
   printSuccess('Pipeline configuration loaded');
 }
 
