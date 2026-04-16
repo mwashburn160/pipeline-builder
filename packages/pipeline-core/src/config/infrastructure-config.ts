@@ -168,6 +168,8 @@ export function loadAWSConfig(): AWSConfig {
     codeBuild: {
       computeType: getComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
     },
+
+    resolvedSynthPlugin: process.env.RESOLVED_SYNTH_PLUGIN === 'true',
   };
 }
 

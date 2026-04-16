@@ -149,24 +149,18 @@ export class PluginLookup extends Construct {
    *   pipeline-manager store-token --days 30 --region <region>
    */
   private createLambdaFunction(): NodejsFunction {
-    const lockfile = join(__dirname, '/../handlers/pnpm-lock.yaml');
-    const entrypoint = join(__dirname, '/../handlers/plugin-lookup-handler.js');
-    const handlerId = this._uniqueId.generate('onevent:handler');
-
-    // Secret name: {prefix}/{orgId}/platform (orgId required)
-    const orgId = this._orgId;
-    if (!orgId) {
+    if (!this._orgId) {
       throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
     }
-    const secretName = CoreConstants.secretPath(orgId, 'platform');
+    const secretName = CoreConstants.secretPath(this._orgId, 'platform');
 
-    const fn = new NodejsFunction(this, handlerId, {
+    const fn = new NodejsFunction(this, this._uniqueId.generate('onevent:handler'), {
       runtime: this._runtime,
       timeout: this._timeout,
       memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
-      entry: entrypoint,
-      depsLockFilePath: lockfile,
+      entry: join(__dirname, '/../handlers/plugin-lookup-handler.js'),
+      depsLockFilePath: join(__dirname, '/../handlers/pnpm-lock.yaml'),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       environment: {
         PLATFORM_SECRET_NAME: secretName,
@@ -240,47 +234,59 @@ export class PluginLookup extends Construct {
     });
   }
 
-  /**
-   * Returns fallback plugin configuration used when the plugin value is
-   * an unresolved CDK token during synthesis. This is expected — the actual
-   * plugin will be resolved at deployment time via the Custom Resource.
-   *
-   * Uses `primaryOutputDirectory: 'cdk.out'` so CDK synthesis can complete,
-   * and a descriptive echo command so the build log shows what happened
-   * if the fallback is ever reached in a deployed stack.
-   */
-  private fallback(): Plugin {
+  /** Base plugin shape with no-op defaults for fields CDK doesn't use. */
+  private static basePlugin(): Plugin {
+    const now = new Date();
     return {
       id: '00000000-0000-0000-0000-000000000000',
-      orgId: 'system',
-      createdBy: 'system',
-      createdAt: new Date(),
-      updatedBy: 'system',
-      updatedAt: new Date(),
-      name: 'no_pluginname',
-      description: null,
-      keywords: [],
-      category: 'unknown',
-      version: '1.0.0',
-      metadata: {},
-      pluginType: 'CodeBuildStep',
-      computeType: 'SMALL',
-      timeout: null,
-      failureBehavior: 'fail',
-      secrets: [],
-      primaryOutputDirectory: 'cdk.out',
-      env: {},
-      buildArgs: {},
-      installCommands: [],
-      commands: ['echo "FALLBACK: Plugin lookup unresolved during synthesis — actual plugin will be resolved at deployment time"'],
-      imageTag: 'no_image_tag',
-      dockerfile: null,
-      buildType: 'dockerfile',
-      accessModifier: 'public',
-      isDefault: false,
-      isActive: true,
-      deletedAt: null,
-      deletedBy: null,
+      orgId: 'system', createdBy: 'system', createdAt: now, updatedBy: 'system', updatedAt: now,
+      name: 'fallback', description: null, keywords: [], category: 'unknown', version: '1.0.0',
+      metadata: {}, pluginType: 'CodeBuildStep', computeType: 'SMALL',
+      timeout: null, failureBehavior: 'fail', secrets: [],
+      primaryOutputDirectory: 'cdk.out', env: {}, buildArgs: {},
+      installCommands: [], commands: [],
+      imageTag: '', dockerfile: null, buildType: 'metadata_only',
+      accessModifier: 'public', isDefault: false, isActive: true, deletedAt: null, deletedBy: null,
+    };
+  }
+
+  /** Fallback for unresolved plugin lookup tokens during synthesis. */
+  private fallback(): Plugin {
+    return {
+      ...PluginLookup.basePlugin(),
+      commands: ['echo "FALLBACK: Plugin lookup unresolved — will be resolved at deployment time"'],
+    };
+  }
+
+  /**
+   * Synth plugin with pipeline-manager commands.
+   * Used when RESOLVED_SYNTH_PLUGIN is not set (default/CLI) — CDK needs real
+   * commands at synthesis time, but the custom resource resolves at deploy time.
+   */
+  public fallbackSynth(): Plugin {
+    return {
+      ...PluginLookup.basePlugin(),
+      name: 'cdk-synth',
+      computeType: 'MEDIUM',
+      metadata: {
+        'aws:cdk:pipelines:codepipeline:selfmutation': true,
+        'aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation': true,
+        'aws:cdk:pipelines:codepipeline:publishassetsinparallel': true,
+        'aws:cdk:codebuild:buildenvironment:privileged': true,
+      },
+      installCommands: [
+        'test -d cdk.out || mkdir -p cdk.out',
+        'npm install -g aws-cdk @mwashburn160/pipeline-manager',
+      ],
+      commands: [
+        'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }',
+        'pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
+      ],
+      env: {
+        CDK_DEFAULT_REGION: '${AWS_REGION}',
+        CDK_DEFAULT_ACCOUNT: '${AWS_ACCOUNT_ID}',
+        RESOLVED_SYNTH_PLUGIN: 'true',
+      },
     };
   }
 }

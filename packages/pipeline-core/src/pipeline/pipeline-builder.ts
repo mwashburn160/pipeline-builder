@@ -12,7 +12,6 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration';
-import type { Plugin } from '@mwashburn160/pipeline-data';
 import { PluginLookup } from './plugin-lookup';
 import { SourceBuilder } from './source-builder';
 import { StageBuilder } from './stage-builder';
@@ -37,6 +36,12 @@ const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
   CANCELED: PipelineNotificationEvents.PIPELINE_EXECUTION_CANCELED,
   SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
 };
+
+function parseNotificationEvents(events: unknown): string[] {
+  if (Array.isArray(events)) return events;
+  if (typeof events === 'string') return events.split(',').map(s => s.trim());
+  return ['FAILED', 'SUCCEEDED'];
+}
 
 /**
  * Configuration properties for the PipelineBuilder construct
@@ -87,14 +92,6 @@ export interface BuilderProps {
 
   /** Custom tags applied to all pipeline resources. */
   readonly tags?: Record<string, string>;
-
-  /**
-   * Pre-resolved synth plugin data — bypasses CloudFormation custom resource lookup.
-   * Set by pipeline-manager when the plugin API is reachable at synthesis time.
-   * Required because CDK needs the synth step commands during synthesis, before
-   * CloudFormation custom resources execute.
-   */
-  readonly resolvedSynthPlugin?: Record<string, unknown>;
 }
 
 /**
@@ -154,11 +151,11 @@ export class PipelineBuilder extends Construct {
     const sourceBuilder = new SourceBuilder(this, this.config);
     const source = sourceBuilder.create(uniqueId);
 
-    // Use pre-resolved synth plugin if available (required for synthesis-time resolution),
-    // otherwise fall back to custom resource lookup (resolved at deploy time)
-    const plugin = props.resolvedSynthPlugin
-      ? (props.resolvedSynthPlugin as unknown as Plugin)
-      : pluginLookup.plugin(this.config.plugin);
+    // RESOLVED_SYNTH_PLUGIN=true (CodePipeline): resolve plugin via custom resource Lambda
+    // RESOLVED_SYNTH_PLUGIN=false (default/CLI): use fallback with pipeline-manager synth commands
+    const plugin = awsConfig.resolvedSynthPlugin
+      ? pluginLookup.plugin(this.config.plugin)
+      : pluginLookup.fallbackSynth();
     const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
@@ -233,19 +230,19 @@ export class PipelineBuilder extends Construct {
       }
     }
 
+    // Shorthand — avoids repeated this.pipeline.pipeline access
+    const cdkPipeline = this.pipeline.pipeline;
+    const meta = this.config.metadata.merged;
+
     // ── SNS Notifications ──
-    const notificationTopicArn = this.config.metadata.merged[MetadataKeys.NOTIFICATION_TOPIC_ARN];
+    const notificationTopicArn = meta[MetadataKeys.NOTIFICATION_TOPIC_ARN];
     if (typeof notificationTopicArn === 'string') {
       const topic = sns.Topic.fromTopicArn(this, 'NotificationTopic', notificationTopicArn);
-      const customEvents = this.config.metadata.merged[MetadataKeys.NOTIFICATION_EVENTS];
-      const eventList = Array.isArray(customEvents)
-        ? customEvents
-        : typeof customEvents === 'string'
-          ? String(customEvents).split(',').map(s => s.trim())
-          : ['FAILED', 'SUCCEEDED'];
-      const notificationEvents = eventList.map((e: unknown) => PIPELINE_EVENT_MAP[String(e).toUpperCase()]).filter(Boolean);
+      const notificationEvents = parseNotificationEvents(meta[MetadataKeys.NOTIFICATION_EVENTS])
+        .map(e => PIPELINE_EVENT_MAP[e.toUpperCase()])
+        .filter(Boolean);
       if (notificationEvents.length > 0) {
-        this.pipeline.pipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
+        cdkPipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
       }
     }
 
@@ -254,18 +251,17 @@ export class PipelineBuilder extends Construct {
       const expr = props.schedule || (props.synth.source.options as { schedule?: string })?.schedule || 'rate(1 day)';
       new events.Rule(this, 'ScheduleRule', {
         schedule: events.Schedule.expression(expr),
-        targets: [new targets.CodePipeline(this.pipeline.pipeline)],
+        targets: [new targets.CodePipeline(cdkPipeline)],
       });
     }
 
     // ── Execution Event Tracking (forward pipeline state changes to SNS) ──
-    const enableExecEvents = this.config.metadata.merged[MetadataKeys.ENABLE_EXECUTION_EVENTS];
-    if (enableExecEvents && typeof notificationTopicArn === 'string') {
+    if (meta[MetadataKeys.ENABLE_EXECUTION_EVENTS] && typeof notificationTopicArn === 'string') {
       new events.Rule(this, 'ExecutionEventRule', {
         eventPattern: {
           source: ['aws.codepipeline'],
           detailType: ['CodePipeline Pipeline Execution State Change'],
-          resources: [this.pipeline.pipeline.pipelineArn],
+          resources: [cdkPipeline.pipelineArn],
         },
         targets: [new targets.SnsTopic(
           sns.Topic.fromTopicArn(this, 'ExecutionEventTopic', notificationTopicArn),
@@ -327,6 +323,8 @@ export class PipelineBuilder extends Construct {
       PLATFORM_BASE_URL: { value: platformUrl },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
       ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
+      // Enable plugin resolution via custom resource Lambda inside CodePipeline
+      RESOLVED_SYNTH_PLUGIN: { value: 'true' },
       // Propagate TLS verification setting so all CodeBuild steps can reach
       // the platform API when using self-signed certificates
       ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
@@ -334,20 +332,15 @@ export class PipelineBuilder extends Construct {
       }),
     };
 
+    const securityGroups = [
+      ...(networkProps?.securityGroups ?? []),
+      ...(standaloneSecurityGroups ?? []),
+    ];
+
     return {
-      ...(networkProps && {
-        vpc: networkProps.vpc,
-        subnetSelection: networkProps.subnetSelection,
-      }),
-      ...((networkProps?.securityGroups || standaloneSecurityGroups) && {
-        securityGroups: [
-          ...(networkProps?.securityGroups ?? []),
-          ...(standaloneSecurityGroups ?? []),
-        ],
-      }),
-      buildEnvironment: {
-        environmentVariables: pipelineEnvVars,
-      },
+      ...(networkProps && { vpc: networkProps.vpc, subnetSelection: networkProps.subnetSelection }),
+      ...(securityGroups.length > 0 && { securityGroups }),
+      buildEnvironment: { environmentVariables: pipelineEnvVars },
     };
   }
 }

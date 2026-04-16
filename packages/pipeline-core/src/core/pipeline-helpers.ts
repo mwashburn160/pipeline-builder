@@ -174,7 +174,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // ManualApprovalStep: no commands, env, compute, or network — just id + optional comment
   if (plugin.pluginType === PluginType.MANUAL_APPROVAL_STEP) {
     return new ManualApprovalStep(id, {
-      comment: merged.APPROVAL_COMMENT as string | undefined,
+      comment: typeof merged.APPROVAL_COMMENT === 'string' ? merged.APPROVAL_COMMENT : undefined,
     });
   }
 
