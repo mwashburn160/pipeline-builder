@@ -1,3 +1,13 @@
+## 1.50.25 (2026-04-16)
+
+### 🩹 Fixes
+
+- set NODE_TLS_REJECT_UNAUTHORIZED ([f6584b31](https://github.com/mwashburn160/pipeline-builder/commit/f6584b31))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.24 (2026-04-16)
 
 ### 🩹 Fixes
