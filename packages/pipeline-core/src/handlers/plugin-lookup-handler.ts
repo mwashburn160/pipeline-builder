@@ -265,8 +265,26 @@ export const handler = async (
       id: plugin.id,
     });
 
-    // Encode response
-    const encoded = Buffer.from(JSON.stringify(plugin), 'utf-8').toString('base64');
+    // Strip large fields to stay within CloudFormation's 4096-byte Data limit.
+    // CDK constructs only need the fields used by createCodeBuildStep().
+    const slim = {
+      id: plugin.id,
+      name: plugin.name,
+      version: plugin.version,
+      pluginType: plugin.pluginType,
+      computeType: plugin.computeType,
+      commands: plugin.commands,
+      installCommands: plugin.installCommands,
+      env: plugin.env,
+      metadata: plugin.metadata,
+      primaryOutputDirectory: plugin.primaryOutputDirectory,
+      secrets: plugin.secrets,
+      failureBehavior: plugin.failureBehavior,
+      timeout: plugin.timeout,
+      imageTag: plugin.imageTag,
+    };
+
+    const encoded = Buffer.from(JSON.stringify(slim), 'utf-8').toString('base64');
     lambdaLog.debug('ENCODE', 'Encoded plugin data', { length: encoded.length });
 
     return {
