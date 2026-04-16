@@ -91,8 +91,8 @@ describe('resolveRegion', () => {
     expect(resolveRegion()).toBe('eu-west-1');
   });
 
-  it('should return undefined when nothing is set', () => {
-    expect(resolveRegion()).toBeUndefined();
+  it('should default to us-east-1 when nothing is set', () => {
+    expect(resolveRegion()).toBe('us-east-1');
   });
 });
 
