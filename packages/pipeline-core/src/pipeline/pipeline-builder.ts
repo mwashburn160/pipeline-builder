@@ -37,9 +37,9 @@ const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
   SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
 };
 
-function parseNotificationEvents(events: unknown): string[] {
-  if (Array.isArray(events)) return events;
-  if (typeof events === 'string') return events.split(',').map(s => s.trim());
+function parseNotificationEvents(value: unknown): string[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') return value.split(',').map(s => s.trim());
   return ['FAILED', 'SUCCEEDED'];
 }
 
