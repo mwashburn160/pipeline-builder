@@ -194,9 +194,11 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ? toSecretEnvVars(plugin.secrets, orgId)
     : {};
 
-  const env = {
-    ...buildEnv(plugin, merged, customEnv),
-    // Resolved variable — must be in step env (action-level), not buildEnvironment (project-level)
+  const env = buildEnv(plugin, merged, customEnv);
+
+  // CodePipeline resolved variables — must be in CodeBuildStep.env (action-level),
+  // not buildEnvironment.environmentVariables (project-level)
+  const actionEnv: Record<string, string> = {
     PIPELINE_EXECUTION_ID: '#{codepipeline.PipelineExecutionId}',
   };
 
@@ -218,7 +220,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   if (plugin.pluginType === PluginType.SHELL_STEP) {
     return new ShellStep(id, {
       ...programmatic,
-      env,
+      env: { ...env, ...actionEnv },
       ...metadataForShellStep(merged),
     });
   }
@@ -243,6 +245,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ...networkProps,
     ...(additionalInputs && { additionalInputs }),
     ...(timeout && { timeout: Duration.minutes(timeout) }),
+    env: actionEnv,
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,

@@ -88,6 +88,11 @@ export function synth(program: Command): void {
         auditLog('synth', { executionId, pipelineId, output: options.output, profile: options.profile });
         printSslWarning(options.verifySsl);
 
+        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it
+        if (options.verifySsl === false) {
+          process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        }
+
         // Fetch pipeline config if ID is available and PIPELINE_PROPS not already set
         if (pipelineId && !process.env.PIPELINE_PROPS) {
           printInfo('Fetching pipeline configuration', { id: pipelineId });

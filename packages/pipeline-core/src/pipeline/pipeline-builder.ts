@@ -312,6 +312,11 @@ export class PipelineBuilder extends Construct {
       PLATFORM_BASE_URL: { value: platformUrl },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
       ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
+      // Propagate TLS verification setting so all CodeBuild steps can reach
+      // the platform API when using self-signed certificates
+      ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
+        NODE_TLS_REJECT_UNAUTHORIZED: { value: '0' },
+      }),
     };
 
     return {

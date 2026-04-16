@@ -58,6 +58,11 @@ export function deploy(program: Command): void {
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
 
+        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it
+        if (options.verifySsl === false) {
+          process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+        }
+
         // Check CDK availability
         if (!checkCdkAvailable()) {
           printError('AWS CDK is not installed or not accessible');
