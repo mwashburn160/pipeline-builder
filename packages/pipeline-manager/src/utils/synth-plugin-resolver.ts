@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ApiClient } from './api-client';
-import { printSuccess, printWarning } from './output-utils';
+import { printDebug, printSuccess, printWarning } from './output-utils';
 
 /**
  * Pre-resolve the synth plugin from the platform API so CDK has real commands
@@ -20,6 +20,13 @@ export async function resolveSynthPlugin(
   const synth = props.synth as Record<string, unknown> | undefined;
   const synthPlugin = synth?.plugin as Record<string, unknown> | undefined;
 
+  printDebug('resolveSynthPlugin', {
+    hasSynth: !!synth,
+    hasPlugin: !!synthPlugin,
+    pluginName: synthPlugin?.name,
+    pluginKeys: synthPlugin ? Object.keys(synthPlugin) : [],
+  });
+
   if (!synthPlugin?.name) return props;
 
   try {
@@ -35,8 +42,8 @@ export async function resolveSynthPlugin(
       printSuccess(`Synth plugin "${pluginName}" pre-resolved`);
       return { ...props, resolvedSynthPlugin: pluginData };
     }
-  } catch {
-    printWarning('Could not pre-resolve synth plugin — will use fallback during synthesis');
+  } catch (error) {
+    printWarning(`Could not pre-resolve synth plugin: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   return props;
