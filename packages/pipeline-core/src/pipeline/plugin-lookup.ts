@@ -267,26 +267,10 @@ export class PluginLookup extends Construct {
     return {
       ...PluginLookup.basePlugin(),
       name: 'cdk-synth',
-      computeType: 'MEDIUM',
-      metadata: {
-        'aws:cdk:pipelines:codepipeline:selfmutation': true,
-        'aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation': true,
-        'aws:cdk:pipelines:codepipeline:publishassetsinparallel': true,
-        'aws:cdk:codebuild:buildenvironment:privileged': true,
-      },
-      installCommands: [
-        'test -d cdk.out || mkdir -p cdk.out',
-        'npm install -g aws-cdk @mwashburn160/pipeline-manager',
-      ],
+      primaryOutputDirectory: 'cdk.out',
       commands: [
-        'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }',
         'pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
       ],
-      env: {
-        CDK_DEFAULT_REGION: '${AWS_REGION}',
-        CDK_DEFAULT_ACCOUNT: '${AWS_ACCOUNT_ID}',
-        RESOLVED_SYNTH_PLUGIN: 'true',
-      },
     };
   }
 }
