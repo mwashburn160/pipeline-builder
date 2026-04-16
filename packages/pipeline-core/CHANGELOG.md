@@ -1,3 +1,13 @@
+## 1.50.36 (2026-04-16)
+
+### 🩹 Fixes
+
+- fallback synth ([3d16572e](https://github.com/mwashburn160/pipeline-builder/commit/3d16572e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.50.35 (2026-04-16)
 
 ### 🩹 Fixes
