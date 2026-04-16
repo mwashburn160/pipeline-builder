@@ -5,7 +5,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { TIMEOUTS } from '../config/cli.constants';
 import { Config } from '../types';
 import { printDebug, printError, printWarning } from './output-utils';
 
@@ -17,7 +16,7 @@ export type { Config };
 const defaultConfig: Omit<Config, 'auth'> = {
   api: {
     baseUrl: 'https://localhost:8443',
-    timeout: TIMEOUTS.HTTP_REQUEST,
+    timeout: 30_000,
     pipelineUrl: '/api/pipeline',
     pipelineListUrl: '/api/pipelines',
     pluginUrl: '/api/plugin',
