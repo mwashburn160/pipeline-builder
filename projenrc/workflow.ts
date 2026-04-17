@@ -223,12 +223,7 @@ export class Workflow extends Component {
                 {
                     name: 'Publish npm packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'pnpm publish --registry=https://registry.npmjs.org/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
-                },
-                {
-                    name: 'Publish github packages',
-                    if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'pnpm publish --registry=https://npm.pkg.github.com/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
+                    run: 'pnpm publish --registry=https://registry.npmjs.org/ --access public --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
                     name: 'Upload artifact',
@@ -427,11 +422,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Configure npm registry',
-                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //registry.npmjs.org/\:_authToken $NPM_TOKEN && npm config set \@pipeline-builder\:registry https://registry.npmjs.org/',
-            },
-            {
-                name: 'Configure github registry',
-                run: 'export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/\:_authToken $PAT_TOKEN && npm config set \@mwashburn160\:registry https://npm.pkg.github.com/',
+                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken $NPM_TOKEN && npm config set \@pipeline-builder\:registry https://registry.npmjs.org/',
             },
             {
                 name: 'Install dependencies',
