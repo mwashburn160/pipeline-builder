@@ -123,14 +123,17 @@ export class Workflow extends Component {
             steps: [
                 ...this.bootstrapSteps(),
                 {
+                    id: 'nx_base',
                     name: 'Set NX_BASE',
                     run: 'if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
+                    id: 'nx_head',
                     name: 'Set NX_HEAD',
                     run: 'echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT',
                 },
                 {
+                    id: 'affected',
                     name: 'Affected projects and images',
                     run: 'echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}| sort) <(echo $IMAGE_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
                     env: {
@@ -142,6 +145,7 @@ export class Workflow extends Component {
                     run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}',
                 },
                 {
+                    id: 'publish',
                     name: 'Check publish images',
                     run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base \${{ steps.nx_base.outputs.NX_BASE }} --head \${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
                 },

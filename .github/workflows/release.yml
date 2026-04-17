@@ -59,10 +59,13 @@ jobs:
       - name: Prune tags older than 15 days
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX_BASE
+        id: nx_base
         run: if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
       - name: Set NX_HEAD
+        id: nx_head
         run: echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
       - name: Affected projects and images
+        id: affected
         env:
           IMAGE_PROJECTS: '["frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin"]'
         run: |-
@@ -71,6 +74,7 @@ jobs:
       - name: Affected details
         run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
       - name: Check publish images
+        id: publish
         run: echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains("frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin"))') >> $GITHUB_OUTPUT
       - name: Publish details
         run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"
