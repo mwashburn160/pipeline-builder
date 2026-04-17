@@ -4,15 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@pipeline-builder/api-core': workspace:*
-  '@pipeline-builder/pipeline-data': workspace:*
-  '@pipeline-builder/pipeline-core': workspace:*
-  '@pipeline-builder/api-server': workspace:*
-  '@pipeline-builder/ai-core': workspace:*
-  '@pipeline-builder/event-ingestion': workspace:*
-  '@pipeline-builder/pipeline-manager': workspace:*
-
 importers:
 
   .:

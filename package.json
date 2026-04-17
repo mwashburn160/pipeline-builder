@@ -30,17 +30,7 @@
     "ts-node": "^10.9.2",
     "typescript": "5.9.3"
   },
-  "pnpm": {
-    "overrides": {
-      "@pipeline-builder/api-core": "workspace:*",
-      "@pipeline-builder/pipeline-data": "workspace:*",
-      "@pipeline-builder/pipeline-core": "workspace:*",
-      "@pipeline-builder/api-server": "workspace:*",
-      "@pipeline-builder/ai-core": "workspace:*",
-      "@pipeline-builder/event-ingestion": "workspace:*",
-      "@pipeline-builder/pipeline-manager": "workspace:*"
-    }
-  },
+  "pnpm": {},
   "engines": {
     "node": ">= 24.14.0"
   },
