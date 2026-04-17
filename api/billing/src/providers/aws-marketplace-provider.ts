@@ -10,7 +10,7 @@ import {
   MarketplaceMeteringClient,
   ResolveCustomerCommand,
 } from '@aws-sdk/client-marketplace-metering';
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
 import type { MarketplaceConfig } from '../config';
 import type { BillingInterval } from '../models/subscription';

@@ -10,7 +10,7 @@ jest.mock('uuid', () => ({
 
 jest.mock('../src/helpers/docker-build', () => ({}));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   normalizeArrayFields: jest.fn(<T extends Record<string, unknown>>(record: T, fields: (keyof T)[]) => {
     const result = { ...record };
     for (const field of fields) {
@@ -25,7 +25,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   PluginFilterSchema: {},
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     PLUGIN_IMAGE_PREFIX: 'p-',
   },

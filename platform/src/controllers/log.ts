@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, sendSuccess } from '@mwashburn160/api-core';
+import { sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
 import * as logService from '../services/log-service';
 

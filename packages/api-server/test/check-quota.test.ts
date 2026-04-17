@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock api-core before imports
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   ErrorCode: {
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
@@ -17,7 +17,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   sendError: jest.fn(),
 }));
 
-import { sendError, getIdentity } from '@mwashburn160/api-core';
+import { sendError, getIdentity } from '@pipeline-builder/api-core';
 import { checkQuota } from '../src/api/check-quota';
 
 function mockReq(overrides: Record<string, unknown> = {}): any {

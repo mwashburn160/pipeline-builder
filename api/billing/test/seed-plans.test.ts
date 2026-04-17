@@ -18,7 +18,7 @@ jest.mock('../src/models/plan', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -52,7 +52,7 @@ const mockPlans = [
   },
 ];
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   Config: {
     get: (section: string) => {
       if (section === 'billing') return { plans: mockPlans };

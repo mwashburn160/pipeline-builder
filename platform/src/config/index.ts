@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { QUOTA_TIERS } from '@mwashburn160/api-core';
+import { QUOTA_TIERS } from '@pipeline-builder/api-core';
 import { Algorithm } from 'jsonwebtoken';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';

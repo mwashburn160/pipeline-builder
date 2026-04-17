@@ -28,7 +28,7 @@ const consoleFormat = printf(({ level, message, timestamp, service, ...meta }) =
  *
  * @example
  * ```typescript
- * import { createLogger } from '@mwashburn160/api-core';
+ * import { createLogger } from '@pipeline-builder/api-core';
  *
  * const logger = createLogger('get-plugin');
  * logger.info('Server started', { port: 3000 });

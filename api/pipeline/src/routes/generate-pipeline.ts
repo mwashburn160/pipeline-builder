@@ -14,9 +14,9 @@ import {
   AIGenerateFromUrlBodySchema,
   SYSTEM_ORG_ID,
   AccessModifier,
-} from '@mwashburn160/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute } from '@mwashburn160/api-server';
-import { Config, CoreConstants, db, schema } from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/api-core';
+import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
+import { Config, CoreConstants, db, schema } from '@pipeline-builder/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';

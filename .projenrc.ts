@@ -40,7 +40,7 @@ const pkg = {
 // =============================================================================
 
 const root = new TypeScriptProject({
-  name: '@mwashburn160/root',
+  name: '@pipeline-builder/root',
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
   minNodeVersion: '24.14.0',
@@ -138,9 +138,9 @@ function dockerScripts(name: string, targets?: string[]) {
 
 // Common deps shared by all FunctionProject API services
 const commonServiceDeps = [
-  `@mwashburn160/api-core@${pkg.apiCore}`,
-  `@mwashburn160/api-server@${pkg.apiServer}`,
-  `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+  `@pipeline-builder/api-core@${pkg.apiCore}`,
+  `@pipeline-builder/api-server@${pkg.apiServer}`,
+  `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
   `express@${expressVersion}`,
 ];
 const commonServiceDevDeps = [
@@ -156,7 +156,7 @@ const commonServiceDevDeps = [
 // -- API Core --
 const apiCore = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/api-core',
+  name: '@pipeline-builder/api-core',
   outdir: './packages/api-core',
   deps: [
     `express@${expressVersion}`,
@@ -174,9 +174,9 @@ configureJest(apiCore);
 // -- Pipeline Data --
 const pipelineData = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/pipeline-data',
+  name: '@pipeline-builder/pipeline-data',
   outdir: './packages/pipeline-data',
-  deps: [`@mwashburn160/api-core@${pkg.apiCore}`, 'pg@8.18.0', 'drizzle-orm@0.45.1'],
+  deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.18.0', 'drizzle-orm@0.45.1'],
   devDeps: ['@types/node@25.3.0', '@types/pg@8.16.0', 'drizzle-kit@0.31.9', `typescript@${typescriptVersion}`],
 });
 pipelineData.eslint?.addRules(rules);
@@ -185,11 +185,11 @@ configureJest(pipelineData);
 // -- Pipeline Core --
 const pipelineCore = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/pipeline-core',
+  name: '@pipeline-builder/pipeline-core',
   outdir: './packages/pipeline-core',
   deps: [
-    `@mwashburn160/api-core@${pkg.apiCore}`,
-    `@mwashburn160/pipeline-data@${pkg.pipelineData}`,
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
     'jsonwebtoken@9.0.3', 'axios@1.13.5', 'uuid@13.0.0',
   ],
@@ -206,11 +206,11 @@ pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ -
 // -- API Server --
 const apiServer = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/api-server',
+  name: '@pipeline-builder/api-server',
   outdir: './packages/api-server',
   deps: [
-    `@mwashburn160/api-core@${pkg.apiCore}`,
-    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
     'express-rate-limit@8.2.1', 'helmet@8.1.0', 'cors@2.8.6', 'compression@1.8.0',
     'jsonwebtoken@9.0.3', 'uuid@13.0.0', 'prom-client@15.1.3',
@@ -230,10 +230,10 @@ configureJest(apiServer, { maxWorkers: 1 });
 // -- AI Core --
 const aiCore = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/ai-core',
+  name: '@pipeline-builder/ai-core',
   outdir: './packages/ai-core',
   deps: [
-    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
     'ai@6.0.99',
     '@ai-sdk/anthropic@3.0.47', '@ai-sdk/openai@3.0.31', '@ai-sdk/google@3.0.31',
     '@ai-sdk/xai@3.0.59', '@ai-sdk/amazon-bedrock@4.0.64', '@ai-sdk/openai-compatible@2.0.31',
@@ -246,7 +246,7 @@ configureJest(aiCore);
 // -- Event Ingestion Lambda --
 const eventIngestion = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/event-ingestion',
+  name: '@pipeline-builder/event-ingestion',
   outdir: './packages/event-ingestion',
   deps: [],
   devDeps: [
@@ -263,11 +263,11 @@ configureJest(eventIngestion);
 
 const manager = new ManagerProject({
   ...pkgDefaults, parent: root,
-  name: '@mwashburn160/pipeline-manager',
+  name: '@pipeline-builder/pipeline-manager',
   outdir: './packages/pipeline-manager',
   bin: { 'pipeline-manager': './dist/cli.js' },
   deps: [
-    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`,
     '@aws-sdk/client-cloudformation@3.821.0', '@aws-sdk/client-lambda@3.821.0',
     '@aws-sdk/client-secrets-manager@3.821.0', '@aws-sdk/client-sts@3.821.0',
@@ -294,7 +294,7 @@ const platform = new FunctionProject({
   name: 'platform',
   outdir: './platform',
   deps: [
-    `@mwashburn160/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
     `express@${expressVersion}`, 'express-rate-limit@8.2.1',
     'nodemailer@8.0.1', 'zod@4.3.6', '@aws-sdk/client-sesv2@3.997.0',
     'jsonwebtoken@9.0.3', 'slugify@1.6.6', 'winston@3.19.0', 'bcryptjs@3.0.3',
@@ -330,9 +330,9 @@ const frontend = new FrontEndProject({
     },
   },
   deps: [
-    `@mwashburn160/api-core@${pkg.apiCore}`,
-    `@mwashburn160/api-server@${pkg.apiServer}`,
-    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    `@pipeline-builder/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/api-server@${pkg.apiServer}`,
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     'next@16.1.6', 'react@19.2.4', 'react-dom@19.2.4',
     'lucide-react@0.575.0', 'tailwindcss@4.2.1', 'framer-motion@12.34.3', 'swr@2.3.3',
   ],
@@ -375,7 +375,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     deps: [
       'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
       'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-      'adm-zip@0.5.16', 'yauzl@3.3.0', 'multer@2.0.2', `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+      'adm-zip@0.5.16', 'yauzl@3.3.0', 'multer@2.0.2', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
       'bullmq@5.34.8', 'ioredis@5.6.1',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/yauzl@2.10.3', '@types/multer@2.0.0'],
@@ -385,7 +385,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     deps: [
       'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
       'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-      `@mwashburn160/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+      `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0'],
   },
@@ -396,7 +396,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'reporting',
-    deps: [`@mwashburn160/pipeline-data@${pkg.pipelineData}`, 'pg@8.18.0', 'drizzle-orm@0.45.1', 'zod@4.3.6'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.18.0', 'drizzle-orm@0.45.1', 'zod@4.3.6'],
     devDeps: ['@types/pg@8.16.0'],
   },
   {

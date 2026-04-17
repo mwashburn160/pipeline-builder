@@ -3,7 +3,7 @@
 
 import { Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { PipelineBuilder, BuilderProps } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder, BuilderProps } from '@pipeline-builder/pipeline-core';
 
 /**
  * Basic pipeline stack demonstrating the simplest PipelineBuilder usage.

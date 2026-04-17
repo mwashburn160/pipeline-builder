@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, normalizeArrayFields, sendEntityNotFound } from '@mwashburn160/api-core';
-import { withRoute } from '@mwashburn160/api-server';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { pluginService } from '../services/plugin-service';
 

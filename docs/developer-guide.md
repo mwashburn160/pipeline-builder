@@ -68,7 +68,7 @@ curl https://your-instance/api/pipelines \
 ### 5. CDK Construct (Infrastructure as Code)
 
 ```typescript
-import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
 
 new PipelineBuilder(stack, 'MyPipeline', {
   project: 'my-app',

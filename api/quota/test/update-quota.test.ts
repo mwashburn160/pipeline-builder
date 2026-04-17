@@ -33,7 +33,7 @@ class MockNotFoundError extends MockAppError {
   }
 }
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
@@ -92,7 +92,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const requireOrgId = opts?.requireOrgId !== false;

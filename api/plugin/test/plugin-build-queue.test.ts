@@ -88,7 +88,7 @@ const mockPipelineCoreConfig: Record<string, any> = {
   redis: { host: 'localhost', port: 6379 },
 };
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
     PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
@@ -97,7 +97,7 @@ jest.mock('@mwashburn160/pipeline-core', () => ({
   Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -109,7 +109,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   incrementQuota: mockIncrementQuota,
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({}));
+jest.mock('@pipeline-builder/api-server', () => ({}));
 
 // Import after mocks
 
@@ -232,7 +232,7 @@ describe('plugin-build-queue', () => {
     }));
 
 
-    jest.mock('@mwashburn160/pipeline-core', () => ({
+    jest.mock('@pipeline-builder/pipeline-core', () => ({
       CoreConstants: {
         PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
         PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
@@ -241,7 +241,7 @@ describe('plugin-build-queue', () => {
       Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
     }));
 
-    jest.mock('@mwashburn160/api-core', () => ({
+    jest.mock('@pipeline-builder/api-core', () => ({
       createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
@@ -253,7 +253,7 @@ describe('plugin-build-queue', () => {
       incrementQuota: mockIncrementQuota,
     }));
 
-    jest.mock('@mwashburn160/api-server', () => ({}));
+    jest.mock('@pipeline-builder/api-server', () => ({}));
 
     queueModule = await import('../src/queue/plugin-build-queue');
   });

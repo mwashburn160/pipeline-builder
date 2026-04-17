@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -16,7 +16,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   },
 }));
 
-import { sendError } from '@mwashburn160/api-core';
+import { sendError } from '@pipeline-builder/api-core';
 import { notFoundHandler, errorHandler } from '../src/middleware/error';
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;

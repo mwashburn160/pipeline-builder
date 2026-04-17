@@ -27,7 +27,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   extractDbError: jest.fn(() => ({})),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
@@ -71,7 +71,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -91,11 +91,11 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   AccessModifier: {},
 }));
 
-import { sendBadRequest, requirePublicAccess, sendEntityNotFound } from '@mwashburn160/api-core';
+import { sendBadRequest, requirePublicAccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { createDeletePipelineRoutes } from '../src/routes/delete-pipeline';
 
 // Helpers

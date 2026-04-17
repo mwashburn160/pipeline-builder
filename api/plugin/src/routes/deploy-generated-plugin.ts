@@ -11,10 +11,10 @@ import {
   sendSuccess,
   validateBody,
   PluginDeployGeneratedSchema,
-} from '@mwashburn160/api-core';
-import type { QuotaService } from '@mwashburn160/api-core';
-import { checkQuota, withRoute } from '@mwashburn160/api-server';
-import { Config } from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/api-core';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { checkQuota, withRoute } from '@pipeline-builder/api-server';
+import { Config } from '@pipeline-builder/pipeline-core';
 import { Router, RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 

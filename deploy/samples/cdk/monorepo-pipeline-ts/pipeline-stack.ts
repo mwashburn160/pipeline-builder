@@ -7,7 +7,7 @@ import {
   PipelineBuilder,
   BuilderProps,
   StageStepOptions,
-} from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/pipeline-core';
 
 /**
  * Monorepo pipeline stack.

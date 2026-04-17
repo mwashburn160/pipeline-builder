@@ -14,7 +14,7 @@ jest.mock('../src/database/postgres-connection', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createCacheService: () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),

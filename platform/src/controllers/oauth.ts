@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { withController } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';

@@ -14,21 +14,21 @@ const mockGetStageBottlenecks = jest.fn();
 const mockGetActionFailures = jest.fn();
 const mockGetErrors = jest.fn();
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: jest.fn(),
   sendBadRequest: jest.fn(),
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
   createLogger: () => ({ info: jest.fn(), debug: jest.fn() }),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
 
-jest.mock('@mwashburn160/pipeline-data', () => ({
+jest.mock('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getExecutionCount: mockGetExecutionCount,
     getSuccessRate: mockGetSuccessRate,
@@ -41,7 +41,7 @@ jest.mock('@mwashburn160/pipeline-data', () => ({
   },
 }));
 
-import { sendSuccess, sendBadRequest } from '@mwashburn160/api-core';
+import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
 import { createExecutionReportRoutes } from '../src/routes/execution-reports';
 
 describe('Execution Report Routes', () => {

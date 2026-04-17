@@ -10,4 +10,4 @@ export {
   isSystemOrg,
   isSystemAdmin,
   type RequireAuthOptions,
-} from '@mwashburn160/api-core';
+} from '@pipeline-builder/api-core';

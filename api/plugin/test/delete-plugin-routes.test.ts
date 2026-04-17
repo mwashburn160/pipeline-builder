@@ -17,7 +17,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
@@ -38,7 +38,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -69,7 +69,7 @@ jest.mock('../src/services/plugin-service', () => ({
 
 // Imports (after mocks)
 
-import { sendBadRequest, requirePublicAccess, sendSuccess } from '@mwashburn160/api-core';
+import { sendBadRequest, requirePublicAccess, sendSuccess } from '@pipeline-builder/api-core';
 import { createDeletePluginRoutes } from '../src/routes/delete-plugin';
 
 // Helpers

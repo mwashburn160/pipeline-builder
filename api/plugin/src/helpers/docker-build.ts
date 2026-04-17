@@ -5,8 +5,8 @@ import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, ValidationError } from '@mwashburn160/api-core';
-import { Config } from '@mwashburn160/pipeline-core';
+import { createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('docker-build');
 

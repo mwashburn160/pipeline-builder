@@ -11,7 +11,7 @@ jest.mock('uuid', () => ({
   v7: jest.fn(() => '01234567-89ab-cdef-0123-456789abcdef'),
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   __esModule: true,
   CoreConstants: {
     PLUGIN_IMAGE_PREFIX: 'p-',

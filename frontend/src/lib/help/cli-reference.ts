@@ -29,7 +29,7 @@ export const cliReferenceTopic: HelpTopic = {
           type: 'code',
           language: 'bash',
           content: `# Install globally
-npm install -g @mwashburn160/pipeline-manager
+npm install -g @pipeline-builder/pipeline-manager
 
 # Authenticate with a token from Platform (register/login at the dashboard)
 export PLATFORM_TOKEN=<jwt-from-platform>`,

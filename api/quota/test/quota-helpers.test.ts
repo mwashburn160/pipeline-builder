@@ -11,7 +11,7 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   sendError: jest.fn(),
   ErrorCode: {
     ORG_NOT_FOUND: 'ORG_NOT_FOUND',

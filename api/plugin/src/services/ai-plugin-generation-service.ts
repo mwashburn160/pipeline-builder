@@ -9,8 +9,8 @@ import {
   generateText,
   streamText,
   Output,
-} from '@mwashburn160/ai-core';
-import { createLogger, ValidationError } from '@mwashburn160/api-core';
+} from '@pipeline-builder/ai-core';
+import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 export { getAvailableProviders, getProviderModels };

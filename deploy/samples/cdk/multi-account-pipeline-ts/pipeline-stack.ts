@@ -8,7 +8,7 @@ import {
   BuilderProps,
   RoleConfig,
   StageOptions,
-} from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/pipeline-core';
 
 /**
  * Multi-account deployment pipeline.

@@ -60,9 +60,9 @@ export default function DownloadsPage() {
               </p>
               <div className="flex items-center rounded-lg bg-gray-900 dark:bg-gray-950 px-4 py-3">
                 <code className="flex-1 text-sm font-mono text-green-400">
-                  npm install -g @mwashburn160/pipeline-manager
+                  npm install -g @pipeline-builder/pipeline-manager
                 </code>
-                <CopyInline text="npm install -g @mwashburn160/pipeline-manager" />
+                <CopyInline text="npm install -g @pipeline-builder/pipeline-manager" />
               </div>
             </div>
 
@@ -72,9 +72,9 @@ export default function DownloadsPage() {
               </p>
               <div className="flex items-center rounded-lg bg-gray-900 dark:bg-gray-950 px-4 py-3">
                 <code className="flex-1 text-sm font-mono text-green-400">
-                  pnpm add -g @mwashburn160/pipeline-manager
+                  pnpm add -g @pipeline-builder/pipeline-manager
                 </code>
-                <CopyInline text="pnpm add -g @mwashburn160/pipeline-manager" />
+                <CopyInline text="pnpm add -g @pipeline-builder/pipeline-manager" />
               </div>
             </div>
           </div>

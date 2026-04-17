@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { requireOrgMembership, toOrgId, withController } from '../helpers/controller-helper';

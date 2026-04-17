@@ -18,7 +18,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
@@ -63,7 +63,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   }),
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -83,7 +83,7 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   PluginType: {},
   ComputeType: {},
   AccessModifier: {},
@@ -102,7 +102,7 @@ jest.mock('../src/services/plugin-service', () => ({
 
 // Imports (after mocks)
 
-import { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } from '@mwashburn160/api-core';
+import { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } from '@pipeline-builder/api-core';
 import { createUpdatePluginRoutes } from '../src/routes/update-plugin';
 
 // Helpers

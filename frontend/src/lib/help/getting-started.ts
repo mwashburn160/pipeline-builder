@@ -69,7 +69,7 @@ export const gettingStartedTopic: HelpTopic = {
         {
           type: 'code',
           language: 'bash',
-          content: `npm install -g @mwashburn160/pipeline-manager
+          content: `npm install -g @pipeline-builder/pipeline-manager
 export PLATFORM_TOKEN=<jwt-from-login>
 
 pipeline-manager create-pipeline --file my-pipeline.json --project my-app --organization my-org

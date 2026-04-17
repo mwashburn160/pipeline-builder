@@ -11,7 +11,7 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -104,7 +104,7 @@ describe('validateBody (auth-utils version)', () => {
   });
 
   it('should return null and send error for invalid input', () => {
-    const mockSendError = jest.requireMock('@mwashburn160/api-core').sendError;
+    const mockSendError = jest.requireMock('@pipeline-builder/api-core').sendError;
     mockSendError.mockClear();
     const res = {} as any;
 
@@ -114,7 +114,7 @@ describe('validateBody (auth-utils version)', () => {
   });
 
   it('should include field path in error message', () => {
-    const mockSendError = jest.requireMock('@mwashburn160/api-core').sendError;
+    const mockSendError = jest.requireMock('@pipeline-builder/api-core').sendError;
     mockSendError.mockClear();
     const res = {} as any;
 

@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@mwashburn160/api-core';
-import type { QuotaType, QuotaTier } from '@mwashburn160/api-core';
-export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@mwashburn160/api-core';
-export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits, VALID_QUOTA_TYPES, isValidQuotaType } from '@mwashburn160/api-core';
+import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
+export type { QuotaTier, QuotaTierPreset, QuotaTierLimits } from '@pipeline-builder/api-core';
+export { QUOTA_TIERS, VALID_TIERS, DEFAULT_TIER, isValidTier, getTierLimits, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models/organization';
 

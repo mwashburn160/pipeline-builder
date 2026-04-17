@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { join } from 'path';
-import { createLogger } from '@mwashburn160/api-core';
-import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
+import { createLogger } from '@pipeline-builder/api-core';
+import { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';

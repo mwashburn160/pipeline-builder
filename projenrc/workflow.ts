@@ -223,7 +223,7 @@ export class Workflow extends Component {
                 {
                     name: 'Publish npm packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'pnpm publish --registry=https://registry.npmjs.org/ --access public --filter @mwashburn160/* --no-git-checks --verbose',
+                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose',
                 },
                 {
                     name: 'Upload artifact',

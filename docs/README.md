@@ -98,7 +98,7 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 ### CLI
 
 ```bash
-npm install -g @mwashburn160/pipeline-manager
+npm install -g @pipeline-builder/pipeline-manager
 export PLATFORM_TOKEN=<jwt-from-login>
 
 pipeline-manager upload-plugin --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
@@ -141,7 +141,7 @@ See the [API Reference](api-reference.md) for the full endpoint list.
 
 ```typescript
 import { App, Stack } from 'aws-cdk-lib';
-import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
 
 const app = new App();
 const stack = new Stack(app, 'MyPipelineStack', {

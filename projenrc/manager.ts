@@ -38,7 +38,7 @@ import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
  * // In .projenrc.ts
  * let manager = new ManagerProject({
  *   parent: root,
- *   name: '@mwashburn160/pipeline-manager',
+ *   name: '@pipeline-builder/pipeline-manager',
  *   outdir: './packages/pipeline-manager',
  *   bin: { 'pipeline-manager': './dist/cli.js' },
  * });

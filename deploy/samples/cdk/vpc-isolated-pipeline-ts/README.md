@@ -23,7 +23,7 @@ import {
   CodeBuildDefaults,
   NetworkConfig,
   SecurityGroupConfig,
-} from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/pipeline-core';
 ```
 
 ## Network Architecture

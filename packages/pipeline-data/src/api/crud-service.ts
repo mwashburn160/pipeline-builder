@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { NotFoundError, createLogger } from '@mwashburn160/api-core';
+import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
