@@ -123,17 +123,14 @@ export class Workflow extends Component {
             steps: [
                 ...this.bootstrapSteps(),
                 {
-                    id: 'nx_base',
                     name: 'Set NX_BASE',
                     run: 'if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi',
                 },
                 {
-                    id: 'nx_head',
                     name: 'Set NX_HEAD',
                     run: 'echo NX_HEAD=$(git rev-parse HEAD) >> $GITHUB_OUTPUT',
                 },
                 {
-                    id: 'affected',
                     name: 'Affected projects and images',
                     run: 'echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}| sort) <(echo $IMAGE_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
                     env: {
@@ -141,17 +138,14 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'affected_details',
                     name: 'Affected details',
                     run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}',
                 },
                 {
-                    id: 'publish',
                     name: 'Check publish images',
                     run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base \${{ steps.nx_base.outputs.NX_BASE }} --head \${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
                 },
                 {
-                    id: 'publish_details',
                     name: 'Publish details',
                     run: 'echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}',
                 }
@@ -196,17 +190,14 @@ export class Workflow extends Component {
             steps: [
                 ...this.bootstrapSteps(),
                 {
-                    id: 'set_nx_base',
                     name: 'Set NX:BASE, NX:HEAD',
                     run: 'echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV',
                 },
                 {
-                    id: 'details_nx_base',
                     name: 'Details NX_BASE, NX_HEAD',
                     run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"',
                 },
                 {
-                    id: 'build_target',
                     name: 'Run build target',
                     run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
                     env: {
@@ -214,7 +205,6 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'semantic_version',
                     name: 'Semantic version',
                     run: 'pnpm nx release --first-release --skip-publish --verbose',
                     env: {
@@ -222,24 +212,20 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'check',
                     name: 'Check publish library',
                     run: `echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains(${LIBRARY_PROJECTS.map(p => `"${p}"`).join(',')}))')  >> $GITHUB_OUTPUT`,
                 },
                 {
-                    id: 'npm',
                     name: 'Publish npm packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
                     run: 'pnpm publish --registry=https://registry.npmjs.org/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
-                    id: 'github',
                     name: 'Publish github packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
                     run: 'pnpm publish --registry=https://npm.pkg.github.com/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
-                    id: 'upload_artifact',
                     name: 'Upload artifact',
                     uses: 'actions/upload-artifact@v7',
                     with: {
@@ -248,12 +234,10 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'push_changes',
                     name: 'Push new tag to the repository',
                     run: 'git push --follow-tags',
                 },
                 {
-                    id: 'build_complete',
                     name: 'Build complete',
                     if: '${{ success() }}',
                     run: 'echo $(git rev-parse HEAD) > .nx_base && git add .nx_base && git commit -m "chore: updated last successfully built commit" && git push',
@@ -321,12 +305,10 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'copy_artifact',
                     name: 'Copy artifacts to destination',
                     run: 'cp -rv dnload/* ./',
                 },
                 {
-                    id: 'login_registry',
                     name: 'Login into container registry',
                     uses: 'docker/login-action@v4',
                     with: {
@@ -336,7 +318,6 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'setup_buildx',
                     name: 'Setup buildx',
                     uses: 'docker/setup-buildx-action@v4',
                     with: {
@@ -345,7 +326,6 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'build',
                     name: 'Build docker image',
                     run: 'pnpm nx run ${PROJECT_NAME}:docker:build --verbose',
                     env: {
@@ -353,7 +333,6 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'tag',
                     name: 'Tag docker image',
                     run: 'pnpm nx run ${PROJECT_NAME}:docker:tag --verbose',
                     env: {
@@ -362,7 +341,6 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    id: 'push',
                     name: 'Push docker image',
                     run: 'pnpm nx run ${PROJECT_NAME}:docker:push --verbose',
                     env: {
