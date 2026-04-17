@@ -50,18 +50,18 @@
       "type": "build"
     },
     {
-      "name": "@mwashburn160/api-core",
-      "version": "1.49.33",
+      "name": "@pipeline-builder/api-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
-      "name": "@mwashburn160/api-server",
-      "version": "1.46.33",
+      "name": "@pipeline-builder/api-server",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
-      "name": "@mwashburn160/pipeline-core",
-      "version": "1.50.38",
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

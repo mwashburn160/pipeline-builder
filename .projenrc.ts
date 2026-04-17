@@ -24,15 +24,15 @@ const typescriptVersion = '5.9.3';
 const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
-// Internal package versions — use workspace:* for local, or pin for npm
-//const ws = 'workspace:*';
+// Internal package versions — use workspace:* so pnpm resolves from local workspace
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.49.33',
-  pipelineData:   '1.50.33',
-  pipelineCore:   '1.50.38',
-  apiServer:      '1.46.33',
-  aiCore:         '1.21.33',
-  eventIngestion: '1.9.33',
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventIngestion: ws,
 };
 
 // =============================================================================
@@ -68,6 +68,10 @@ const root = new TypeScriptProject({
   ],
 });
 root.addScripts({ 'npm-check': 'npx npm-check-updates' });
+
+// After running 'pnpm dlx projen', fix workspace references:
+// find . -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
+//   xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
 
 // =============================================================================
 // Shared Defaults & Helpers

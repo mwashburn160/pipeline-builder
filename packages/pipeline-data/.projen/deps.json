@@ -66,8 +66,8 @@
       "type": "build"
     },
     {
-      "name": "@mwashburn160/api-core",
-      "version": "1.49.33",
+      "name": "@pipeline-builder/api-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

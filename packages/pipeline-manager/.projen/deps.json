@@ -91,8 +91,8 @@
       "type": "runtime"
     },
     {
-      "name": "@mwashburn160/pipeline-core",
-      "version": "1.50.38",
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

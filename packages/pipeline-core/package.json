@@ -1,5 +1,5 @@
 {
-  "name": "@mwashburn160/pipeline-core",
+  "name": "@pipeline-builder/pipeline-core",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -37,8 +37,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.49.33",
-    "@mwashburn160/pipeline-data": "1.50.33",
+    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",
@@ -54,7 +54,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "1.50.41",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

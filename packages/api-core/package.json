@@ -1,5 +1,5 @@
 {
-  "name": "@mwashburn160/api-core",
+  "name": "@pipeline-builder/api-core",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -45,7 +45,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.49.36",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

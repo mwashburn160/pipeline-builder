@@ -86,16 +86,6 @@
       "type": "build"
     },
     {
-      "name": "@mwashburn160/api-core",
-      "version": "1.49.33",
-      "type": "runtime"
-    },
-    {
-      "name": "@mwashburn160/pipeline-core",
-      "version": "1.50.38",
-      "type": "runtime"
-    },
-    {
       "name": "@opentelemetry/exporter-trace-otlp-http",
       "version": "0.213.0",
       "type": "runtime"
@@ -108,6 +98,16 @@
     {
       "name": "@opentelemetry/sdk-node",
       "version": "0.213.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/api-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
