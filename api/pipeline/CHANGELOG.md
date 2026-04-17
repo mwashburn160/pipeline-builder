@@ -1,3 +1,21 @@
+## 1.43.37 (2026-04-17)
+
+### 🩹 Fixes
+
+- updated workflow ([1ee96ade](https://github.com/mwashburn160/pipeline-builder/commit/1ee96ade))
+- rename @pipeline-builder/* names and dependencies ([a17e4369](https://github.com/mwashburn160/pipeline-builder/commit/a17e4369))
+
+### 🧱 Updated Dependencies
+
+- Updated @pipeline-builder/pipeline-core to 0.1.0
+- Updated @pipeline-builder/api-server to 0.1.0
+- Updated @pipeline-builder/api-core to 0.1.0
+- Updated @pipeline-builder/ai-core to 0.1.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.43.36 (2026-04-17)
 
 ### 🩹 Fixes
