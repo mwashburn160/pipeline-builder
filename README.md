@@ -21,7 +21,7 @@ Pipeline Builder turns plugin definitions and pipeline configs into fully deploy
 |-----------|-------------------------------|
 | Developers need AWS expertise to set up CI/CD | Self-service pipeline creation via dashboard, CLI, API, or AI prompt |
 | No governance over what gets deployed | Per-org compliance rules block non-compliant resources before deployment |
-| Build steps are copy-pasted across teams | 125 reusable plugins shared and versioned across projects |
+| Build steps are copy-pasted across teams | 124 reusable plugins shared and versioned across projects |
 | Multi-team environments lack isolation | Every resource scoped to an organization with RBAC access control |
 | Vendor lock-in with CI/CD platforms | Pipelines deploy as native AWS CodePipeline + CodeBuild in the client's own account |
 | No visibility into CI/CD costs | Per-org quotas, billing integration, and execution analytics |
@@ -52,7 +52,7 @@ Analyzes a Git repository and generates stages and plugins automatically.
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
 | Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
 
-### 125 Pre-Built Plugins
+### 124 Pre-Built Plugins
 
 Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an isolated container step inside AWS CodePipeline.
 
@@ -63,11 +63,11 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 | Quality | 17 | ESLint, Prettier, Checkstyle, Clippy, Ruff, ShellCheck |
 | Testing | 14 | Jest, Pytest, Cypress, Playwright, k6, Postman, Artillery |
 | Artifact & Registry | 16 | Docker, ECR, GHCR, npm, PyPI, Maven, NuGet, Cargo |
-| Deploy | 11 | Terraform, CloudFormation, Kubernetes, Helm, Pulumi, ECS, Lambda |
-| Infrastructure | 5 | CDK synth/deploy, manual approval, S3 cache |
+| Deploy | 13 | Terraform, CloudFormation, Kubernetes, Helm, Pulumi, ECS, Lambda, CDK |
+| Infrastructure | 4 | CDK synth, manual approval, S3 cache |
 | Monitoring | 3 | Datadog, New Relic, Sentry |
 | Notification | 5 | Slack, Teams, PagerDuty, email, GitHub status |
-| AI | 2 | Dockerfile generation (local + cloud) |
+| AI | 1 | Dockerfile generation (multi-provider) |
 
 ### Compliance Engine
 
@@ -136,7 +136,7 @@ flowchart TB
 | **Billing** | Subscriptions and plans |
 | **Message** | Org announcements and messaging |
 
-For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md).
+For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md). For how Pipeline Builder benefits engineering organizations, see [Organization Benefits](docs/organization-benefits.md). For cut-and-paste pipeline examples by language, see [Developer Guide](docs/developer-guide.md).
 
 ---
 

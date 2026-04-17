@@ -33,7 +33,7 @@ Operational guides, usage how-to's, and detailed reference for Pipeline Builder.
 | [Metadata Keys](metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
 | [CDK Usage](cdk-usage.md) | PipelineBuilder construct, sources, stages, VPC, IAM, secrets |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
-| [Plugin Catalog](plugins/README.md) | 125 pre-built plugins across 10 categories |
+| [Plugin Catalog](plugins/README.md) | 124 pre-built plugins across 10 categories |
 
 ---
 
@@ -228,29 +228,16 @@ Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGO
 
 ## Architecture
 
-```
-                    +-----------------------+
-                    |   Dashboard / CLI     |
-                    +----------+------------+
-                               |
-                         +-----+-----+
-                         |   Nginx   |  TLS, routing
-                         +-----+-----+
-                               |
-          +--------------------+--------------------+
-          |                    |                     |
-   +------+------+     +------+------+     +--------+--------+
-   |  Pipeline   |     |   Plugin    |     |    Platform     |
-   |  Service    |     |   Service   |     |    Service      |
-   +------+------+     +------+------+     +--------+--------+
-          |                   |                      |
-   +------+------+     +-----+------+     +---------+---------+
-   | Compliance  |     |  Reporting |     | Quota / Billing   |
-   +-------------+     +------------+     +-------------------+
-          |                   |                      |
-   +------+-------------------+----------------------+------+
-   |         PostgreSQL  .  MongoDB  .  Redis               |
-   +--------------------------------------------------------+
+```mermaid
+flowchart TB
+    UI[Dashboard / CLI] --> NGINX[Nginx<br/>TLS + Routing]
+    NGINX --> PIPE[Pipeline Service]
+    NGINX --> PLUG[Plugin Service]
+    NGINX --> PLAT[Platform Service]
+    PIPE --> COMP[Compliance]
+    PLUG --> REP[Reporting]
+    PLAT --> QB[Quota / Billing]
+    COMP & REP & QB --> DB[(PostgreSQL / MongoDB / Redis)]
 ```
 
 | Service | Purpose |
@@ -268,7 +255,7 @@ Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGO
 
 ## Plugin Categories
 
-125 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
+124 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
 
 | Category | Count | Details |
 |----------|-------|---------|
@@ -277,8 +264,8 @@ Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGO
 | [Quality](plugins/quality.md) | 17 | ESLint, Prettier, Checkstyle, Clippy, Ruff |
 | [Testing](plugins/testing.md) | 14 | Jest, Pytest, Cypress, Playwright, k6 |
 | [Artifact](plugins/artifact.md) | 16 | Docker, ECR, GHCR, npm, PyPI, Maven |
-| [Deploy](plugins/deploy.md) | 11 | Terraform, CloudFormation, Kubernetes, Helm |
-| [Infrastructure](plugins/infrastructure.md) | 5 | CDK synth/deploy, manual approval, S3 cache |
+| [Deploy](plugins/deploy.md) | 13 | Terraform, CloudFormation, Kubernetes, Helm, CDK |
+| [Infrastructure](plugins/infrastructure.md) | 4 | CDK synth, manual approval, S3 cache |
 | [Monitoring](plugins/monitoring.md) | 3 | Datadog, New Relic, Sentry |
 | [Notification](plugins/notification.md) | 5 | Slack, Teams, PagerDuty, email |
-| [AI](plugins/ai.md) | 2 | Dockerfile generation (local + cloud) |
+| [AI](plugins/ai.md) | 1 | Dockerfile generation (multi-provider) |

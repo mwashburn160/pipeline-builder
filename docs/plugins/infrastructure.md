@@ -2,34 +2,34 @@
 
 AWS CDK synthesis/deployment and pipeline utility plugins.
 
-## CDK Plugins
+## CDK Synthesis
 
 | Plugin | Purpose | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|
-| cdk-synth | Synthesize CDK app to CloudFormation | MEDIUM | None (AWS IAM) | `CDK_DEFAULT_REGION`, `CDK_DEFAULT_ACCOUNT` |
-| cdk-deploy | Deploy CDK stacks to one region | MEDIUM | None (AWS IAM) | `CDK_DEPLOY_ACTION`, `CDK_STACK`, `CDK_REQUIRE_APPROVAL`, `CDK_HOTSWAP` |
-| cdk-deploy-multi-region | Deploy CDK stacks across multiple regions | LARGE | None (AWS IAM) | `CDK_REGIONS`, `CDK_PRIMARY_REGION`, `CDK_DEPLOY_STRATEGY`, `CDK_ROLLBACK_ON_FAILURE` |
+| cdk-synth | Synthesize CDK app to CloudFormation | MEDIUM | None (AWS IAM) | `CDK_DEFAULT_REGION`, `CDK_DEFAULT_ACCOUNT`, `RESOLVED_SYNTH_PLUGIN` |
+
+For CDK deployment plugins (`cdk-deploy`, `cdk-deploy-multi-region`), see [Deploy Plugins](deploy.md).
 
 ## Pipeline Utilities
 
 | Plugin | Purpose | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|
 | manual-approval | Pipeline approval gate with SNS notification | SMALL | `SNS_TOPIC_ARN` (optional) | `APPROVAL_TIMEOUT`, `APPROVAL_MESSAGE` |
+| manual-approval-custom | Custom approval gate with configurable notification targets | SMALL | `SNS_TOPIC_ARN` (optional) | `APPROVAL_TIMEOUT`, `APPROVAL_MESSAGE`, `APPROVAL_CUSTOM_DATA` |
 | s3-cache | S3 build cache with zstd compression | SMALL | None (AWS IAM) | `CACHE_BUCKET`, `CACHE_KEY`, `CACHE_PATHS`, `CACHE_ACTION` |
 
 ## CDK Workflow
 
 ```mermaid
 flowchart LR
-    Synth[cdk-synth] --> Deploy[cdk-deploy]
-    Synth --> MultiDeploy[cdk-deploy-multi-region]
-    Deploy --> SingleRegion[Single Region Stack]
-    MultiDeploy --> MultiRegion[Multi-Region Stacks]
+    Synth[cdk-synth] --> CloudAssembly[cdk.out/]
+    CloudAssembly --> SelfMutate[Self-Mutation]
+    CloudAssembly --> Stages[Pipeline Stages]
 ```
 
 ## Multi-Region Strategies
 
-The `CDK_DEPLOY_STRATEGY` env var controls how stacks are deployed across regions:
+These strategies apply to the [cdk-deploy-multi-region](deploy.md) plugin. The `CDK_DEPLOY_STRATEGY` env var controls how stacks are deployed across regions:
 
 ### Sequential
 

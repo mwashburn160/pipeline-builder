@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **124 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 **Related docs:** [Samples](../samples.md) | [Metadata Keys](../metadata-keys.md) | [API Reference](../api-reference.md) | [Environment Variables](../environment-variables.md)
 
@@ -25,11 +25,11 @@ Pipeline Builder ships with **125 plugins** across **10 categories**, covering t
 | Quality | 17 | Linting, formatting, static analysis, code coverage reporting | [quality.md](quality.md) |
 | Monitoring | 3 | APM and release tracking | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 16 | Package publishing, container image push, and binary compilation | [artifact.md](artifact.md) |
-| Deploy | 11 | Cloud provisioning, K8s, serverless, database migration | [deploy.md](deploy.md) |
-| Infrastructure | 5 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
+| Deploy | 13 | Cloud provisioning, K8s, serverless, database migration | [deploy.md](deploy.md) |
+| Infrastructure | 4 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
 | Testing | 14 | Unit, integration, API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
 | Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub) | [notification.md](notification.md) |
-| AI | 2 | AI-powered Dockerfile generation (local + cloud) | [ai.md](ai.md) |
+| AI | 1 | AI-powered Dockerfile generation (multi-provider) | [ai.md](ai.md) |
 
 ---
 

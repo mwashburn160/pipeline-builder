@@ -15,7 +15,7 @@ flowchart TB
     K8s --> kubectl-deploy & helm-deploy
     DB --> flyway
     Serverless --> serverless-framework & lambda-deploy
-    AWS --> ecs-deploy
+    AWS --> ecs-deploy & cdk-deploy & cdk-deploy-multi-region
 ```
 
 ## Cloud Providers
@@ -53,6 +53,8 @@ flowchart TB
 | Plugin | Service | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|
 | ecs-deploy | Amazon ECS | SMALL | None (AWS IAM) | `ECS_CLUSTER`, `ECS_SERVICE`, `TASK_DEFINITION`, `DEPLOY_STRATEGY` |
+| cdk-deploy | AWS CDK | MEDIUM | None (AWS IAM) | `CDK_DEPLOY_ACTION`, `CDK_STACK`, `CDK_REQUIRE_APPROVAL`, `CDK_HOTSWAP` |
+| cdk-deploy-multi-region | AWS CDK | LARGE | None (AWS IAM) | `CDK_REGIONS`, `CDK_PRIMARY_REGION`, `CDK_DEPLOY_STRATEGY`, `CDK_ROLLBACK_ON_FAILURE` |
 
 ## Deploy Types
 
