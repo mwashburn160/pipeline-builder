@@ -35,7 +35,6 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -
     && rm -rf /tmp/aws /tmp/awscli.zip
 
 # Install AWS CDK and pipeline-manager globally
-RUN npm config set @mwashburn160:registry=https://npm.pkg.github.com/
 RUN npm install -g aws-cdk@2.177.0 typescript@5.7.3 ts-node@10.9.2 @mwashburn160/pipeline-manager
 
 # Working directory for pipeline source
