@@ -141,6 +141,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: pnpm nx release --first-release --skip-publish --verbose
       - name: Check publish library
+        id: check
         run: echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains("ai-core","api-core","api-server","pipeline-core","pipeline-data","event-ingestion","pipeline-manager"))')  >> $GITHUB_OUTPUT
       - name: Publish npm packages
         if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}

@@ -216,6 +216,7 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    id: 'check',
                     name: 'Check publish library',
                     run: `echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains(${LIBRARY_PROJECTS.map(p => `"${p}"`).join(',')}))')  >> $GITHUB_OUTPUT`,
                 },
