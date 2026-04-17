@@ -36,8 +36,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.49.30",
-    "@mwashburn160/api-server": "1.46.30",
+    "@mwashburn160/api-core": "1.49.31",
+    "@mwashburn160/api-server": "1.46.31",
     "@mwashburn160/pipeline-core": "1.50.36",
     "cors": "2.8.6",
     "express": "5.2.1",

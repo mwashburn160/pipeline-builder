@@ -38,7 +38,7 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@mwashburn160/api-core": "1.49.30",
+    "@mwashburn160/api-core": "1.49.31",
     "ai": "6.0.99"
   },
   "engines": {

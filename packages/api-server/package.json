@@ -38,7 +38,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@mwashburn160/api-core": "1.49.30",
+    "@mwashburn160/api-core": "1.49.31",
     "@mwashburn160/pipeline-core": "1.50.36",
     "@opentelemetry/exporter-trace-otlp-http": "0.213.0",
     "@opentelemetry/resources": "2.6.0",
