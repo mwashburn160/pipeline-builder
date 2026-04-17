@@ -27,7 +27,7 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:        ws,
+  apiCore:        '2.0.1',
   pipelineData:   ws,
   pipelineCore:   ws,
   apiServer:      ws,
@@ -40,7 +40,7 @@ const pkg = {
 // =============================================================================
 
 const root = new TypeScriptProject({
-  name: '@pipeline-builder/root',
+  name: '@mwashburn160/root',
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
   minNodeVersion: '24.14.0',

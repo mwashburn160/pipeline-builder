@@ -32,7 +32,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-core": "2.0.1",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "framer-motion": "12.34.3",
@@ -51,7 +51,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.49.39",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testEnvironment": "node",

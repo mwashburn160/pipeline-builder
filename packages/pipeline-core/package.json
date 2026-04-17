@@ -37,7 +37,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-core": "2.0.1",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
@@ -54,7 +54,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "0.1.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
