@@ -87,7 +87,7 @@
     },
     {
       "name": "@pipeline-builder/pipeline-data",
-      "version": "workspace:*",
+      "version": "2.0.1",
       "type": "runtime"
     },
     {
