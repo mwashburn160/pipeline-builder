@@ -1,0 +1,7 @@
+title: Pipeline Builder
+description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 124 reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.
+url: https://mwashburn160.github.io
+baseurl: /pipeline-builder
+theme: jekyll-theme-minimal
+plugins:
+  - jekyll-seo-tag

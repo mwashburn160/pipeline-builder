@@ -1,6 +1,3 @@
-<head>
-<meta name="google-site-verification" content="Azv-v5EtqbMxdyqo6qAKSUrxXLNjD96LLvLe7b3-rV4" />
-</head>
 <p align="center">
   <strong>Pipeline Builder</strong><br/>
   <em>Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt.</em>
