@@ -97,22 +97,22 @@
     },
     {
       "name": "@pipeline-builder/ai-core",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "type": "runtime"
     },
     {
