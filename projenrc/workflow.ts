@@ -449,8 +449,8 @@ export class Workflow extends Component {
                 run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"',
             },
             {
-                name: 'Prune tags older than 30 days',
-                run: 'CUTOFF_DATE=$(date -d "30 days ago" +%s) && ' +
+                name: 'Prune tags older than 15 days',
+                run: 'CUTOFF_DATE=$(date -d "15 days ago" +%s) && ' +
                     'git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do ' +
                     'if [ $DATE -lt $CUTOFF_DATE ]; then ' +
                     'echo "Deleting tag $TAG created on $(date -d @$DATE)"; ' +
