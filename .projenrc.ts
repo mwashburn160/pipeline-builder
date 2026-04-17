@@ -199,6 +199,7 @@ const pipelineCore = new PackageProject({
   ],
 });
 pipelineCore.eslint?.addRules(rules);
+pipelineCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 configureJest(pipelineCore, { maxWorkers: 1 });
 pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
 
@@ -276,6 +277,7 @@ const manager = new ManagerProject({
   devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1'],
 });
 manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
+manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
