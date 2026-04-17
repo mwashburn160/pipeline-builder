@@ -312,6 +312,38 @@ is_retryable_status() {
 }
 
 # ---------------------------------------------------------------------------
+# curl_with_retry — POST with retry loop on retryable HTTP status codes
+#   $1  label (display name for logging)
+#   $2+ curl arguments (URL, headers, data, etc.)
+#   Env: UPLOAD_RETRIES (default 3), UPLOAD_RETRY_DELAY (default 30)
+#   Exits: 0=ok, 1=fail, 2=exists (skip)
+# ---------------------------------------------------------------------------
+curl_with_retry() {
+  local _label="$1"; shift
+  local _retries="${UPLOAD_RETRIES:-3}"
+  local _delay="${UPLOAD_RETRY_DELAY:-30}"
+  local _attempt=1 _status _result
+
+  while [ "$_attempt" -le "$_retries" ]; do
+    _status=$(curl -s -o /dev/null -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
+    _result="$(classify_status "$_status")"
+
+    if [ "$_result" = "fail" ] && is_retryable_status "$_status" && [ "$_attempt" -lt "$_retries" ]; then
+      echo -e "  ${YELLOW}RETRY${NC} $_label (HTTP $_status) attempt ${_attempt}/${_retries}"
+      sleep "$_delay"
+      _attempt=$((_attempt + 1))
+      continue
+    fi
+
+    case "$_result" in
+      ok)     echo -e "  ${GREEN}OK${NC}   $_label (HTTP $_status)"; return 0 ;;
+      exists) echo -e "  ${YELLOW}SKIP${NC} $_label (exists)";       return 2 ;;
+      *)      echo -e "  ${RED}FAIL${NC} $_label (HTTP $_status)";   return 1 ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------------------------
 # print_summary — display the standard upload/create summary
 #   $1 total  $2 succeeded  $3 failed  $4 skipped  $5 duration_seconds
 # ---------------------------------------------------------------------------

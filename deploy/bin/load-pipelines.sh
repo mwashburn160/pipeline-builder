@@ -57,33 +57,19 @@ upload_pipeline_single() {
     echo "    FAIL (invalid JSON)"; FAILED=$((FAILED + 1)); return
   }
 
-  local _attempt=1 status _result
-  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-    status=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
-      -s -o /dev/null -w "%{http_code}" \
-      -H "Authorization: Bearer ${JWT_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "x-org-id: system" \
-      -H "x-internal-service: true" \
-      -d "$BODY" \
-      --insecure 2>/dev/null || echo "000")
-
-    _result="$(classify_status "$status")"
-
-    if [ "$_result" = "fail" ] && is_retryable_status "$status" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-      echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
-      sleep "$UPLOAD_RETRY_DELAY"
-      _attempt=$((_attempt + 1))
-      continue
-    fi
-
-    case "$_result" in
-      ok)     echo "    OK (HTTP ${status})";    SUCCEEDED=$((SUCCEEDED + 1)) ;;
-      exists) echo "    SKIP (already exists)";  SKIPPED=$((SKIPPED + 1)) ;;
-      fail)   echo "    FAIL (HTTP ${status})";  FAILED=$((FAILED + 1)) ;;
-    esac
-    break
-  done
+  curl_with_retry "$dir_name" \
+    -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -H "x-org-id: system" \
+    -H "x-internal-service: true" \
+    -d "$BODY"
+  local _rc=$?
+  case "$_rc" in
+    0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
+    2) SKIPPED=$((SKIPPED + 1)) ;;
+    *) FAILED=$((FAILED + 1)) ;;
+  esac
 }
 
 upload_pipelines_bulk() {

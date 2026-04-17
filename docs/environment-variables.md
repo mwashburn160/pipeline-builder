@@ -295,6 +295,23 @@ Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer f
 | `QUOTA_SERVICE_TIMEOUT` | `5000` | Quota service call timeout |
 | `BILLING_SERVICE_TIMEOUT` | `5000` | Billing service call timeout |
 
+### Plugin Upload Timeout Chain
+
+When uploading a large plugin ZIP (up to 4GB with prebuilt image.tar), the request passes through multiple timeout layers. Each layer must allow enough time for the upload to complete:
+
+```
+Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
+  └─ nginx proxy_read_timeout    60s (default) — increase for large uploads
+      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 300s (5 min)
+          └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)
+              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)
+                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)
+```
+
+The upload request returns `202 Accepted` after the ZIP is parsed and the build job is enqueued. The Docker build and push happen asynchronously in the build queue — their timeouts do not affect the upload response.
+
+**If uploads fail with 503 (timeout):** Increase `PLUGIN_UPLOAD_TIMEOUT_MS` and ensure nginx `proxy_read_timeout` is at least as long. Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
+
 ---
 
 ## Caching

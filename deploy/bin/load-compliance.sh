@@ -28,42 +28,18 @@ START_TIME=$(date +%s)
 #   $1 url  $2 json_file  $3 name
 # ---------------------------------------------------------------------------
 post_with_retry() {
-  _url="$1" _file="$2" _name="$3"
-  _attempt=1
-
-  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-    STATUS=$(curl -X POST "$_url" \
-      -k -s -o /dev/null -w "%{http_code}" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $JWT_TOKEN" \
-      -H "x-internal-service: true" \
-      -d @"$_file" 2>/dev/null || echo "000")
-
-    _result="$(classify_status "$STATUS")"
-
-    if [ "$_result" = "fail" ] && is_retryable_status "$STATUS" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-      echo -e "  ${YELLOW}RETRY${NC} $_name (HTTP $STATUS) — waiting ${UPLOAD_RETRY_DELAY}s"
-      sleep "$UPLOAD_RETRY_DELAY"
-      _attempt=$((_attempt + 1))
-      continue
-    fi
-
-    case "$_result" in
-      ok)
-        echo -e "  ${GREEN}OK${NC}    $_name"
-        SUCCEEDED=$((SUCCEEDED + 1))
-        ;;
-      exists)
-        echo -e "  ${YELLOW}SKIP${NC}  $_name (already exists)"
-        SKIPPED=$((SKIPPED + 1))
-        ;;
-      *)
-        echo -e "  ${RED}FAIL${NC}  $_name (HTTP $STATUS)"
-        FAILED=$((FAILED + 1))
-        ;;
-    esac
-    break
-  done
+  curl_with_retry "$3" \
+    -X POST "$1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $JWT_TOKEN" \
+    -H "x-internal-service: true" \
+    -d @"$2"
+  local _rc=$?
+  case "$_rc" in
+    0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
+    2) SKIPPED=$((SKIPPED + 1)) ;;
+    *) FAILED=$((FAILED + 1)) ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------

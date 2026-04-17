@@ -117,29 +117,17 @@ fi
 
 # ---- Upload with retry ----
 
-attempt=1
-while [ "$attempt" -le "$UPLOAD_RETRIES" ]; do
-  status=$(curl -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
-    -s -o /dev/null -w "%{http_code}" --max-time "$UPLOAD_TIMEOUT" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "x-org-id: system" \
-    -H "x-internal-service: true" \
-    -F "plugin=@${zip_file}" \
-    -F "accessModifier=public" \
-    --insecure 2>/dev/null || echo "000")
-
-  result="$(classify_status "$status")"
-
-  if [ "$result" = "fail" ] && is_retryable_status "$status" && [ "$attempt" -lt "$UPLOAD_RETRIES" ]; then
-    echo "  RETRY $label (HTTP ${status}) attempt ${attempt}/${UPLOAD_RETRIES}"
-    sleep "$UPLOAD_RETRY_DELAY"
-    attempt=$((attempt + 1))
-    continue
-  fi
-
-  case "$result" in
-    ok)     echo "  OK   $label (HTTP ${status})"; _count succeeded; exit 0 ;;
-    exists) echo "  SKIP $label (exists)";         _count skipped;   exit 2 ;;
-    fail)   echo "  FAIL $label (HTTP ${status})"; _count failed;    exit 1 ;;
-  esac
-done
+curl_with_retry "$label" \
+  -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+  --max-time "$UPLOAD_TIMEOUT" \
+  -H "Authorization: Bearer ${JWT_TOKEN}" \
+  -H "x-org-id: system" \
+  -H "x-internal-service: true" \
+  -F "plugin=@${zip_file}" \
+  -F "accessModifier=public"
+_rc=$?
+case "$_rc" in
+  0) _count succeeded; exit 0 ;;
+  2) _count skipped;   exit 2 ;;
+  *) _count failed;    exit 1 ;;
+esac
