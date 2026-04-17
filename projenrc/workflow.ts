@@ -227,10 +227,16 @@ export class Workflow extends Component {
                     run: `echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains(${LIBRARY_PROJECTS.map(p => `"${p}"`).join(',')}))')  >> $GITHUB_OUTPUT`,
                 },
                 {
-                    id: 'publish',
-                    name: 'Publish library',
+                    id: 'npm',
+                    name: 'Publish npm packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
+                    run: 'pnpm publish --registry=https://registry.npmjs.org/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
+                },
+                {
+                    id: 'github',
+                    name: 'Publish github packages',
+                    if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
+                    run: 'pnpm publish --registry=https://npm.pkg.github.com/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
                     id: 'upload_artifact',
@@ -437,8 +443,12 @@ export class Workflow extends Component {
                 },
             },
             {
-                name: 'Configure .npmrc',
-                run: 'export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/\:_authToken $NODE_AUTH_TOKEN && npm config set \@mwashburn160\:registry https://npm.pkg.github.com/',
+                name: 'Configure npm registry',
+                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //registry.npmjs.org/\:_authToken $NPM_TOKEN && npm config set \@pipeline-builder\:registry https://registry.npmjs.org/',
+            },
+            {
+                name: 'Configure github registry',
+                run: 'export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/\:_authToken $PAT_TOKEN && npm config set \@mwashburn160\:registry https://npm.pkg.github.com/',
             },
             {
                 name: 'Install dependencies',

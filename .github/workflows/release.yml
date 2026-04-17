@@ -48,14 +48,16 @@ jobs:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
-      - name: Configure .npmrc
-        run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
+      - name: Configure npm registry
+        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN && npm config set @pipeline-builder:registry https://registry.npmjs.org/
+      - name: Configure github registry
+        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $PAT_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Prune tags older than 30 days
-        run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+      - name: Prune tags older than 15 days
+        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX_BASE
         id: nx_base
         run: if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
@@ -118,14 +120,16 @@ jobs:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
-      - name: Configure .npmrc
-        run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
+      - name: Configure npm registry
+        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN && npm config set @pipeline-builder:registry https://registry.npmjs.org/
+      - name: Configure github registry
+        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $PAT_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Prune tags older than 30 days
-        run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+      - name: Prune tags older than 15 days
+        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Set NX:BASE, NX:HEAD
         id: set_nx_base
         run: echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV
@@ -145,10 +149,14 @@ jobs:
       - name: Check publish library
         id: check
         run: echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains("ai-core","api-core","api-server","pipeline-core","pipeline-data","event-ingestion","pipeline-manager"))')  >> $GITHUB_OUTPUT
-      - name: Publish library
-        id: publish
+      - name: Publish npm packages
+        id: npm
         if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}
-        run: pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose
+        run: pnpm publish --registry=https://registry.npmjs.org/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose
+      - name: Publish github packages
+        id: github
+        if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}
+        run: pnpm publish --registry=https://npm.pkg.github.com/ --access restricted --filter @mwashburn160/* --no-git-checks --verbose
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-artifact@v7
@@ -207,14 +215,16 @@ jobs:
           cache: pnpm
           node-version: 24.14.0
           package-manager-cache: pnpm
-      - name: Configure .npmrc
-        run: export NODE_AUTH_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $NODE_AUTH_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
+      - name: Configure npm registry
+        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN && npm config set @pipeline-builder:registry https://registry.npmjs.org/
+      - name: Configure github registry
+        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config delete resolution-mode && npm config set //npm.pkg.github.com/:_authToken $PAT_TOKEN && npm config set @mwashburn160:registry https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
-      - name: Prune tags older than 30 days
-        run: CUTOFF_DATE=$(date -d "30 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+      - name: Prune tags older than 15 days
+        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Download artifact
         id: dnload_artifact
         uses: actions/download-artifact@v8
