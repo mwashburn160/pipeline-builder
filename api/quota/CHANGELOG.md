@@ -1,3 +1,13 @@
+## 0.1.3 (2026-04-17)
+
+### 🩹 Fixes
+
+- upgraded apiServer=2.1.2 ([e42eda09](https://github.com/mwashburn160/pipeline-builder/commit/e42eda09))
+
+### ❤️ Thank You
+
+- mark
+
 ## 0.1.2 (2026-04-17)
 
 ### 🩹 Fixes
