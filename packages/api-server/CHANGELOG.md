@@ -1,3 +1,13 @@
+## 1.46.34 (2026-04-17)
+
+### 🩹 Fixes
+
+- updated workflow ([27de040e](https://github.com/mwashburn160/pipeline-builder/commit/27de040e))
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.46.33 (2026-04-17)
 
 ### 🩹 Fixes
