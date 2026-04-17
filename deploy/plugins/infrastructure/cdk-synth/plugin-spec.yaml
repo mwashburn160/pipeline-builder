@@ -23,7 +23,7 @@ installCommands:
 - test -d cdk.out || mkdir -p cdk.out
 commands:
 - 'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'
-- pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices
+- pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --output cdk.out
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
