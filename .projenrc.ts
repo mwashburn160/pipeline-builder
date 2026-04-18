@@ -40,7 +40,7 @@ const pkg = {
 // =============================================================================
 
 const root = new TypeScriptProject({
-  name: '@mwashburn160/root',
+  name: 'root',
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
   minNodeVersion: '24.14.0',
@@ -59,7 +59,6 @@ const root = new TypeScriptProject({
   release: false,
   sampleCode: false,
   srcdir: 'projenrc',
-  npmAccess: NpmAccess.RESTRICTED,
   devDeps: [
     '@swc-node/core@1.14.1',
     '@swc-node/register@1.11.1',

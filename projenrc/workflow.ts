@@ -228,7 +228,7 @@ export class Workflow extends Component {
                 {
                     name: 'Publish github packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'npm config set @mwashburn160:registry=https://ghcr.io/mwashburn160/ && pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
+                    run: 'npm config set @mwashburn160:registry=https://npm.pkg.github.com/ && pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
                     name: 'Upload artifact',
