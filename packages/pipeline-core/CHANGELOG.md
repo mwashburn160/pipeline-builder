@@ -1,3 +1,17 @@
+## 1.2.0 (2026-04-18)
+
+### 🚀 Features
+
+- upgraded apiCore=1.1.1 ([e0b306f0](https://github.com/mwashburn160/pipeline-builder/commit/e0b306f0))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/pipeline-data to 1.2.0
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.1 (2026-04-18)
 
 ### 🩹 Fixes
