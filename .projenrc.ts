@@ -25,14 +25,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
-const ws = 'workspace:*';
+// const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.2.2',
-  pipelineData:   '1.2.2',
-  pipelineCore:   '1.2.2',
-  apiServer:      '1.2.2',
-  aiCore:         ws,
-  eventIngestion: ws,
+  apiCore:        '1.2.3',
+  pipelineData:   '1.2.3',
+  pipelineCore:   '1.2.3',
+  apiServer:      '1.2.3',
+  aiCore:         '1.2.3',
+  eventIngestion: '1.2.3',
 };
 
 // =============================================================================
