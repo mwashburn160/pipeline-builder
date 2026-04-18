@@ -27,12 +27,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.2.3',
-  pipelineData:   '1.2.3',
-  pipelineCore:   '1.2.3',
-  apiServer:      '1.2.3',
-  aiCore:         '1.2.3',
-  eventIngestion: '1.2.3',
+  apiCore:        '1.2.4',
+  pipelineData:   '1.2.4',
+  pipelineCore:   '1.2.4',
+  apiServer:      '1.2.4',
+  aiCore:         '1.2.4',
+  eventIngestion: '1.2.4',
 };
 
 // =============================================================================
@@ -44,7 +44,7 @@ const root = new TypeScriptProject({
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
   minNodeVersion: '24.14.0',
-  minMajorVersion: 2,
+  minMajorVersion: 1,
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
