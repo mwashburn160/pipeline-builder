@@ -68,6 +68,10 @@ const root = new TypeScriptProject({
 });
 root.addScripts({ 'npm-check': 'npx npm-check-updates' });
 
+// Scoped registry config: @mwashburn160/* from GitHub Packages, @pipeline-builder/* from npm
+root.npmrc.addConfig('@mwashburn160:registry', 'https://npm.pkg.github.com/');
+root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/');
+
 // After running 'pnpm dlx projen', fix workspace references:
 // find . -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
 //   xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
