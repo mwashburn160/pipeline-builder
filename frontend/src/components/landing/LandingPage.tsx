@@ -295,7 +295,7 @@ function Plugins() {
   return (
     <section id="plugins" className="py-14 px-6 bg-[var(--pb-surface-muted)]">
       <div className="max-w-3xl mx-auto text-center">
-        <h2 className="text-2xl font-bold mb-2">125 pre-built plugins</h2>
+        <h2 className="text-2xl font-bold mb-2">124 pre-built plugins</h2>
         <p className="text-sm text-[var(--pb-text-muted)] mb-5">Full CI/CD lifecycle in containerized steps</p>
         <div className="flex flex-wrap justify-center gap-2">
           {categories.map((c) => {

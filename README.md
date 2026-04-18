@@ -178,7 +178,7 @@ Open **https://localhost:8443** — register, create an org, and start building 
 | [Metadata Keys](docs/metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
 | [CDK Usage](docs/cdk-usage.md) | PipelineBuilder construct, sources, stages, VPC, IAM, secrets |
 | [Samples](docs/samples.md) | Pipeline configs and CDK examples for 7 languages |
-| [Plugin Catalog](docs/plugins/README.md) | 125 pre-built plugins across 10 categories |
+| [Plugin Catalog](docs/plugins/README.md) | 124 pre-built plugins across 10 categories |
 
 ---
 
