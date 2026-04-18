@@ -1,7 +1,42 @@
 title: Pipeline Builder
 description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 124 reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.
+tagline: Self-service CI/CD for AWS
 url: https://mwashburn160.github.io
 baseurl: /pipeline-builder
+author:
+  name: Mark Washburn
+  email: mwashburn160@gmail.com
+twitter:
+  card: summary_large_image
+social:
+  name: Pipeline Builder
+  links:
+    - https://github.com/mwashburn160/pipeline-builder
+
+# Keywords for search engines
+keywords: aws, codepipeline, codebuild, cicd, devops, cdk, cloudformation, ci/cd, pipeline, kubernetes, docker, plugins, typescript, self-service, multi-tenant, compliance, automation
+
 theme: jekyll-theme-minimal
+
 plugins:
   - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-feed
+
+# Exclude non-docs files from generated site
+exclude:
+  - node_modules/
+  - packages/
+  - api/
+  - platform/
+  - frontend/
+  - deploy/
+  - .projen/
+  - projenrc/
+  - "*.ts"
+  - "*.json"
+  - "*.yml"
+  - "!_config.yml"
+  - pnpm-lock.yaml
+  - Gemfile
+  - Gemfile.lock
