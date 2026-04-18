@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * @module @pipeline-builder/pipeline-core
+ * @module @mwashburn160/pipeline-core
  *
  * Application configuration, pipeline domain types, and CDK constructs.
  *
@@ -62,7 +62,7 @@ export * from './core/artifact-manager';
 export {
   ErrorCode,
   createLogger,
-} from '@pipeline-builder/api-core';
+} from '@mwashburn160/api-core';
 
 // Re-export database layer from pipeline-data (only items consumed externally)
 export {
@@ -117,7 +117,7 @@ export {
   // Drizzle type helpers
   drizzleRows,
   drizzleCount,
-} from '@pipeline-builder/pipeline-data';
+} from '@mwashburn160/pipeline-data';
 
 // Pipeline (CDK constructs)
 export * from './pipeline/source-types';

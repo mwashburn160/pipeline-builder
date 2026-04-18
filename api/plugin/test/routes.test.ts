@@ -22,7 +22,7 @@ jest.mock('../src/services/plugin-service', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.mock('@mwashburn160/api-core', () => {
   const mockIsSystemAdmin = jest.fn((_req?: any) => false);
   return {
     getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -74,7 +74,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -93,7 +93,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   schema: { plugin: {} },
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
@@ -111,7 +111,7 @@ jest.mock('drizzle-orm', () => ({
 jest.mock('drizzle-orm/column', () => ({}));
 jest.mock('drizzle-orm/pg-core', () => ({}));
 
-import { isSystemAdmin, sendBadRequest, incrementQuota, validateQuery } from '@pipeline-builder/api-core';
+import { isSystemAdmin, sendBadRequest, incrementQuota, validateQuery } from '@mwashburn160/api-core';
 import { createReadPluginRoutes } from '../src/routes/read-plugins';
 
 // Helpers

@@ -1,4 +1,4 @@
-# @pipeline-builder/api-core
+# @mwashburn160/api-core
 
 Core API utilities shared across all pipeline-builder backend services. Provides error handling, logging, authentication middleware, parameter parsing, request/response utilities, and validation schemas.
 

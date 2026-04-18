@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * @module @pipeline-builder/api-server
+ * @module @mwashburn160/api-server
  *
  * Express server infrastructure and request lifecycle utilities.
  *

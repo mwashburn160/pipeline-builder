@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * @module @pipeline-builder/api-core
+ * @module @mwashburn160/api-core
  *
  * Core API utilities shared across all services.
  *

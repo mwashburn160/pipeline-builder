@@ -7,7 +7,7 @@ const mockUpdate = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockCount = jest.fn();
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.mock('@mwashburn160/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
     update = mockUpdate;

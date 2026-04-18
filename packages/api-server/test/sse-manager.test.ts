@@ -5,7 +5,7 @@
 jest.mock('uuid', () => ({
   v7: () => 'mock-uuid-v7',
 }));
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

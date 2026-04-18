@@ -6,7 +6,7 @@ const mockCodeBuildStep = jest.fn();
 const mockShellStep = jest.fn();
 const mockManualApprovalStep = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

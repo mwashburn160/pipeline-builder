@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { v7 as uuid } from 'uuid';
 
 import type { BuildRequest, BuildType } from './docker-build';

@@ -1,6 +1,6 @@
 # Metadata Keys
 
-Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from `@pipeline-builder/pipeline-core`.
+Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from `@mwashburn160/pipeline-core`.
 
 Metadata keys let you override default behavior at three levels: **pipeline-wide** (via `global`), **per-stage**, or **per-step** (via `metadata` on individual plugin references).
 
@@ -189,7 +189,7 @@ Metadata keys can be applied at different scopes. More specific scopes override 
 Both the typed constant and the raw string value are interchangeable:
 
 ```typescript
-import { MetadataKeys } from '@pipeline-builder/pipeline-core';
+import { MetadataKeys } from '@mwashburn160/pipeline-core';
 
 // TypeScript — use the constant
 metadata: {
@@ -205,7 +205,7 @@ metadata: {
 ## Example
 
 ```typescript
-import { PipelineBuilder, MetadataKeys } from '@pipeline-builder/pipeline-core';
+import { PipelineBuilder, MetadataKeys } from '@mwashburn160/pipeline-core';
 import { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 
 const codeBuildRole = new Role(stack, 'CodeBuildRole', {

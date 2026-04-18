@@ -13,7 +13,7 @@ const mockCustomResource = jest.fn().mockImplementation(() => ({
   getAttString: jest.fn().mockReturnValue('unresolved-token'),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

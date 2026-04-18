@@ -45,7 +45,7 @@ jest.mock('fs', () => ({
   rmSync: mockRmSync,
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.mock('@mwashburn160/api-core', () => {
   class ValidationError extends Error {
     statusCode = 400;
     code = 'VALIDATION_ERROR';
@@ -79,7 +79,7 @@ const mockConfigGet = (section: string) => {
   return {};
 };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   Config: {
     get: mockConfigGet,
     getAny: mockConfigGet,

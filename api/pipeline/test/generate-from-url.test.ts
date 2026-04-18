@@ -18,7 +18,7 @@ const mockDbSelect = jest.fn();
 
 // Mocks — must be defined before imports
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   SYSTEM_ORG_ID: 'system',
   createLogger: jest.fn(() => ({
@@ -72,7 +72,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   AIGenerateBodySchema: {},
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
@@ -105,7 +105,7 @@ const mockDbChain = {
   then: jest.fn((resolve: Function) => resolve([])),
 };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 300000,
   },

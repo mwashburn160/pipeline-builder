@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { createLogger } from '@pipeline-builder/api-core';
-import { Config, getConnection, closeConnection } from '@pipeline-builder/pipeline-core';
+import { createLogger } from '@mwashburn160/api-core';
+import { Config, getConnection, closeConnection } from '@mwashburn160/pipeline-core';
 import { Express } from 'express';
 import { shutdownTracing } from './tracing';
 import { SSEManager } from '../http/sse-connection-manager';

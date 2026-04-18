@@ -17,7 +17,7 @@ const mockValidateBody = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
@@ -45,7 +45,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   createCacheService: () => ({ get: jest.fn(), set: jest.fn(), del: jest.fn(), invalidate: jest.fn() }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
-import type { QuotaType } from '@pipeline-builder/api-core';
+import { createLogger } from '@mwashburn160/api-core';
+import type { QuotaType } from '@mwashburn160/api-core';
 import { config } from '../config';
 import {
   applyQuotaLimits,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock createLogger to avoid Winston open handles in tests
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

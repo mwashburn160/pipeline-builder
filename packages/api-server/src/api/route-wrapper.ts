@@ -8,7 +8,7 @@ import {
   sendBadRequest,
   sendInternalError,
   createLogger,
-} from '@pipeline-builder/api-core';
+} from '@mwashburn160/api-core';
 import type { Request, Response, RequestHandler } from 'express';
 import { getContext } from './get-context';
 import type { RequestContext } from './request-types';

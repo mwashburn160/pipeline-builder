@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -12,7 +12,7 @@ import {
   type RuleTarget,
   type RuleScope,
   drizzleCount,
-} from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/pipeline-core';
 import { SQL, eq, and, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';

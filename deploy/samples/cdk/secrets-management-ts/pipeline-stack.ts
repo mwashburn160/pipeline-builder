@@ -6,7 +6,7 @@ import { Construct } from 'constructs';
 import {
   PipelineBuilder,
   BuilderProps,
-} from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/pipeline-core';
 
 /**
  * Secrets management pipeline.

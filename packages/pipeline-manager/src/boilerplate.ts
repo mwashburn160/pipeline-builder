@@ -2,7 +2,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { PipelineBuilder, BuilderProps } from '@pipeline-builder/pipeline-core';
+import { PipelineBuilder, BuilderProps } from '@mwashburn160/pipeline-core';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
 

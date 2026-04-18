@@ -11,7 +11,7 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   isSystemAdmin: jest.fn(),
   sendError: jest.fn(),
   ErrorCode: {
@@ -37,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isValidQuotaType: jest.fn(),
 }));
 
-import { isSystemAdmin, sendError } from '@pipeline-builder/api-core';
+import { isSystemAdmin, sendError } from '@mwashburn160/api-core';
 import { authorizeOrg } from '../src/middleware/authorize-org';
 
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;

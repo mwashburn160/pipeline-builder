@@ -7,7 +7,7 @@ import {
   PipelineBuilder,
   BuilderProps,
   RoleConfig,
-} from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/pipeline-core';
 
 /**
  * Custom IAM roles pipeline.

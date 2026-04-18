@@ -11,7 +11,7 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendError: jest.fn(),
   ErrorCode: {},
   DEFAULT_TIER: 'developer',

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger } from '@mwashburn160/api-core';
 import nodemailer, { Transporter } from 'nodemailer';
 import { config } from '../config';
 import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import type { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';

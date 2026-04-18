@@ -14,7 +14,7 @@ import { printError, printInfo, printKeyValue, printSection, printSuccess } from
 
 const STACK_NAME = 'pipeline-builder-events';
 const LAMBDA_NAME = 'pipeline-builder-event-ingestion';
-const PACKAGE_NAME = '@pipeline-builder/event-ingestion';
+const PACKAGE_NAME = '@mwashburn160/event-ingestion';
 
 /**
  * Registers the `setup-events` command with the CLI program.
@@ -22,7 +22,7 @@ const PACKAGE_NAME = '@pipeline-builder/event-ingestion';
  * Deploys EventBridge → SQS → Lambda infrastructure for pipeline reporting.
  *
  * 1. Deploys CloudFormation stack (rule + queue + Lambda shell + IAM)
- * 2. Downloads @pipeline-builder/event-ingestion from npm registry
+ * 2. Downloads @mwashburn160/event-ingestion from npm registry
  * 3. Uploads handler code directly to Lambda (no S3 needed)
  *
  * Uses PLATFORM_BASE_URL from environment (same as all other commands).

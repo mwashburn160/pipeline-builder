@@ -12,7 +12,7 @@ import {
   getAIProviderModels,
   type AIProviderInfo,
   type AIModelInfo,
-} from '@pipeline-builder/api-core';
+} from '@mwashburn160/api-core';
 import type { LanguageModel } from 'ai';
 
 // Provider Registry

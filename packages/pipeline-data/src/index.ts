@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * @module @pipeline-builder/pipeline-data
+ * @module @mwashburn160/pipeline-data
  *
  * Database layer: Drizzle ORM schemas, connection management, and query infrastructure.
  *

@@ -5,7 +5,7 @@
  * Tests for payment providers and provider factory.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

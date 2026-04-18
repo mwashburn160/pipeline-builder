@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     warn: jest.fn(),

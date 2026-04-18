@@ -16,10 +16,10 @@ import {
   resolveRecipientAlias,
   sendEntityNotFound,
   errorMessage,
-} from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
-import type { SSEManager } from '@pipeline-builder/api-server';
-import { schema } from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/api-core';
+import { withRoute } from '@mwashburn160/api-server';
+import type { SSEManager } from '@mwashburn160/api-server';
+import { schema } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
 

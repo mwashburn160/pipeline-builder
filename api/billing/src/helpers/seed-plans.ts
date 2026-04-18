@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { createLogger } from '@mwashburn160/api-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { Plan } from '../models/plan';
 
 const logger = createLogger('seed-plans');

@@ -10,9 +10,9 @@ import {
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
-} from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/api-core';
+import { withRoute } from '@mwashburn160/api-server';
+import { CoreConstants } from '@mwashburn160/pipeline-core';
 import { Router } from 'express';
 
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service';

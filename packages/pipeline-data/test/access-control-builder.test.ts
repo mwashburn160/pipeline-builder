@@ -14,7 +14,7 @@
  * - With orgId, accessModifier='private': own org private only (2 conditions)
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

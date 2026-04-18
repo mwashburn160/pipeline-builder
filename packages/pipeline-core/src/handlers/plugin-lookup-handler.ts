@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import { PluginFilter, Plugin } from '@mwashburn160/pipeline-data';
 import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { CoreConstants } from '../config/app-config';

@@ -15,7 +15,7 @@ jest.mock('../src/models/billing-event', () => ({
 
 const mockClientPut = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -27,7 +27,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.mock('@mwashburn160/pipeline-core', () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
     return {};

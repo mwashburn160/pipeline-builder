@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock api-core before imports
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   AppError: class AppError extends Error {
     statusCode: number;
     code: string;
@@ -37,7 +37,7 @@ import {
   sendError,
   sendBadRequest,
   sendInternalError,
-} from '@pipeline-builder/api-core';
+} from '@mwashburn160/api-core';
 import { getContext } from '../src/api/get-context';
 import { withRoute } from '../src/api/route-wrapper';
 

@@ -21,7 +21,7 @@ jest.mock('../src/services/pipeline-service', () => ({
 
 const mockValidatePipeline = jest.fn().mockResolvedValue({ blocked: false, violations: [] });
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   extractDbError: jest.fn(() => ({})),
   ErrorCode: {
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
@@ -68,7 +68,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -88,14 +88,14 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   AccessModifier: {},
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
 }));
 
-import { sendBadRequest, validateBody, incrementQuota } from '@pipeline-builder/api-core';
+import { sendBadRequest, validateBody, incrementQuota } from '@mwashburn160/api-core';
 import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
 
 // Helpers

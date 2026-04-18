@@ -8,7 +8,7 @@
 const mockSelect = jest.fn();
 const mockInsert = jest.fn();
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'test-org', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? '' : 'test-org', userId: 'user-1' });
@@ -19,7 +19,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   attachRequestContext: () => jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
   sendBadRequest: jest.fn((_res: any, msg: string) => msg),
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
@@ -34,13 +34,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/pipeline-data', () => ({
+jest.mock('@mwashburn160/pipeline-data', () => ({
   reportingService: {
     invalidateOrg: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     MAX_EVENTS_PER_BATCH: 100,
   },

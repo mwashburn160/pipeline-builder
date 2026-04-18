@@ -7,7 +7,7 @@
  * rule evaluation, and audit logging.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -56,12 +56,12 @@ jest.mock('../src/helpers/audit-logger', () => ({
   logComplianceCheck: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   schema: {},
   db: { select: jest.fn() },
 }));
 
-import { sendSuccess, sendError, sendBadRequest } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest } from '@mwashburn160/api-core';
 import { createEntityEventRoutes } from '../src/routes/entity-events';
 
 function getRouteHandler() {

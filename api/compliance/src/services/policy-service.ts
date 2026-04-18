@@ -6,7 +6,7 @@ import {
   buildCompliancePolicyConditions,
   schema,
   type CompliancePolicyFilter,
-} from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/pipeline-core';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';

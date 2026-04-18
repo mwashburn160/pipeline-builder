@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError } from '@pipeline-builder/api-core';
+import { sendError } from '@mwashburn160/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { User, Organization, UserOrganization } from '../models';
 import { toOrgId } from '../helpers/controller-helper';

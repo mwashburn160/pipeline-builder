@@ -27,7 +27,7 @@ jest.mock('../src/database/postgres-connection', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.mock('@mwashburn160/api-core', () => {
   class NotFoundError extends Error {
     statusCode = 404;
     code = 'NOT_FOUND';

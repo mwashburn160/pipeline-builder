@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { createLogger } from '@mwashburn160/api-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -17,7 +17,7 @@ let sdk: NodeSDK | null = null;
  *
  * @example
  * ```typescript
- * import { initTracing } from '@pipeline-builder/api-server';
+ * import { initTracing } from '@mwashburn160/api-server';
  * initTracing('pipeline-service');
  * ```
  */

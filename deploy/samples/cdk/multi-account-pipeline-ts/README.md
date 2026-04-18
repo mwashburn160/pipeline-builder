@@ -22,7 +22,7 @@ import {
   BuilderProps,
   RoleConfig,
   StageOptions,
-} from '@pipeline-builder/pipeline-core';
+} from '@mwashburn160/pipeline-core';
 ```
 
 ## Account Flow

@@ -17,7 +17,7 @@ const mockValidateBody = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
@@ -95,7 +95,7 @@ jest.mock('../src/validation/schemas', () => ({
   AdminSubscriptionUpdateSchema: {},
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.user?.organizationId, userId: req.user?.sub },

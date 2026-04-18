@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { AccessModifier, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 import { eq, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 

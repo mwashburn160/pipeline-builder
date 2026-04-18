@@ -1,4 +1,4 @@
-# @pipeline-builder/ai-core
+# @mwashburn160/ai-core
 
 Shared AI provider registry for the pipeline-builder platform. Lazily initializes SDK wrappers from environment variables and exposes model resolution helpers.
 
@@ -20,7 +20,7 @@ import {
   getProviderModels,
   resolveModel,
   createModelWithKey,
-} from '@pipeline-builder/ai-core';
+} from '@mwashburn160/ai-core';
 
 // List providers with configured API keys
 const providers = getAvailableProviders();

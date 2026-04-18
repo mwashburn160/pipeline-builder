@@ -17,7 +17,7 @@ The simplest possible `PipelineBuilder` usage in TypeScript. Creates a self-muta
 ## Key Imports
 
 ```typescript
-import { PipelineBuilder, BuilderProps } from '@pipeline-builder/pipeline-core';
+import { PipelineBuilder, BuilderProps } from '@mwashburn160/pipeline-core';
 ```
 
 ## Pipeline Structure

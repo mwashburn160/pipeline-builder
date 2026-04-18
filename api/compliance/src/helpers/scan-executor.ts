@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { schema, db, type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
+import { schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger';
 import { notifyComplianceBlock } from './compliance-notifier';

@@ -6,7 +6,7 @@
  */
 
 // Mock api-core
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -78,7 +78,7 @@ jest.mock('../src/providers/stripe-provider', () => {
   return { StripeProvider: MockStripeProvider };
 });
 
-import { sendError } from '@pipeline-builder/api-core';
+import { sendError } from '@mwashburn160/api-core';
 import { createStripeWebhookRoutes } from '../src/routes/stripe-webhook';
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.

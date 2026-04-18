@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -35,7 +35,7 @@ jest.mock('mongoose', () => {
   };
 });
 
-import { sendError } from '@pipeline-builder/api-core';
+import { sendError } from '@mwashburn160/api-core';
 import {
   isSystemAdmin,
   isOrgAdmin,

@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
-import { createLogger, createSafeClient } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import type { QuotaTier } from '@mwashburn160/api-core';
+import { createLogger, createSafeClient } from '@mwashburn160/api-core';
+import { Config } from '@mwashburn160/pipeline-core';
 import { config } from '../config';
 import { BillingEvent } from '../models/billing-event';
 import type { BillingEventType } from '../models/billing-event';

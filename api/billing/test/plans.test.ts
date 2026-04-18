@@ -11,7 +11,7 @@
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   ErrorCode: {

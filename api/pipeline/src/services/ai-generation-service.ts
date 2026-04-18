@@ -9,10 +9,10 @@ import {
   generateText,
   streamText,
   Output,
-} from '@pipeline-builder/ai-core';
-import { createLogger, ValidationError, AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+} from '@mwashburn160/ai-core';
+import { createLogger, ValidationError, AccessModifier, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
 
-import { db, schema } from '@pipeline-builder/pipeline-core';
+import { db, schema } from '@mwashburn160/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 

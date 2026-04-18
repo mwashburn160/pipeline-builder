@@ -6,8 +6,8 @@ import * as fs from 'fs/promises';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 
-import { ValidationError } from '@pipeline-builder/api-core';
-import type { PluginSpec } from '@pipeline-builder/pipeline-core';
+import { ValidationError } from '@mwashburn160/api-core';
+import type { PluginSpec } from '@mwashburn160/pipeline-core';
 import { v7 as uuid } from 'uuid';
 import yauzl from 'yauzl';
 import YAML from 'yaml';

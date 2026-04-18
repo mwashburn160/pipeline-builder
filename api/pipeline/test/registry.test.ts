@@ -9,7 +9,7 @@ const mockInsert = jest.fn();
 const mockOnConflictDoUpdate = jest.fn();
 const mockReturning = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   sendSuccess: jest.fn(),
   sendBadRequest: jest.fn(),
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
@@ -22,14 +22,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.mock('@mwashburn160/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   db: {
     insert: mockInsert,
   },
@@ -40,7 +40,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest } from '@mwashburn160/api-core';
 import { createRegistryRoutes } from '../src/routes/registry';
 
 describe('POST /pipelines/registry', () => {

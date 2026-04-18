@@ -4,7 +4,7 @@
 import type { CodeCommitSourceConfig, CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
 
 // Re-export shared types from api-core for convenience
-export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@pipeline-builder/api-core';
+export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@mwashburn160/api-core';
 
 /**
  * Pipeline trigger behavior.

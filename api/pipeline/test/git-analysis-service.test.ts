@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.mock('@mwashburn160/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     error: jest.fn(),
@@ -10,7 +10,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   })),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.mock('@mwashburn160/pipeline-core', () => ({
   CoreConstants: {
     GITHUB_API_BASE_URL: 'https://api.github.com',
     BITBUCKET_API_BASE_URL: 'https://api.bitbucket.org/2.0',
