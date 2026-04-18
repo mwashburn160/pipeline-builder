@@ -1,3 +1,17 @@
+## 1.1.1 (2026-04-18)
+
+### 🩹 Fixes
+
+- updated npmrc ([b7bb48db](https://github.com/mwashburn160/pipeline-builder/commit/b7bb48db))
+
+### 🧱 Updated Dependencies
+
+- Updated @mwashburn160/api-core to 1.1.1
+
+### ❤️ Thank You
+
+- mark
+
 ## 1.1.0 (2026-04-18)
 
 ### 🚀 Features
