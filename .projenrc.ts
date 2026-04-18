@@ -285,6 +285,16 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+manager.package.addField('description', 'CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
+manager.package.addField('keywords', [
+  'aws', 'codepipeline', 'codebuild', 'cicd', 'ci-cd', 'devops',
+  'cdk', 'aws-cdk', 'cloudformation', 'pipeline', 'pipeline-as-code',
+  'containerized', 'docker', 'kubernetes', 'plugins', 'typescript',
+  'self-service', 'multi-tenant', 'compliance', 'automation',
+  'infrastructure-as-code', 'iac', 'cli',
+]);
+manager.package.addField('homepage', 'https://mwashburn160.github.io/pipeline-builder/');
+manager.package.addField('bugs', { url: 'https://github.com/mwashburn160/pipeline-builder/issues' });
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');

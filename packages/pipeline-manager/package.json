@@ -1,5 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-manager",
+  "description": "CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -55,15 +56,44 @@
     "typescript": "5.9.3",
     "yaml": "2.8.2"
   },
+  "keywords": [
+    "aws",
+    "codepipeline",
+    "codebuild",
+    "cicd",
+    "ci-cd",
+    "devops",
+    "cdk",
+    "aws-cdk",
+    "cloudformation",
+    "pipeline",
+    "pipeline-as-code",
+    "containerized",
+    "docker",
+    "kubernetes",
+    "plugins",
+    "typescript",
+    "self-service",
+    "multi-tenant",
+    "compliance",
+    "automation",
+    "infrastructure-as-code",
+    "iac",
+    "cli"
+  ],
   "engines": {
     "node": ">= 24.14.0"
   },
   "license": "Apache-2.0",
+  "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "1.2.7",
+  "version": "0.0.0",
+  "bugs": {
+    "url": "https://github.com/mwashburn160/pipeline-builder/issues"
+  },
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
