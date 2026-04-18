@@ -205,14 +205,14 @@ export class Workflow extends Component {
                     name: 'Run build target',
                     run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
                     env: {
-                        GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}',
+                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                     },
                 },
                 {
                     name: 'Semantic version',
                     run: 'pnpm nx release --first-release --skip-publish --verbose',
                     env: {
-                        GITHUB_TOKEN: '${{ secrets.PAT_TOKEN }}',
+                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                     },
                 },
                 {
@@ -224,6 +224,11 @@ export class Workflow extends Component {
                     name: 'Publish npm packages',
                     if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
                     run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose',
+                },
+                {
+                    name: 'Publish github packages',
+                    if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
+                    run: 'npm config set @mwashburn160:registry=https://ghcr.io/mwashburn160/ && pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
                 },
                 {
                     name: 'Upload artifact',
@@ -314,7 +319,7 @@ export class Workflow extends Component {
                     with: {
                         registry: 'ghcr.io',
                         username: '${{ github.actor }}',
-                        password: '${{ secrets.PAT_TOKEN }}',
+                        password: '${{ secrets.GHRC_TOKEN }}',
                     },
                 },
                 {
@@ -370,8 +375,8 @@ export class Workflow extends Component {
      * - Uses PNPM content-addressable store for dependency caching
      *
      * Authentication:
-     * - Uses PAT_TOKEN secret for GitHub package registry
-     * - Uses PAT_TOKEN_ENCODED secret for npm authentication
+     * - Uses GHRC_TOKEN secret for GitHub package registry
+     * - Uses GHRC_TOKEN_ENCODED secret for npm authentication
      *
      * @returns Array of job steps common to all jobs
      */
@@ -383,7 +388,7 @@ export class Workflow extends Component {
                 name: 'Clear cache',
                 uses: 'actions/github-script@v8',
                 with: {
-                    'github-token': '${{ secrets.PAT_TOKEN }}',
+                    'github-token': '${{ secrets.GHRC_TOKEN }}',
                     script: `
                         const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
                         for (const cache of caches.data.actions_caches) {
@@ -426,7 +431,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Configure github registry',
-                run: 'export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/\:_authToken=$PAT_TOKEN && npm config set \@mwashburn160\:registry=https://npm.pkg.github.com/',
+                run: 'export GHRC_TOKEN=$(echo ${{ secrets.GHRC_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/\:_authToken=$GHRC_TOKEN && npm config set \@mwashburn160\:registry=https://npm.pkg.github.com/',
             },
             {
                 name: 'Install dependencies',

@@ -21,7 +21,7 @@ jobs:
       - name: Clear cache
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
             
                                     const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
@@ -51,7 +51,7 @@ jobs:
       - name: Configure npm registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Configure github registry
-        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$PAT_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
+        run: export GHRC_TOKEN=$(echo ${{ secrets.GHRC_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$GHRC_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -91,7 +91,7 @@ jobs:
       - name: Clear cache
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
             
                                     const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
@@ -121,7 +121,7 @@ jobs:
       - name: Configure npm registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Configure github registry
-        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$PAT_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
+        run: export GHRC_TOKEN=$(echo ${{ secrets.GHRC_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$GHRC_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -134,11 +134,11 @@ jobs:
         run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"'
       - name: Run build target
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Semantic version
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx release --first-release --skip-publish --verbose
       - name: Check publish library
         id: check
@@ -146,6 +146,9 @@ jobs:
       - name: Publish npm packages
         if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}
         run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose
+      - name: Publish github packages
+        if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}
+        run: npm config set @mwashburn160:registry=https://ghcr.io/mwashburn160/ && pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -174,7 +177,7 @@ jobs:
       - name: Clear cache
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
             
                                     const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
@@ -204,7 +207,7 @@ jobs:
       - name: Configure npm registry
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Configure github registry
-        run: export PAT_TOKEN=$(echo ${{ secrets.PAT_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$PAT_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
+        run: export GHRC_TOKEN=$(echo ${{ secrets.GHRC_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/:_authToken=$GHRC_TOKEN && npm config set @mwashburn160:registry=https://npm.pkg.github.com/
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
       - name: Set git user
@@ -224,7 +227,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.PAT_TOKEN }}
+          password: ${{ secrets.GHRC_TOKEN }}
       - name: Setup buildx
         uses: docker/setup-buildx-action@v4
         with:

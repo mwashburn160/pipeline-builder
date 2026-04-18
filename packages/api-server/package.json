@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/api-server",
+  "name": "@mwashburn160/api-server",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -38,11 +38,11 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "@opentelemetry/exporter-trace-otlp-http": "0.213.0",
     "@opentelemetry/resources": "2.6.0",
     "@opentelemetry/sdk-node": "0.213.0",
-    "@pipeline-builder/api-core": "2.1.2",
-    "@pipeline-builder/pipeline-core": "2.1.2",
     "compression": "1.8.0",
     "cors": "2.8.6",
     "express": "5.2.1",

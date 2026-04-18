@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/event-ingestion",
+  "name": "@mwashburn160/event-ingestion",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

@@ -40,10 +40,10 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/ai-core": "2.1.2",
-    "@pipeline-builder/api-core": "2.1.2",
-    "@pipeline-builder/api-server": "2.1.2",
-    "@pipeline-builder/pipeline-core": "2.1.2",
+    "@mwashburn160/ai-core": "workspace:*",
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-server": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "adm-zip": "0.5.16",
     "bullmq": "5.34.8",
     "cors": "2.8.6",

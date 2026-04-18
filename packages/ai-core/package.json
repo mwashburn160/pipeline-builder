@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/ai-core",
+  "name": "@mwashburn160/ai-core",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -38,7 +38,7 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@pipeline-builder/api-core": "2.1.2",
+    "@mwashburn160/api-core": "workspace:*",
     "ai": "6.0.99"
   },
   "engines": {

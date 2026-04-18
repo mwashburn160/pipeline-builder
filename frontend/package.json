@@ -32,9 +32,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "2.1.2",
-    "@pipeline-builder/api-server": "2.1.2",
-    "@pipeline-builder/pipeline-core": "2.1.2",
+    "@mwashburn160/api-core": "workspace:*",
+    "@mwashburn160/api-server": "workspace:*",
+    "@mwashburn160/pipeline-core": "workspace:*",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",
     "next": "^16.1.6",

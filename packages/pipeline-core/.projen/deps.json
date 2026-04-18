@@ -81,13 +81,13 @@
       "type": "build"
     },
     {
-      "name": "@pipeline-builder/api-core",
-      "version": "2.1.2",
+      "name": "@mwashburn160/api-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
-      "name": "@pipeline-builder/pipeline-data",
-      "version": "2.1.2",
+      "name": "@mwashburn160/pipeline-data",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

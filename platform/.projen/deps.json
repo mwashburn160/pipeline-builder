@@ -106,8 +106,8 @@
       "type": "runtime"
     },
     {
-      "name": "@pipeline-builder/api-core",
-      "version": "2.1.2",
+      "name": "@mwashburn160/api-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

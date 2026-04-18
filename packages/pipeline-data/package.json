@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/pipeline-data",
+  "name": "@mwashburn160/pipeline-data",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -34,7 +34,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "2.1.2",
+    "@mwashburn160/api-core": "workspace:*",
     "drizzle-orm": "0.45.1",
     "pg": "8.18.0"
   },
