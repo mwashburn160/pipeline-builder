@@ -33,9 +33,7 @@
     ],
     "projectsRelationship": "independent",
     "releaseTagPattern": "release/{projectName}/{version}",
-    "changelog": {
-      "projectChangelogs": true
-    },
+    "changelog": false,
     "git": {
       "commitMessage": "chore: updated version"
     },

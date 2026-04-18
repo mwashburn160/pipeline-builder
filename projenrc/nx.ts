@@ -105,10 +105,8 @@ export class Nx extends Component {
                     // Git tag format for releases
                     releaseTagPattern: 'release/{projectName}/{version}',
 
-                    // Generate separate changelogs per project
-                    changelog: {
-                        projectChangelogs: true
-                    },
+                    // Changelog generation disabled
+                    changelog: false,
 
                     // Git commit configuration
                     git: {
