@@ -89,7 +89,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:1.2.7-docker
+          image: ghcr.io/mwashburn160/plugin:1.3.0-docker
           securityContext:
             runAsUser: 0
             privileged: true
