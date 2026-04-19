@@ -27,12 +27,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.2.5',
-  pipelineData:   '1.2.5',
-  pipelineCore:   '1.2.5',
-  apiServer:      '1.2.5',
-  aiCore:         '1.2.5',
-  eventIngestion: '1.2.5',
+  apiCore:        '1.2.7',
+  pipelineData:   '1.2.7',
+  pipelineCore:   '1.2.7',
+  apiServer:      '1.2.7',
+  aiCore:         '1.2.7',
+  eventIngestion: '1.2.7',
 };
 
 // =============================================================================
@@ -274,14 +274,16 @@ const manager = new ManagerProject({
   outdir: './packages/pipeline-manager',
   bin: { 'pipeline-manager': './dist/cli.js' },
   deps: [
-    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`,
     '@aws-sdk/client-cloudformation@3.821.0', '@aws-sdk/client-lambda@3.821.0',
     '@aws-sdk/client-secrets-manager@3.821.0', '@aws-sdk/client-sts@3.821.0',
     'form-data@4.0.5', 'commander@14.0.3', 'figlet@1.10.0',
     'axios@1.13.5', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.8.2', 'ora@9.3.0',
   ],
-  devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1'],
+  devDeps: [
+    `@mwashburn160/pipeline-core@${pkg.pipelineCore}`,
+    '@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1', 'esbuild@0.25.0',
+  ],
 });
 manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
@@ -299,6 +301,7 @@ manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
+manager.postCompileTask.exec('node scripts/build-cli.js');
 manager.addTask('audit', { exec: 'pnpm audit --audit-level=high', description: 'Check for known vulnerabilities in dependencies' });
 configureJest(manager);
 

@@ -23,6 +23,7 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
+    "@mwashburn160/pipeline-core": "1.2.7",
     "@stylistic/eslint-plugin": "^2",
     "@types/figlet": "1.7.0",
     "@types/jest": "^30.0.0",
@@ -31,6 +32,7 @@
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "copyfiles": "2.4.1",
+    "esbuild": "0.25.0",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -44,7 +46,6 @@
     "@aws-sdk/client-lambda": "3.821.0",
     "@aws-sdk/client-secrets-manager": "3.821.0",
     "@aws-sdk/client-sts": "3.821.0",
-    "@mwashburn160/pipeline-core": "1.2.5",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
     "commander": "14.0.3",
@@ -90,7 +91,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "1.2.8",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
