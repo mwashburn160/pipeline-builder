@@ -87,11 +87,13 @@ upload_pipelines_bulk() {
 
   _items=()
   for f in "${_files[@]}"; do
+    _name=$(basename "$(dirname "$f")")
     if ! _item=$(jq -c '.accessModifier = "public"' "$f" 2>&1); then
-      echo "  ERROR: failed to parse $f: $_item" >&2
+      echo "  ERROR: failed to parse $_name ($f): $_item" >&2
       FAILED=$((FAILED + 1))
       continue
     fi
+    echo "    + $_name"
     _items+=("$_item")
   done
 
