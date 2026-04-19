@@ -1,3 +1,2 @@
 pluginSpec: plugin-spec.yaml
 buildType: prebuilt
-imageTag: p-datadog-a0992a469625

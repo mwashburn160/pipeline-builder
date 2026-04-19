@@ -1,3 +1,2 @@
 pluginSpec: plugin-spec.yaml
 buildType: prebuilt
-imageTag: p-sentryrelease-91ef6bcacbb4
