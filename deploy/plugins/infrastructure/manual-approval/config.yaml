@@ -1,2 +1,2 @@
 pluginSpec: plugin-spec.yaml
-buildType: build_image
+buildType: metadata_only
