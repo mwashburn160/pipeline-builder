@@ -75,14 +75,33 @@ upload_pipeline_single() {
 upload_pipelines_bulk() {
   echo "  Building bulk payload..."
 
-  # Build JSON array using jq
-  BULK_PAYLOAD=$(find "$PIPELINES_DIR" -maxdepth 2 -name "pipeline.json" -exec jq '.accessModifier = "public"' {} \; 2>/dev/null | jq -s '.')
-  _count=$(echo "$BULK_PAYLOAD" | jq 'length')
+  command -v jq >/dev/null 2>&1 || { echo "  ERROR: jq not found in PATH" >&2; exit 1; }
 
-  if [ "$_count" -eq 0 ]; then
+  # Validate each pipeline.json individually so a single bad file doesn't kill the whole run silently
+  _files=()
+  while IFS= read -r f; do _files+=("$f"); done < <(find "$PIPELINES_DIR" -maxdepth 2 -name "pipeline.json" | sort)
+  if [ "${#_files[@]}" -eq 0 ]; then
+    echo "  No pipeline.json files found under $PIPELINES_DIR"
+    return
+  fi
+
+  _items=()
+  for f in "${_files[@]}"; do
+    if ! _item=$(jq -c '.accessModifier = "public"' "$f" 2>&1); then
+      echo "  ERROR: failed to parse $f: $_item" >&2
+      FAILED=$((FAILED + 1))
+      continue
+    fi
+    _items+=("$_item")
+  done
+
+  if [ "${#_items[@]}" -eq 0 ]; then
     echo "  No valid pipelines to upload"
     return
   fi
+
+  BULK_PAYLOAD=$(printf '%s\n' "${_items[@]}" | jq -s '.')
+  _count="${#_items[@]}"
 
   echo "  Uploading ${_count} pipeline(s) in single bulk request..."
 
