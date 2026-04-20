@@ -32,6 +32,7 @@
     "@types/pg": "8.16.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
+    "copyfiles": "2.4.1",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -42,7 +43,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.997.0",
-    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-core": "1.0.0",
     "adm-zip": "0.5.16",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",

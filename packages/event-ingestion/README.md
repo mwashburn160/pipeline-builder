@@ -1,10 +1,10 @@
 # @pipeline-builder/event-ingestion
 
-> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
-
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-AWS Lambda handler that ingests CodePipeline state-change events from EventBridge and forwards them to the pipeline-builder reporting service. Deployed automatically by `pipeline-manager setup-events`.
+AWS Lambda handler for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
+
+Ingests CodePipeline state-change events from EventBridge and forwards normalized event payloads to the platform's reporting service. Deployed automatically by `pipeline-manager setup-events`.
 
 ## What it does
 
@@ -17,3 +17,11 @@ AWS Lambda handler that ingests CodePipeline state-change events from EventBridg
 - Lambda Node.js runtime
 - Triggered by EventBridge rule on `aws.codepipeline` source
 - Requires `REPORTING_SERVICE_URL` and `PLATFORM_TOKEN` env vars (set by `setup-events`)
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
+
+---
+
+**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli

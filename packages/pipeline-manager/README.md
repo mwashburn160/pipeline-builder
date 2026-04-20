@@ -1,6 +1,6 @@
 # @pipeline-builder/pipeline-manager
 
-> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
+📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
 CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
 
@@ -68,3 +68,7 @@ Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).
+
+---
+
+**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli

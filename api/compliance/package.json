@@ -35,11 +35,10 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-core": "1.0.0",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "bullmq": "5.34.8",
-    "cron-parser": "5.0.6",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
     "pg": "8.18.0",

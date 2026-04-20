@@ -1,10 +1,10 @@
 # @pipeline-builder/pipeline-core
 
-> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
-
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-AWS CDK constructs and domain types that turn plugin specs into CodePipeline stacks. Also re-exports `pipeline-data` so consumers only depend on one package.
+AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
+
+Provides the `Builder` CDK construct that assembles plugin specs into a CodePipeline stack, the `PluginLookup` custom resource that resolves plugins at deploy time, pipeline/plugin domain types, and shared application configuration. Also re-exports `pipeline-data` so consumers only depend on one package.
 
 ## Key Exports
 
@@ -24,3 +24,11 @@ AWS CDK constructs and domain types that turn plugin specs into CodePipeline sta
 ### Helpers
 - `replaceNonAlphanumeric`, `extractMetadataEnv` — String utilities
 - `buildPipelineConditions`, `buildPluginConditions`, `validatePipelineFilter` — Filter builders
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
+
+---
+
+**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli

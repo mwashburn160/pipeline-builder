@@ -78,7 +78,12 @@
     },
     "post-compile": {
       "name": "post-compile",
-      "description": "Runs after successful compilation"
+      "description": "Runs after successful compilation",
+      "steps": [
+        {
+          "exec": "copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error"
+        }
+      ]
     },
     "pre-compile": {
       "name": "pre-compile",

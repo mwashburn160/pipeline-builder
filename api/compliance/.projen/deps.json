@@ -72,7 +72,7 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "workspace:*",
+      "version": "1.0.0",
       "type": "runtime"
     },
     {
@@ -88,11 +88,6 @@
     {
       "name": "bullmq",
       "version": "5.34.8",
-      "type": "runtime"
-    },
-    {
-      "name": "cron-parser",
-      "version": "5.0.6",
       "type": "runtime"
     },
     {

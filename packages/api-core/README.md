@@ -1,10 +1,10 @@
 # @pipeline-builder/api-core
 
-> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
-
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Core API utilities shared across all pipeline-builder backend services. Provides error handling, logging, authentication middleware, parameter parsing, request/response utilities, and validation schemas.
+Core server-side utilities shared by every backend service in [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
+
+Provides JWT authentication middleware, structured logging, response helpers, error codes, quota enforcement, parameter parsing, validation schemas, an internal HTTP client, and the AI provider catalog.
 
 ## Key Exports
 
@@ -16,7 +16,7 @@ Core API utilities shared across all pipeline-builder backend services. Provides
 - `isSystemOrg`, `isSystemAdmin` — System-level access checks
 
 ### Request/Response Utilities
-- `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendPaginated`
+- `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendPaginated`, `sendPaginatedNested`
 - `extractDbError` — Extract database error details
 - `ErrorCode`, `getStatusForErrorCode` — Standard error codes
 
@@ -43,3 +43,11 @@ Core API utilities shared across all pipeline-builder backend services. Provides
 ### Quota Service
 - `QuotaService` (type), `createQuotaService` — Quota enforcement client
 - `QuotaType`, `QuotaCheckResult` — Quota types
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
+
+---
+
+**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli

@@ -41,7 +41,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.213.0",
     "@opentelemetry/resources": "2.6.0",
     "@opentelemetry/sdk-node": "0.213.0",
-    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-core": "1.0.0",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "compression": "1.8.0",
     "cors": "2.8.6",
@@ -60,7 +60,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
