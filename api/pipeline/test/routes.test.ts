@@ -114,7 +114,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { isSystemAdmin, sendBadRequest, incrementQuota, validateQuery } from '@pipeline-builder/api-core';
+import { isSystemAdmin, sendBadRequest, validateQuery } from '@pipeline-builder/api-core';
+import { incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
 
 // Helpers
@@ -250,7 +251,7 @@ describe('GET /pipelines (list)', () => {
 
     await handler(mockReq(), mockRes());
 
-    expect(incrementQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'apiCalls', 'Bearer tok', expect.any(Function));
+    expect(incrementQuotaFromCtx).toHaveBeenCalledWith(mockQuotaService, expect.objectContaining({ orgId: 'org-1' }), 'apiCalls');
   });
 });
 

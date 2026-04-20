@@ -86,6 +86,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
+  incrementQuotaFromCtx: jest.fn(),
 }));
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({
@@ -95,7 +96,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   ),
 }));
 
-import { sendBadRequest, validateBody, incrementQuota } from '@pipeline-builder/api-core';
+import { sendBadRequest, validateBody } from '@pipeline-builder/api-core';
+import { incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
 
 // Helpers
@@ -253,7 +255,7 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(incrementQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'pipelines', 'Bearer tok', expect.any(Function));
+    expect(incrementQuotaFromCtx).toHaveBeenCalledWith(mockQuotaService, expect.objectContaining({ orgId: 'org-1' }), 'pipelines');
   });
 
   it('returns 500 on service error', async () => {
