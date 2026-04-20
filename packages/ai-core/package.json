@@ -1,5 +1,5 @@
 {
-  "name": "@mwashburn160/ai-core",
+  "name": "@pipeline-builder/ai-core",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -38,7 +38,7 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@mwashburn160/api-core": "1.2.7",
+    "@pipeline-builder/api-core": "workspace:*",
     "ai": "6.0.99"
   },
   "engines": {
@@ -46,7 +46,7 @@
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
-  "version": "1.3.0",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

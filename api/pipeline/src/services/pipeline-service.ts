@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService, createLogger, errorMessage } from '@mwashburn160/api-core';
+import { entityEvents, createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -9,7 +9,7 @@ import {
   schema,
   db,
   type PipelineFilter,
-} from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('pipeline-service');
 

@@ -4,8 +4,8 @@
 import crypto from 'crypto';
 import https from 'https';
 import { URL } from 'url';
-import { createLogger } from '@mwashburn160/api-core';
-import type { QuotaTier } from '@mwashburn160/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
 
 const logger = createLogger('marketplace-helpers');
 

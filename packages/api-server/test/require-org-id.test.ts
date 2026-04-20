@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock api-core before imports
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
   sendError: jest.fn(),
 }));
@@ -12,7 +12,7 @@ jest.mock('../src/api/get-context', () => ({
   getContext: jest.fn(),
 }));
 
-import { sendError } from '@mwashburn160/api-core';
+import { sendError } from '@pipeline-builder/api-core';
 import { getContext } from '../src/api/get-context';
 import { requireOrgId } from '../src/api/require-org-id';
 

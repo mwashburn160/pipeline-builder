@@ -97,9 +97,6 @@
         },
         {
           "exec": "copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error"
-        },
-        {
-          "exec": "node scripts/build-cli.js"
         }
       ]
     },

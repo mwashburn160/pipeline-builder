@@ -17,7 +17,7 @@ jest.mock('../src/queue/plugin-build-queue', () => ({
   purgeDlq: jest.fn(),
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn(),
   }),
@@ -31,7 +31,7 @@ jest.mock('@mwashburn160/api-core', () => ({
   ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
 }));
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any, _next: any) => {
     const ctx = {
       requestId: 'test-req', log: jest.fn(),
@@ -41,7 +41,7 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-import { isSystemAdmin } from '@mwashburn160/api-core';
+import { isSystemAdmin } from '@pipeline-builder/api-core';
 import { createQueueStatusRoutes } from '../src/routes/queue-status';
 
 // Minimal Express-like mocks

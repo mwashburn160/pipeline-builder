@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { ServiceError, BaseServiceClient } from './base-service';
 
@@ -24,7 +24,7 @@ export interface PipelineFilter {
 
 /**
  * Builder props structure for pipeline configuration.
- * Mirrors the canonical BuilderProps from @mwashburn160/pipeline-core.
+ * Mirrors the canonical BuilderProps from @pipeline-builder/pipeline-core.
  */
 export interface BuilderProps {
   project: string;

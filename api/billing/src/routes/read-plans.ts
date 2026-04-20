@@ -11,7 +11,7 @@ import {
   createCacheService,
   parsePositiveInt,
   CACHE_TTL_BILLING_PLANS_SECS,
-} from '@mwashburn160/api-core';
+} from '@pipeline-builder/api-core';
 import { Router, Request, Response } from 'express';
 import { Plan } from '../models/plan';
 

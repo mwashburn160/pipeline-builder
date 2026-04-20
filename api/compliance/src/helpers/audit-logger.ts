@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { schema, db, type RuleTarget } from '@mwashburn160/pipeline-core';
+import { schema, db, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import type { ValidationResult } from '../engine/rule-engine';
 
 /**

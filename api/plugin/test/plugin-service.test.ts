@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock external dependencies — must be set up before importing the service
-jest.mock('@mwashburn160/pipeline-core', () => {
+jest.mock('@pipeline-builder/pipeline-core', () => {
   const mockFind = jest.fn();
   const mockSetDefault = jest.fn();
 
@@ -47,7 +47,7 @@ jest.mock('drizzle-orm/pg-core', () => ({}));
 import { PluginService } from '../src/services/plugin-service';
 
 // Retrieve mock functions from the hoisted mock
-jest.requireMock('@mwashburn160/pipeline-core');
+jest.requireMock('@pipeline-builder/pipeline-core');
 
 // Tests
 

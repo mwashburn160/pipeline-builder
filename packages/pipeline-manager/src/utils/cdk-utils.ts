@@ -6,11 +6,11 @@ import path from 'path';
 import { printError } from './output-utils';
 
 /**
- * Path to dist/boilerplate.js. cli.js is bundled, so callers always sit
- * alongside boilerplate.js in the dist/ directory.
+ * Path to dist/boilerplate.js. tsc emits commands at dist/commands/, so
+ * boilerplate is one level up.
  */
 export function resolveBoilerplatePath(callerDir: string): string {
-  return path.join(callerDir, 'boilerplate.js');
+  return path.join(callerDir, '..', 'boilerplate.js');
 }
 
 export interface CdkInfo {

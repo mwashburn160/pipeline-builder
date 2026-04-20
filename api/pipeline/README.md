@@ -1,4 +1,4 @@
-# @mwashburn160/pipeline
+# Pipeline Service
 
 Pipeline management API service. Provides CRUD operations for CI/CD pipeline configurations and AI-powered pipeline generation from Git repositories.
 

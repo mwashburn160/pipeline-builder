@@ -38,7 +38,7 @@ jest.mock('../src/services/message-service', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   SYSTEM_ORG_ID: 'system',
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -104,7 +104,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@mwashburn160/api-server', () => ({
+jest.mock('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -123,11 +123,11 @@ jest.mock('@mwashburn160/api-server', () => ({
   },
 }));
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-import { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } from '@mwashburn160/api-core';
+import { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { createCreateMessageRoutes } from '../src/routes/create-message';
 import { createDeleteMessageRoutes } from '../src/routes/delete-message';
 import { createReadMessageRoutes } from '../src/routes/read-messages';

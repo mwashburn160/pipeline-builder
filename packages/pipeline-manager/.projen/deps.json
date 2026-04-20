@@ -1,11 +1,6 @@
 {
   "dependencies": [
     {
-      "name": "@mwashburn160/pipeline-core",
-      "version": "1.2.7",
-      "type": "build"
-    },
-    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
@@ -42,11 +37,6 @@
     {
       "name": "copyfiles",
       "version": "2.4.1",
-      "type": "build"
-    },
-    {
-      "name": "esbuild",
-      "version": "0.25.0",
       "type": "build"
     },
     {
@@ -98,6 +88,11 @@
     {
       "name": "@aws-sdk/client-sts",
       "version": "3.821.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { config } from '../config';
 
 const logger = createLogger('log-service');

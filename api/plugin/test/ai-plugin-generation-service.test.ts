@@ -28,7 +28,7 @@ jest.mock('@ai-sdk/xai', () => ({
   createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
 }));
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: jest.fn(() => ({
     info: jest.fn(),
     error: jest.fn(),

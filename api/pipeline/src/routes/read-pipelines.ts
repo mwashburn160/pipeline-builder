@@ -14,10 +14,10 @@ import {
   normalizeArrayFields,
   validateQuery,
   PipelineFilterSchema,
-} from '@mwashburn160/api-core';
-import type { QuotaService } from '@mwashburn160/api-core';
-import { withRoute } from '@mwashburn160/api-server';
-import { CoreConstants } from '@mwashburn160/pipeline-core';
+} from '@pipeline-builder/api-core';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { withRoute } from '@pipeline-builder/api-server';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
 

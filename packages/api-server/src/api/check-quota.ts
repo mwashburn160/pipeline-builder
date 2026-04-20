@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, createLogger, sendError } from '@mwashburn160/api-core';
-import type { QuotaType, QuotaService } from '@mwashburn160/api-core';
+import { ErrorCode, createLogger, sendError } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context';
 

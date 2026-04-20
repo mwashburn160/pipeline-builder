@@ -8,7 +8,7 @@
  * returning true if the condition is MET (no violation) or false if VIOLATED.
  */
 
-import type { RuleOperator } from '@mwashburn160/pipeline-core';
+import type { RuleOperator } from '@pipeline-builder/pipeline-core';
 
 const MAX_REGEX_LENGTH = 200;
 

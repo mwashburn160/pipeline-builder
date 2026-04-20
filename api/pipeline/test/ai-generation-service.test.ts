@@ -28,7 +28,7 @@ jest.mock('@ai-sdk/xai', () => ({
   createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
 }));
 
-jest.mock('@mwashburn160/api-core', () => {
+jest.mock('@pipeline-builder/api-core', () => {
   class ValidationError extends Error {
     statusCode = 400;
     code = 'VALIDATION_ERROR';
@@ -103,7 +103,7 @@ jest.mock('@mwashburn160/api-core', () => {
   };
 });
 
-jest.mock('@mwashburn160/pipeline-core', () => ({
+jest.mock('@pipeline-builder/pipeline-core', () => ({
   db: { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn().mockResolvedValue([]) },
   schema: { plugin: {} },
 }));

@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@mwashburn160/api-core';
-import type { QuotaService } from '@mwashburn160/api-core';
-import { withRoute } from '@mwashburn160/api-server';
-import { CoreConstants } from '@mwashburn160/pipeline-core';
+import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { withRoute } from '@pipeline-builder/api-server';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { pluginService } from '../services/plugin-service';
 

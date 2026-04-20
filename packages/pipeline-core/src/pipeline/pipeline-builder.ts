@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@mwashburn160/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { Duration, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { PipelineNotificationEvents, PipelineType } from 'aws-cdk-lib/aws-codepipeline';

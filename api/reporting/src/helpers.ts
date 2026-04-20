@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CoreConstants } from '@mwashburn160/pipeline-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 
 /** Valid time intervals for time-series reports. */
 export const VALID_INTERVALS: readonly string[] = ['day', 'week', 'month'];

@@ -212,7 +212,7 @@ export interface Plugin {
 
 /**
  * Builder props for pipeline configuration.
- * Mirrors the canonical BuilderProps from @mwashburn160/pipeline-core
+ * Mirrors the canonical BuilderProps from @pipeline-builder/pipeline-core
  * but without CDK-specific type imports.
  */
 export interface BuilderProps {

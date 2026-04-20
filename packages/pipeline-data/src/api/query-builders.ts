@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@mwashburn160/api-core';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { eq, ilike, isNull, or, gte, lte, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,

@@ -7,7 +7,7 @@ import {
   ErrorCode,
   createLogger,
   errorMessage,
-} from '@mwashburn160/api-core';
+} from '@pipeline-builder/api-core';
 import { Router, Request, Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config';

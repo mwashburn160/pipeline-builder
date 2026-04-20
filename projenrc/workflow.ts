@@ -226,11 +226,6 @@ export class Workflow extends Component {
                     run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose',
                 },
                 {
-                    name: 'Publish github packages',
-                    if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'npm config set @mwashburn160:registry=https://npm.pkg.github.com/ && pnpm publish --access restricted --filter @mwashburn160/* --no-git-checks --verbose',
-                },
-                {
                     name: 'Upload artifact',
                     uses: 'actions/upload-artifact@v7',
                     with: {
@@ -428,10 +423,6 @@ export class Workflow extends Component {
             {
                 name: 'Configure npm registry',
                 run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
-            },
-            {
-                name: 'Configure github registry',
-                run: 'export GHRC_TOKEN=$(echo ${{ secrets.GHRC_TOKEN_ENCODED }} | base64 -d) && npm config set //npm.pkg.github.com/\:_authToken=$GHRC_TOKEN && npm config set \@mwashburn160\:registry=https://npm.pkg.github.com/',
             },
             {
                 name: 'Install dependencies',

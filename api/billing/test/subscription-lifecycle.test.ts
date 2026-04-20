@@ -8,7 +8,7 @@
 const mockSyncTier = jest.fn().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn().mockResolvedValue(undefined);
 
-jest.mock('@mwashburn160/api-core', () => ({
+jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),

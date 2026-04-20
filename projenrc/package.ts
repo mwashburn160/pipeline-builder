@@ -39,7 +39,7 @@ import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
  * // In .projenrc.ts
  * let apiCore = new PackageProject({
  *   parent: root,
- *   name: '@mwashburn160/api-core',
+ *   name: '@pipeline-builder/api-core',
  *   outdir: './packages/api-core',
  *   deps: ['express', 'winston'],
  * });

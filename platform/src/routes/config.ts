@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess } from '@mwashburn160/api-core';
+import { sendSuccess } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { config } from '../config';
 

@@ -10,7 +10,7 @@ const mockTransactionValues = jest.fn().mockReturnValue({
   onConflictDoUpdate: mockTransactionOnConflict,
 });
 
-jest.mock('@mwashburn160/pipeline-core', () => {
+jest.mock('@pipeline-builder/pipeline-core', () => {
   const mockFind = jest.fn();
   const mockSetDefault = jest.fn();
 
@@ -67,7 +67,7 @@ jest.mock('drizzle-orm/pg-core', () => ({}));
 import { PipelineService } from '../src/services/pipeline-service';
 
 // Ensure the hoisted mock is loaded
-jest.requireMock('@mwashburn160/pipeline-core');
+jest.requireMock('@pipeline-builder/pipeline-core');
 
 // Tests
 
@@ -86,7 +86,7 @@ describe('PipelineService', () => {
       const result = await service.createAsDefault(data, 'user-1', 'proj', 'org');
 
       // Verify transaction was used
-      const { db } = jest.requireMock('@mwashburn160/pipeline-core');
+      const { db } = jest.requireMock('@pipeline-builder/pipeline-core');
       expect(db.transaction).toHaveBeenCalled();
 
       // Verify update was called to clear defaults

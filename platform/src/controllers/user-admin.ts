@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, SYSTEM_ORG_ID } from '@mwashburn160/api-core';
-import type { QuotaTier } from '@mwashburn160/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { config } from '../config';
 import { formatUserResponse, toOverridesRecord } from './user-profile';

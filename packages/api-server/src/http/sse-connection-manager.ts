@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@mwashburn160/api-core';
-import { CoreConstants } from '@mwashburn160/pipeline-core';
+import { createLogger } from '@pipeline-builder/api-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
