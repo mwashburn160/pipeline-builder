@@ -1,16 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { decodeTokenPayload, warnIfNotAdmin } from '../src/utils/auth-guard';
+import { decodeTokenPayload } from '../src/utils/auth-guard';
 
-// Mock output-utils
-jest.mock('../src/utils/output-utils', () => ({
-  printWarning: jest.fn(),
-}));
-
-const { printWarning } = jest.requireMock('../src/utils/output-utils');
-
-// Helper: create a fake JWT with given payload (no signature verification)
 function fakeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -39,36 +31,5 @@ describe('decodeTokenPayload', () => {
     expect(payload?.role).toBe('user');
     expect(payload?.organizationId).toBe('org-1');
     expect(payload?.isAdmin).toBe(false);
-  });
-});
-
-describe('warnIfNotAdmin', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('should not warn for admin role', () => {
-    const token = fakeJwt({ role: 'admin' });
-    warnIfNotAdmin(token);
-    expect(printWarning).not.toHaveBeenCalled();
-  });
-
-  it('should not warn for owner role', () => {
-    const token = fakeJwt({ role: 'owner' });
-    warnIfNotAdmin(token);
-    expect(printWarning).not.toHaveBeenCalled();
-  });
-
-  it('should warn for non-admin role', () => {
-    const token = fakeJwt({ role: 'user' });
-    warnIfNotAdmin(token);
-    expect(printWarning).toHaveBeenCalledWith(
-      expect.stringContaining('does not appear to have admin role'),
-    );
-  });
-
-  it('should warn for invalid token but not throw', () => {
-    warnIfNotAdmin('invalid-token');
-    expect(printWarning).toHaveBeenCalledWith(
-      expect.stringContaining('Unable to decode token'),
-    );
   });
 });

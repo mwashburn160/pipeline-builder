@@ -12,7 +12,6 @@ import {
   TIMEOUTS,
   FILE_SIZE_LIMITS,
   ENV_VARS,
-  STATUS_COLORS,
 } from '../src/config/cli.constants';
 
 // Tests
@@ -43,15 +42,6 @@ describe('cli constants', () => {
     });
   });
 
-  describe('STATUS_COLORS', () => {
-    it('should define color for each status', () => {
-      expect(STATUS_COLORS.success).toBe('green');
-      expect(STATUS_COLORS.error).toBe('red');
-      expect(STATUS_COLORS.warning).toBe('yellow');
-      expect(STATUS_COLORS.info).toBe('cyan');
-      expect(STATUS_COLORS.debug).toBe('magenta');
-    });
-  });
 });
 
 describe('isDebugMode', () => {

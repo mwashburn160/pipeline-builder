@@ -157,43 +157,6 @@ export interface Plugin extends PluginBase {
 }
 
 /**
- * Metadata fields sent alongside the plugin archive in an upload request.
- */
-export interface PluginUploadRequest {
-  /**
-   * Organization name
-   */
-  organization: string;
-
-  /**
-   * Plugin name (optional, can be extracted from file)
-   */
-  name?: string;
-
-  /**
-   * Plugin version (optional, can be extracted from file)
-   */
-  version?: string;
-
-  /**
-   * Whether the plugin is public
-   * @default false
-   */
-  isPublic?: boolean;
-
-  /**
-   * Whether the plugin is active
-   * @default true
-   */
-  isActive?: boolean;
-
-  /**
-   * Additional metadata
-   */
-  metadata?: Record<string, unknown>;
-}
-
-/**
  * Response returned by single-plugin API endpoints (get, upload).
  */
 export interface PluginResponse {

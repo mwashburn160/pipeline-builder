@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { ENV_VARS, assertShellSafe } from '../config/cli.constants';
 import { auditLog } from '../utils/audit-log';
-import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
+import { ensureCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
 import { printCommandHeader } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
@@ -115,13 +115,7 @@ export function bootstrap(program: Command): void {
           cloudformationExecutionPolicies: options.cloudformationExecutionPolicies || '(none)',
         });
 
-        // Check CDK availability
-        if (!checkCdkAvailable()) {
-          printError('AWS CDK is not installed or not accessible');
-          console.log(dim('Install CDK with: npm install -g aws-cdk'));
-          throw new Error('AWS CDK not found');
-        }
-
+        ensureCdkAvailable();
         printSuccess('AWS CDK is available');
 
         // Build bootstrap command

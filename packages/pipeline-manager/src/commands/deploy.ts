@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from 'crypto';
-import path from 'path';
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants';
 import { Pipeline, PipelineResponse } from '../types';
 import { auditLog } from '../utils/audit-log';
-import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
+import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
@@ -63,13 +62,7 @@ export function deploy(program: Command): void {
           process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
         }
 
-        // Check CDK availability
-        if (!checkCdkAvailable()) {
-          printError('AWS CDK is not installed or not accessible');
-          console.log(dim('💡 Tip: Install CDK with: npm install -g aws-cdk'));
-          throw new Error('AWS CDK not found');
-        }
-
+        ensureCdkAvailable();
         printSuccess('AWS CDK is available');
 
         // Create authenticated API client (supports PLATFORM_TOKEN or --store-tokens)
@@ -120,7 +113,7 @@ export function deploy(program: Command): void {
         if (options.profile) assertShellSafe(options.profile, 'profile');
         assertShellSafe(outputPath, 'output');
 
-        const scriptPath = path.join(__dirname, '../boilerplate.js');
+        const scriptPath = resolveBoilerplatePath(__dirname);
         const profileArg = options.profile ? `--profile=${options.profile}` : '';
         const outputArg = `--output=${outputPath}`;
         const appArg = `--app="node ${scriptPath}"`;

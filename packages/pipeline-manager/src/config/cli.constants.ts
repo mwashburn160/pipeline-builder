@@ -121,17 +121,6 @@ export const TABLE_OPTIONS = {
 } as const;
 
 /**
- * Color scheme for status indicators
- */
-export const STATUS_COLORS = {
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
-  info: 'cyan',
-  debug: 'magenta',
-} as const;
-
-/**
  * Validate boolean string from CLI input
  */
 export function validateBoolean(value: string, fieldName: string): boolean {

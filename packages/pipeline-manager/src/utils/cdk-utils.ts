@@ -2,6 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execSync } from 'child_process';
+import path from 'path';
+import { printError } from './output-utils';
+
+/**
+ * Path to dist/boilerplate.js. cli.js is bundled, so callers always sit
+ * alongside boilerplate.js in the dist/ directory.
+ */
+export function resolveBoilerplatePath(callerDir: string): string {
+  return path.join(callerDir, 'boilerplate.js');
+}
 
 export interface CdkInfo {
   available: boolean;
@@ -26,6 +36,18 @@ export function getCdkInfo(): CdkInfo {
  */
 export function checkCdkAvailable(): boolean {
   return getCdkInfo().available;
+}
+
+/**
+ * Asserts that the AWS CDK CLI is installed; throws with a user-friendly
+ * message + install hint when it isn't. Use at the top of any command that
+ * shells out to `cdk`.
+ */
+export function ensureCdkAvailable(): void {
+  if (checkCdkAvailable()) return;
+  printError('AWS CDK is not installed or not accessible');
+  console.log('Install CDK with: npm install -g aws-cdk');
+  throw new Error('AWS CDK not found');
 }
 
 /**

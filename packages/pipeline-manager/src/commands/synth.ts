@@ -1,18 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import path from 'path';
 import { Command } from 'commander';
-import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants';
 import { auditLog } from '../utils/audit-log';
-import { checkCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
+import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
 import type { Pipeline } from '../types/pipeline';
-
-const { dim } = pico;
 
 /**
  * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.
@@ -102,20 +98,14 @@ export function synth(program: Command): void {
           throw new Error('Pipeline ID is required. Use --id <id> or set PIPELINE_ID env var.');
         }
 
-        // Check CDK availability
-        if (!checkCdkAvailable()) {
-          printError('AWS CDK is not installed or not accessible');
-          console.log(dim('Install with: npm install -g aws-cdk'));
-          throw new Error('AWS CDK not found');
-        }
-
+        ensureCdkAvailable();
         printSuccess('AWS CDK is available');
 
         // Build cdk synth command
         if (options.output) assertShellSafe(options.output, 'output');
         if (options.profile) assertShellSafe(options.profile, 'profile');
 
-        const boilerplatePath = path.join(__dirname, '../boilerplate.js');
+        const boilerplatePath = resolveBoilerplatePath(__dirname);
         const parts = [
           'cdk synth',
           `--app="node ${boilerplatePath}"`,
