@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { schema, db, buildComplianceScanConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
@@ -49,9 +49,8 @@ export function createScanRoutes(): Router {
 
     const total = countResult?.count ?? 0;
     ctx.log('COMPLETED', 'Listed compliance scans', { count: scans.length });
-    return sendSuccess(res, 200, {
-      scans,
-      pagination: { total, limit, offset, hasMore: offset + scans.length < total },
+    return sendPaginatedNested(res, 'scans', scans, {
+      total, limit, offset, hasMore: offset + scans.length < total,
     });
   }));
 

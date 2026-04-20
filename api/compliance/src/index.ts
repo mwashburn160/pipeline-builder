@@ -8,9 +8,8 @@ import {
   attachRequestContext,
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
+  postgresHealthCheck,
 } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
-import { sql } from 'drizzle-orm';
 import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
 import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
@@ -33,11 +32,7 @@ import { createValidateRoutes } from './routes/validate';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({
-  checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
-  },
-});
+const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // Attach request context to all requests
 app.use(attachRequestContext(sseManager));

@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
-import { sql } from 'drizzle-orm';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
 import { createBulkPluginRoutes } from './routes/bulk-plugin';
@@ -19,12 +17,7 @@ import { createUploadPluginRoutes } from './routes/upload-plugin';
 const logger = createLogger('plugin');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
-  checkDependencies: async () => {
-    const deps: Record<string, 'connected' | 'disconnected' | 'unknown'> = {};
-    try { await db.execute(sql`SELECT 1`); deps.postgres = 'connected'; } catch { deps.postgres = 'unknown'; }
-    deps.redis = 'connected';
-    return deps;
-  },
+  checkDependencies: async () => ({ ...(await postgresHealthCheck()), redis: 'connected' }),
 });
 
 // -- Attach request context to all requests -----------------------------------

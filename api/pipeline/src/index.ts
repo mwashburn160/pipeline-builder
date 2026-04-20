@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
-import { sql } from 'drizzle-orm';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline';
 import { createCreatePipelineRoutes } from './routes/create-pipeline';
@@ -16,11 +14,7 @@ import { createUpdatePipelineRoutes } from './routes/update-pipeline';
 
 const logger = createLogger('pipeline');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({
-  checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
-  },
-});
+const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

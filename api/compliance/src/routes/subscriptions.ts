@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, errorMessage, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendBadRequest, ErrorCode, errorMessage, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { schema, db, buildPublishedRuleCatalogConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, sql, inArray, isNull } from 'drizzle-orm';
@@ -74,9 +74,9 @@ export function createPublishedRulesCatalogRoutes(): Router {
     }));
 
     ctx.log('COMPLETED', 'Listed published rules catalog', { count: catalog.length });
-    return sendSuccess(res, 200, {
-      rules: catalog,
-      pagination: { total: countResult?.count ?? 0, limit, offset, hasMore: offset + rules.length < (countResult?.count ?? 0) },
+    const total = countResult?.count ?? 0;
+    return sendPaginatedNested(res, 'rules', catalog, {
+      total, limit, offset, hasMore: offset + rules.length < total,
     });
   }));
 
@@ -117,9 +117,8 @@ export function createSubscriptionRoutes(): Router {
     }));
 
     ctx.log('COMPLETED', 'Listed rule subscriptions', { count: result.length });
-    return sendSuccess(res, 200, {
-      subscriptions: result,
-      pagination: { total, limit, offset, hasMore: offset + paginatedSubs.length < total },
+    return sendPaginatedNested(res, 'subscriptions', result, {
+      total, limit, offset, hasMore: offset + paginatedSubs.length < total,
     });
   }));
 

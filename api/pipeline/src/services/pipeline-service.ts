@@ -75,49 +75,23 @@ export class PipelineService extends CrudService<
 
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
-  protected async onAfterCreate(entity: Pipeline): Promise<void> {
+  private invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string) {
     pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline create', { orgId: entity.orgId, error: errorMessage(err) });
+      logger.debug(`Cache invalidation failed after pipeline ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
     });
-    entityEvents.emit({
-      eventType: 'created',
-      target: 'pipeline',
-      entityId: entity.id,
-      orgId: entity.orgId,
-      userId: entity.createdBy,
-      timestamp: new Date(),
-      attributes: entity,
-    });
+    entityEvents.emit({ eventType, target: 'pipeline', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes: entity });
+  }
+
+  protected async onAfterCreate(entity: Pipeline): Promise<void> {
+    this.invalidateAndEmit('created', entity.id, entity, entity.createdBy);
   }
 
   protected async onAfterUpdate(id: string, entity: Pipeline): Promise<void> {
-    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline update', { orgId: entity.orgId, error: errorMessage(err) });
-    });
-    entityEvents.emit({
-      eventType: 'updated',
-      target: 'pipeline',
-      entityId: id,
-      orgId: entity.orgId,
-      userId: entity.updatedBy,
-      timestamp: new Date(),
-      attributes: entity,
-    });
+    this.invalidateAndEmit('updated', id, entity, entity.updatedBy);
   }
 
   protected async onAfterDelete(id: string, entity: Pipeline): Promise<void> {
-    pipelineCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after pipeline delete', { orgId: entity.orgId, error: errorMessage(err) });
-    });
-    entityEvents.emit({
-      eventType: 'deleted',
-      target: 'pipeline',
-      entityId: id,
-      orgId: entity.orgId,
-      userId: entity.updatedBy,
-      timestamp: new Date(),
-      attributes: entity,
-    });
+    this.invalidateAndEmit('deleted', id, entity, entity.updatedBy);
   }
 
   /** Atomically create a pipeline as the default for a project (clears existing defaults). */

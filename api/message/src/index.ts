@@ -4,9 +4,7 @@
 import crypto from 'crypto';
 
 import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
-import { createApp, startServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, createWSManager } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
-import { sql } from 'drizzle-orm';
+import { createApp, startServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, createWSManager, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { Request, Response } from 'express';
 import { WebSocketServer } from 'ws';
 
@@ -17,11 +15,7 @@ import { createUpdateMessageRoutes } from './routes/update-message';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({
-  checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
-  },
-});
+const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

@@ -8,15 +8,15 @@ import {
   requirePublicAccess,
   sendBadRequest,
   sendSuccess,
+  sendPaginatedNested,
   sendEntityNotFound,
   parsePaginationParams,
-  incrementQuota,
   normalizeArrayFields,
   validateQuery,
   PipelineFilterSchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
@@ -48,19 +48,12 @@ export function createReadPipelineRoutes(
     );
 
     ctx.log('COMPLETED', 'Listed pipelines', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
-    return sendSuccess(res, 200, {
-      pipelines: result.data.map(r => normalizeArrayFields(r, ['keywords'])),
-      pagination: {
-        ...(result.total !== undefined && { total: result.total }),
-        limit: result.limit,
-        offset: result.offset,
-        hasMore: result.hasMore,
-        ...(result.nextCursor && { nextCursor: result.nextCursor }),
-      },
+    return sendPaginatedNested(res, 'pipelines', result.data.map(r => normalizeArrayFields(r, ['keywords'])), {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore, nextCursor: result.nextCursor,
     });
   }));
 
@@ -77,7 +70,7 @@ export function createReadPipelineRoutes(
     if (!result) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -97,7 +90,7 @@ export function createReadPipelineRoutes(
     if (!requirePublicAccess(req, res, result)) return;
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 

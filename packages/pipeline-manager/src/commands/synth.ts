@@ -3,12 +3,12 @@
 
 import { Command } from 'commander';
 import { assertShellSafe } from '../config/cli.constants';
+import type { Pipeline } from '../types/pipeline';
 import { auditLog } from '../utils/audit-log';
 import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
-import type { Pipeline } from '../types/pipeline';
 
 /**
  * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.

@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, parsePaginationParams, incrementQuota, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { pluginService } from '../services/plugin-service';
@@ -35,19 +35,12 @@ export function createReadPluginRoutes(
     );
 
     ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
-    return sendSuccess(res, 200, {
-      plugins: result.data.map(r => normalizeArrayFields(r, ['keywords', 'installCommands', 'commands'])),
-      pagination: {
-        ...(result.total !== undefined && { total: result.total }),
-        limit: result.limit,
-        offset: result.offset,
-        hasMore: result.hasMore,
-        ...(result.nextCursor && { nextCursor: result.nextCursor }),
-      },
+    return sendPaginatedNested(res, 'plugins', result.data.map(r => normalizeArrayFields(r, ['keywords', 'installCommands', 'commands'])), {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore, nextCursor: result.nextCursor,
     });
   }));
 
@@ -62,7 +55,7 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { plugin: normalizeArrayFields(result, ['keywords', 'installCommands', 'commands']) });
   }));
@@ -80,7 +73,7 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -98,7 +91,7 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 

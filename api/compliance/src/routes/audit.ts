@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, parsePaginationParams } from '@pipeline-builder/api-core';
+import { sendPaginatedNested, parsePaginationParams } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { schema, db, buildComplianceAuditConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
 import { and, desc, sql } from 'drizzle-orm';
@@ -43,9 +43,8 @@ export function createAuditRoutes(): Router {
 
     const total = countResult?.count ?? 0;
     ctx.log('COMPLETED', 'Listed compliance audit log', { count: entries.length });
-    return sendSuccess(res, 200, {
-      entries,
-      pagination: { total, limit, offset, hasMore: offset + entries.length < total },
+    return sendPaginatedNested(res, 'entries', entries, {
+      total, limit, offset, hasMore: offset + entries.length < total,
     });
   }));
 

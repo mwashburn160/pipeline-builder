@@ -7,6 +7,7 @@ import {
   sendError,
   sendQuotaExceeded,
   sendPaginated,
+  sendPaginatedNested,
   extractDbError,
   errorMessage,
   sendBadRequest,
@@ -179,6 +180,40 @@ describe('sendPaginated', () => {
 
     expect(res.body.total).toBeUndefined();
     expect(res.body.message).toBeUndefined();
+  });
+});
+
+describe('sendPaginatedNested', () => {
+  it('should nest data under the given key with pagination metadata', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'pipelines', [{ id: '1' }, { id: '2' }], {
+      total: 50, limit: 25, offset: 0, hasMore: true,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.pipelines).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(res.body.pagination).toEqual({ total: 50, limit: 25, offset: 0, hasMore: true });
+  });
+
+  it('should omit total when not provided', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [], { limit: 10, offset: 0, hasMore: false });
+    expect(res.body.pagination.total).toBeUndefined();
+    expect(res.body.pagination).toEqual({ limit: 10, offset: 0, hasMore: false });
+  });
+
+  it('should include nextCursor when provided', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [], {
+      limit: 10, offset: 0, hasMore: true, nextCursor: 'abc123',
+    });
+    expect(res.body.pagination.nextCursor).toBe('abc123');
+  });
+
+  it('should use custom statusCode', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [], { limit: 10, offset: 0, hasMore: false, statusCode: 206 });
+    expect(res.statusCode).toBe(206);
   });
 });
 

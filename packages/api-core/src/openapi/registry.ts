@@ -33,8 +33,9 @@ function ensureInitialized(): void {
  * @param options - Optional overrides for spec metadata
  * @returns OpenAPI 3.1 specification object
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function generateOpenApiSpec(options?: OpenApiSpecOptions): any {
+export function generateOpenApiSpec(
+  options?: OpenApiSpecOptions,
+): ReturnType<OpenApiGeneratorV31['generateDocument']> {
   ensureInitialized();
 
   const generator = new OpenApiGeneratorV31(registry.definitions);

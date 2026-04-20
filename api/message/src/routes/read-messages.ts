@@ -4,16 +4,16 @@
 import {
   sendBadRequest,
   sendSuccess,
+  sendPaginatedNested,
   ErrorCode,
   parsePaginationParams,
   getParam,
   validateQuery,
   MessageFilterSchema,
-  incrementQuota,
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import type { MessageFilter } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
@@ -59,16 +59,10 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     );
 
     ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, {
-      messages: result.data,
-      pagination: {
-        total: result.total,
-        limit: result.limit,
-        offset: result.offset,
-        hasMore: result.hasMore,
-      },
+    return sendPaginatedNested(res, 'messages', result.data, {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));
 
@@ -78,7 +72,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     const announcements = await messageService.findAnnouncements(orgId);
 
     ctx.log('COMPLETED', 'Announcements fetched', { count: announcements.length });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { messages: announcements });
   }));
@@ -89,7 +83,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     const conversations = await messageService.findConversations(orgId);
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: conversations.length });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { messages: conversations });
   }));
@@ -116,7 +110,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       return sendEntityNotFound(res, 'Message');
     }
 
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { message });
   }));
@@ -144,7 +138,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     );
 
     ctx.log('COMPLETED', 'Thread fetched', { count: thread.length });
-    incrementQuota(quotaService, orgId, 'apiCalls', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { messages: thread });
   }));

@@ -119,35 +119,29 @@ export interface AdminContext {
  */
 export function getAdminContext(req: Request): AdminContext {
   const isSysAdmin = isSystemAdmin(req);
+  const isOrgAdminUser = isOrgAdmin(req);
   return {
     isSysAdmin,
-    isOrgAdmin: isOrgAdmin(req),
+    isOrgAdmin: isOrgAdminUser,
     adminType: isSysAdmin ? 'system admin' : 'org admin',
   };
 }
 
 /**
- * Require admin access and return context. Sends 401/403 if not authorized.
+ * Require admin access and return context. Sends 401/403 on failure and
+ * returns null so the caller can short-circuit with `if (!ctx) return;`.
  */
 export function requireAdminContext(req: Request, res: Response): AdminContext | null {
   if (!req.user) {
     sendError(res, 401, 'Unauthorized');
     return null;
   }
-
-  const isSysAdmin = isSystemAdmin(req);
-  const isOrgAdminUser = isOrgAdmin(req);
-
-  if (!isSysAdmin && !isOrgAdminUser) {
+  const ctx = getAdminContext(req);
+  if (!ctx.isSysAdmin && !ctx.isOrgAdmin) {
     sendError(res, 403, 'Forbidden: Admin access required');
     return null;
   }
-
-  return {
-    isSysAdmin,
-    isOrgAdmin: isOrgAdminUser,
-    adminType: isSysAdmin ? 'system admin' : 'org admin',
-  };
+  return ctx;
 }
 
 // Auth Context (for service proxy controllers)
@@ -198,13 +192,6 @@ export function extractToken(req: Request): string | null {
 // Error Handling
 
 export type ErrorMap = Record<string, { status: number; message: string }>;
-
-/**
- * Handle transaction errors by mapping known error messages to HTTP responses.
- */
-export function handleTransactionError(res: Response, err: unknown, errorMap: ErrorMap, fallbackMessage: string): void {
-  handleControllerError(res, err, fallbackMessage, errorMap);
-}
 
 // Mongoose Error Handling
 

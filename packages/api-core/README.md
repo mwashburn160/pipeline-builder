@@ -1,5 +1,9 @@
 # @pipeline-builder/api-core
 
+> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
+
+📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
+
 Core API utilities shared across all pipeline-builder backend services. Provides error handling, logging, authentication middleware, parameter parsing, request/response utilities, and validation schemas.
 
 ## Key Exports

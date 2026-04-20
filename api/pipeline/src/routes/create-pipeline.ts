@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, incrementQuota, createComplianceClient } from '@pipeline-builder/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createProtectedRoute, withRoute } from '@pipeline-builder/api-server';
+import { createProtectedRoute, withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
@@ -92,7 +92,7 @@ export function createCreatePipelineRoutes(
           organization,
         );
 
-        incrementQuota(quotaService, orgId, 'pipelines', req.headers.authorization || '', ctx.log.bind(null, 'WARN'));
+        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'pipelines');
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 

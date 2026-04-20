@@ -1,5 +1,9 @@
 # @pipeline-builder/ai-core
 
+> **Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
+
+📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
+
 Shared AI provider registry for the pipeline-builder platform. Lazily initializes SDK wrappers from environment variables and exposes model resolution helpers.
 
 ## Supported Providers

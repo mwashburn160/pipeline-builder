@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
 import { config } from './config';
@@ -11,13 +11,7 @@ import updateQuotaRoutes from './routes/update-quota';
 
 // -- Express app ---------------------------------------------------------------
 
-const { app, sseManager } = createApp({
-  checkDependencies: async () => ({
-    mongodb: mongoose.connection.readyState === 1 ? 'connected'
-      : mongoose.connection.readyState === 0 ? 'unknown' as const
-        : 'disconnected',
-  }),
-});
+const { app, sseManager } = createApp({ checkDependencies: mongoHealthCheck(mongoose.connection) });
 
 app.use(attachRequestContext(sseManager));
 

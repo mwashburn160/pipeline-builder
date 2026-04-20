@@ -2,20 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, requireAuth } from '@pipeline-builder/api-core';
-import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
-import { sql } from 'drizzle-orm';
+import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { createEventIngestRoutes } from './routes/event-ingest';
 import { createExecutionReportRoutes } from './routes/execution-reports';
 import { createPluginReportRoutes } from './routes/plugin-reports';
 
 const logger = createLogger('reporting');
-const { app, sseManager } = createApp({
-  checkDependencies: async () => {
-    try { await db.execute(sql`SELECT 1`); return { postgres: 'connected' as const }; } catch { return { postgres: 'unknown' as const }; }
-  },
-});
+const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 app.use(attachRequestContext(sseManager));
 

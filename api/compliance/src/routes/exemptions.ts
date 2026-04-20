@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { schema, db, buildComplianceExemptionConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
@@ -57,9 +57,8 @@ export function createExemptionRoutes(): Router {
 
     const total = countResult?.count ?? 0;
     ctx.log('COMPLETED', 'Listed exemptions', { count: exemptions.length });
-    return sendSuccess(res, 200, {
-      exemptions,
-      pagination: { total, limit, offset, hasMore: offset + exemptions.length < total },
+    return sendPaginatedNested(res, 'exemptions', exemptions, {
+      total, limit, offset, hasMore: offset + exemptions.length < total,
     });
   }));
 

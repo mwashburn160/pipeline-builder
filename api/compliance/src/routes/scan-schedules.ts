@@ -3,6 +3,7 @@
 
 import {
   sendSuccess,
+  sendPaginatedNested,
   sendBadRequest,
   sendEntityNotFound,
   ErrorCode,
@@ -61,9 +62,8 @@ export function createScanScheduleRoutes(): Router {
 
     const total = countResult?.count ?? 0;
     ctx.log('COMPLETED', 'Listed scan schedules', { count: schedules.length });
-    return sendSuccess(res, 200, {
-      schedules,
-      pagination: { total, limit, offset, hasMore: offset + schedules.length < total },
+    return sendPaginatedNested(res, 'schedules', schedules, {
+      total, limit, offset, hasMore: offset + schedules.length < total,
     });
   }));
 

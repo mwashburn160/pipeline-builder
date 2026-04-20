@@ -41,7 +41,7 @@ async function notifyInviter(invitation: InvitationDocument, user: UserDocument,
 
 /**
  * Validate an invitation token: check it exists, is pending, and not expired.
- * Throws coded errors for the handleTransactionError map.
+ * Throws coded errors that callers map to HTTP responses via the ErrorMap.
  */
 async function validateInvitationToken(token: string, session: mongoose.ClientSession): Promise<InvitationDocument> {
   const invitation = await Invitation.findOne({ token }).session(session);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendEntityNotFound, getParam, parsePaginationParams } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { compliancePolicyService } from '../services/policy-service';
@@ -22,9 +22,8 @@ export function createReadPolicyRoutes(): Router {
     );
 
     ctx.log('COMPLETED', 'Listed compliance policies', { count: result.data.length });
-    return sendSuccess(res, 200, {
-      policies: result.data,
-      pagination: { total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore },
+    return sendPaginatedNested(res, 'policies', result.data, {
+      total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore,
     });
   }));
 

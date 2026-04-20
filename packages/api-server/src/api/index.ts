@@ -12,6 +12,12 @@ export * from './get-context';
 // App factory
 export * from './app-factory';
 
+// Health-check helpers
+export * from './health-checks';
+
+// Quota helpers
+export * from './quota-helpers';
+
 // Idempotency
 export * from './idempotency-middleware';
 

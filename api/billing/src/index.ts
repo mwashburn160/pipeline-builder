@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, ErrorCode } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
 
@@ -20,15 +20,9 @@ const logger = createLogger('billing');
 
 // -- Express app ---------------------------------------------------------------
 
-const checkMongoDb = async () => ({
-  mongodb: mongoose.connection.readyState === 1 ? 'connected' as const
-    : mongoose.connection.readyState === 0 ? 'unknown' as const  // not yet connected (starting up)
-    : 'disconnected' as const,
-});
-
 const { app, sseManager } = createApp({
   // Only check MongoDB when billing is enabled — disabled mode never connects
-  checkDependencies: config.enabled ? checkMongoDb : undefined,
+  checkDependencies: config.enabled ? mongoHealthCheck(mongoose.connection) : undefined,
 });
 
 app.use(attachRequestContext(sseManager));

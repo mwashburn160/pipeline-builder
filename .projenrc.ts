@@ -322,9 +322,10 @@ const platform = new FunctionProject({
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.1',
     '@types/nodemailer@7.0.11', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
     '@types/node@25.3.0', '@types/pg@8.16.0', '@types/adm-zip@0.5.7',
-    '@types/multer@2.0.0', '@jest/globals@30.2.0',
+    '@types/multer@2.0.0', '@jest/globals@30.2.0', 'copyfiles@2.4.1',
   ],
 });
+platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');
 platform.addScripts(dockerScripts('platform'));
 platform.eslint?.addRules(rules);
 configureJest(platform);
@@ -417,7 +418,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'compliance',
-    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6', 'cron-parser@5.0.6', 'bullmq@5.34.8'],
+    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6', 'bullmq@5.34.8'],
     devDeps: ['@types/pg@8.16.0'],
   },
 ];

@@ -44,6 +44,12 @@ jest.mock('@pipeline-builder/api-core', () => {
       if (message) response.message = message;
       res.status(statusCode).json(response);
     }),
+    sendPaginatedNested: jest.fn((res: any, dataKey: string, data: any, opts: any) => {
+      const pagination: any = { limit: opts.limit, offset: opts.offset, hasMore: opts.hasMore };
+      if (opts.total !== undefined) pagination.total = opts.total;
+      if (opts.nextCursor) pagination.nextCursor = opts.nextCursor;
+      res.status(opts.statusCode ?? 200).json({ [dataKey]: data, pagination });
+    }),
     sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
       res.status(400).json({ success: false, statusCode: 400, message: msg, code });
     }),
@@ -98,6 +104,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
+  incrementQuotaFromCtx: jest.fn(),
 }));
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({
@@ -175,15 +182,11 @@ describe('GET /pipelines (list)', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      success: true,
-      statusCode: 200,
-      data: expect.objectContaining({
-        pipelines: expect.arrayContaining([
-          expect.objectContaining({ id: '1' }),
-          expect.objectContaining({ id: '2' }),
-        ]),
-        pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
-      }),
+      pipelines: expect.arrayContaining([
+        expect.objectContaining({ id: '1' }),
+        expect.objectContaining({ id: '2' }),
+      ]),
+      pagination: { limit: 25, offset: 0, hasMore: false, total: 2 },
     }));
   });
 

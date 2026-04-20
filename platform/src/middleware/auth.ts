@@ -3,8 +3,8 @@
 
 import { sendError } from '@pipeline-builder/api-core';
 import { Request, Response, NextFunction } from 'express';
-import { User, Organization, UserOrganization } from '../models';
 import { toOrgId } from '../helpers/controller-helper';
+import { User, Organization, UserOrganization } from '../models';
 import type { OrgMemberRole } from '../models/user-organization';
 import { AccessTokenPayload, UserRole } from '../types';
 import {

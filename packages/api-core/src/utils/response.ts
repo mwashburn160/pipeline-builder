@@ -216,6 +216,43 @@ export function sendPaginated<T>(
 }
 
 /**
+ * Send a paginated list response with the items nested under a named key.
+ * Use when the API contract is `{ <key>: [...], pagination: {...} }`
+ * (the dominant shape across api/* services).
+ *
+ * @example
+ * ```typescript
+ * sendPaginatedNested(res, 'pipelines', items, {
+ *   total: 50, limit: 25, offset: 0, hasMore: true,
+ * });
+ * // → { pipelines: [...], pagination: { total: 50, limit: 25, offset: 0, hasMore: true } }
+ * ```
+ */
+export function sendPaginatedNested<T>(
+  res: Response,
+  dataKey: string,
+  data: T[],
+  options: {
+    total?: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+    nextCursor?: string;
+    statusCode?: number;
+  },
+): void {
+  if (res.headersSent) {
+    logger.warn('Attempted to send paginated response after headers already sent');
+    return;
+  }
+  const { statusCode = 200, total, limit, offset, hasMore, nextCursor } = options;
+  const pagination: Record<string, unknown> = { limit, offset, hasMore };
+  if (total !== undefined) pagination.total = total;
+  if (nextCursor) pagination.nextCursor = nextCursor;
+  res.status(statusCode).json({ [dataKey]: data, pagination });
+}
+
+/**
  * Extract database error details for logging/response.
  *
  * Extracts PostgreSQL error codes, details, hints, and constraint names

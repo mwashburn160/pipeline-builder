@@ -3,8 +3,15 @@
 
 jest.mock('child_process');
 
+import path from 'path';
 import { execSync } from 'child_process';
-import { checkCdkAvailable, getCdkInfo, executeCdkShellCommand } from '../src/utils/cdk-utils';
+import {
+  checkCdkAvailable,
+  ensureCdkAvailable,
+  executeCdkShellCommand,
+  getCdkInfo,
+  resolveBoilerplatePath,
+} from '../src/utils/cdk-utils';
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 
@@ -47,6 +54,52 @@ describe('checkCdkAvailable', () => {
       throw new Error('command not found');
     });
     expect(checkCdkAvailable()).toBe(false);
+  });
+});
+
+describe('ensureCdkAvailable', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('should return void when cdk is available', () => {
+    mockExecSync.mockReturnValue('2.240.0' as any);
+    expect(() => ensureCdkAvailable()).not.toThrow();
+  });
+
+  it('should throw when cdk is not available', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    mockExecSync.mockImplementation(() => {
+      throw new Error('command not found');
+    });
+    expect(() => ensureCdkAvailable()).toThrow('AWS CDK not found');
+    consoleSpy.mockRestore();
+  });
+
+  it('should print install hint when cdk is missing', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    mockExecSync.mockImplementation(() => {
+      throw new Error('command not found');
+    });
+    try { ensureCdkAvailable(); } catch { /* expected */ }
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('npm install -g aws-cdk'),
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('resolveBoilerplatePath', () => {
+  it('should resolve boilerplate.js as a sibling of the caller directory parent', () => {
+    const callerDir = '/usr/local/lib/node_modules/@pipeline-builder/pipeline-manager/dist/commands';
+    expect(resolveBoilerplatePath(callerDir))
+      .toBe(path.join(callerDir, '..', 'boilerplate.js'));
+  });
+
+  it('should produce an absolute path when given an absolute caller', () => {
+    const result = resolveBoilerplatePath('/abs/path/dist/commands');
+    expect(path.isAbsolute(result)).toBe(true);
+    expect(result.endsWith('boilerplate.js')).toBe(true);
   });
 });
 
