@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.997.0",
-    "@pipeline-builder/api-core": "1.1.0",
+    "@pipeline-builder/api-core": "workspace:*",
     "adm-zip": "0.5.16",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",

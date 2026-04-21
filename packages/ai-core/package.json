@@ -1,5 +1,6 @@
 {
   "name": "@pipeline-builder/ai-core",
+  "description": "Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -38,15 +39,44 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@pipeline-builder/api-core": "1.1.0",
+    "@pipeline-builder/api-core": "workspace:*",
     "ai": "6.0.99"
   },
+  "keywords": [
+    "aws",
+    "codepipeline",
+    "codebuild",
+    "cicd",
+    "ci-cd",
+    "devops",
+    "cdk",
+    "aws-cdk",
+    "cloudformation",
+    "pipeline",
+    "pipeline-as-code",
+    "containerized",
+    "docker",
+    "kubernetes",
+    "plugins",
+    "typescript",
+    "self-service",
+    "multi-tenant",
+    "compliance",
+    "automation",
+    "infrastructure-as-code",
+    "iac",
+    "cli"
+  ],
   "engines": {
     "node": ">= 24.14.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
+  "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "version": "0.0.0",
+  "bugs": {
+    "url": "https://github.com/mwashburn160/pipeline-builder/issues"
+  },
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Provides Drizzle ORM schemas, connection management, query builders, and the generic `CrudService` base class with built-in multi-tenant access control used by every backend service.
+Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): Drizzle ORM schemas, connection management, query builders, and the generic `CrudService` base class with built-in multi-tenant access control used by every backend service.
 
 ## Key Exports
 

@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Provides the `Builder` CDK construct that assembles plugin specs into a CodePipeline stack, the `PluginLookup` custom resource that resolves plugins at deploy time, pipeline/plugin domain types, and shared application configuration. Also re-exports `pipeline-data` so consumers only depend on one package.
+AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): the `Builder` construct that assembles plugin specs into a CodePipeline stack, the `PluginLookup` custom resource that resolves plugins at deploy time, pipeline/plugin domain types, and shared application configuration. Also re-exports `pipeline-data` so consumers only depend on one package.
 
 ## Key Exports
 

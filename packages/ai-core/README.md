@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Shared AI provider registry for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Lazily initializes SDK wrappers from environment variables and exposes model resolution helpers used by AI-assisted pipeline and plugin generation.
+Shared AI provider registry for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): lazily initializes SDK wrappers from environment variables and exposes model resolution helpers used by AI-assisted pipeline and plugin generation.
 
 ## Supported Providers
 

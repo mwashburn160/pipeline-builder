@@ -1,5 +1,6 @@
 {
   "name": "@pipeline-builder/event-ingestion",
+  "description": "AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -33,12 +34,41 @@
     "ts-jest": "^29.4.6",
     "typescript": "5.9.3"
   },
+  "keywords": [
+    "aws",
+    "codepipeline",
+    "codebuild",
+    "cicd",
+    "ci-cd",
+    "devops",
+    "cdk",
+    "aws-cdk",
+    "cloudformation",
+    "pipeline",
+    "pipeline-as-code",
+    "containerized",
+    "docker",
+    "kubernetes",
+    "plugins",
+    "typescript",
+    "self-service",
+    "multi-tenant",
+    "compliance",
+    "automation",
+    "infrastructure-as-code",
+    "iac",
+    "cli"
+  ],
   "engines": {
     "node": ">= 24.14.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
+  "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "version": "0.0.0",
+  "bugs": {
+    "url": "https://github.com/mwashburn160/pipeline-builder/issues"
+  },
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

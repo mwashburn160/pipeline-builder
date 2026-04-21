@@ -2,7 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
+CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): bootstrap, synth, deploy, and manage CDK pipelines + plugins against a running platform.
 
 ## Install
 

@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-AWS Lambda handler for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Ingests CodePipeline state-change events from EventBridge and forwards normalized event payloads to the platform's reporting service. Deployed automatically by `pipeline-manager setup-events`.
+AWS Lambda handler for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) that ingests CodePipeline state-change events from EventBridge and forwards normalized event payloads to the platform's reporting service. Deployed automatically by `pipeline-manager setup-events`.
 
 ## What it does
 

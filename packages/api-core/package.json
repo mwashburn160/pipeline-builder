@@ -1,5 +1,6 @@
 {
   "name": "@pipeline-builder/api-core",
+  "description": "Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -40,12 +41,41 @@
     "winston": "3.19.0",
     "zod": "4.3.6"
   },
+  "keywords": [
+    "aws",
+    "codepipeline",
+    "codebuild",
+    "cicd",
+    "ci-cd",
+    "devops",
+    "cdk",
+    "aws-cdk",
+    "cloudformation",
+    "pipeline",
+    "pipeline-as-code",
+    "containerized",
+    "docker",
+    "kubernetes",
+    "plugins",
+    "typescript",
+    "self-service",
+    "multi-tenant",
+    "compliance",
+    "automation",
+    "infrastructure-as-code",
+    "iac",
+    "cli"
+  ],
   "engines": {
     "node": ">= 24.14.0"
   },
   "main": "lib/index.js",
   "license": "Apache-2.0",
+  "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "version": "0.0.0",
+  "bugs": {
+    "url": "https://github.com/mwashburn160/pipeline-builder/issues"
+  },
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

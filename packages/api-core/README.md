@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Core server-side utilities shared by every backend service in [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Provides JWT authentication middleware, structured logging, response helpers, error codes, quota enforcement, parameter parsing, validation schemas, an internal HTTP client, and the AI provider catalog.
+Core server-side utilities shared by every backend service in [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): JWT authentication middleware, structured logging, response helpers, error codes, quota enforcement, parameter parsing, validation schemas, an internal HTTP client, and the AI provider catalog.
 
 ## Key Exports
 

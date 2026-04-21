@@ -27,8 +27,8 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '1.1.0',
-  pipelineData:   '1.1.0',
+  apiCore:        ws,
+  pipelineData:   ws,
   pipelineCore:   ws,
   apiServer:      ws,
   aiCore:         ws,
@@ -99,6 +99,28 @@ const rules: Record<string, string> = {
   'import/no-extraneous-dependencies': 'off',
   '@typescript-eslint/member-ordering': 'off',
 };
+
+// Shared npm keywords applied to every @pipeline-builder/* package for search discoverability
+const keywords = [
+  'aws', 'codepipeline', 'codebuild', 'cicd', 'ci-cd', 'devops',
+  'cdk', 'aws-cdk', 'cloudformation', 'pipeline', 'pipeline-as-code',
+  'containerized', 'docker', 'kubernetes', 'plugins', 'typescript',
+  'self-service', 'multi-tenant', 'compliance', 'automation',
+  'infrastructure-as-code', 'iac', 'cli',
+];
+const homepage = 'https://mwashburn160.github.io/pipeline-builder/';
+const bugs = { url: 'https://github.com/mwashburn160/pipeline-builder/issues' };
+
+/** Apply the common npm metadata (keywords, homepage, bugs, license) to a projen package. */
+function addPackageMetadata(
+  p: { package: { addField: (k: string, v: unknown) => void } },
+  description: string,
+) {
+  p.package.addField('description', description);
+  p.package.addField('keywords', keywords);
+  p.package.addField('homepage', homepage);
+  p.package.addField('bugs', bugs);
+}
 
 /**
  * Configure jest for ESM compatibility.
@@ -175,6 +197,7 @@ const apiCore = new PackageProject({
   ],
 });
 apiCore.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
+addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 configureJest(apiCore);
 
 // -- Pipeline Data --
@@ -186,6 +209,7 @@ const pipelineData = new PackageProject({
   devDeps: ['@types/node@25.3.0', '@types/pg@8.16.0', 'drizzle-kit@0.31.9', `typescript@${typescriptVersion}`],
 });
 pipelineData.eslint?.addRules(rules);
+addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with multi-tenant access control.');
 configureJest(pipelineData);
 
 // -- Pipeline Core --
@@ -206,6 +230,7 @@ const pipelineCore = new PackageProject({
 });
 pipelineCore.eslint?.addRules(rules);
 pipelineCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
 configureJest(pipelineCore, { maxWorkers: 1 });
 pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
 
@@ -231,6 +256,7 @@ const apiServer = new PackageProject({
   ],
 });
 apiServer.eslint?.addRules({ ...rules, 'import/no-unresolved': 'off' });
+addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
 configureJest(apiServer, { maxWorkers: 1 });
 
 // -- AI Core --
@@ -247,6 +273,7 @@ const aiCore = new PackageProject({
   devDeps: ['@types/node@25.3.0', `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
+addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 configureJest(aiCore);
 
 // -- Event Ingestion Lambda --
@@ -261,6 +288,7 @@ const eventIngestion = new PackageProject({
   ],
 });
 eventIngestion.eslint?.addRules(rules);
+addPackageMetadata(eventIngestion, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
 configureJest(eventIngestion);
 
 // =============================================================================
@@ -284,16 +312,7 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-manager.package.addField('description', 'CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
-manager.package.addField('keywords', [
-  'aws', 'codepipeline', 'codebuild', 'cicd', 'ci-cd', 'devops',
-  'cdk', 'aws-cdk', 'cloudformation', 'pipeline', 'pipeline-as-code',
-  'containerized', 'docker', 'kubernetes', 'plugins', 'typescript',
-  'self-service', 'multi-tenant', 'compliance', 'automation',
-  'infrastructure-as-code', 'iac', 'cli',
-]);
-manager.package.addField('homepage', 'https://mwashburn160.github.io/pipeline-builder/');
-manager.package.addField('bugs', { url: 'https://github.com/mwashburn160/pipeline-builder/issues' });
+addPackageMetadata(manager, 'CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');

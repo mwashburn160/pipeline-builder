@@ -2,9 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Express server infrastructure for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) — a self-service platform that turns TypeScript, a YAML config, or a single AI prompt into a production-ready AWS CodePipeline backed by 124 reusable, containerized plugins.
-
-Ships the app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context with structured logging, route wrappers, health-check helpers, and SSE support used by every backend service.
+Express server infrastructure for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): the app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context with structured logging, route wrappers, health-check helpers, and SSE support used by every backend service.
 
 ## Key Exports
 
