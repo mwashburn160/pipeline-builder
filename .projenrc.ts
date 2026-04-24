@@ -44,7 +44,7 @@ const root = new TypeScriptProject({
   defaultReleaseBranch: branch,
   projenVersion: '0.99.8',
   minNodeVersion: '24.14.0',
-  minMajorVersion: 1,
+  minMajorVersion: 3,
   packageManager: NodePackageManager.PNPM,
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
