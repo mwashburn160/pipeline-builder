@@ -45,7 +45,3 @@ Core server-side utilities shared by every backend service in [Pipeline Builder]
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).
-
----
-
-**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli

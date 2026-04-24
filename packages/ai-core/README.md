@@ -47,7 +47,3 @@ const custom = createModelWithKey('openai', 'gpt-4o', 'sk-...');
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).
-
----
-
-**Keywords:** aws, codepipeline, codebuild, cicd, ci-cd, devops, cdk, aws-cdk, cloudformation, pipeline, pipeline-as-code, containerized, docker, kubernetes, plugins, typescript, self-service, multi-tenant, compliance, automation, infrastructure-as-code, iac, cli
