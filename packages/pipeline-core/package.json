@@ -38,8 +38,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.1.0",
-    "@pipeline-builder/pipeline-data": "workspace:*",
+    "@pipeline-builder/api-core": "3.1.1",
+    "@pipeline-builder/pipeline-data": "3.1.1",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",
@@ -81,7 +81,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.1.1",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

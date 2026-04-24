@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@pipeline-builder/ai-core": "workspace:*",
-    "@pipeline-builder/api-core": "3.1.0",
+    "@pipeline-builder/api-core": "3.1.1",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "cors": "2.8.6",
@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.1.1",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
