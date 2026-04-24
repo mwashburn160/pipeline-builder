@@ -16,6 +16,10 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     PLUGIN_IMAGE_PREFIX: 'p-',
   },
+  // Template-validator dependencies — minimal stubs so plugin-spec.ts loads
+  allowedScopeRoots: () => () => true,
+  validateTemplates: () => ({ valid: true, errors: [] }),
+  tokenize: () => [],
   Config: (() => {
     const get = (section: string) => {
       if (section === 'registry') return { insecure: true };
