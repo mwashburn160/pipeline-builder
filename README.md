@@ -69,6 +69,48 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 | Notification | 5 | Slack, Teams, PagerDuty, email, GitHub status |
 | AI | 1 | Dockerfile generation (multi-provider) |
 
+### Synth-Time Scripting
+
+Pipeline configs and plugin specs both support a minimal `{{ path | filter }}` template syntax that's resolved once at synthesis time — no runtime evaluation, no code execution. Same template engine, two scopes:
+
+**In `pipeline.json`** — self-references compose values from other metadata/vars:
+
+```json
+{
+  "projectName": "{{ vars.service }}-{{ metadata.env }}",
+  "metadata": {
+    "env": "prod",
+    "namespace": "{{ vars.service }}-{{ metadata.env }}",
+    "clusterName": "acme-eks-{{ metadata.env }}"
+  },
+  "vars": { "service": "checkout" }
+}
+```
+
+**In `plugin-spec.yaml`** — one plugin, many environments:
+
+```yaml
+name: kubectl-deploy
+requiredMetadata: [namespace]
+metadataTypes: { replicas: number }
+env:
+  KUBE_NAMESPACE: "{{ pipeline.metadata.namespace }}"
+commands:
+  - "kubectl apply -f k8s/{{ pipeline.metadata.env | default: 'staging' }}/"
+  - "kubectl scale deployment {{ pipeline.projectName }} --replicas={{ pipeline.metadata.replicas | number }}"
+```
+
+**Capabilities:**
+- **Path lookups** — `pipeline.*` (metadata, vars, projectName, orgId), `plugin.*`, `env.*` (own declared env vars)
+- **`| default: '...'`** — fallback value when the path is undefined
+- **Type coercion** — `| number`, `| bool`, `| json` for non-string fields
+- **Plugin contracts** — `requiredMetadata` / `requiredVars` / `metadataTypes` declare what a plugin needs, validated at upload
+- **Self-references with cycle detection** in pipeline configs
+- **Preview & validate** — `pipeline-manager validate-templates`, `--show-resolved` flag, `?resolve=true` API param
+- **Editor support** — frontend MetadataEditor parses tokens inline as you type
+
+Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
+
 ### Compliance Engine
 
 Per-organization rule enforcement that validates plugins and pipelines before creation.
