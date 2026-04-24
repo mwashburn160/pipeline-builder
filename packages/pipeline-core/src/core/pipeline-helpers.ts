@@ -12,6 +12,7 @@ import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
 import { CoreConstants } from '../config/app-config';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
+import { resolvePluginTemplates } from '../template/plugin-resolver';
 
 const log = createLogger('Helper');
 
@@ -163,11 +164,16 @@ function toSecretEnvVars(
  */
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
   const {
-    id, plugin, input, metadata, network, scope,
+    id, input, metadata, network, scope,
     preInstallCommands, postInstallCommands, preCommands, postCommands,
     env: customEnv, additionalInputs, timeout, failureBehavior,
-    artifactManager, stageName, stageAlias, pluginAlias, orgId,
+    artifactManager, stageName, stageAlias, pluginAlias, orgId, pipelineScope,
   } = options;
+
+  // Resolve {{ ... }} templates in plugin spec fields against the pipeline scope.
+  // Every call goes through the resolver — plugins without template tokens are
+  // a no-op fast path inside resolvePluginTemplates().
+  const plugin = resolvePluginTemplates(options.plugin, pipelineScope);
 
   const merged = merge(metadata ?? {}, plugin.metadata ?? {});
 

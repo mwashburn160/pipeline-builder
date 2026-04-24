@@ -767,6 +767,29 @@ class ApiClient {
     return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; imageTag?: string; failureCategory?: string; lastError?: string; error?: string; attemptsMade?: number; maxAttempts?: number; createdAt?: string; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/dlq${buildQuery(params)}`);
   }
 
+  /**
+   * Get grouped failure triage summary — failed-build queue and DLQ
+   * bucketed by failure category with representative samples.
+   */
+  async getQueueTriage(params?: Record<string, string>) {
+    return this.request<ApiResponse<{
+      totalFailed: number;
+      groups: Array<{
+        category: string;
+        count: number;
+        pluginNames: string[];
+        samples: Array<{
+          id: string | number;
+          pluginName: string | null;
+          imageTag: string | null;
+          error: string | null;
+          failedAt: string | null;
+          source: 'queue' | 'dlq';
+        }>;
+      }>;
+    }>>(`/api/plugins/queue/triage${buildQuery(params)}`);
+  }
+
   async updatePlugin(id: string, data: {
     name?: string;
     description?: string;

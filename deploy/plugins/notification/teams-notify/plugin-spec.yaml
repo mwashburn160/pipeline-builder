@@ -6,11 +6,19 @@ keywords:
   - notification
   - alert
 category: notification
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 5
 failureBehavior: warn
+
+requiredMetadata: []
+requiredVars: []
+metadataTypes:
+  env: string
+varsTypes:
+  branch: string
+
 secrets:
   - name: TEAMS_WEBHOOK_URL
     required: true
@@ -131,7 +139,10 @@ commands:
   - "echo \"Teams notification complete. Payload saved in notify-output/\""
 env:
   NOTIFICATION_TYPE: pipeline-status
-  PIPELINE_NAME: ""
+  # Auto-populated from pipeline at synth time. Override per-step via env: customization.
+  PIPELINE_NAME: "{{ pipeline.projectName | default: '' }}"
   PIPELINE_STATUS: ""
+  PIPELINE_ENV: "{{ pipeline.metadata.env | default: '' }}"
+  PIPELINE_BRANCH: "{{ pipeline.vars.branch | default: '' }}"
   CUSTOM_MESSAGE: ""
   MENTION_ON_FAILURE: ""

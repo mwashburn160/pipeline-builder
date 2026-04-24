@@ -8,6 +8,7 @@ import { pipeline } from 'stream/promises';
 
 import { ValidationError } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
+import { validateTemplates, allowedScopeRoots } from '@pipeline-builder/pipeline-core';
 import { v7 as uuid } from 'uuid';
 import YAML from 'yaml';
 import yauzl from 'yauzl';
@@ -209,6 +210,9 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
       throw new ValidationError('Invalid spec: name, version, and commands are required');
     }
 
+    // --- Template validation: batch-check all {{ ... }} tokens ----------------
+    validatePluginTemplates(pluginSpec);
+
     // --- Dockerfile validation (build_image only) ---------------------------
     let dockerfile = '';
     let dockerfileContent: string | null = null;
@@ -261,6 +265,129 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
  * @param buildArgs - Build arguments to validate
  * @throws ValidationError if build arguments are invalid
  */
+// -----------------------------------------------------------------------------
+// Template validation
+// -----------------------------------------------------------------------------
+
+const PLUGIN_SCOPE_ROOTS = ['pipeline', 'plugin', 'env'];
+const PLUGIN_TEMPLATABLE_FIELDS = ['description', 'commands', 'installCommands', 'env', 'buildArgs'];
+
+const isPluginTemplatable = (field: string) =>
+  PLUGIN_TEMPLATABLE_FIELDS.some(f => field === f || field.startsWith(`${f}[`) || field.startsWith(`${f}.`));
+
+const isPluginPath = allowedScopeRoots(PLUGIN_SCOPE_ROOTS);
+
+/**
+ * Batch-validate all `{{ ... }}` template tokens in a plugin spec.
+ *
+ * Checks:
+ *  - Parse errors (unclosed braces, bad filter, etc.)
+ *  - Unknown scope root (only `pipeline`, `plugin`, `env` are allowed)
+ *  - Reserved `secrets.*` path
+ *  - Plugin contract: every `{{ pipeline.metadata.X }}` must have `X` declared
+ *    in `requiredMetadata`, and every `{{ pipeline.vars.X }}` must be declared
+ *    in `requiredVars` — unless the template uses the `| default:` filter.
+ */
+export function validatePluginTemplates(pluginSpec: PluginSpec): void {
+  const spec = pluginSpec as unknown as {
+    description?: string;
+    commands?: string[];
+    installCommands?: string[];
+    env?: Record<string, string>;
+    buildArgs?: Record<string, string>;
+    requiredMetadata?: string[];
+    requiredVars?: string[];
+  };
+
+  const docForScan = {
+    description: spec.description,
+    commands: spec.commands,
+    installCommands: spec.installCommands,
+    env: spec.env,
+    buildArgs: spec.buildArgs,
+  };
+
+  const { valid, errors } = validateTemplates(docForScan, isPluginTemplatable, isPluginPath);
+  if (!valid) {
+    const msg = `Template validation failed (${errors.length} error${errors.length === 1 ? '' : 's'}):\n` +
+      errors.map(e => `  • [${e.field}${e.line ? `:${e.line}:${e.col}` : ''}] ${e.message}`).join('\n');
+    throw new ValidationError(msg);
+  }
+
+  // Contract validation: every referenced pipeline.metadata.X / pipeline.vars.X
+  // must be in requiredMetadata / requiredVars (unless a default: is present)
+  const requiredMetadata = new Set((pluginSpec as unknown as { requiredMetadata?: string[] }).requiredMetadata ?? []);
+  const requiredVars = new Set((pluginSpec as unknown as { requiredVars?: string[] }).requiredVars ?? []);
+  const metadataTypes = (pluginSpec as unknown as { metadataTypes?: Record<string, string> }).metadataTypes ?? {};
+  const varsTypes = (pluginSpec as unknown as { varsTypes?: Record<string, string> }).varsTypes ?? {};
+  const missing: string[] = [];
+  const typeMismatches: string[] = [];
+
+  const scanStrings: string[] = [];
+  if (spec.description) scanStrings.push(spec.description);
+  if (spec.commands) scanStrings.push(...spec.commands);
+  if (spec.installCommands) scanStrings.push(...spec.installCommands);
+  if (spec.env) scanStrings.push(...Object.values(spec.env));
+  if (spec.buildArgs) scanStrings.push(...Object.values(spec.buildArgs));
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { tokenize } = require('@pipeline-builder/pipeline-core');
+
+  // Map coercion filter → declared-type requirement
+  const coerceToType: Record<string, string> = { number: 'number', bool: 'bool', json: 'json' };
+
+  for (const s of scanStrings) {
+    if (typeof s !== 'string' || !s.includes('{{')) continue;
+    let tokens;
+    try { tokens = tokenize(s); } catch { continue; /* parser error already reported */ }
+    for (const t of tokens) {
+      if (t.kind !== 'expr') continue;
+
+      const isMetadata = t.path[0] === 'pipeline' && t.path[1] === 'metadata' && t.path[2];
+      const isVars = t.path[0] === 'pipeline' && t.path[1] === 'vars' && t.path[2];
+      if (!isMetadata && !isVars) continue;
+
+      const key = t.path[2]!;
+      const kindPath = isMetadata ? `pipeline.metadata.${key}` : `pipeline.vars.${key}`;
+
+      // Contract: key must be declared (default: waives the requirement)
+      if (t.defaultValue === undefined) {
+        const declared = isMetadata ? requiredMetadata.has(key) : requiredVars.has(key);
+        if (!declared) missing.push(kindPath);
+      }
+
+      // Type check: if a coercion filter is present, declared type must match
+      if (t.coerce) {
+        const typeMap = isMetadata ? metadataTypes : varsTypes;
+        const declaredType = typeMap[key] ?? 'string';
+        const expectedType = coerceToType[t.coerce];
+        if (expectedType && declaredType !== expectedType) {
+          typeMismatches.push(
+            `${kindPath} uses '| ${t.coerce}' but declared type is '${declaredType}' (add '${key}: ${expectedType}' to ${isMetadata ? 'metadataTypes' : 'varsTypes'})`,
+          );
+        }
+      }
+    }
+  }
+
+  const problems: string[] = [];
+  if (missing.length) {
+    const uniq = Array.from(new Set(missing)).sort();
+    problems.push(
+      `Plugin spec uses template paths not declared in contract:\n` +
+      uniq.map(p => `  • ${p} — declare it in 'requiredMetadata' or 'requiredVars'`).join('\n'),
+    );
+  }
+  if (typeMismatches.length) {
+    const uniq = Array.from(new Set(typeMismatches)).sort();
+    problems.push(
+      `Plugin spec has type mismatches between coercion filters and declared types:\n` +
+      uniq.map(p => `  • ${p}`).join('\n'),
+    );
+  }
+  if (problems.length) throw new ValidationError(problems.join('\n\n'));
+}
+
 export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Record<string, string> {
   if (buildArgs === undefined || buildArgs === null) return;
   if (typeof buildArgs !== 'object' || Array.isArray(buildArgs)) {

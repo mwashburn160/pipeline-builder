@@ -39,7 +39,7 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@pipeline-builder/api-core": "3.1.4",
+    "@pipeline-builder/api-core": "workspace:*",
     "ai": "6.0.99"
   },
   "keywords": [

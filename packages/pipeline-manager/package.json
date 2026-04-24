@@ -44,7 +44,7 @@
     "@aws-sdk/client-lambda": "3.821.0",
     "@aws-sdk/client-secrets-manager": "3.821.0",
     "@aws-sdk/client-sts": "3.821.0",
-    "@pipeline-builder/pipeline-core": "3.1.4",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "aws-cdk-lib": "2.240.0",
     "axios": "1.13.5",
     "commander": "14.0.3",

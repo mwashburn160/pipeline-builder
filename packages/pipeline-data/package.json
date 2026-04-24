@@ -35,7 +35,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.1.4",
+    "@pipeline-builder/api-core": "workspace:*",
     "drizzle-orm": "0.45.1",
     "pg": "8.18.0"
   },

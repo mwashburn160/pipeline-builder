@@ -25,14 +25,14 @@ const cdkVersion = '2.240.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
-// const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.1.4',
-  pipelineData:   '3.1.4',
-  pipelineCore:   '3.1.4',
-  apiServer:      '3.1.4',
-  aiCore:         '3.1.4',
-  eventBridge:    '3.1.4'
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventBridge:    ws
 };
 
 // =============================================================================
@@ -247,7 +247,8 @@ const apiServer = new PackageProject({
     'jsonwebtoken@9.0.3', 'uuid@13.0.0', 'prom-client@15.1.3',
     'swagger-ui-express@5.0.1', 'ioredis@5.6.1', 'rate-limit-redis@4.2.0',
     '@opentelemetry/sdk-node@0.213.0', '@opentelemetry/exporter-trace-otlp-http@0.213.0',
-    '@opentelemetry/resources@2.6.0',
+    '@opentelemetry/resources@2.6.0', '@opentelemetry/auto-instrumentations-node@0.67.1',
+    '@opentelemetry/api@1.9.0',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.1',

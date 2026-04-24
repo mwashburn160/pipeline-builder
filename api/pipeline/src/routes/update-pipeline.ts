@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields } from '@pipeline-builder/api-core';
+import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service';
@@ -27,6 +28,13 @@ export function createUpdatePipelineRoutes(): Router {
     }
 
     const body = validation.value;
+
+    // Validate any templates in the update body (metadata.*, vars.*, projectName)
+    try {
+      validatePipelineTemplates(body as unknown as PipelineLike);
+    } catch (err) {
+      return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
+    }
 
     ctx.log('INFO', 'Pipeline update request received', { id });
 

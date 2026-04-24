@@ -104,5 +104,94 @@ export function createQueueStatusRoutes(): Router {
     return sendSuccess(res, 200, { message: 'DLQ purged' });
   }));
 
+  /**
+   * GET /triage — failed-build summary grouped by failure category, with
+   * a few representative examples per group. Powers the triage dashboard.
+   */
+  router.get('/triage', withRoute(async ({ req, res }) => {
+    if (!isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only administrators can view triage', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
+    const [queue, dlq] = [getQueue(), getDeadLetterQueue()];
+    const [failed, dlqJobs] = await Promise.all([
+      queue.getJobs(['failed'], 0, 199),
+      dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, 199),
+    ]);
+
+    interface Bucket {
+      category: string;
+      count: number;
+      pluginNames: Set<string>;
+      samples: Array<{
+        id: string | number | undefined;
+        pluginName: string | null;
+        imageTag: string | null;
+        error: string | null;
+        failedAt: string | null;
+        source: 'queue' | 'dlq';
+      }>;
+    }
+
+    const buckets = new Map<string, Bucket>();
+    const bucketFor = (key: string): Bucket => {
+      const existing = buckets.get(key);
+      if (existing) return existing;
+      const fresh: Bucket = { category: key, count: 0, pluginNames: new Set(), samples: [] };
+      buckets.set(key, fresh);
+      return fresh;
+    };
+
+    const classify = (err: string | null): string => {
+      if (!err) return 'unknown';
+      const lower = err.toLowerCase();
+      if (lower.includes('docker') || lower.includes('dockerfile')) return 'docker-build';
+      if (lower.includes('template') || lower.includes('{{')) return 'template';
+      if (lower.includes('quota') || lower.includes('rate limit')) return 'quota';
+      if (lower.includes('timeout') || lower.includes('timed out')) return 'timeout';
+      if (lower.includes('secret') || lower.includes('unauthorized') || lower.includes('forbidden')) return 'auth-secrets';
+      if (lower.includes('network') || lower.includes('econnrefused') || lower.includes('enotfound')) return 'network';
+      if (lower.includes('validation') || lower.includes('invalid')) return 'validation';
+      return 'other';
+    };
+
+    const ingest = (job: { id?: string | number; data?: Record<string, any>; failedReason?: string; finishedOn?: number }, source: 'queue' | 'dlq') => {
+      const err = job.data?.lastError ?? job.failedReason ?? null;
+      const category = job.data?.failureCategory ?? classify(err);
+      const bucket = bucketFor(category);
+      bucket.count++;
+      const pluginName = job.data?.pluginRecord?.name ?? null;
+      if (pluginName) bucket.pluginNames.add(pluginName);
+      if (bucket.samples.length < sampleLimit) {
+        bucket.samples.push({
+          id: job.id,
+          pluginName,
+          imageTag: job.data?.pluginRecord?.imageTag ?? null,
+          error: err,
+          failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+          source,
+        });
+      }
+    };
+
+    for (const j of failed) ingest(j as unknown as Parameters<typeof ingest>[0], 'queue');
+    for (const j of dlqJobs) ingest(j as unknown as Parameters<typeof ingest>[0], 'dlq');
+
+    const groups = Array.from(buckets.values())
+      .map(b => ({
+        category: b.category,
+        count: b.count,
+        pluginNames: Array.from(b.pluginNames).sort(),
+        samples: b.samples,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return sendSuccess(res, 200, {
+      totalFailed: failed.length + dlqJobs.length,
+      groups,
+    });
+  }));
+
   return router;
 }

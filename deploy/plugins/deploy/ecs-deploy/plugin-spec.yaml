@@ -6,11 +6,21 @@ keywords:
   - container
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30
 failureBehavior: fail
+
+requiredMetadata: []
+requiredVars: []
+metadataTypes:
+  ecsCluster: string
+  ecsService: string
+  ecsTaskFamily: string
+  imageUri: string
+  ecsWait: bool
+
 secrets: []
 primaryOutputDirectory: ecs-output
 dockerfile: Dockerfile
@@ -62,8 +72,9 @@ commands:
     fi
   - "echo \"ECS deploy complete. Output available in ecs-output/\""
 env:
-  ECS_CLUSTER: ""
-  ECS_SERVICE: ""
-  IMAGE_URI: ""
-  ECS_TASK_FAMILY: ""
+  # Template defaults from pipeline.metadata — per-step overrides via env: customization.
+  ECS_CLUSTER: "{{ pipeline.metadata.ecsCluster | default: '' }}"
+  ECS_SERVICE: "{{ pipeline.metadata.ecsService | default: '' }}"
+  IMAGE_URI: "{{ pipeline.metadata.imageUri | default: '' }}"
+  ECS_TASK_FAMILY: "{{ pipeline.metadata.ecsTaskFamily | default: '' }}"
   ECS_WAIT: "true"

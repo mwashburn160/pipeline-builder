@@ -181,6 +181,35 @@ export interface PluginSpec {
    * @example { PYTHON_VERSION: '3.12', NODE_ENV: 'production' }
    */
   readonly buildArgs?: Record<string, string>;
+
+  /**
+   * Pipeline metadata keys the plugin references via `{{ pipeline.metadata.X }}`.
+   * Declared as a contract — pipelines using this plugin must supply all
+   * listed keys unless the template uses `| default: '...'`.
+   * @example ['env', 'namespace', 'clusterName']
+   */
+  readonly requiredMetadata?: string[];
+
+  /**
+   * Pipeline vars keys the plugin references via `{{ pipeline.vars.X }}`.
+   * @example ['branch', 'slackChannel']
+   */
+  readonly requiredVars?: string[];
+
+  /**
+   * Optional type declarations for the metadata keys listed in `requiredMetadata`.
+   * Used at upload time to verify that coercion filters (`| number`, `| bool`,
+   * `| json`) match the declared type — e.g. `{{ pipeline.metadata.count | number }}`
+   * requires `count: 'number'` here, otherwise the plugin is rejected.
+   * Keys not declared default to `'string'`.
+   * @example { count: 'number', enabled: 'bool' }
+   */
+  readonly metadataTypes?: Record<string, 'string' | 'number' | 'bool' | 'json'>;
+
+  /**
+   * Optional type declarations for vars keys (same semantics as `metadataTypes`).
+   */
+  readonly varsTypes?: Record<string, 'string' | 'number' | 'bool' | 'json'>;
 }
 
 /**
@@ -361,4 +390,14 @@ export interface CodeBuildStepOptions extends StepCustomization {
 
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
+
+  /**
+   * Pipeline-level config used as the `pipeline.*` scope when resolving
+   * template tokens inside plugin specs. Required — every `{{ pipeline.* }}`
+   * reference in a plugin spec is evaluated against this object at synth time.
+   *
+   * Callers constructing a step directly must provide the pipeline identity
+   * + metadata + vars so template resolution is never silently skipped.
+   */
+  readonly pipelineScope: Record<string, unknown>;
 }

@@ -106,6 +106,12 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     throw new Error('JWT_SECRET environment variable is required. Set it before starting the server.');
   }
 
+  // Initialize OpenTelemetry tracing once per process if OTEL_TRACING_ENABLED=true.
+  // Safe to call multiple times — initTracing() is idempotent.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { initTracing } = require('./tracing');
+  initTracing(process.env.SERVICE_NAME || 'api');
+
   const serverConfig = Config.get('server');
   const app = express();
 

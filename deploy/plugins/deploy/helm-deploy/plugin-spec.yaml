@@ -6,13 +6,24 @@ keywords:
   - chart
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
 failureBehavior: fail
 primaryOutputDirectory: helm-output
 dockerfile: Dockerfile
+
+# Pipeline contract — templates reference pipeline.metadata.* via `| default:` so
+# existing pipelines keep working without changes.
+requiredMetadata: []
+requiredVars: []
+metadataTypes:
+  namespace: string
+  helmRelease: string
+  helmChart: string
+  helmTimeoutSeconds: number
+
 secrets:
   - name: KUBECONFIG_DATA
     required: false
@@ -101,13 +112,14 @@ commands:
     esac
   - "echo \"Helm ${HELM_ACTION} complete. Output available in helm-output/\""
 env:
-  HELM_RELEASE: ""
-  HELM_CHART: ""
-  HELM_NAMESPACE: default
+  # Template defaults pulled from pipeline.metadata — per-step overrides via env: customization.
+  HELM_RELEASE: "{{ pipeline.metadata.helmRelease | default: '' }}"
+  HELM_CHART: "{{ pipeline.metadata.helmChart | default: '' }}"
+  HELM_NAMESPACE: "{{ pipeline.metadata.namespace | default: 'default' }}"
   HELM_ACTION: upgrade
   HELM_VALUES_FILE: ""
   HELM_SET_VALUES: ""
-  HELM_TIMEOUT: "300s"
+  HELM_TIMEOUT: "{{ pipeline.metadata.helmTimeoutSeconds | default: '300' }}s"
   HELM_ATOMIC: "true"
   HELM_REPO_URL: ""
   HELM_REPO_NAME: ""

@@ -75,11 +75,18 @@ export function synth(program: Command): void {
     .option('--json', 'Output result as JSON', false)
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without running CDK', false)
     .action(async (options) => {
       const executionId = printCommandHeader('CDK Synthesis');
 
       try {
         const pipelineId = options.id || process.env.PIPELINE_ID;
+
+        // --show-resolved: preview templates and exit
+        if (options.showResolved) {
+          await showResolvedPipeline(pipelineId, options);
+          return;
+        }
 
         auditLog('synth', { executionId, pipelineId, output: options.output, profile: options.profile });
         printSslWarning(options.verifySsl);
@@ -155,4 +162,41 @@ export function synth(program: Command): void {
         });
       }
     });
+}
+
+/**
+ * Fetch the pipeline by ID, apply pass-1 self-referencing template
+ * resolution, and print it to stdout. Used by `synth --show-resolved`
+ * and `deploy --show-resolved` to preview substitution before running CDK.
+ */
+async function showResolvedPipeline(
+  pipelineId: string | undefined,
+  options: { profile?: string; region?: string; storeTokens?: boolean; verifySsl?: boolean },
+): Promise<void> {
+  if (!pipelineId) {
+    throw new Error('--show-resolved requires --id or PIPELINE_ID env var');
+  }
+  await fetchPipelineConfig(pipelineId, options);
+  // fetchPipelineConfig writes PIPELINE_PROPS base64-encoded on success
+  const encoded = process.env.PIPELINE_PROPS;
+  if (!encoded) throw new Error('Failed to fetch pipeline configuration');
+  const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
+
+  // Lazy import to avoid pulling pipeline-core into every CLI invocation
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { resolveSelfReferencing } = require('@pipeline-builder/pipeline-core');
+  const scope = { metadata: decoded.metadata ?? {}, vars: decoded.vars ?? {} };
+  const isTemplatable = (f: string) =>
+    f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
+  const fieldToScope = (f: string) => isTemplatable(f) ? f : null;
+  const result = resolveSelfReferencing(decoded, scope, isTemplatable, fieldToScope, 'pipeline');
+
+  if (result.errors.length) {
+    console.error('Resolution errors:');
+    for (const e of result.errors) {
+      console.error(`  [${e.field ?? '?'}] ${e.message}`);
+    }
+    process.exit(1);
+  }
+  console.log(JSON.stringify(decoded, null, 2));
 }

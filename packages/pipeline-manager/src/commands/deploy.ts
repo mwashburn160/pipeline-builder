@@ -30,8 +30,9 @@ const { bold, cyan, dim } = pico;
 export function deploy(program: Command): void {
   program
     .command('deploy')
-    .description('Deploy pipeline by ID using AWS CDK')
-    .requiredOption('-i, --id <id>', 'Pipeline ID')
+    .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
+    .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
+    .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup)')
     .option('--profile <profile>', 'AWS profile', 'default')
     .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
     .option('--output <dir>', 'CDK output directory', 'cdk.out')
@@ -39,7 +40,15 @@ export function deploy(program: Command): void {
     .option('--region <region>', 'AWS region (for --store-tokens)')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without deploying', false)
     .action(async (options) => {
+      // Mutually exclusive input sources
+      if (!options.id && !options.localSpec) {
+        throw new Error('Either --id <pipeline-id> or --local-spec <path> is required');
+      }
+      if (options.id && options.localSpec) {
+        throw new Error('--id and --local-spec are mutually exclusive');
+      }
 
       const executionId = printCommandHeader('Pipeline Deploy');
 
@@ -65,42 +74,104 @@ export function deploy(program: Command): void {
         ensureCdkAvailable();
         printSuccess('AWS CDK is available');
 
-        // Create authenticated API client (supports PLATFORM_TOKEN or --store-tokens)
-        const client = await createAuthenticatedClientAsync(options);
-        const config = client.getConfig();
+        let pipeline: Pipeline;
+        let propsWithIds: Record<string, unknown>;
+        // Remote-mode registry-post handles — null in --local-spec mode.
+        let platformClient: Awaited<ReturnType<typeof createAuthenticatedClientAsync>> | undefined;
+        let platformConfig: { api: { pipelineUrl: string } } | undefined;
 
-        // Fetch pipeline from API
-        printInfo('Fetching pipeline configuration', { id: options.id });
-        const response = await client.get<PipelineResponse>(
-          `${config.api.pipelineUrl}/${options.id}`,
-        );
-
-        const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
-
-        if (!pipeline?.props) {
-          printError('Invalid pipeline response', {
-            id: options.id,
-            hasProps: !!pipeline?.props,
-            responseKeys: response ? Object.keys(response) : '(null)',
+        if (options.localSpec) {
+          // --local-spec: read pipeline.json from disk; no platform contact.
+          // Compliance / quota / plugin-lookup features all require the platform —
+          // this mode is for air-gapped or simple standalone CDK deployments.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fsMod = require('fs');
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const pathMod = require('path');
+          const absPath = pathMod.resolve(options.localSpec);
+          printInfo('Loading local pipeline spec', { path: absPath });
+          if (!fsMod.existsSync(absPath)) {
+            throw new Error(`Local spec file not found: ${absPath}`);
+          }
+          const raw = fsMod.readFileSync(absPath, 'utf-8');
+          const parsed = JSON.parse(raw) as Partial<Pipeline> & { props?: Record<string, unknown> };
+          if (!parsed.props) {
+            throw new Error(`Local spec file is missing required 'props' field: ${absPath}`);
+          }
+          pipeline = {
+            id: parsed.id ?? 'local',
+            project: parsed.project ?? 'local-project',
+            organization: parsed.organization ?? 'local-org',
+            orgId: parsed.orgId,
+            isDefault: parsed.isDefault ?? false,
+            isActive: parsed.isActive ?? true,
+            props: parsed.props,
+          } as Pipeline;
+          printSuccess('Local spec loaded');
+          printKeyValue({
+            'Source': absPath,
+            'Project': pipeline.project,
+            'Organization': pipeline.organization,
           });
-          throw new Error(`Failed to retrieve valid pipeline properties for ID: ${options.id}`);
+          propsWithIds = {
+            ...pipeline.props,
+            ...(pipeline.orgId && { orgId: pipeline.orgId }),
+            pipelineId: pipeline.id,
+          };
+        } else {
+          // Remote path: fetch config from platform API
+          platformClient = await createAuthenticatedClientAsync(options);
+          platformConfig = platformClient.getConfig() as { api: { pipelineUrl: string } };
+
+          printInfo('Fetching pipeline configuration', { id: options.id });
+          const response = await platformClient.get<PipelineResponse>(
+            `${platformConfig.api.pipelineUrl}/${options.id}`,
+          );
+
+          const fetched = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
+
+          if (!fetched?.props) {
+            printError('Invalid pipeline response', {
+              id: options.id,
+              hasProps: !!fetched?.props,
+              responseKeys: response ? Object.keys(response) : '(null)',
+            });
+            throw new Error(`Failed to retrieve valid pipeline properties for ID: ${options.id}`);
+          }
+          pipeline = fetched;
+
+          printSuccess('Pipeline configuration retrieved');
+          printKeyValue({
+            'ID': pipeline.id,
+            'Project': pipeline.project,
+            'Organization': pipeline.organization,
+            'Is Default': pipeline.isDefault,
+            'Is Active': pipeline.isActive,
+          });
+
+          propsWithIds = {
+            ...pipeline.props,
+            ...(pipeline.orgId && { orgId: pipeline.orgId }),
+            pipelineId: pipeline.id,
+          };
         }
 
-        printSuccess('Pipeline configuration retrieved');
-        printKeyValue({
-          'ID': pipeline.id,
-          'Project': pipeline.project,
-          'Organization': pipeline.organization,
-          'Is Default': pipeline.isDefault,
-          'Is Active': pipeline.isActive,
-        });
-
-        // Encode pipeline props (inject orgId and pipelineId for autonomous synth)
-        const propsWithIds = {
-          ...pipeline.props,
-          ...(pipeline.orgId && { orgId: pipeline.orgId }),
-          pipelineId: pipeline.id,
-        };
+        // --show-resolved: print resolved config and exit (no CDK deploy)
+        if ((options as { showResolved?: boolean }).showResolved) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { resolveSelfReferencing } = require('@pipeline-builder/pipeline-core');
+          const propsAny = propsWithIds as Record<string, unknown>;
+          const scope = { metadata: propsAny.metadata ?? {}, vars: propsAny.vars ?? {} };
+          const isTpl = (f: string) => f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
+          const result = resolveSelfReferencing(propsAny, scope, isTpl, (f: string) => isTpl(f) ? f : null, 'pipeline');
+          if (result.errors.length) {
+            console.error('Resolution errors:');
+            for (const e of result.errors) console.error(`  [${e.field ?? '?'}] ${e.message}`);
+            process.exit(1);
+          }
+          console.log(JSON.stringify(propsWithIds, null, 2));
+          return;
+        }
 
         const encoded = Buffer.from(JSON.stringify(propsWithIds), 'utf-8').toString('base64');
         const outputPath = options.output;
@@ -142,7 +213,12 @@ export function deploy(program: Command): void {
             'Status': '✓ Success',
           });
 
-          // Register pipeline ARN for event reporting (non-blocking)
+          // Register pipeline ARN for event reporting (non-blocking).
+          // Skipped in --local-spec mode since there's no platform to register with.
+          if (!platformClient || !platformConfig) {
+            printInfo('Skipping pipeline registry (local-spec mode)');
+            return;
+          }
           try {
             const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION });
             const identity = await stsClient.send(new GetCallerIdentityCommand({}));
@@ -155,7 +231,7 @@ export function deploy(program: Command): void {
             const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
             const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
 
-            await client.post(`${config.api.pipelineUrl}/registry`, {
+            await platformClient.post(`${platformConfig.api.pipelineUrl}/registry`, {
               pipelineId: pipeline.id,
               orgId: pipeline.orgId,
               pipelineArn,

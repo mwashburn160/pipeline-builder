@@ -35,6 +35,13 @@ export interface StageBuilderProps {
 
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
+
+  /**
+   * Pipeline-level scope used to resolve `{{ pipeline.* }}` template tokens
+   * inside plugin specs. Required — passed through to `createCodeBuildStep`
+   * on every step.
+   */
+  readonly pipelineScope: Record<string, unknown>;
 }
 
 /**
@@ -69,6 +76,7 @@ export class StageBuilder {
   private readonly defaultComputeType?: CdkComputeType;
   private readonly artifactManager?: ArtifactManager;
   private readonly orgId?: string;
+  private readonly pipelineScope: Record<string, unknown>;
 
   constructor(props: StageBuilderProps) {
     this.scope = props.scope;
@@ -78,6 +86,7 @@ export class StageBuilder {
     this.defaultComputeType = props.defaultComputeType;
     this.artifactManager = props.artifactManager;
     this.orgId = props.orgId;
+    this.pipelineScope = props.pipelineScope;
   }
 
   /**
@@ -151,6 +160,7 @@ export class StageBuilder {
       timeout: stepConfig.timeout ?? plugin.timeout ?? undefined,
       failureBehavior: (stepConfig.failureBehavior ?? plugin.failureBehavior) as 'fail' | 'warn' | 'ignore',
       orgId: this.orgId,
+      pipelineScope: this.pipelineScope,
     });
   }
 

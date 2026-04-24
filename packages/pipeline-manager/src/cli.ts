@@ -15,6 +15,7 @@ import { setupEvents } from './commands/setup-events';
 import { status } from './commands/status';
 import { storeToken } from './commands/store-token';
 import { synth } from './commands/synth';
+import { validateTemplatesCommand } from './commands/validate-templates';
 import { uploadPlugin } from './commands/upload-plugin';
 import { version } from './commands/version';
 import {
@@ -193,6 +194,7 @@ Examples:
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
   synth(program); // Run CDK synthesis
+  validateTemplatesCommand(program); // Validate {{ ... }} templates in a pipeline or plugin
 
   // Shell completions
   printDebug('Registering completions command');

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { useCombobox } from '@/hooks/useCombobox';
+import { useTemplateValidation } from '@/hooks/useTemplateValidation';
 import { METADATA_KEY_GROUPS, type MetadataKeyOption } from './metadata-keys';
 
 /** Props for {@link MetadataEditor}. */
@@ -13,6 +14,53 @@ interface MetadataEditorProps {
   disabled?: boolean;
   /** Optional label rendered above the list. */
   label?: string;
+}
+
+/**
+ * Value input for a metadata entry. String entries get template-awareness —
+ * parsing and highlighting inline when `{{ ... }}` tokens are present.
+ * Numeric and boolean entries fall through to plain inputs.
+ */
+function MetadataValueInput({
+  entry,
+  disabled,
+  onChange,
+}: {
+  entry: MetadataEntry;
+  disabled?: boolean;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  const validation = useTemplateValidation(entry.type === 'string' ? entry.value : undefined);
+  const hasTemplate = validation.hasTemplate;
+  const invalid = hasTemplate && !validation.valid;
+  const border = invalid
+    ? 'border-red-400 dark:border-red-500'
+    : hasTemplate
+      ? 'border-indigo-400 dark:border-indigo-500'
+      : 'border-gray-300 dark:border-gray-600';
+
+  return (
+    <div className="flex-1">
+      <input
+        type={entry.type === 'number' ? 'number' : 'text'}
+        value={entry.value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Value"
+        disabled={disabled}
+        className={`w-full px-3 py-1.5 border ${border} rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors`}
+      />
+      {invalid && (
+        <div className="mt-0.5 text-xs text-red-600 dark:text-red-400" role="alert">
+          {validation.error}
+        </div>
+      )}
+      {hasTemplate && validation.valid && (
+        <div className="mt-0.5 text-xs text-indigo-600 dark:text-indigo-400">
+          Contains {validation.tokens.filter(t => t.kind === 'expr').length} template token{validation.tokens.filter(t => t.kind === 'expr').length === 1 ? '' : 's'} — resolved at synth time
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -158,13 +206,10 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
                 <option value="false">false</option>
               </select>
             ) : (
-              <input
-                type={entry.type === 'number' ? 'number' : 'text'}
-                value={entry.value}
-                onChange={(e) => handleChange(idx, 'value', e.target.value)}
-                placeholder="Value"
+              <MetadataValueInput
+                entry={entry}
                 disabled={disabled}
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                onChange={(v) => handleChange(idx, 'value', v)}
               />
             )}
             <button

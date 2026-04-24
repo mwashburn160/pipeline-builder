@@ -159,6 +159,22 @@ export class PipelineBuilder extends Construct {
     const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
+
+    // Scope exposed to plugin-spec templates as `pipeline.*`. Built once
+    // here so both the synth step and every stage step resolve against
+    // the same snapshot.
+    const pipelineScope: Record<string, unknown> = {
+      pipeline: {
+        projectName: this.config.project,
+        project: this.config.project,
+        orgId: this.config.organization,
+        organization: this.config.organization,
+        pipelineName: this.config.pipelineName,
+        metadata: this.config.metadata.merged,
+        vars: (props as { vars?: Record<string, unknown> }).vars ?? {},
+      },
+    };
+
     const synth = createCodeBuildStep({
       ...this.config.synthCustomization,
       id: uniqueId.generate('cdk:synth'),
@@ -174,6 +190,7 @@ export class PipelineBuilder extends Construct {
       stageAlias: 'no-stage-alias',
       pluginAlias: `${synthAlias}-alias`,
       orgId: props.orgId,
+      pipelineScope,
     });
 
     // Resolve pipeline-level defaults into codeBuildDefaults
@@ -207,7 +224,6 @@ export class PipelineBuilder extends Construct {
       ...metadataForCodePipeline(this.config.metadata.merged),
     });
 
-    // Add stages as waves via StageBuilder
     if (props.stages) {
       const stageBuilder = new StageBuilder({
         scope: this,
@@ -217,6 +233,7 @@ export class PipelineBuilder extends Construct {
         defaultComputeType,
         artifactManager,
         orgId: props.orgId,
+        pipelineScope,
       });
       stageBuilder.addStages(this.pipeline, props.stages);
     }

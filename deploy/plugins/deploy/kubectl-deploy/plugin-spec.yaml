@@ -6,13 +6,24 @@ keywords:
   - manifest
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
 failureBehavior: fail
 primaryOutputDirectory: deploy-output
 dockerfile: Dockerfile
+
+# Pipeline contract — all keys below use `| default:` so they stay optional.
+# Declaring them here documents the contract and enables type-safe coercion.
+requiredMetadata: []
+requiredVars: []
+metadataTypes:
+  context: string
+  namespace: string
+  manifestPath: string
+  rolloutTimeoutSeconds: number
+
 secrets:
   - name: KUBECONFIG_DATA
     required: false
@@ -69,8 +80,11 @@ commands:
     esac
   - "echo \"kubectl ${DEPLOY_ACTION} complete. Output available in deploy-output/\""
 env:
-  KUBE_CONTEXT: ""
-  KUBE_NAMESPACE: default
+  # Template defaults pulled from pipeline.metadata — overridable per-step via env: customization.
+  # Pipelines supply metadata.context / metadata.namespace / metadata.manifestPath /
+  # metadata.rolloutTimeoutSeconds to drive behavior.
+  KUBE_CONTEXT: "{{ pipeline.metadata.context | default: '' }}"
+  KUBE_NAMESPACE: "{{ pipeline.metadata.namespace | default: 'default' }}"
   DEPLOY_ACTION: apply
-  MANIFEST_PATH: "k8s/"
-  ROLLOUT_TIMEOUT: "300s"
+  MANIFEST_PATH: "{{ pipeline.metadata.manifestPath | default: 'k8s/' }}"
+  ROLLOUT_TIMEOUT: "{{ pipeline.metadata.rolloutTimeoutSeconds | default: '300' }}s"

@@ -6,11 +6,21 @@ keywords:
   - notification
   - alert
 category: notification
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 5
 failureBehavior: warn
+
+# Optional pipeline scope — templates in env below reference these keys
+requiredVars: []
+requiredMetadata: []
+varsTypes:
+  slackChannel: string
+  branch: string
+metadataTypes:
+  env: string
+
 secrets:
   - name: SLACK_WEBHOOK_URL
     required: true
@@ -98,7 +108,12 @@ commands:
   - "echo \"Slack notification complete. Payload saved in notify-output/\""
 env:
   NOTIFICATION_TYPE: pipeline-status
-  PIPELINE_NAME: ""
+  # Auto-populated from pipeline config when templates are resolved at synth time.
+  # Override any value per-step via env: customization in the pipeline step config.
+  PIPELINE_NAME: "{{ pipeline.projectName | default: '' }}"
   PIPELINE_STATUS: ""
+  PIPELINE_ENV: "{{ pipeline.metadata.env | default: '' }}"
+  PIPELINE_BRANCH: "{{ pipeline.vars.branch | default: '' }}"
+  SLACK_CHANNEL: "{{ pipeline.vars.slackChannel | default: '' }}"
   CUSTOM_MESSAGE: ""
   MENTION_ON_FAILURE: ""

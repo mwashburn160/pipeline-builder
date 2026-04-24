@@ -126,3 +126,6 @@ export * from './pipeline/stage-builder';
 export * from './pipeline/pipeline-builder';
 export * from './pipeline/plugin-lookup';
 export { PipelineConfiguration } from './pipeline/pipeline-configuration';
+
+// Template engine — synth-time scripting for pipeline config + plugin specs
+export * from './template';

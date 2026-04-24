@@ -19,6 +19,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
+import { resolvePipeline, type PipelineLike } from '../helpers/pipeline-template-validator';
 import { pipelineService } from '../services/pipeline-service';
 
 export function createReadPipelineRoutes(
@@ -78,6 +79,7 @@ export function createReadPipelineRoutes(
   }));
 
   // GET /pipelines/:id — single pipeline by UUID
+  // ?resolve=true resolves pipeline-level {{ ... }} templates before returning.
   router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
@@ -94,7 +96,19 @@ export function createReadPipelineRoutes(
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 
-    return sendSuccess(res, 200, { pipeline: normalizeArrayFields(result, ['keywords']) });
+    // Template resolution: off by default; opt in with ?resolve=true.
+    // Returns the pipeline with metadata/vars placeholders expanded in place.
+    const shouldResolve = req.query.resolve === 'true';
+    const payload = normalizeArrayFields(result, ['keywords']);
+    if (shouldResolve) {
+      try {
+        resolvePipeline(payload as unknown as PipelineLike);
+      } catch (err) {
+        return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
+      }
+    }
+
+    return sendSuccess(res, 200, { pipeline: payload });
   }));
 
   return router;

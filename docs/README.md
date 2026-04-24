@@ -32,6 +32,7 @@ Operational guides, usage how-to's, and detailed reference for Pipeline Builder.
 | [AWS Deployment](aws-deployment.md) | EC2 and Fargate deployment with post-deploy setup |
 | [Metadata Keys](metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
 | [CDK Usage](cdk-usage.md) | PipelineBuilder construct, sources, stages, VPC, IAM, secrets |
+| [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
 | [Plugin Catalog](plugins/README.md) | 124 pre-built plugins across 10 categories |
 
