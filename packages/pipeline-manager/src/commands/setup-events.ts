@@ -13,8 +13,9 @@ import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
 
 const STACK_NAME = 'pipeline-builder-events';
+// Existing CFN-managed Lambda function name — do NOT rename without a migration plan
 const LAMBDA_NAME = 'pipeline-builder-event-ingestion';
-const PACKAGE_NAME = '@pipeline-builder/event-ingestion';
+const PACKAGE_NAME = '@pipeline-builder/event-bridge';
 
 /**
  * Registers the `setup-events` command with the CLI program.
@@ -22,7 +23,7 @@ const PACKAGE_NAME = '@pipeline-builder/event-ingestion';
  * Deploys EventBridge → SQS → Lambda infrastructure for pipeline reporting.
  *
  * 1. Deploys CloudFormation stack (rule + queue + Lambda shell + IAM)
- * 2. Downloads @pipeline-builder/event-ingestion from npm registry
+ * 2. Downloads @pipeline-builder/event-bridge from npm registry
  * 3. Uploads handler code directly to Lambda (no S3 needed)
  *
  * Uses PLATFORM_BASE_URL from environment (same as all other commands).
@@ -32,7 +33,7 @@ export function setupEvents(program: Command): void {
   program
     .command('setup-events')
     .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
-    .option('--package-version <version>', 'event-ingestion package version (default: latest)')
+    .option('--package-version <version>', 'event-bridge package version (default: latest)')
     .option('--secret-name <name>', 'Platform secret name (e.g. pipeline-builder/{orgId}/platform)')
     .option('--region <region>', 'AWS region')
     .option('--profile <profile>', 'AWS CLI profile', 'default')

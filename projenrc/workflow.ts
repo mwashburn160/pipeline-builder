@@ -42,7 +42,7 @@ import { TypeScriptProject } from 'projen/lib/typescript';
 const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin'] as const;
 
 /** Projects that are published as npm packages */
-const LIBRARY_PROJECTS = ['ai-core', 'api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'event-ingestion', 'pipeline-manager'] as const;
+const LIBRARY_PROJECTS = ['ai-core', 'api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'event-bridge', 'pipeline-manager'] as const;
 
 /**
  * GitHub Actions workflow component for automated releases.

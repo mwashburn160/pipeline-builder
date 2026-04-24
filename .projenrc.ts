@@ -32,7 +32,7 @@ const pkg = {
   pipelineCore:   ws,
   apiServer:      ws,
   aiCore:         ws,
-  eventIngestion: ws,
+  eventBridge: ws,
 };
 
 // =============================================================================
@@ -276,20 +276,20 @@ aiCore.eslint?.addRules(rules);
 addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 configureJest(aiCore);
 
-// -- Event Ingestion Lambda --
-const eventIngestion = new PackageProject({
+// -- EventBridge Lambda --
+const eventBridge = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@pipeline-builder/event-ingestion',
-  outdir: './packages/event-ingestion',
+  name: '@pipeline-builder/event-bridge',
+  outdir: './packages/event-bridge',
   deps: [],
   devDeps: [
     '@types/node@25.3.0', '@types/aws-lambda@8.10.160',
     '@aws-sdk/client-secrets-manager@3.997.0', `typescript@${typescriptVersion}`,
   ],
 });
-eventIngestion.eslint?.addRules(rules);
-addPackageMetadata(eventIngestion, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
-configureJest(eventIngestion);
+eventBridge.eslint?.addRules(rules);
+addPackageMetadata(eventBridge, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
+configureJest(eventBridge);
 
 // =============================================================================
 // Pipeline Manager CLI

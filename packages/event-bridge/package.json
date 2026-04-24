@@ -1,5 +1,5 @@
 {
-  "name": "@pipeline-builder/event-ingestion",
+  "name": "@pipeline-builder/event-bridge",
   "description": "AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.",
   "repository": {
     "type": "git",

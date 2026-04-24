@@ -6,7 +6,7 @@ packages:
   - packages/pipeline-core
   - packages/api-server
   - packages/ai-core
-  - packages/event-ingestion
+  - packages/event-bridge
   - packages/pipeline-manager
   - platform
   - frontend

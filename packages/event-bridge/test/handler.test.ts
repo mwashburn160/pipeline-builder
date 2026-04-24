@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for event-ingestion Lambda handler.
+ * Tests for event-bridge Lambda handler.
  */
 
 // Mock Secrets Manager — returns stored JWT token
@@ -60,7 +60,7 @@ const MOCK_CODEPIPELINE_EVENT = {
   'account': '123456789012',
 };
 
-describe('event-ingestion handler', () => {
+describe('event-bridge handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSend.mockResolvedValue({

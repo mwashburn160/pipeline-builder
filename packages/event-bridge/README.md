@@ -1,4 +1,4 @@
-# @pipeline-builder/event-ingestion
+# @pipeline-builder/event-bridge
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 

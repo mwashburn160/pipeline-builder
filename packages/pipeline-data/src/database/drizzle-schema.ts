@@ -389,7 +389,7 @@ export const message = pgTable('messages', {
  * Pipeline deployment registry.
  * Maps deployed CodePipeline ARNs back to pipeline records and org IDs.
  * Populated by the deploy command after successful CDK deploy.
- * Used by the event-ingestion Lambda to resolve EventBridge events to org-scoped records.
+ * Used by the event-bridge Lambda to resolve EventBridge events to org-scoped records.
  *
  * @table pipeline_registry
  */
