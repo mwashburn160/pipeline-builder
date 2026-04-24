@@ -54,8 +54,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -142,8 +142,8 @@ importers:
   api/compliance:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -218,8 +218,8 @@ importers:
   api/message:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -300,8 +300,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ai-core
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -397,8 +397,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ai-core
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -515,8 +515,8 @@ importers:
   api/quota:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -600,8 +600,8 @@ importers:
   api/reporting:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../../packages/api-server
@@ -673,8 +673,8 @@ importers:
   frontend:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
@@ -755,8 +755,8 @@ importers:
         specifier: 3.0.59
         version: 3.0.59(zod@4.3.6)
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 3.1.0
+        version: 3.1.0
       ai:
         specifier: 6.0.99
         version: 6.0.99(zod@4.3.6)
@@ -871,8 +871,8 @@ importers:
         specifier: 0.213.0
         version: 0.213.0(@opentelemetry/api@1.9.1)
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/pipeline-core':
         specifier: workspace:*
         version: link:../pipeline-core
@@ -1013,8 +1013,8 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 3.1.0
+        version: 3.1.0
       '@pipeline-builder/pipeline-data':
         specifier: workspace:*
         version: link:../pipeline-data
@@ -1089,8 +1089,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../api-core
+        specifier: 3.1.0
+        version: 3.1.0
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
@@ -1238,8 +1238,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@pipeline-builder/api-core':
-        specifier: workspace:*
-        version: link:../packages/api-core
+        specifier: 3.1.0
+        version: 3.1.0
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -3415,6 +3415,10 @@ packages:
     resolution: {integrity: sha512-6hIU3RQu45B+VNTY4Ru8ppFwjVS/S5qwYyGhBotmjxfEKk41I2DlGtRfGJndZ5+6lneE2pwloqunlOyZuX/XAw==}
     cpu: [x64]
     os: [win32]
+
+  '@pipeline-builder/api-core@3.1.0':
+    resolution: {integrity: sha512-pIHdOdmDlDHEhPDeW4nxDqDqQJPdXCVOUCTTYsJ0NqQ5P6AczA6b5csdeT+xcEceAFurHeZyKUjxahJO+s9fkA==}
+    engines: {node: '>= 24.14.0'}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -10359,6 +10363,16 @@ snapshots:
 
   '@oxc-resolver/binding-win32-x64-msvc@11.19.1':
     optional: true
+
+  '@pipeline-builder/api-core@3.1.0':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 8.4.0(zod@4.3.6)
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
