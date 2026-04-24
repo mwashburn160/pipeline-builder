@@ -168,17 +168,33 @@ Open **https://localhost:8443** — register, create an org, and start building 
 
 ## Documentation
 
+### Getting Started
+
 | Document | Description |
 |----------|-------------|
-| [Getting Started](docs/README.md) | Key concepts, usage guides, operational how-to |
+| [Overview](docs/README.md) | Key concepts, usage guides, operational how-to |
+| [Developer Guide](docs/developer-guide.md) | Cut-and-paste pipeline examples for 7 languages |
+| [Samples](docs/samples.md) | Pipeline configs and CDK patterns |
+| [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |
+| [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
+
+### Developer Reference
+
+| Document | Description |
+|----------|-------------|
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
-| [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
-| [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
-| [AWS Deployment](docs/aws-deployment.md) | EC2 and Fargate deployment guides |
+| [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
-| [CDK Usage](docs/cdk-usage.md) | PipelineBuilder construct, sources, stages, VPC, IAM, secrets |
-| [Samples](docs/samples.md) | Pipeline configs and CDK examples for 7 languages |
+| [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](docs/plugins/README.md) | 124 pre-built plugins across 10 categories |
+
+### Operations
+
+| Document | Description |
+|----------|-------------|
+| [AWS Deployment](docs/aws-deployment.md) | EC2 and Fargate deployment guides |
+| [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
+| [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
 
 ---
 
