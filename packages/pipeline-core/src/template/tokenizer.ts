@@ -34,10 +34,10 @@ export type CoerceKind = 'number' | 'bool' | 'json';
 
 export interface ExprToken {
   kind: 'expr';
-  path: string[];            // e.g. ['pipeline', 'metadata', 'env']
-  defaultValue?: string;     // value for `| default: '...'` filter
-  coerce?: CoerceKind;       // `| number`, `| bool`, `| json`
-  source: string;            // original "{{ ... }}" text (for error messages)
+  path: string[]; // e.g. ['pipeline', 'metadata', 'env']
+  defaultValue?: string; // value for `| default: '...'` filter
+  coerce?: CoerceKind; // `| number`, `| bool`, `| json`
+  source: string; // original "{{ ... }}" text (for error messages)
   pos: SourcePosition;
 }
 
@@ -184,7 +184,7 @@ function readExpression(
   const readQuoted = (): string => {
     const quote = source[i];
     if (quote !== '"' && quote !== "'") {
-      throw new TokenizerError("Expected quoted string", { line, col });
+      throw new TokenizerError('Expected quoted string', { line, col });
     }
     i++; col++;
     const parts: string[] = [];
@@ -277,7 +277,7 @@ function readExpression(
       );
     }
     if (coerce) {
-      throw new TokenizerError("Only one coercion filter is allowed per expression", { line, col });
+      throw new TokenizerError('Only one coercion filter is allowed per expression', { line, col });
     }
     coerce = matchedCoerce;
     skipWs();

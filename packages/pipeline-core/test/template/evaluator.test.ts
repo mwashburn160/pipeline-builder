@@ -34,11 +34,11 @@ describe('resolve', () => {
   });
 
   it('applies default when path is undefined', () => {
-    expect(resolve(tokenize(`{{ x.y | default: 'fallback' }}`), {})).toBe('fallback');
+    expect(resolve(tokenize('{{ x.y | default: \'fallback\' }}'), {})).toBe('fallback');
   });
 
   it('applies default when path is empty string', () => {
-    expect(resolve(tokenize(`{{ x.y | default: 'd' }}`), { x: { y: '' } })).toBe('d');
+    expect(resolve(tokenize('{{ x.y | default: \'d\' }}'), { x: { y: '' } })).toBe('d');
   });
 
   it('throws TEMPLATE_UNKNOWN_PATH when no default and path missing', () => {
@@ -85,8 +85,8 @@ describe('type coercion filters', () => {
 
   it('| bool accepts true/false/yes/no/1/0', () => {
     expect(resolve(tokenize('{{ vars.flag | bool }}'), scope)).toBe(true);
-    expect(resolve(tokenize(`{{ vars.x | default: 'no' | bool }}`), scope)).toBe(false);
-    expect(resolve(tokenize(`{{ vars.x | default: '1' | bool }}`), scope)).toBe(true);
+    expect(resolve(tokenize('{{ vars.x | default: \'no\' | bool }}'), scope)).toBe(false);
+    expect(resolve(tokenize('{{ vars.x | default: \'1\' | bool }}'), scope)).toBe(true);
   });
 
   it('| json parses as JSON', () => {
@@ -112,14 +112,14 @@ describe('type coercion filters', () => {
     expect.assertions(1);
     try {
       // 'not valid json {' is not parseable
-      resolve(tokenize(`{{ vars.x | default: 'not valid {' | json }}`), scope);
+      resolve(tokenize('{{ vars.x | default: \'not valid {\' | json }}'), scope);
     } catch (e: any) {
       expect(e.code).toBeDefined();
     }
   });
 
   it('default + coercion chain', () => {
-    expect(resolve(tokenize(`{{ vars.missing | default: '42' | number }}`), scope)).toBe(42);
+    expect(resolve(tokenize('{{ vars.missing | default: \'42\' | number }}'), scope)).toBe(42);
   });
 });
 

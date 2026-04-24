@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { tokenize, TokenizerError } from '../../src/template/tokenizer';
 import { resolve } from '../../src/template/evaluator';
+import { tokenize, TokenizerError } from '../../src/template/tokenizer';
 
 /**
  * Property-style fuzz tests for the template engine. The goal is not exhaustive
@@ -12,6 +12,8 @@ import { resolve } from '../../src/template/evaluator';
  * Uses a deterministic PRNG so failures are reproducible.
  */
 
+// mulberry32 PRNG — bitwise ops are the whole point of the algorithm.
+/* eslint-disable no-bitwise */
 function mulberry32(seed: number): () => number {
   let a = seed;
   return () => {
@@ -22,6 +24,7 @@ function mulberry32(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+/* eslint-enable no-bitwise */
 
 const CHARSET = [
   'a', 'b', 'c', 'x', 'y', 'z', '.', '_', '1', '2', '3', ' ', '\t',

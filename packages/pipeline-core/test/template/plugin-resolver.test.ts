@@ -78,18 +78,18 @@ describe('resolvePluginTemplates', () => {
 
   it('applies default filter when path is missing', () => {
     const plugin = mkPlugin({
-      commands: [`echo {{ pipeline.metadata.missing | default: 'fallback' }}`],
+      commands: ['echo {{ pipeline.metadata.missing | default: \'fallback\' }}'],
     });
     expect(resolvePluginTemplates(plugin, scope).commands).toEqual(['echo fallback']);
   });
 
   it('throws for unknown path without default', () => {
-    const plugin = mkPlugin({ commands: [`echo {{ pipeline.nope }}`] });
+    const plugin = mkPlugin({ commands: ['echo {{ pipeline.nope }}'] });
     expect(() => resolvePluginTemplates(plugin, scope)).toThrow(/Template resolution failed/);
   });
 
   it('does not mutate the input plugin', () => {
-    const plugin = mkPlugin({ commands: [`echo {{ pipeline.projectName }}`] });
+    const plugin = mkPlugin({ commands: ['echo {{ pipeline.projectName }}'] });
     const frozenCommands = [...plugin.commands!];
     resolvePluginTemplates(plugin, scope);
     expect(plugin.commands).toEqual(frozenCommands);

@@ -3,8 +3,8 @@
 
 import { ErrorCode } from '@pipeline-builder/api-core';
 import { dependencies } from './evaluator';
-import { topoSort } from './topo-sort';
 import { SourcePosition, Token, TokenizerError, tokenize } from './tokenizer';
+import { topoSort } from './topo-sort';
 import { FieldPredicate, visitStrings, walkAndBind } from './walker';
 
 export interface TemplateError {
@@ -76,7 +76,7 @@ export function validateTemplates<T extends object>(
       if (tok.kind !== 'expr') continue;
       if (tok.path[0] === 'secrets') {
         errors.push(mkErr(field, tok.pos, ErrorCode.TEMPLATE_SECRETS_RESERVED,
-          `'secrets' is a reserved scope — use the plugin's 'secrets:' field instead`,
+          '\'secrets\' is a reserved scope — use the plugin\'s \'secrets:\' field instead',
           tok.path.join('.')));
         continue;
       }

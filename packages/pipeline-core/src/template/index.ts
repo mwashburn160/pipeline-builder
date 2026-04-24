@@ -58,8 +58,8 @@ export {
 import { ErrorCode } from '@pipeline-builder/api-core';
 import { resolve as evaluatorResolve, type Scope } from './evaluator';
 import { recordResolution } from './metrics';
-import { topoSort } from './topo-sort';
 import { hasTemplate, tokenize, Token } from './tokenizer';
+import { topoSort } from './topo-sort';
 import { walkAndBind, type FieldPredicate } from './walker';
 
 export interface ResolveResult {

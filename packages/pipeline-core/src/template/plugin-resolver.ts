@@ -14,10 +14,10 @@ import { resolveTemplates } from './index';
  */
 const TEMPLATABLE_FIELDS = [
   'description',
-  'commands',        // string[]
+  'commands', // string[]
   'installCommands', // string[]
-  'env',             // Record<string, string>
-  'buildArgs',       // Record<string, string>
+  'env', // Record<string, string>
+  'buildArgs', // Record<string, string>
 ] as const;
 
 export function isPluginTemplatableField(field: string): boolean {

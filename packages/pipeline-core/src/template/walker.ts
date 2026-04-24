@@ -64,7 +64,9 @@ export function walkAndBind<T extends object>(
     const tokens = tokenize(source);
     if (!tokens.some(t => t.kind === 'expr')) return;
     entries.push({
-      field, source, tokens,
+      field,
+      source,
+      tokens,
       set: (value: unknown) => writeField(root, parseFieldPath(field), value),
     });
   });

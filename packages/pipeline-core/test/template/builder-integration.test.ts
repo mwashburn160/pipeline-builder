@@ -91,7 +91,7 @@ describe('Builder integration: plugin template resolution', () => {
   it('resolves a slack-notify-style plugin with vars', () => {
     const plugin = mkPlugin({
       name: 'slack-notify',
-      commands: [`curl -X POST "$WEBHOOK" -d '{"channel":"{{ pipeline.vars.slackChannel }}","text":"{{ pipeline.projectName }} deployed to {{ pipeline.metadata.env }}"}'`],
+      commands: ['curl -X POST "$WEBHOOK" -d \'{"channel":"{{ pipeline.vars.slackChannel }}","text":"{{ pipeline.projectName }} deployed to {{ pipeline.metadata.env }}"}\''],
     });
 
     const resolved = resolvePluginTemplates(plugin, pipelineScope);
@@ -104,7 +104,7 @@ describe('Builder integration: plugin template resolution', () => {
       name: 'docker-build-push',
       buildArgs: {
         BUILD_ENV: '{{ pipeline.metadata.env }}',
-        COMMIT_SHA: '$CODEBUILD_RESOLVED_SOURCE_VERSION',  // runtime literal
+        COMMIT_SHA: '$CODEBUILD_RESOLVED_SOURCE_VERSION', // runtime literal
       },
       commands: ['docker build --build-arg BUILD_ENV=$BUILD_ENV -t {{ pipeline.projectName }}:latest .'],
     });
@@ -112,7 +112,7 @@ describe('Builder integration: plugin template resolution', () => {
     const resolved = resolvePluginTemplates(plugin, pipelineScope);
     expect(resolved.buildArgs).toEqual({
       BUILD_ENV: 'prod',
-      COMMIT_SHA: '$CODEBUILD_RESOLVED_SOURCE_VERSION',  // passed through literally
+      COMMIT_SHA: '$CODEBUILD_RESOLVED_SOURCE_VERSION', // passed through literally
     });
     expect(resolved.commands).toEqual(['docker build --build-arg BUILD_ENV=$BUILD_ENV -t checkout:latest .']);
   });

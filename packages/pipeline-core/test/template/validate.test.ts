@@ -40,9 +40,9 @@ describe('validateTemplates', () => {
   it('batches multiple errors', () => {
     const doc = {
       commands: [
-        '{{ foo.bar }}',          // unknown
-        '{{ secrets.x }}',        // reserved
-        '{{ pipeline.meta.x }}',  // valid
+        '{{ foo.bar }}', // unknown
+        '{{ secrets.x }}', // reserved
+        '{{ pipeline.meta.x }}', // valid
       ],
     };
     const r = validateTemplates(doc, isTemplatable, isKnown);

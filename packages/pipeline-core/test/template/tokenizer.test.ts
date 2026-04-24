@@ -25,18 +25,18 @@ describe('tokenize', () => {
   });
 
   it('parses a default filter with single quotes', () => {
-    const t = tokenize(`{{ vars.name | default: 'anonymous' }}`);
+    const t = tokenize('{{ vars.name | default: \'anonymous\' }}');
     expect(t[0]).toMatchObject({ kind: 'expr', defaultValue: 'anonymous' });
   });
 
   it('parses a default filter with double quotes', () => {
-    const t = tokenize(`{{ vars.name | default: "anon" }}`);
+    const t = tokenize('{{ vars.name | default: "anon" }}');
     expect(t[0]).toMatchObject({ kind: 'expr', defaultValue: 'anon' });
   });
 
   it('supports escaped quotes inside default', () => {
-    const t = tokenize(`{{ x | default: 'can\\'t' }}`);
-    expect(t[0]).toMatchObject({ defaultValue: `can't` });
+    const t = tokenize('{{ x | default: \'can\\\'t\' }}');
+    expect(t[0]).toMatchObject({ defaultValue: 'can\'t' });
   });
 
   it('treats {{{{ as a literal {{', () => {
@@ -54,7 +54,7 @@ describe('tokenize', () => {
   });
 
   it('throws on unknown filter', () => {
-    expect(() => tokenize(`{{ x | upper }}`)).toThrow(TokenizerError);
+    expect(() => tokenize('{{ x | upper }}')).toThrow(TokenizerError);
   });
 
   it('throws on missing }}', () => {
@@ -85,7 +85,7 @@ describe('tokenize', () => {
   });
 
   it('rejects unterminated quoted string', () => {
-    expect(() => tokenize(`{{ x | default: 'oops }}`)).toThrow(/Unterminated/);
+    expect(() => tokenize('{{ x | default: \'oops }}')).toThrow(/Unterminated/);
   });
 
   it('parses | number coercion filter', () => {
@@ -104,7 +104,7 @@ describe('tokenize', () => {
   });
 
   it('parses default + coercion chain', () => {
-    const t = tokenize(`{{ vars.x | default: '0' | number }}`);
+    const t = tokenize('{{ vars.x | default: \'0\' | number }}');
     expect(t[0]).toMatchObject({ kind: 'expr', defaultValue: '0', coerce: 'number' });
   });
 
@@ -113,7 +113,7 @@ describe('tokenize', () => {
   });
 
   it('rejects duplicate default filters', () => {
-    expect(() => tokenize(`{{ x | default: 'a' | default: 'b' }}`)).toThrow('may only appear once');
+    expect(() => tokenize('{{ x | default: \'a\' | default: \'b\' }}')).toThrow('may only appear once');
   });
 });
 
