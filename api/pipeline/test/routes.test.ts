@@ -112,6 +112,12 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
   },
+  // Template-validator dependencies — minimal stubs that accept any input
+  allowedScopeRoots: () => () => true,
+  validateTemplates: () => ({ valid: true, errors: [] }),
+  detectCycles: () => [],
+  resolveSelfReferencing: () => ({ errors: [] }),
+  tokenize: () => [],
 }));
 
 import { isSystemAdmin, sendBadRequest, validateQuery } from '@pipeline-builder/api-core';

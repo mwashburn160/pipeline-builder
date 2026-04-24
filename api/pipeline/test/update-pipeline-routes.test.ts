@@ -94,6 +94,11 @@ jest.mock('@pipeline-builder/api-server', () => ({
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   AccessModifier: {},
+  allowedScopeRoots: () => () => true,
+  validateTemplates: () => ({ valid: true, errors: [] }),
+  detectCycles: () => [],
+  resolveSelfReferencing: () => ({ errors: [] }),
+  tokenize: () => [],
 }));
 
 import { sendBadRequest, validateBody, requirePublicAccess, sendEntityNotFound } from '@pipeline-builder/api-core';

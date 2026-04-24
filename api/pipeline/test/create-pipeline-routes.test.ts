@@ -94,6 +94,12 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
+  // Template-validator dependencies — minimal stubs that accept any input
+  allowedScopeRoots: () => () => true,
+  validateTemplates: () => ({ valid: true, errors: [] }),
+  detectCycles: () => [],
+  resolveSelfReferencing: () => ({ errors: [] }),
+  tokenize: () => [],
 }));
 
 import { sendBadRequest, validateBody } from '@pipeline-builder/api-core';
