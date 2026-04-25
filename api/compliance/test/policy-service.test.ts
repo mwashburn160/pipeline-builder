@@ -68,7 +68,7 @@ describe('CompliancePolicyService', () => {
 
     it('clones template into target org with isTemplate=false', async () => {
       jest.spyOn(svc, 'findById').mockResolvedValue(fakeTemplate as never);
-      const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: never) => ({ ...data, id: 'new-id' } as never));
+      const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: any) => ({ ...(data as Record<string, unknown>), id: 'new-id' } as never));
 
       const result = await svc.cloneTemplate('tpl-1', 'org-target', 'user-1');
 

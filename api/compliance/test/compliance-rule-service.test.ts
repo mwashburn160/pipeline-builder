@@ -40,7 +40,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   createCacheService: () => ({
     getOrSet: (...args: unknown[]) => cacheGetOrSet(...args as [string, () => Promise<unknown>]),
-    invalidatePattern: (...args: unknown[]) => cacheInvalidatePattern(...args),
+    invalidatePattern: cacheInvalidatePattern,
   }),
 }));
 
@@ -65,8 +65,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     complianceScan: {},
   },
   db: {
-    insert: (...args: unknown[]) => dbInsert(...args),
-    select: (...args: unknown[]) => dbSelect(...args),
+    insert: dbInsert,
+    select: dbSelect,
   },
 }));
 
@@ -142,7 +142,7 @@ describe('ComplianceRuleService', () => {
         conditionMode: null,
       };
       selectResult = [source];
-      const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: never) => ({ ...data, id: 'new' } as never));
+      const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: any) => ({ ...(data as Record<string, unknown>), id: 'new' } as never));
 
       const result = await svc.forkRule('src', 'org-1', 'user-1');
 

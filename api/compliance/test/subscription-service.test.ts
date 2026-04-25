@@ -49,9 +49,9 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     },
   },
   db: {
-    select: (...args: unknown[]) => dbSelect(...args),
-    insert: (...args: unknown[]) => dbInsert(...args),
-    update: (...args: unknown[]) => dbUpdate(...args),
+    select: dbSelect,
+    insert: dbInsert,
+    update: dbUpdate,
     transaction: (cb: (t: typeof tx) => Promise<unknown>) => dbTransaction(cb),
   },
 }));

@@ -46,28 +46,28 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     pipeline: { id: 'col_plid', pipelineName: 'col_plname', isActive: 'col_plactive', orgId: 'col_plorg' },
   },
   db: {
-    select: (...args: unknown[]) => dbSelect(...args),
-    insert: (...args: unknown[]) => dbInsert(...args),
-    update: (...args: unknown[]) => dbUpdate(...args),
+    select: dbSelect,
+    insert: dbInsert,
+    update: dbUpdate,
   },
 }));
 
 jest.mock('../src/engine/rule-engine', () => ({
-  evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
+  evaluateRules: mockEvaluateRules,
 }));
 
 jest.mock('../src/services/compliance-rule-service', () => ({
   complianceRuleService: {
-    findActiveByOrgAndTarget: (...args: unknown[]) => mockFindActiveByOrgAndTarget(...args),
+    findActiveByOrgAndTarget: mockFindActiveByOrgAndTarget,
   },
 }));
 
 jest.mock('../src/helpers/audit-logger', () => ({
-  logComplianceCheck: (...args: unknown[]) => mockLogComplianceCheck(...args),
+  logComplianceCheck: mockLogComplianceCheck,
 }));
 
 jest.mock('../src/helpers/compliance-notifier', () => ({
-  notifyComplianceBlock: (...args: unknown[]) => mockNotifyComplianceBlock(...args),
+  notifyComplianceBlock: mockNotifyComplianceBlock,
 }));
 
 import { executeScan } from '../src/helpers/scan-executor';
