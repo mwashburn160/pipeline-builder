@@ -65,7 +65,7 @@ describe('compliance-event-queue', () => {
     });
 
     it('includes the event payload in the job', async () => {
-      const ev = { ...(sampleEvent as Record<string, unknown>), entityId: 'e2', eventType: 'deleted', target: 'pipeline' };
+      const ev = { ...(sampleEvent as Record<string, unknown>), entityId: 'e2', eventType: 'deleted', target: 'pipeline' } as never;
       await enqueue(ev);
       expect(queueAdd).toHaveBeenCalledWith('deleted:pipeline:e2', ev);
     });
