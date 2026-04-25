@@ -16,6 +16,8 @@ import {
   buildPipelineConditions,
   buildPluginConditions,
   buildMessageConditions,
+  buildComplianceRuleConditions,
+  buildCompliancePolicyConditions,
 } from '../src/api/query-builders';
 
 describe('buildPipelineConditions', () => {
@@ -144,5 +146,95 @@ describe('buildMessageConditions', () => {
     // Should not throw even with uppercase orgId
     const conditions = buildMessageConditions({}, 'ORG-1');
     expect(conditions.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('buildComplianceRuleConditions', () => {
+  // Regression: when a non-system org reads compliance rules, the SQL must
+  // include system-org published rules in addition to the org's own rules.
+  // Previously the query was `WHERE orgId=$myOrg`, so the global catalog
+  // never appeared on dashboards belonging to other orgs.
+  it('non-system org gets visibility OR (own rules + system published rules)', () => {
+    const conditions = buildComplianceRuleConditions({}, 'org-1');
+    // visibility OR (1) + isActive default (1) = 2
+    expect(conditions.length).toBe(2);
+  });
+
+  it('system org gets a single equality on its own rules (no extra OR branch)', () => {
+    const systemConditions = buildComplianceRuleConditions({}, 'system');
+    const orgConditions = buildComplianceRuleConditions({}, 'org-1');
+    // Both produce 2 conditions but the system path uses eq(orgId='system'),
+    // not the OR-with-published-catalog branch.
+    expect(systemConditions.length).toBe(orgConditions.length);
+  });
+
+  it('omits orgId condition entirely when no orgId is provided', () => {
+    const withoutOrg = buildComplianceRuleConditions({});
+    const withOrg = buildComplianceRuleConditions({}, 'org-1');
+    // Without orgId: only the isActive default. With orgId: visibility OR + isActive.
+    expect(withoutOrg.length).toBe(withOrg.length - 1);
+  });
+
+  it('normalizes orgId to lowercase before building visibility condition', () => {
+    const upper = buildComplianceRuleConditions({}, 'ORG-1');
+    const lower = buildComplianceRuleConditions({}, 'org-1');
+    expect(upper.length).toBe(lower.length);
+  });
+
+  it('does not default isActive=true when filtering by id (single-entity lookup)', () => {
+    const byId = buildComplianceRuleConditions(
+      { id: '12345678-1234-1234-1234-123456789abc' },
+      'org-1',
+    );
+    const list = buildComplianceRuleConditions({}, 'org-1');
+    // byId: visibility OR (1) + id (1) = 2; list: visibility OR (1) + isActive (1) = 2
+    expect(byId.length).toBe(list.length);
+  });
+
+  it('adds severity, target, scope, and tag filters', () => {
+    const base = buildComplianceRuleConditions({}, 'org-1').length;
+    expect(buildComplianceRuleConditions({ severity: 'error' }, 'org-1').length).toBe(base + 1);
+    expect(buildComplianceRuleConditions({ target: 'plugin' }, 'org-1').length).toBe(base + 1);
+    expect(buildComplianceRuleConditions({ scope: 'published' }, 'org-1').length).toBe(base + 1);
+    expect(buildComplianceRuleConditions({ tag: 'security' }, 'org-1').length).toBe(base + 1);
+  });
+});
+
+describe('buildCompliancePolicyConditions', () => {
+  // Regression: same shape as the rule-conditions fix — sample policy templates
+  // are uploaded under orgId='system' with isTemplate=true; non-system dashboards
+  // must be able to see them.
+  it('non-system org gets visibility OR (own policies + system templates)', () => {
+    const conditions = buildCompliancePolicyConditions({}, 'org-1');
+    // visibility OR (1) + isActive default (1) = 2
+    expect(conditions.length).toBe(2);
+  });
+
+  it('system org gets a single equality on its own policies', () => {
+    const systemConditions = buildCompliancePolicyConditions({}, 'system');
+    const orgConditions = buildCompliancePolicyConditions({}, 'org-1');
+    expect(systemConditions.length).toBe(orgConditions.length);
+  });
+
+  it('normalizes orgId to lowercase', () => {
+    const upper = buildCompliancePolicyConditions({}, 'ORG-1');
+    const lower = buildCompliancePolicyConditions({}, 'org-1');
+    expect(upper.length).toBe(lower.length);
+  });
+
+  it('omits orgId condition when no orgId is provided', () => {
+    const without = buildCompliancePolicyConditions({});
+    const withOrg = buildCompliancePolicyConditions({}, 'org-1');
+    expect(without.length).toBe(withOrg.length - 1);
+  });
+
+  it('adds isTemplate filter when explicitly set', () => {
+    const base = buildCompliancePolicyConditions({}, 'org-1').length;
+    expect(buildCompliancePolicyConditions({ isTemplate: true }, 'org-1').length).toBe(base + 1);
+  });
+
+  it('adds name filter', () => {
+    const base = buildCompliancePolicyConditions({}, 'org-1').length;
+    expect(buildCompliancePolicyConditions({ name: 'security' }, 'org-1').length).toBe(base + 1);
   });
 });

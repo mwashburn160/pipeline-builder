@@ -19,7 +19,8 @@ jest.mock('../src/utils/logger', () => ({
 jest.mock('http');
 
 import * as http from 'http';
-import { parseRetryAfter, addJitter, InternalHttpClient } from '../src/services/http-client';
+import { InternalHttpClient } from '../src/services/http-client';
+import { parseRetryAfter, addJitter } from '../src/services/retry-strategy';
 
 // parseRetryAfter
 describe('parseRetryAfter', () => {

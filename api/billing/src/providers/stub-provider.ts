@@ -37,6 +37,3 @@ export class StubPaymentProvider implements PaymentProvider {
     logger.debug('Stub: reactivateSubscription', { externalId });
   }
 }
-
-/** Singleton stub provider instance. */
-export const stubProvider = new StubPaymentProvider();

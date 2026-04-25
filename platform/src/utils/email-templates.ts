@@ -151,7 +151,9 @@ The ${config.email.fromName} Team
   `.trim();
 
   const html = renderTemplate('invitation-accepted', {
-    inviterName, acceptedByName, organizationName,
+    inviterName,
+    acceptedByName,
+    organizationName,
     fromName: config.email.fromName,
   });
 

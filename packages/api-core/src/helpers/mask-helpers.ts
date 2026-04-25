@@ -4,21 +4,6 @@
 import { createHash } from 'crypto';
 
 /**
- * Mask the middle digits of a sensitive identifier.
- * Preserves the first and last `visible` characters, replacing the rest with asterisks.
- *
- * @param value - The string to mask
- * @param visible - Number of characters to keep visible on each side (default: 4)
- * @returns Masked string, or '****' if the input is too short
- *
- * @example maskId('123456789012') → '1234****9012'
- */
-export function maskId(value: string, visible = 4): string {
-  if (!value || value.length <= visible * 2) return '****';
-  return value.slice(0, visible) + '*'.repeat(value.length - visible * 2) + value.slice(-visible);
-}
-
-/**
  * One-way hash of a sensitive identifier using SHA-256.
  * Returns a deterministic, fixed-length hex string that cannot be reversed.
  *

@@ -15,8 +15,8 @@ import { setupEvents } from './commands/setup-events';
 import { status } from './commands/status';
 import { storeToken } from './commands/store-token';
 import { synth } from './commands/synth';
-import { validateTemplatesCommand } from './commands/validate-templates';
 import { uploadPlugin } from './commands/upload-plugin';
+import { validateTemplatesCommand } from './commands/validate-templates';
 import { version } from './commands/version';
 import {
   APP_NAME,

@@ -109,9 +109,9 @@ export function deploy(program: Command): void {
           } as Pipeline;
           printSuccess('Local spec loaded');
           printKeyValue({
-            'Source': absPath,
-            'Project': pipeline.project,
-            'Organization': pipeline.organization,
+            Source: absPath,
+            Project: pipeline.project,
+            Organization: pipeline.organization,
           });
           propsWithIds = {
             ...pipeline.props,

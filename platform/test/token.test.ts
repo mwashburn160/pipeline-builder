@@ -28,11 +28,6 @@ jest.mock('../src/models', () => ({
 
 import jwt from 'jsonwebtoken';
 import {
-  createAccessTokenPayload,
-  createRefreshTokenPayload,
-  generateAccessToken,
-  generateRefreshToken,
-  generateTokenPair,
   hashRefreshToken,
   issueTokens,
   verifyAccessToken,
@@ -61,109 +56,6 @@ function mockUser(overrides: Partial<{
 // Tests
 
 describe('token utilities', () => {
-  describe('createAccessTokenPayload', () => {
-    it('should build payload from user document without membership', () => {
-      const user = mockUser();
-      const payload = createAccessTokenPayload(user);
-
-      expect(payload.type).toBe('access');
-      expect(payload.sub).toBe('user-123');
-      expect(payload.username).toBe('testuser');
-      expect(payload.email).toBe('test@example.com');
-      expect(payload.role).toBe('member');
-      expect(payload.isAdmin).toBe(false);
-      expect(payload.organizationId).toBeUndefined();
-      expect(payload.tokenVersion).toBe(1);
-      expect(payload.isEmailVerified).toBe(true);
-    });
-
-    it('should build payload with membership context', () => {
-      const user = mockUser();
-      const membership = { organizationId: 'org-456', organizationName: 'Test Org', role: 'admin' as const };
-      const payload = createAccessTokenPayload(user, membership);
-      expect(payload.role).toBe('admin');
-      expect(payload.isAdmin).toBe(true);
-      expect(payload.organizationId).toBe('org-456');
-      expect(payload.organizationName).toBe('Test Org');
-    });
-
-    it('should set isAdmin=true for owner role', () => {
-      const user = mockUser();
-      const membership = { organizationId: 'org-1', role: 'owner' as const };
-      const payload = createAccessTokenPayload(user, membership);
-      expect(payload.isAdmin).toBe(true);
-      expect(payload.role).toBe('owner');
-    });
-
-    it('should set isAdmin=false for member role', () => {
-      const user = mockUser();
-      const membership = { organizationId: 'org-1', role: 'member' as const };
-      const payload = createAccessTokenPayload(user, membership);
-      expect(payload.isAdmin).toBe(false);
-    });
-  });
-
-  describe('createRefreshTokenPayload', () => {
-    it('should build minimal refresh payload', () => {
-      const user = mockUser();
-      const payload = createRefreshTokenPayload(user);
-
-      expect(payload.type).toBe('refresh');
-      expect(payload.sub).toBe('user-123');
-      expect(payload.tokenVersion).toBe(1);
-      expect(Object.keys(payload)).toEqual(['type', 'sub', 'tokenVersion']);
-    });
-  });
-
-  describe('generateAccessToken', () => {
-    it('should return a valid JWT string', () => {
-      const token = generateAccessToken(mockUser());
-      expect(typeof token).toBe('string');
-      expect(token.split('.')).toHaveLength(3);
-    });
-
-    it('should contain expected payload when decoded', () => {
-      const token = generateAccessToken(mockUser());
-      const decoded = jwt.decode(token) as any;
-
-      expect(decoded.type).toBe('access');
-      expect(decoded.sub).toBe('user-123');
-      expect(decoded.username).toBe('testuser');
-      expect(decoded.exp).toBeDefined();
-    });
-  });
-
-  describe('generateRefreshToken', () => {
-    it('should return a valid JWT string', () => {
-      const token = generateRefreshToken(mockUser());
-      expect(typeof token).toBe('string');
-      expect(token.split('.')).toHaveLength(3);
-    });
-
-    it('should contain refresh type in payload', () => {
-      const token = generateRefreshToken(mockUser());
-      const decoded = jwt.decode(token) as any;
-
-      expect(decoded.type).toBe('refresh');
-      expect(decoded.sub).toBe('user-123');
-    });
-  });
-
-  describe('generateTokenPair', () => {
-    it('should return both access and refresh tokens', () => {
-      const { accessToken, refreshToken } = generateTokenPair(mockUser());
-
-      expect(typeof accessToken).toBe('string');
-      expect(typeof refreshToken).toBe('string');
-
-      const accessDecoded = jwt.decode(accessToken) as any;
-      const refreshDecoded = jwt.decode(refreshToken) as any;
-
-      expect(accessDecoded.type).toBe('access');
-      expect(refreshDecoded.type).toBe('refresh');
-    });
-  });
-
   describe('hashRefreshToken', () => {
     it('should return a hex SHA-256 hash', () => {
       const hash = hashRefreshToken('my-refresh-token');
@@ -184,9 +76,9 @@ describe('token utilities', () => {
   });
 
   describe('verifyAccessToken', () => {
-    it('should verify a valid access token', () => {
-      const token = generateAccessToken(mockUser());
-      const payload = verifyAccessToken(token);
+    it('should verify a valid access token', async () => {
+      const { accessToken } = await issueTokens(mockUser());
+      const payload = verifyAccessToken(accessToken);
 
       expect(payload.type).toBe('access');
       expect(payload.sub).toBe('user-123');
@@ -203,9 +95,9 @@ describe('token utilities', () => {
   });
 
   describe('verifyRefreshToken', () => {
-    it('should verify a valid refresh token', () => {
-      const token = generateRefreshToken(mockUser());
-      const payload = verifyRefreshToken(token);
+    it('should verify a valid refresh token', async () => {
+      const { refreshToken } = await issueTokens(mockUser());
+      const payload = verifyRefreshToken(refreshToken);
 
       expect(payload.type).toBe('refresh');
       expect(payload.sub).toBe('user-123');

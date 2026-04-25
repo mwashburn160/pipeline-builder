@@ -501,26 +501,9 @@ class ApiClient {
   // ============================================
   // Organization endpoints
   // ============================================
-
-  async getMyOrganization() {
-    return this.request<ApiResponse<Organization>>('/api/organization');
-  }
-
   async listOrganizations(params?: { search?: string; offset?: number; limit?: number }) {
     return this.request<ApiResponse<{ organizations: Organization[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
   }
-
-  async getOrganization(id: string) {
-    return this.request<ApiResponse<Organization>>(`/api/organization/${id}`);
-  }
-
-  async updateOrganization(id: string, data: { name?: string; description?: string }) {
-    return this.request<ApiResponse<Organization>>(`/api/organization/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  }
-
   async deleteOrganization(id: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/organization/${id}`, {
       method: 'DELETE',
@@ -583,11 +566,6 @@ class ApiClient {
   async listUsers(params?: { organizationId?: string; role?: string; search?: string; offset?: number; limit?: number }) {
     return this.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
   }
-
-  async getUserById(id: string) {
-    return this.request<ApiResponse<{ user: User }>>(`/api/users/${id}`);
-  }
-
   async updateUserById(id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string }) {
     return this.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, {
       method: 'PUT',
@@ -600,14 +578,6 @@ class ApiClient {
       method: 'DELETE',
     });
   }
-
-  async updateUserFeatures(userId: string, overrides: Record<string, boolean>) {
-    return this.request<ApiResponse<{ user: User }>>(`/api/users/${userId}/features`, {
-      method: 'PUT',
-      body: JSON.stringify({ overrides }),
-    });
-  }
-
   // ============================================
   // Quota endpoints (quota service — nginx proxies /api/quota → quota:3000/quotas)
   // ============================================
@@ -634,15 +604,6 @@ class ApiClient {
       body: JSON.stringify(data),
     });
   }
-
-  /** Reset usage counters (system admin only). */
-  async resetOrgQuotaUsage(orgId: string, quotaType?: string) {
-    return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}/reset`, {
-      method: 'POST',
-      body: JSON.stringify(quotaType ? { quotaType } : {}),
-    });
-  }
-
   // ============================================
   // Billing endpoints (billing service — nginx proxies /api/billing → billing:3000/billing)
   // ============================================
@@ -651,12 +612,6 @@ class ApiClient {
   async getPlans() {
     return this.request<ApiResponse<{ plans: Plan[]; total: number }>>('/api/billing/plans');
   }
-
-  /** Get a single plan by ID. */
-  async getPlan(planId: string) {
-    return this.request<ApiResponse<{ plan: Plan }>>(`/api/billing/plans/${planId}`);
-  }
-
   /** Get current org subscription. */
   async getSubscription() {
     return this.request<ApiResponse<{ subscription: Subscription | null }>>('/api/billing/subscriptions');
@@ -691,17 +646,6 @@ class ApiClient {
       method: 'POST',
     });
   }
-
-  /** List all subscriptions (admin only). */
-  async listSubscriptions(params?: { status?: string; limit?: number; offset?: number }) {
-    return this.request<ApiResponse<{ subscriptions: Subscription[]; total: number }>>(`/api/billing/admin/subscriptions${buildQuery(params)}`);
-  }
-
-  /** Update a subscription (admin only). */
-  async adminUpdateSubscription(id: string, data: Record<string, unknown>) {
-    return this.request<ApiResponse>(`/api/billing/admin/subscriptions/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-  }
-
   /** List billing events (admin only). */
   async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
@@ -892,14 +836,6 @@ class ApiClient {
   async getAIProviders() {
     return this.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/pipeline/providers');
   }
-
-  async generatePipeline(prompt: string, provider: string, model: string, apiKey?: string) {
-    return this.request<ApiResponse<{ props: BuilderProps; description?: string; keywords?: string[] }>>('/api/pipeline/generate', {
-      method: 'POST',
-      body: JSON.stringify({ prompt, provider, model, ...(apiKey ? { apiKey } : {}) }),
-    });
-  }
-
   /**
    * Stream SSE events from a POST endpoint.
    * Yields parsed StreamEvent objects as they arrive.
@@ -1065,28 +1001,6 @@ class ApiClient {
   async getPluginAIProviders() {
     return this.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/plugin/providers');
   }
-
-  async generatePlugin(prompt: string, provider: string, model: string, apiKey?: string) {
-    return this.request<ApiResponse<{
-      config: {
-        name: string;
-        description?: string;
-        version: string;
-        pluginType: string;
-        computeType: string;
-        keywords: string[];
-        primaryOutputDirectory?: string;
-        installCommands: string[];
-        commands: string[];
-        env?: Record<string, string>;
-      };
-      dockerfile: string;
-    }>>('/api/plugin/generate', {
-      method: 'POST',
-      body: JSON.stringify({ prompt, provider, model, ...(apiKey ? { apiKey } : {}) }),
-    });
-  }
-
   async deployGeneratedPlugin(data: {
     name: string;
     description?: string;
@@ -1118,25 +1032,12 @@ class ApiClient {
   async listInvitations(params?: { status?: string; offset?: number; limit?: number }) {
     return this.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`);
   }
-
-  async getInvitation(token: string) {
-    return this.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${token}`);
-  }
-
   async sendInvitation(data: { email: string; role?: 'admin' | 'member'; invitationType?: string }) {
     return this.request<ApiResponse<{ invitation: Invitation }>>('/api/invitation/send', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
-
-  async acceptInvitation(token: string) {
-    return this.request<ApiResponse<{ message: string }>>('/api/invitation/accept', {
-      method: 'POST',
-      body: JSON.stringify({ token }),
-    });
-  }
-
   async revokeInvitation(invitationId: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/invitation/${invitationId}`, {
       method: 'DELETE',
@@ -1180,27 +1081,10 @@ class ApiClient {
   async getMessages(params?: { messageType?: MessageType; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
     return this.request<ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/messages${buildQuery(params)}`);
   }
-
-  /** List announcements only */
-  async getAnnouncements() {
-    return this.request<ApiResponse<{ messages: Message[] }>>('/api/messages/announcements');
-  }
-
-  /** List conversations only */
-  async getConversations() {
-    return this.request<ApiResponse<{ messages: Message[] }>>('/api/messages/conversations');
-  }
-
   /** Get unread message count */
   async getUnreadCount() {
     return this.request<ApiResponse<{ count: number }>>('/api/messages/unread/count');
   }
-
-  /** Get a single message by ID */
-  async getMessage(id: string) {
-    return this.request<ApiResponse<{ message: Message }>>(`/api/messages/${id}`);
-  }
-
   /** Get all messages in a thread */
   async getThread(id: string) {
     return this.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`);
@@ -1257,12 +1141,6 @@ class ApiClient {
   async getComplianceRules(params?: { target?: string; severity?: string; policyId?: string; scope?: string; tag?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) {
     return this.request<ApiResponse<{ rules: ComplianceRule[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/rules${buildQuery(params)}`);
   }
-
-  /** Get a single compliance rule by ID */
-  async getComplianceRule(id: string) {
-    return this.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`);
-  }
-
   /** Get rule change history */
   async getComplianceRuleHistory(id: string) {
     return this.request<ApiResponse<{ history: ComplianceRuleHistoryEntry[] }>>(`/api/compliance/rules/${id}/history`);
@@ -1306,23 +1184,6 @@ class ApiClient {
       body: JSON.stringify({ attributes }),
     });
   }
-
-  /** Validate plugin attributes against compliance rules (blocking) */
-  async validatePluginCompliance(attributes: Record<string, unknown>) {
-    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/plugin', {
-      method: 'POST',
-      body: JSON.stringify({ attributes }),
-    });
-  }
-
-  /** Validate pipeline attributes against compliance rules (blocking) */
-  async validatePipelineCompliance(attributes: Record<string, unknown>) {
-    return this.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline', {
-      method: 'POST',
-      body: JSON.stringify({ attributes }),
-    });
-  }
-
   /** Get compliance audit log */
   async getComplianceAuditLog(params?: { target?: string; result?: string; scanId?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ entries: ComplianceAuditEntry[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/audit${buildQuery(params)}`);
@@ -1336,12 +1197,6 @@ class ApiClient {
   async getCompliancePolicies(params?: { name?: string; isTemplate?: boolean; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ policies: CompliancePolicy[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/policies${buildQuery(params)}`);
   }
-
-  /** Get a single compliance policy by ID */
-  async getCompliancePolicy(id: string) {
-    return this.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${id}`);
-  }
-
   /** Create a compliance policy */
   async createCompliancePolicy(data: { name: string; description?: string; version?: string; ruleNames?: string[] }) {
     return this.request<ApiResponse<{ policy: CompliancePolicy }>>('/api/compliance/policies', {

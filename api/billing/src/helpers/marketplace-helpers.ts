@@ -5,7 +5,6 @@ import crypto from 'crypto';
 import https from 'https';
 import { URL } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
 
 const logger = createLogger('marketplace-helpers');
 
@@ -159,14 +158,3 @@ export function mapActionToStatus(
   return ACTION_STATUS_MAP[action] ?? null;
 }
 
-/**
- * Look up the QuotaTier for a plan ID.
- */
-export function planIdToTier(planId: string): QuotaTier {
-  const tierMap: Record<string, QuotaTier> = {
-    developer: 'developer',
-    pro: 'pro',
-    unlimited: 'unlimited',
-  };
-  return tierMap[planId] || 'developer';
-}

@@ -15,17 +15,6 @@ const quotaService = createQuotaService({
 });
 
 /**
- * Check quota status for an organization (fail-open on error).
- */
-export async function checkQuotaService(
-  orgId: string,
-  quotaType: QuotaType,
-  authHeader: string,
-): Promise<QuotaCheckResult> {
-  return quotaService.check(orgId, quotaType, authHeader);
-}
-
-/**
  * Update quota limits for an organization.
  */
 export async function updateQuotaLimits(

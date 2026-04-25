@@ -5,8 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
 import YAML from 'yaml';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
+import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils';
 
 interface ValidateOptions {

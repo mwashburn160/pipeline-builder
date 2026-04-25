@@ -32,9 +32,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.2.4",
-    "@pipeline-builder/api-server": "3.2.4",
-    "@pipeline-builder/pipeline-core": "3.2.4",
+    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-server": "workspace:*",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",
     "next": "^16.1.6",
@@ -51,7 +51,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.2.5",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testEnvironment": "node",

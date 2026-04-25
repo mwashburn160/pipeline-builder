@@ -78,43 +78,6 @@ export function validatePipelineTemplates(pipeline: PipelineLike): void {
 }
 
 /**
- * Check that the given pipeline satisfies each referenced plugin's contract
- * (every `{{ pipeline.metadata.X }}` used by a plugin must have `X` in the
- * pipeline's metadata, and `{{ pipeline.vars.Y }}` must have `Y` in vars —
- * unless the template used the `| default:` filter).
- *
- * `pluginContracts` is a map keyed by `${name}:${version}` (or just name)
- * with the required keys declared in each plugin spec.
- */
-export function enforcePluginContracts(
-  pipeline: PipelineLike,
-  referencedPluginNames: string[],
-  pluginContracts: Map<string, { requiredMetadata: string[]; requiredVars: string[] }>,
-): void {
-  const providedMetadata = new Set(Object.keys(pipeline.metadata ?? {}));
-  const providedVars = new Set(Object.keys(pipeline.vars ?? {}));
-  const missing: Array<{ plugin: string; key: string; kind: 'metadata' | 'vars' }> = [];
-
-  for (const name of referencedPluginNames) {
-    const contract = pluginContracts.get(name);
-    if (!contract) continue;
-    for (const k of contract.requiredMetadata) {
-      if (!providedMetadata.has(k)) missing.push({ plugin: name, key: k, kind: 'metadata' });
-    }
-    for (const k of contract.requiredVars) {
-      if (!providedVars.has(k)) missing.push({ plugin: name, key: k, kind: 'vars' });
-    }
-  }
-
-  if (missing.length) {
-    throw new ValidationError(
-      `Pipeline is missing required fields for referenced plugins:\n` +
-      missing.map(m => `  • Plugin '${m.plugin}' requires pipeline.${m.kind}.${m.key}`).join('\n'),
-    );
-  }
-}
-
-/**
  * Apply pass-1 resolution to a pipeline in place. Mutates and returns
  * the same object. Errors on unresolved paths or cycles.
  */

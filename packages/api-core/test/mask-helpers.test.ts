@@ -1,31 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { maskId, hashId, hashAccountInArn } from '../src/helpers/mask-helpers';
-
-describe('maskId', () => {
-  it('masks middle characters of a 12-digit account', () => {
-    expect(maskId('123456789012')).toBe('1234****9012');
-  });
-
-  it('masks a 20-character access key', () => {
-    expect(maskId('AKIAIOSFODNN7EXAMPLE')).toBe('AKIA************MPLE');
-  });
-
-  it('returns **** for short strings', () => {
-    expect(maskId('1234')).toBe('****');
-    expect(maskId('12345678')).toBe('****');
-  });
-
-  it('returns **** for empty or missing input', () => {
-    expect(maskId('')).toBe('****');
-  });
-
-  it('supports custom visible length', () => {
-    expect(maskId('123456789012', 2)).toBe('12********12');
-    expect(maskId('123456789012', 6)).toBe('****'); // nothing to mask, returns masked
-  });
-});
+import { hashId, hashAccountInArn } from '../src/helpers/mask-helpers';
 
 describe('hashId', () => {
   it('returns a deterministic 12-char hex hash by default', () => {

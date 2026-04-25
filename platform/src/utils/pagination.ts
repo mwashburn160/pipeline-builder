@@ -8,19 +8,6 @@ export interface PaginationResult {
   limit: number;
 }
 
-/** Standard pagination response shape. */
-export interface PaginationResponse {
-  total: number;
-  offset: number;
-  limit: number;
-  hasMore: boolean;
-}
-
-/** Build pagination response from total count and current offset/limit. */
-export function buildPaginationResponse(total: number, offset: number, limit: number): PaginationResponse {
-  return { total, offset, limit, hasMore: offset + limit < total };
-}
-
 /** Parse offset/limit from query params with safe defaults and clamping. */
 export function parsePagination(
   offset: unknown,

@@ -8,28 +8,21 @@ import { AccessModifier } from '../types/pipeline';
 import { sendError } from '../utils/response';
 
 /**
- * Apply access control to a filter object.
+ * Apply access control to a read-filter.
  *
- * Non-system-admins are restricted to 'private' (org-scoped) resources.
- * System admins see all access modifiers.
+ * Pass-through: forwards the caller's filter unchanged. Multi-tenant access
+ * scoping is handled in the query builder (`AccessControlQueryBuilder`),
+ * which combines the caller's `orgId` with `accessModifier` to return:
+ * caller's org rows + system-org public rows by default.
  *
- * @param filter - Query filter to modify
- * @param req - Express request (used to check admin status)
- * @returns Filter with accessModifier applied for non-admins
- *
- * @example
- * ```typescript
- * const effectiveFilter = applyAccessControl(filter, req);
- * const results = await service.find(effectiveFilter, orgId);
- * ```
+ * Kept as a stable wrapper so route handlers retain a single, named hook
+ * for future per-route policy adjustments.
  */
 export function applyAccessControl<T extends { accessModifier?: string }>(
   filter: T,
-  req: Request,
+  _req: Request,
 ): T {
-  return !isSystemAdmin(req)
-    ? { ...filter, accessModifier: AccessModifier.PRIVATE }
-    : filter;
+  return filter;
 }
 
 /**

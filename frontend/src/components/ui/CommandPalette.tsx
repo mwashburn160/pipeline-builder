@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Search, LayoutDashboard, GitBranch, Puzzle, MessageSquare, ScrollText,
   FileBarChart, Users, Settings, KeyRound, HelpCircle, BarChart3, CreditCard,
-  Plus, Sun, Moon,
+  Sun, Moon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -22,8 +22,6 @@ interface CommandPaletteProps {
   isAdmin: boolean;
   isDark: boolean;
   onToggleDark: () => void;
-  onCreatePipeline?: () => void;
-  onCreatePlugin?: () => void;
   onOpenRef?: React.RefObject<(() => void) | null>;
 }
 
@@ -32,8 +30,6 @@ export function CommandPalette({
   isAdmin,
   isDark,
   onToggleDark,
-  onCreatePipeline,
-  onCreatePlugin,
   onOpenRef,
 }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
@@ -76,19 +72,12 @@ export function CommandPalette({
       );
     }
 
-    if (onCreatePipeline) {
-      items.push({ id: 'create-pipeline', label: 'Create Pipeline', icon: Plus, section: 'Actions', keywords: 'new add', action: () => { setOpen(false); onCreatePipeline(); } });
-    }
-    if (onCreatePlugin) {
-      items.push({ id: 'create-plugin', label: 'Create Plugin', icon: Plus, section: 'Actions', keywords: 'new add upload', action: () => { setOpen(false); onCreatePlugin(); } });
-    }
-
     items.push(
       { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => { onToggleDark(); setOpen(false); } },
     );
 
     return items;
-  }, [navigate, isSysAdmin, isAdmin, isDark, onToggleDark, onCreatePipeline, onCreatePlugin]);
+  }, [navigate, isSysAdmin, isAdmin, isDark, onToggleDark]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

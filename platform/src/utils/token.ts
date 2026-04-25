@@ -22,7 +22,7 @@ export interface MembershipContext {
 }
 
 /** Build an access token JWT payload from a user document and optional membership. */
-export function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
+function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
   const role = membership?.role ?? 'member';
   const tier = (membership?.tier as QuotaTier) || 'developer';
   const isSystem = isSystemOrgId(membership?.organizationId, membership?.organizationName);
@@ -45,37 +45,17 @@ export function createAccessTokenPayload(user: UserDocument, membership?: Member
   };
 }
 
-/** Build a refresh token JWT payload from a user document. */
-export function createRefreshTokenPayload(user: UserDocument): RefreshTokenPayload {
-  return {
+/** Sign and return a JWT refresh token for the given user. */
+function generateRefreshToken(user: UserDocument): string {
+  const payload: RefreshTokenPayload = {
     type: 'refresh',
     sub: user._id.toString(),
     tokenVersion: user.tokenVersion,
   };
-}
-
-/** Sign and return a JWT access token for the given user. */
-export function generateAccessToken(user: UserDocument, membership?: MembershipContext): string {
-  return jwt.sign(createAccessTokenPayload(user, membership), config.auth.jwt.secret, {
-    algorithm: config.auth.jwt.algorithm,
-    expiresIn: config.auth.jwt.expiresIn,
-  });
-}
-
-/** Sign and return a JWT refresh token for the given user. */
-export function generateRefreshToken(user: UserDocument): string {
-  return jwt.sign(createRefreshTokenPayload(user), config.auth.refreshToken.secret, {
+  return jwt.sign(payload, config.auth.refreshToken.secret, {
     algorithm: config.auth.jwt.algorithm,
     expiresIn: config.auth.refreshToken.expiresIn,
   });
-}
-
-/** Generate both access and refresh tokens for a user. */
-export function generateTokenPair(user: UserDocument, membership?: MembershipContext): { accessToken: string; refreshToken: string } {
-  return {
-    accessToken: generateAccessToken(user, membership),
-    refreshToken: generateRefreshToken(user),
-  };
 }
 
 /**

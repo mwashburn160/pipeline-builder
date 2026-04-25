@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { eq, ilike, isNull, or, gte, lte, SQL } from 'drizzle-orm';
+import { and, eq, ilike, isNull, or, gte, lte, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   buildJsonbKeywordCondition,
@@ -201,7 +201,10 @@ export function buildMessageConditions(
 
 /**
  * Build SQL conditions for compliance policy queries.
- * Org-scoped: always filters by orgId.
+ *
+ * Visibility:
+ * - The requesting org's own policies, AND
+ * - The system org's policy templates (so the shared catalog is always visible).
  */
 export function buildCompliancePolicyConditions(
   filter: Partial<CompliancePolicyFilter>,
@@ -210,7 +213,20 @@ export function buildCompliancePolicyConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    conditions.push(eq(schema.compliancePolicy.orgId, orgId));
+    const normalizedOrgId = orgId.toLowerCase();
+    if (normalizedOrgId === SYSTEM_ORG_ID) {
+      conditions.push(eq(schema.compliancePolicy.orgId, normalizedOrgId));
+    } else {
+      conditions.push(
+        or(
+          eq(schema.compliancePolicy.orgId, normalizedOrgId),
+          and(
+            eq(schema.compliancePolicy.orgId, SYSTEM_ORG_ID),
+            eq(schema.compliancePolicy.isTemplate, true),
+          )!,
+        )!,
+      );
+    }
   }
 
   if (filter.id !== undefined) {
@@ -237,7 +253,10 @@ export function buildCompliancePolicyConditions(
 
 /**
  * Build SQL conditions for compliance rule queries.
- * Returns only the requesting org's own rules (org-scoped).
+ *
+ * Visibility:
+ * - The requesting org's own rules (any scope), AND
+ * - The system org's published rules (so the global catalog is always visible).
  */
 export function buildComplianceRuleConditions(
   filter: Partial<ComplianceRuleFilter>,
@@ -246,7 +265,20 @@ export function buildComplianceRuleConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    conditions.push(eq(schema.complianceRule.orgId, orgId));
+    const normalizedOrgId = orgId.toLowerCase();
+    if (normalizedOrgId === SYSTEM_ORG_ID) {
+      conditions.push(eq(schema.complianceRule.orgId, normalizedOrgId));
+    } else {
+      conditions.push(
+        or(
+          eq(schema.complianceRule.orgId, normalizedOrgId),
+          and(
+            eq(schema.complianceRule.orgId, SYSTEM_ORG_ID),
+            eq(schema.complianceRule.scope, 'published' as RuleScope),
+          )!,
+        )!,
+      );
+    }
   }
 
   if (filter.id !== undefined) {

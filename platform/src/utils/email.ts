@@ -17,10 +17,6 @@ export interface EmailOptions {
   html?: string;
 }
 
-// Re-export from canonical source for backward compatibility
-export type { InvitationType };
-export type OAuthProvider = InvitationOAuthProvider;
-
 /**
  * Email template data for invitations
  */
@@ -32,7 +28,7 @@ export interface InvitationEmailData {
   expiresAt: Date;
   role: string;
   invitationType?: InvitationType;
-  allowedOAuthProviders?: OAuthProvider[];
+  allowedOAuthProviders?: InvitationOAuthProvider[];
 }
 
 /**

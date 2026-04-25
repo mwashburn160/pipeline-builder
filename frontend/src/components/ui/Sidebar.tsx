@@ -27,6 +27,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
@@ -73,12 +74,14 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
       { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
+      { title: 'Build Triage', href: '/dashboard/triage', icon: AlertTriangle, systemAdminOnly: true },
     ],
   },
   {
     label: 'Insights',
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
+      { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: FileBarChart },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
@@ -179,7 +182,7 @@ export function Sidebar({
           className="text-lg font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors tracking-tight"
         >
           {collapsed ? (
-            <Tooltip content="Pipeline Builder" position="right">
+            <Tooltip content="Pipeline Builder">
               <span className="flex justify-center">PB</span>
             </Tooltip>
           ) : (
@@ -273,7 +276,7 @@ export function Sidebar({
                 // Collapsed parent with children — show first child on click, tooltip lists all
                 if (hasChildren && collapsed) {
                   return (
-                    <Tooltip key={item.title} content={item.title} position="right">
+                    <Tooltip key={item.title} content={item.title}>
                       <span className="relative block">
                         <Link
                           href={item.href}
@@ -313,7 +316,7 @@ export function Sidebar({
                 );
 
                 return collapsed ? (
-                  <Tooltip key={item.href} content={item.title} position="right">
+                  <Tooltip key={item.href} content={item.title}>
                     <span className="relative block">{linkContent}</span>
                   </Tooltip>
                 ) : (
@@ -355,7 +358,7 @@ export function Sidebar({
         <div className={`flex items-center ${collapsed ? 'flex-col' : ''} gap-2`}>
           {collapsed ? (
             <>
-              <Tooltip content={isDark ? 'Light mode' : 'Dark mode'} position="right">
+              <Tooltip content={isDark ? 'Light mode' : 'Dark mode'}>
                 <button
                   onClick={onToggleDark}
                   className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -364,7 +367,7 @@ export function Sidebar({
                   {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 </button>
               </Tooltip>
-              <Tooltip content="Log out" position="right">
+              <Tooltip content="Log out">
                 <button
                   onClick={onLogout}
                   className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"

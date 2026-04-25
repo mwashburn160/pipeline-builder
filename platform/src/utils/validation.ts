@@ -133,11 +133,6 @@ export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
 });
 
-/** Switch active organization schema. */
-export const switchOrgSchema = z.object({
-  organizationId: z.string().min(1, 'Organization ID is required'),
-});
-
 /** Quota limits update schema (values can be numbers or 'unlimited'). */
 export const updateQuotasSchema = z.object({
   plugins: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),

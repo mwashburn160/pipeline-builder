@@ -65,7 +65,7 @@ describe('validate-templates CLI', () => {
 
   it('--file on a valid plugin spec exits 0', async () => {
     const file = tmpFile(
-      `name: test-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ pipeline.metadata.env }}"\n`,
+      'name: test-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ pipeline.metadata.env }}"\n',
     );
     // Should not throw (no process.exit(1))
     await expect(runCli(['--file', file])).resolves.toBeDefined();
@@ -74,7 +74,7 @@ describe('validate-templates CLI', () => {
 
   it('--file on a spec with an unknown scope path exits 1', async () => {
     const file = tmpFile(
-      `name: bad-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ foo.bar }}"\n`,
+      'name: bad-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ foo.bar }}"\n',
     );
     await expect(runCli(['--file', file])).rejects.toThrow(/__EXIT_1__/);
     fs.unlinkSync(file);

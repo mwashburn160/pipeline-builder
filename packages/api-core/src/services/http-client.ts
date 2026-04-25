@@ -14,9 +14,6 @@ import { HttpStatus } from '../constants/http-status';
 import { ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';
 
-// Re-export retry utilities for backward compatibility
-export { parseRetryAfter, addJitter } from './retry-strategy';
-
 const logger = createLogger('http-client');
 
 /**
