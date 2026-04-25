@@ -36,7 +36,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.3.0",
+    "@pipeline-builder/api-core": "3.3.1",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "cors": "2.8.6",
@@ -55,7 +55,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.1",
+  "version": "0.0.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [
