@@ -299,7 +299,7 @@ export const changePassword = withController('Change password', async (req, res)
  * POST /user/generate-token
  *
  * Body (optional):
- *   - expiresIn: number - token lifetime in seconds (default: server config, max: 30 days)
+ *   - expiresIn: number - token lifetime in seconds (default: server config, max: 365 days)
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -310,8 +310,8 @@ export const generateToken = withController('Generate token', async (req, res) =
     return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
   }
 
-  // Optional custom expiry (max 30 days = 2592000 seconds)
-  const MAX_EXPIRES_IN = 30 * 24 * 60 * 60;
+  // Optional custom expiry (max 365 days = 31536000 seconds — matches pipeline-manager CLI cap).
+  const MAX_EXPIRES_IN = 365 * 24 * 60 * 60;
   let expiresIn: number | undefined;
   if (req.body?.expiresIn !== undefined) {
     expiresIn = parseInt(req.body.expiresIn, 10);
@@ -319,7 +319,7 @@ export const generateToken = withController('Generate token', async (req, res) =
       return sendError(res, 400, 'expiresIn must be a positive integer (seconds)', 'INVALID_EXPIRES_IN');
     }
     if (expiresIn > MAX_EXPIRES_IN) {
-      return sendError(res, 400, `expiresIn must not exceed ${MAX_EXPIRES_IN} seconds (30 days)`, 'EXPIRES_IN_TOO_LARGE');
+      return sendError(res, 400, `expiresIn must not exceed ${MAX_EXPIRES_IN} seconds (365 days)`, 'EXPIRES_IN_TOO_LARGE');
     }
   }
 

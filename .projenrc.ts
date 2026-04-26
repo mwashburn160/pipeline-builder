@@ -18,21 +18,21 @@ import { PackageProject } from './projenrc/package';
 // =============================================================================
 
 const branch = 'main';
-const pnpmVersion = '10.25.0';
+const pnpmVersion = '10.33.2';
 const constructsVersion = '10.5.1';
 const typescriptVersion = '5.9.3';
-const cdkVersion = '2.240.0';
+const cdkVersion = '2.251.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.3.4',
-  pipelineData:   '3.3.4',
-  pipelineCore:   '3.3.4',
-  apiServer:      '3.3.4',
-  aiCore:         '3.3.4',
-  eventBridge:    '3.3.4'
+  apiCore:        '3.3.5',
+  pipelineData:   '3.3.5',
+  pipelineCore:   '3.3.5',
+  apiServer:      '3.3.5',
+  aiCore:         '3.3.5',
+  eventBridge:    '3.3.5'
 };
 
 // =============================================================================
@@ -42,7 +42,7 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.99.8',
+  projenVersion: '0.99.52',
   minNodeVersion: '24.14.0',
   minMajorVersion: 3,
   packageManager: NodePackageManager.PNPM,

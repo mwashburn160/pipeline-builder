@@ -122,5 +122,42 @@ describe('token utilities', () => {
         { $set: { refreshToken: expect.stringMatching(/^[0-9a-f]{64}$/) } },
       );
     });
+
+    it('should default access-token expiresIn to config value when override is omitted', async () => {
+      const { accessToken, expiresIn } = await issueTokens(mockUser());
+      expect(expiresIn).toBe(7200); // matches mocked config.auth.jwt.expiresIn
+      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(decoded.exp - decoded.iat).toBe(7200);
+    });
+
+    it('should honor a custom expiresIn override (regression: --days 30 from store-token CLI)', async () => {
+      const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
+      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, THIRTY_DAYS_SEC);
+      expect(expiresIn).toBe(THIRTY_DAYS_SEC);
+      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(decoded.exp - decoded.iat).toBe(THIRTY_DAYS_SEC);
+    });
+
+    it('should honor a 90-day expiresIn override', async () => {
+      const NINETY_DAYS_SEC = 90 * 24 * 60 * 60;
+      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, NINETY_DAYS_SEC);
+      expect(expiresIn).toBe(NINETY_DAYS_SEC);
+      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(decoded.exp - decoded.iat).toBe(NINETY_DAYS_SEC);
+    });
+
+    it('should honor a 365-day expiresIn override (CLI cap)', async () => {
+      const ONE_YEAR_SEC = 365 * 24 * 60 * 60;
+      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, ONE_YEAR_SEC);
+      expect(expiresIn).toBe(ONE_YEAR_SEC);
+      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(decoded.exp - decoded.iat).toBe(ONE_YEAR_SEC);
+    });
+
+    it('should accept short custom expiresIn (e.g. 1 hour)', async () => {
+      const { accessToken } = await issueTokens(mockUser(), undefined, 3600);
+      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(decoded.exp - decoded.iat).toBe(3600);
+    });
   });
 });

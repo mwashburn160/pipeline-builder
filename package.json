@@ -26,7 +26,7 @@
     "constructs": "10.5.1",
     "npm-check-updates": "19.3.2",
     "nx": "^22",
-    "projen": "0.99.8",
+    "projen": "0.99.52",
     "ts-node": "^10.9.2",
     "typescript": "5.9.3"
   },

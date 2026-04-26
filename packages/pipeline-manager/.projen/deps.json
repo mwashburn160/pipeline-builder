@@ -92,12 +92,12 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.4",
+      "version": "3.3.5",
       "type": "runtime"
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.240.0",
+      "version": "2.251.0",
       "type": "runtime"
     },
     {
