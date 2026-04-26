@@ -26,6 +26,14 @@ jest.mock('../src/models', () => ({
   },
 }));
 
+jest.mock('crypto', () => {
+  const actual = jest.requireActual('crypto');
+  return {
+    ...actual,
+    randomBytes: jest.fn(actual.randomBytes),
+  };
+});
+
 import jwt from 'jsonwebtoken';
 import {
   hashRefreshToken,
@@ -109,7 +117,7 @@ describe('token utilities', () => {
   });
 
   describe('issueTokens', () => {
-    it('should generate tokens and persist hash to DB', async () => {
+    it('should generate tokens and persist hash + token-history record to DB', async () => {
       const { User } = jest.requireMock('../src/models');
       const user = mockUser();
 
@@ -119,8 +127,39 @@ describe('token utilities', () => {
       expect(result.refreshToken).toBeDefined();
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: user._id },
-        { $set: { refreshToken: expect.stringMatching(/^[0-9a-f]{64}$/) } },
+        expect.objectContaining({
+          $set: { refreshToken: expect.stringMatching(/^[0-9a-f]{64}$/) },
+          $push: {
+            issuedTokens: {
+              $each: [expect.objectContaining({
+                id: expect.stringMatching(/^[0-9a-f]{16}$/),
+                createdAt: expect.any(Date),
+                expiresAt: expect.any(Date),
+                tokenVersionAtIssue: 1,
+              })],
+              $slice: -20,
+            },
+          },
+        }),
       );
+    });
+
+    it('records the token version at time of issuance', async () => {
+      const { User } = jest.requireMock('../src/models');
+      const user = mockUser({ tokenVersion: 7 });
+      await issueTokens(user);
+      const call = User.updateOne.mock.calls.at(-1)?.[1];
+      expect(call.$push.issuedTokens.$each[0].tokenVersionAtIssue).toBe(7);
+    });
+
+    it('records expiresAt aligned to the JWT exp claim', async () => {
+      const { User } = jest.requireMock('../src/models');
+      const before = Date.now();
+      await issueTokens(mockUser(), undefined, 600);
+      const call = User.updateOne.mock.calls.at(-1)?.[1];
+      const recordedExpiresMs = (call.$push.issuedTokens.$each[0].expiresAt as Date).getTime();
+      // Within 2 seconds of expected window (test execution jitter).
+      expect(Math.abs(recordedExpiresMs - (before + 600 * 1000))).toBeLessThan(2000);
     });
 
     it('should default access-token expiresIn to config value when override is omitted', async () => {

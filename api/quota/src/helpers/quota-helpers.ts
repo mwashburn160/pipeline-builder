@@ -75,15 +75,6 @@ export interface OrgQuotaResponse {
   isDefault?: boolean;
 }
 
-/** Compute a single quota summary. */
-function toSummary(
-  limit: number,
-  usage: { used: number; resetAt: Date },
-): QuotaSummary {
-  const { allowed: _, ...rest } = computeQuotaStatus(limit, usage);
-  return rest;
-}
-
 /** Build all three quota summaries, falling back to config defaults. */
 function buildSummaries(
   quotas: Partial<QuotaLimits> | undefined,
@@ -92,10 +83,16 @@ function buildSummaries(
   const d = config.quota.defaults;
   const du = { used: 0, resetAt: getNextResetDate(config.quota.resetDays) };
 
+  // Drop the `allowed` flag from the per-type status — summaries are read-only views.
+  const summarize = (limit: number, u: { used: number; resetAt: Date }): QuotaSummary => {
+    const { allowed: _allowed, ...rest } = computeQuotaStatus(limit, u);
+    return rest;
+  };
+
   return {
-    plugins: toSummary(quotas?.plugins ?? d.plugins, usage?.plugins ?? du),
-    pipelines: toSummary(quotas?.pipelines ?? d.pipelines, usage?.pipelines ?? du),
-    apiCalls: toSummary(quotas?.apiCalls ?? d.apiCalls, usage?.apiCalls ?? du),
+    plugins: summarize(quotas?.plugins ?? d.plugins, usage?.plugins ?? du),
+    pipelines: summarize(quotas?.pipelines ?? d.pipelines, usage?.pipelines ?? du),
+    apiCalls: summarize(quotas?.apiCalls ?? d.apiCalls, usage?.apiCalls ?? du),
   };
 }
 

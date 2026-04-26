@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "3.997.0",
-    "@pipeline-builder/api-core": "3.3.5",
+    "@pipeline-builder/api-core": "workspace:*",
     "adm-zip": "0.5.16",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",
@@ -66,11 +66,19 @@
   "engines": {
     "node": ">= 24.14.0"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=10",
+      "onFail": "ignore"
+    }
+  },
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.6",
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

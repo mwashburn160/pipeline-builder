@@ -24,6 +24,14 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "cors",
+      "express",
+      "jest",
+      "jsonwebtoken",
+      "node",
+      "pg"
+    ],
     "rootDir": "src",
     "skipLibCheck": true,
     "outDir": "lib",

@@ -26,6 +26,11 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "aws-lambda",
+      "jest",
+      "node"
+    ],
     "skipLibCheck": true,
     "moduleResolution": "nodenext"
   },

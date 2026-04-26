@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X, Upload } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X, Upload, Star } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -22,6 +22,8 @@ import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import UploadPluginModal from '@/components/plugin/UploadPluginModal';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
+import { visitedPluginsKey } from '@/lib/onboarding';
+import { loadFavorites, toggleFavorite } from '@/lib/favorites';
 import type { Plugin } from '@/types';
 
 function Detail({ label, value }: { label: string; value: string }) {
@@ -40,6 +42,34 @@ export default function PluginsPage() {
   const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const toast = useToast();
   const canViewPublic = isSysAdmin;
+
+  // Mark the "explore plugin catalog" onboarding step as complete on first visit.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user?.organizationId) return;
+    localStorage.setItem(visitedPluginsKey(user.organizationId), '1');
+  }, [user?.organizationId]);
+
+  // Per-org favorited plugin IDs (localStorage-backed).
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (user?.organizationId) setFavorites(loadFavorites(user.organizationId));
+  }, [user?.organizationId]);
+  const handleToggleFavorite = useCallback((id: string) => {
+    if (!user?.organizationId) return;
+    toggleFavorite(user.organizationId, id);
+    setFavorites(loadFavorites(user.organizationId));
+  }, [user?.organizationId]);
+
+  // Plugin usage counts (how many of the org's pipelines reference each plugin).
+  const [pluginUsage, setPluginUsage] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    api.getPluginUsage()
+      .then((r) => { if (!cancelled) setPluginUsage(r.data?.counts ?? {}); })
+      .catch(() => { /* non-blocking — badge just won't render */ });
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
 
   // ── Data ──
 
@@ -82,9 +112,9 @@ export default function PluginsPage() {
     (err) => list.setError(formatError(err, 'Failed to delete plugin')),
   );
 
-  const filteredPlugins = canViewPublic
-    ? list.data
-    : list.data.filter(p => p.accessModifier !== 'public');
+  // Backend already returns the right scope (own org + system-public catalog)
+  // for non-admins. No client-side filter — see resource-helpers.mapCommonParams.
+  const filteredPlugins = list.data;
 
   // ── Bulk Operations ──
 
@@ -172,18 +202,45 @@ export default function PluginsPage() {
       ),
     } as Column<Plugin>] : []),
     {
+      id: 'favorite',
+      header: '',
+      locked: true,
+      render: (p: Plugin) => {
+        const fav = favorites.has(p.id);
+        return (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleToggleFavorite(p.id); }}
+            className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${fav ? 'text-yellow-500' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-500'}`}
+            aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
+            title={fav ? 'Favorited' : 'Add to favorites'}
+          >
+            <Star className={`w-4 h-4 ${fav ? 'fill-current' : ''}`} aria-hidden="true" />
+          </button>
+        );
+      },
+    },
+    {
       id: 'name',
       header: 'Name',
       sortValue: (p) => p.name,
-      render: (p) => (
-        <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {p.name}
-            {!p.isActive && <Badge color="red" className="ml-2">Inactive</Badge>}
+      render: (p) => {
+        const used = pluginUsage[p.name] ?? 0;
+        return (
+          <div>
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {p.name}
+              {!p.isActive && <Badge color="red" className="ml-2">Inactive</Badge>}
+              {used > 0 && (
+                <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="ml-2 inline-block">
+                  <Badge color="blue">Used by {used}</Badge>
+                </span>
+              )}
+            </div>
+            {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
           </div>
-          {p.description && <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{p.description}</div>}
-        </div>
-      ),
+        );
+      },
     },
     {
       id: 'id',
@@ -315,7 +372,7 @@ export default function PluginsPage() {
         </div>
       ),
     },
-  ], [isSysAdmin, isAdmin, selectedIds, toggleSelect]);
+  ], [isSysAdmin, isAdmin, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
 
   // ── Render ──
 

@@ -37,5 +37,4 @@ dist
 /test-reports/
 junit.xml
 /coverage/
-!/.npmrc
 /.next/

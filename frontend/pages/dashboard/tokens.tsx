@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronRight, ShieldOff } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -8,6 +8,13 @@ import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
 import api from '@/lib/api';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
+
+interface TokenHistoryEntry {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  status: 'active' | 'expired' | 'revoked';
+}
 
 // ---------------------------------------------------------------------------
 // Token card
@@ -150,14 +157,33 @@ export default function TokensPage() {
   const [genSuccess, setGenSuccess] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
 
+  const [history, setHistory] = useState<TokenHistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revokeSuccess, setRevokeSuccess] = useState<string | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await api.listTokenHistory();
+      setHistory(res.data?.tokens ?? []);
+      setHistoryError(null);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : 'Failed to load token history');
+    }
+  }, []);
+
   const syncTokens = useCallback(() => {
     setAccessToken(api.getAccessToken());
     setRefreshToken(api.getRefreshToken());
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) syncTokens();
-  }, [isAuthenticated, syncTokens]);
+    if (isAuthenticated) {
+      syncTokens();
+      void loadHistory();
+    }
+  }, [isAuthenticated, syncTokens, loadHistory]);
 
   const handleGenerateToken = async () => {
     setGenerating(true);
@@ -167,11 +193,29 @@ export default function TokensPage() {
     try {
       await api.generateNewToken();
       syncTokens();
+      void loadHistory();
       setGenSuccess('New token pair generated successfully. Your session tokens have been updated.');
     } catch (error) {
       setGenError(error instanceof Error ? error.message : 'Failed to generate token');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleRevokeAll = async () => {
+    if (!window.confirm('Sign out of every session everywhere? Your current tab will stay logged in with a fresh token, but all other sessions, CLI tokens, and integrations will need to re-authenticate.')) return;
+    setRevoking(true);
+    setRevokeError(null);
+    setRevokeSuccess(null);
+    try {
+      await api.revokeAllTokens();
+      syncTokens();
+      void loadHistory();
+      setRevokeSuccess('All previously-issued tokens have been revoked. Your session has been refreshed with a new token.');
+    } catch (error) {
+      setRevokeError(error instanceof Error ? error.message : 'Failed to revoke tokens');
+    } finally {
+      setRevoking(false);
     }
   };
 
@@ -210,6 +254,59 @@ export default function TokensPage() {
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }}>
           <TokenCard title="Refresh Token" token={refreshToken} />
+        </motion.div>
+
+        {/* ─── Token history + sign-out-everywhere ─── */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.3 }} className="card">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recent token issuance</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Last 20 access tokens issued for your account, with computed status. JWTs cannot be revoked individually — use &ldquo;Sign out everywhere&rdquo; to invalidate all of them at once.
+              </p>
+            </div>
+            <button
+              onClick={handleRevokeAll}
+              disabled={revoking}
+              className="btn btn-danger flex-shrink-0"
+            >
+              {revoking ? <LoadingSpinner size="sm" className="mr-2" /> : <ShieldOff className="w-4 h-4 mr-2" />}
+              {revoking ? 'Revoking…' : 'Sign out everywhere'}
+            </button>
+          </div>
+
+          {historyError && <div className="alert-error mb-3"><p>{historyError}</p></div>}
+          {revokeError && <div className="alert-error mb-3"><p>{revokeError}</p></div>}
+          {revokeSuccess && <div className="alert-success mb-3"><p>{revokeSuccess}</p></div>}
+
+          {history.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400 italic">No tokens issued yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  <th className="py-2 pr-4">ID</th>
+                  <th className="py-2 pr-4">Created</th>
+                  <th className="py-2 pr-4">Expires</th>
+                  <th className="py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((t) => (
+                  <tr key={t.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <td className="py-2 pr-4 font-mono text-xs text-gray-500 dark:text-gray-500">{t.id}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{new Date(t.createdAt).toLocaleString()}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{new Date(t.expiresAt).toLocaleString()}</td>
+                    <td className="py-2">
+                      <Badge color={t.status === 'active' ? 'green' : t.status === 'expired' ? 'gray' : 'red'}>
+                        {t.status}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </motion.div>
       </div>
     </DashboardLayout>

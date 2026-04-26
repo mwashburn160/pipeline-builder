@@ -3,6 +3,7 @@
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { runMigrations } from '@pipeline-builder/pipeline-core';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline';
 import { createCreatePipelineRoutes } from './routes/create-pipeline';
@@ -47,4 +48,10 @@ registerComplianceEventSubscriber();
 
 logger.info('All /pipelines routes registered');
 
-void runServer(app, { name: 'Pipeline Service', sseManager });
+void runServer(app, {
+  name: 'Pipeline Service',
+  sseManager,
+  // Run any pending Drizzle migrations before opening the listening socket.
+  // Idempotent and a no-op when ./drizzle/ has no journal yet.
+  onBeforeStart: () => runMigrations(),
+});

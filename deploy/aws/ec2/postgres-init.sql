@@ -718,6 +718,130 @@ FROM information_schema.columns
 WHERE table_name = 'messages'
 ORDER BY ordinal_position;
 
+-- ============================================================================
+-- COMPLIANCE NOTIFICATION PREFERENCES (one row per org)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_notification_preferences (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL UNIQUE,
+    notify_on_block     BOOLEAN NOT NULL DEFAULT true,
+    notify_on_warning   BOOLEAN NOT NULL DEFAULT false,
+    digest_mode         VARCHAR(20) NOT NULL DEFAULT 'immediate',  -- immediate | daily | weekly
+    digest_schedule     VARCHAR(100),
+    last_digest_at      TIMESTAMPTZ,
+    target_users        JSONB,                                     -- null = all org admins
+    webhook_url         VARCHAR(500),
+    webhook_secret      VARCHAR(255),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER trigger_compliance_notification_preferences_updated
+    BEFORE UPDATE ON compliance_notification_preferences
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- ============================================================================
+-- COMPLIANCE NOTIFICATION LOG (delivery history + retry queue)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_notification_log (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id                  VARCHAR(255) NOT NULL,
+    channel                 VARCHAR(20) NOT NULL,    -- in-app | webhook | digest
+    status                  VARCHAR(20) NOT NULL,    -- sent | failed | pending
+    payload                 JSONB NOT NULL,
+    webhook_response_code   INTEGER,
+    webhook_error           TEXT,
+    retry_count             INTEGER NOT NULL DEFAULT 0,
+    next_retry_at           TIMESTAMPTZ,
+    related_audit_id        UUID,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_notification_org_created_idx
+    ON compliance_notification_log (org_id, created_at);
+CREATE INDEX IF NOT EXISTS compliance_notification_status_retry_idx
+    ON compliance_notification_log (status, next_retry_at);
+CREATE INDEX IF NOT EXISTS compliance_notification_related_audit_idx
+    ON compliance_notification_log (related_audit_id);
+
+-- ============================================================================
+-- COMPLIANCE ROLES (per-org compliance RBAC: viewer/editor/admin)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_roles (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id      VARCHAR(255) NOT NULL,
+    user_id     TEXT NOT NULL,
+    role        VARCHAR(30) NOT NULL                  -- compliance-viewer | compliance-editor | compliance-admin
+                CHECK (role IN ('compliance-viewer', 'compliance-editor', 'compliance-admin')),
+    granted_by  TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_role_org_user_unique
+    ON compliance_roles (org_id, user_id);
+CREATE INDEX IF NOT EXISTS compliance_role_org_role_idx
+    ON compliance_roles (org_id, role);
+
+CREATE TRIGGER trigger_compliance_roles_updated
+    BEFORE UPDATE ON compliance_roles
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- ============================================================================
+-- COMPLIANCE REPORTS (generated report snapshots)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_reports (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id          VARCHAR(255) NOT NULL,
+    report_type     VARCHAR(30) NOT NULL,            -- summary | detailed | audit-trail | comparison
+    target          VARCHAR(20) NOT NULL,            -- plugin | pipeline | all
+    date_from       TIMESTAMPTZ,
+    date_to         TIMESTAMPTZ,
+    compare_from    TIMESTAMPTZ,
+    compare_to      TIMESTAMPTZ,
+    data            JSONB NOT NULL,
+    format          VARCHAR(10) NOT NULL DEFAULT 'json',  -- json | csv
+    generated_by    TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_report_org_created_idx
+    ON compliance_reports (org_id, created_at);
+
+-- ============================================================================
+-- COMPLIANCE REPORT SCHEDULES (cron-driven recurring report generation)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS compliance_report_schedules (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              VARCHAR(255) NOT NULL,
+    report_type         VARCHAR(30) NOT NULL,        -- summary | detailed
+    target              VARCHAR(20) NOT NULL,        -- plugin | pipeline | all
+    format              VARCHAR(10) NOT NULL DEFAULT 'json',
+    cron_expression     VARCHAR(100) NOT NULL,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    last_run_at         TIMESTAMPTZ,
+    next_run_at         TIMESTAMPTZ,
+    deliver_to          JSONB NOT NULL DEFAULT '[]',  -- array of userIds to notify
+    created_by          TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by          TEXT NOT NULL,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS compliance_report_schedule_active_next_idx
+    ON compliance_report_schedules (is_active, next_run_at);
+CREATE INDEX IF NOT EXISTS compliance_report_schedule_org_idx
+    ON compliance_report_schedules (org_id);
+
+CREATE TRIGGER trigger_compliance_report_schedules_updated
+    BEFORE UPDATE ON compliance_report_schedules
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
 \echo ''
 \echo '=== INDEXES ==='
 SELECT 

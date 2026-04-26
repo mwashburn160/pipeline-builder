@@ -52,17 +52,49 @@ function extractClientIp(req: express.Request): string {
   return ip;
 }
 
+/**
+ * Best-effort organizationId extraction for rate-limit bucketing.
+ *
+ * Runs BEFORE auth middleware, so this peeks at the Bearer token without
+ * verifying the signature. Used only as a rate-limit key; real authorization
+ * still happens in requireAuth. Falls back to IP-based keying when:
+ *   - no Bearer token,
+ *   - the token is malformed,
+ *   - the payload doesn't include organizationId.
+ *
+ * Net effect: a single noisy authenticated org consumes its own quota window
+ * instead of degrading every other tenant sharing an IP (NAT / corp gateway).
+ */
+function rateLimitKey(req: express.Request): string {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) {
+    const token = auth.slice(7);
+    const parts = token.split('.');
+    if (parts.length === 3 && parts[1]) {
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as { organizationId?: string };
+        if (typeof payload.organizationId === 'string' && payload.organizationId.length > 0) {
+          return `org:${payload.organizationId.toLowerCase()}`;
+        }
+      } catch {
+        // Malformed JWT — fall through to IP keying.
+      }
+    }
+  }
+  return `ip:${extractClientIp(req)}`;
+}
+
 /** General rate limiter */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.max,
-  keyGenerator: extractClientIp,
+  keyGenerator: rateLimitKey,
   message: { success: false, statusCode: 429, message: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-/** Strict rate limiter for auth endpoints (login, register, OAuth) */
+/** Strict rate limiter for auth endpoints (login, register, OAuth) — IP-based since user is not yet authenticated. */
 const authLimiter = rateLimit({
   windowMs: config.rateLimit.auth.windowMs,
   max: config.rateLimit.auth.max,

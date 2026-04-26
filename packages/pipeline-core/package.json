@@ -38,8 +38,8 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.3.5",
-    "@pipeline-builder/pipeline-data": "3.3.5",
+    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
     "aws-cdk-lib": "2.251.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",
@@ -74,6 +74,13 @@
   "engines": {
     "node": ">= 24.14.0"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=10",
+      "onFail": "ignore"
+    }
+  },
   "main": "lib/index.js",
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
@@ -81,10 +88,11 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.3.6",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
+  "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

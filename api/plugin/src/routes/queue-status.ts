@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 
-import { getDeadLetterQueue, getQueue, purgeDlq } from '../queue/plugin-build-queue';
+import { getDeadLetterQueue, getQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue';
 
 /**
  * Register queue status routes.
@@ -105,20 +105,80 @@ export function createQueueStatusRoutes(): Router {
   }));
 
   /**
+   * POST /dlq/:jobId/replay — re-enqueue a single DLQ job onto the main build queue.
+   *
+   * Visibility:
+   * - System admins: can replay any job.
+   * - Org admins/owners: can replay jobs that belong to their own org.
+   * - All other users: 403.
+   *
+   * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
+   * counters; the original DLQ entry is removed on success.
+   */
+  router.post('/dlq/:jobId/replay', withRoute(async ({ req, res, ctx, orgId }) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'owner') {
+      return sendError(res, 403, 'Only administrators can replay DLQ jobs', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    const jobId = getParam(req.params, 'jobId');
+    if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    // Tenant-isolation: non-system admins can only replay jobs owned by their org.
+    const dlq = getDeadLetterQueue();
+    const dlqJob = await dlq.getJob(jobId);
+    if (!dlqJob) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
+
+    if (!isSystemAdmin(req)) {
+      const jobOrg = (dlqJob.data?.orgId ?? (dlqJob.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
+      if (typeof jobOrg !== 'string' || jobOrg.toLowerCase() !== orgId.toLowerCase()) {
+        return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+    }
+
+    const newJobId = await replayDlqJob(jobId);
+    if (!newJobId) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
+
+    ctx.log('COMPLETED', 'Replayed DLQ job', { dlqJobId: jobId, newJobId });
+    return sendSuccess(res, 200, { replayed: true, dlqJobId: jobId, newJobId });
+  }));
+
+  /**
    * GET /triage — failed-build summary grouped by failure category, with
    * a few representative examples per group. Powers the triage dashboard.
+   *
+   * Visibility:
+   * - System admins (admin/owner in the system org): see all failures across all orgs.
+   * - Org admins/owners: see only failures whose `pluginRecord.orgId` matches their org.
+   * - All other users: 403.
    */
-  router.get('/triage', withRoute(async ({ req, res }) => {
-    if (!isSystemAdmin(req)) {
+  router.get('/triage', withRoute(async ({ req, res, orgId }) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'owner') {
       return sendError(res, 403, 'Only administrators can view triage', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
+    const isSysAdmin = isSystemAdmin(req);
+    const callerOrgId = orgId.toLowerCase();
+
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
     const [queue, dlq] = [getQueue(), getDeadLetterQueue()];
-    const [failed, dlqJobs] = await Promise.all([
+    const [failedAll, dlqAll] = await Promise.all([
       queue.getJobs(['failed'], 0, 199),
       dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, 199),
     ]);
+
+    // Filter to caller's org for non-system admins (tenant isolation).
+    // Falls back to pluginRecord.orgId for older jobs that predate the top-level field.
+    const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
+      data?.orgId ?? data?.pluginRecord?.orgId;
+    const ownsJob = (job: { data?: { orgId?: string; pluginRecord?: { orgId?: string } } }): boolean => {
+      if (isSysAdmin) return true;
+      const oid = jobOrgId(job.data);
+      return typeof oid === 'string' && oid.toLowerCase() === callerOrgId;
+    };
+    const failed = failedAll.filter(ownsJob);
+    const dlqJobs = dlqAll.filter(ownsJob);
 
     interface Bucket {
       category: string;

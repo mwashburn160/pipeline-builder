@@ -24,6 +24,18 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "adm-zip",
+      "cors",
+      "express-serve-static-core",
+      "express",
+      "jest",
+      "jsonwebtoken",
+      "multer",
+      "node",
+      "nodemailer",
+      "pg"
+    ],
     "rootDir": "src",
     "skipLibCheck": true,
     "outDir": "lib",

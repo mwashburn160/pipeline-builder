@@ -46,6 +46,15 @@ export interface UserDocument extends Document {
   emailVerificationExpires?: Date;
   tokenVersion: number;
   refreshToken?: string;
+  /** Last 20 access tokens issued for this user. Append-only ring; capped at 20.
+   *  Used to surface a token-history view on the dashboard. */
+  issuedTokens?: Array<{
+    id: string;
+    createdAt: Date;
+    expiresAt: Date;
+    /** Token-version at issuance — if it differs from `User.tokenVersion`, the token has been revoked by an "invalidate all" action. */
+    tokenVersionAtIssue: number;
+  }>;
   featureOverrides?: Map<string, boolean>;
   oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
@@ -109,6 +118,16 @@ const userSchema = new Schema<UserDocument>(
     refreshToken: {
       type: String,
       select: false,
+    },
+    issuedTokens: {
+      type: [{
+        _id: false,
+        id: { type: String, required: true },
+        createdAt: { type: Date, required: true },
+        expiresAt: { type: Date, required: true },
+        tokenVersionAtIssue: { type: Number, required: true },
+      }],
+      default: [],
     },
     featureOverrides: {
       type: Map,

@@ -6,10 +6,9 @@ import { ErrorCode } from '../types/error-codes';
 import { sendError } from '../utils/response';
 
 /**
- * Generic record normalizer - ensures array fields are always arrays
- * @param record - The record to normalize
- * @param arrayFields - Fields that should be arrays
- * @returns Normalized record with array fields guaranteed to be arrays
+ * Coerce listed fields on a DB-returned record to arrays. Drizzle/pg sometimes
+ * returns `null` for jsonb columns when the row was inserted with a missing
+ * key — callers expect `[]` so map iteration doesn't crash.
  */
 export function normalizeArrayFields<T extends Record<string, unknown>>(
   record: T,
@@ -24,13 +23,6 @@ export function normalizeArrayFields<T extends Record<string, unknown>>(
   return normalized;
 }
 
-/**
- * Generic entity not-found response
- * Sends standardized 404 response for missing entities
- * @param res - Express response object
- * @param entityName - Name of the entity type (e.g., "Pipeline", "Plugin")
- * @returns Express response
- */
 export function sendEntityNotFound(res: Response, entityName: string): void {
   sendError(res, 404, `${entityName} not found.`, ErrorCode.NOT_FOUND);
 }

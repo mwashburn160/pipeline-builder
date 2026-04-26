@@ -26,6 +26,16 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "compression",
+      "cors",
+      "express-serve-static-core",
+      "express",
+      "jest",
+      "jsonwebtoken",
+      "node",
+      "swagger-ui-express"
+    ],
     "skipLibCheck": true,
     "moduleResolution": "nodenext"
   },

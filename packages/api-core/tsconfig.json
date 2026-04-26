@@ -26,6 +26,12 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "express",
+      "jest",
+      "jsonwebtoken",
+      "node"
+    ],
     "skipLibCheck": true,
     "moduleResolution": "nodenext"
   },

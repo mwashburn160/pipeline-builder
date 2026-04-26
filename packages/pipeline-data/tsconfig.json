@@ -26,6 +26,11 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "jest",
+      "node",
+      "pg"
+    ],
     "skipLibCheck": true,
     "moduleResolution": "nodenext"
   },

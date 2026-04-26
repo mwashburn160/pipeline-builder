@@ -11,6 +11,7 @@ import { Sidebar } from './Sidebar';
 import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
 import { LoadingPage } from './Loading';
+import { QuotaBanner } from './QuotaBanner';
 import { ErrorBoundary } from '../ErrorBoundary';
 import api from '@/lib/api';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
@@ -163,6 +164,8 @@ export function DashboardLayout({
               </div>
             </div>
           </header>
+
+          <QuotaBanner />
 
           <main className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
             <ErrorBoundary>

@@ -66,9 +66,9 @@ export default function PipelinesPage() {
     (err) => list.setError(formatError(err, 'Failed to delete pipeline')),
   );
 
-  const filteredPipelines = canViewPublic
-    ? list.data
-    : list.data.filter(p => p.accessModifier !== 'public');
+  // Backend already returns the right scope (own org + system-public catalog)
+  // for non-admins. No client-side filter — see resource-helpers.mapCommonParams.
+  const filteredPipelines = list.data;
 
   // ── Create ──
 
@@ -350,7 +350,7 @@ export default function PipelinesPage() {
               emptyState={{
                 icon: GitBranch,
                 title: 'No pipelines yet',
-                description: canViewPublic ? 'Get started by creating your first pipeline.' : 'No private pipelines available for your organization.',
+                description: 'Get started by creating your first pipeline, or fork one from the system catalog.',
                 action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
               }}
               getRowKey={(p) => p.id}

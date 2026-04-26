@@ -7,7 +7,9 @@ import {
   deleteUser,
   generateToken,
   getUser,
+  listTokenHistory,
   listUserOrganizations,
+  revokeAllTokens,
   updateUser,
 } from '../controllers';
 import { requireAuth } from '../middleware';
@@ -31,5 +33,11 @@ router.get('/organizations', requireAuth, listUserOrganizations);
 
 /** POST /user/generate-token - Generate API token for current user */
 router.post('/generate-token', requireAuth, generateToken);
+
+/** GET /user/tokens - List the user's recent token-issuance history (with computed status). */
+router.get('/tokens', requireAuth, listTokenHistory);
+
+/** POST /user/tokens/revoke-all - Sign out everywhere by bumping tokenVersion. */
+router.post('/tokens/revoke-all', requireAuth, revokeAllTokens);
 
 export default router;

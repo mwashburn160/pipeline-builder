@@ -74,7 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
       { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
-      { title: 'Build Triage', href: '/dashboard/triage', icon: AlertTriangle, systemAdminOnly: true },
+      { title: 'Build Triage', href: '/dashboard/triage', icon: AlertTriangle, adminOnly: true },
     ],
   },
   {

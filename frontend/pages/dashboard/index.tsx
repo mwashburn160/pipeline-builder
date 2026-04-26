@@ -13,6 +13,8 @@ import type { BuilderProps } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
+import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
+import { dismissKey, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -91,17 +93,22 @@ export default function DashboardPage() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
+  const [pipelineCount, setPipelineCount] = useState<number | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [onboardingVisitedPlugins, setOnboardingVisitedPlugins] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [execRes, timelineRes, pluginRes] = await Promise.allSettled([
+    const [execRes, timelineRes, pluginRes, pipelineRes] = await Promise.allSettled([
       api.getExecutionCount(),
       api.getExecutionTimeline({ interval: 'day' }),
       api.getPluginSummary(),
+      api.listPipelines({ limit: '1' }),
     ]);
 
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
     if (timelineRes.status === 'fulfilled') setTimeline((timelineRes.value.data?.timeline || []).slice(-7));
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
+    if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
   }, []);
 
   useEffect(() => {
@@ -111,6 +118,15 @@ export default function DashboardPage() {
   useEffect(() => {
     setRecent(loadRecent());
   }, []);
+
+  // Read onboarding flags from localStorage once the user/org is known.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user) return;
+    const orgId = user.organizationId ?? '';
+    if (!orgId) return;
+    setOnboardingDismissed(localStorage.getItem(dismissKey(orgId)) === '1');
+    setOnboardingVisitedPlugins(localStorage.getItem(visitedPluginsKey(orgId)) === '1');
+  }, [user]);
 
   // ─── Computed (must run on every render — hooks before early return) ───
 
@@ -231,6 +247,30 @@ export default function DashboardPage() {
             </div>
           </div>
         </motion.div>
+
+        {/* ─── New-org onboarding (auto-hides once user has both pipelines and executions) ─── */}
+        {pipelineCount !== null && (() => {
+          const signals = {
+            visitedPlugins: onboardingVisitedPlugins,
+            pipelineCount,
+            executionCount: executions.reduce((s, p) => s + p.total, 0),
+          };
+          const show = shouldShowOnboarding(signals, onboardingDismissed);
+          if (!show) return null;
+          return (
+            <motion.div variants={stagger.item}>
+              <NewOrgWelcome
+                signals={signals}
+                onDismiss={() => {
+                  if (typeof window !== 'undefined' && user?.organizationId) {
+                    localStorage.setItem(dismissKey(user.organizationId), '1');
+                  }
+                  setOnboardingDismissed(true);
+                }}
+              />
+            </motion.div>
+          );
+        })()}
 
         {/* ─── Stats Strip ─── */}
         <motion.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">

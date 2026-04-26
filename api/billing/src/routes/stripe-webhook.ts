@@ -20,14 +20,6 @@ import { StripeProvider } from '../providers/stripe-provider';
 const logger = createLogger('billing-stripe-webhook');
 
 /**
- * Return the active payment provider if it is a Stripe provider.
- */
-function getStripeProvider(): StripeProvider | null {
-  const provider = getPaymentProvider();
-  return provider instanceof StripeProvider ? provider : null;
-}
-
-/**
  * Create the Stripe webhook router.
  *
  * Registers:
@@ -40,7 +32,8 @@ export function createStripeWebhookRoutes(): Router {
   router.post(
     '/stripe/webhook',
     async (req: Request, res: Response) => {
-      const provider = getStripeProvider();
+      const active = getPaymentProvider();
+      const provider = active instanceof StripeProvider ? active : null;
       if (!provider) {
         return sendError(
           res, 400,

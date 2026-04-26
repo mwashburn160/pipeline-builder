@@ -239,8 +239,16 @@ export class PipelineBuilder extends Construct {
     }
 
     // ── Tags ──
+    // The first three are operations-essential and used by `pipeline-manager
+    // audit-stacks` to diff CFN stacks against the pipeline_registry table.
+    // `OrgId` is the canonical key for cost attribution (AWS Cost Explorer
+    // groups by tag key/value when activated in Billing settings).
+    Tags.of(this.pipeline).add('pipeline-builder', 'true');
     Tags.of(this.pipeline).add('project', this.config.project);
     Tags.of(this.pipeline).add('organization', this.config.organization);
+    if (props.orgId) {
+      Tags.of(this.pipeline).add('OrgId', props.orgId);
+    }
     if (props.tags) {
       for (const [key, value] of Object.entries(props.tags)) {
         Tags.of(this.pipeline).add(key, value);

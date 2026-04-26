@@ -38,6 +38,8 @@ export default function TriagePage() {
   const [groups, setGroups] = useState<TriageGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [replaying, setReplaying] = useState<Set<string | number>>(new Set());
+  const [replayMsg, setReplayMsg] = useState<{ id: string | number; text: string; isError: boolean } | null>(null);
 
   useEffect(() => {
     void load();
@@ -66,6 +68,26 @@ export default function TriagePage() {
       else next.add(category);
       return next;
     });
+  }
+
+  async function handleReplay(jobId: string | number): Promise<void> {
+    setReplaying(prev => new Set(prev).add(jobId));
+    setReplayMsg(null);
+    try {
+      const res = await api.replayDlqJob(String(jobId));
+      const newJobId = res.data?.newJobId ?? '?';
+      setReplayMsg({ id: jobId, text: `Re-enqueued as job ${newJobId}`, isError: false });
+      // Refresh so the replayed sample disappears.
+      void load();
+    } catch (err) {
+      setReplayMsg({ id: jobId, text: err instanceof Error ? err.message : String(err), isError: true });
+    } finally {
+      setReplaying(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+    }
   }
 
   return (
@@ -127,19 +149,41 @@ export default function TriagePage() {
                       </div>
                     )}
                     <div className="space-y-2">
-                      {g.samples.map(s => (
-                        <div key={`${s.source}-${s.id}`} className="p-2 bg-white/50 dark:bg-gray-900/30 rounded border border-current/20 text-xs font-mono">
-                          <div className="flex items-center justify-between mb-1 text-[10px] uppercase tracking-wider opacity-60">
-                            <span>
-                              {s.pluginName ?? 'unknown plugin'} • {s.source}
-                            </span>
-                            {s.failedAt && <span>{new Date(s.failedAt).toLocaleString()}</span>}
+                      {g.samples.map(s => {
+                        const isReplaying = replaying.has(s.id);
+                        const msg = replayMsg && replayMsg.id === s.id ? replayMsg : null;
+                        return (
+                          <div key={`${s.source}-${s.id}`} className="p-2 bg-white/50 dark:bg-gray-900/30 rounded border border-current/20 text-xs font-mono">
+                            <div className="flex items-center justify-between mb-1 text-[10px] uppercase tracking-wider opacity-60">
+                              <span>
+                                {s.pluginName ?? 'unknown plugin'} • {s.source}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                {s.failedAt && <span>{new Date(s.failedAt).toLocaleString()}</span>}
+                                {s.source === 'dlq' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleReplay(s.id)}
+                                    disabled={isReplaying}
+                                    className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Re-enqueue this DLQ job onto the main build queue"
+                                  >
+                                    {isReplaying ? 'Replaying…' : 'Replay'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="whitespace-pre-wrap break-words">
+                              {s.error ?? '(no error message captured)'}
+                            </div>
+                            {msg && (
+                              <div className={`mt-1 text-[10px] ${msg.isError ? 'text-red-700' : 'text-green-700'}`}>
+                                {msg.text}
+                              </div>
+                            )}
                           </div>
-                          <div className="whitespace-pre-wrap break-words">
-                            {s.error ?? '(no error message captured)'}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

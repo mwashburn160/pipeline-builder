@@ -6,6 +6,10 @@ interface TokenPayload {
   isAdmin?: boolean;
   sub?: string;
   organizationId?: string;
+  /** Standard JWT expiry claim, in seconds since epoch. */
+  exp?: number;
+  /** Standard JWT issued-at claim, in seconds since epoch. */
+  iat?: number;
 }
 
 /**

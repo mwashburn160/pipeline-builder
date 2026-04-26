@@ -327,3 +327,69 @@ export const generateToken = withController('Generate token', async (req, res) =
 
   sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actualExpiresIn });
 });
+
+/**
+ * GET /user/tokens
+ * Returns the user's token-issuance history (last 20 access tokens).
+ * Each entry is annotated with computed status: active | expired | revoked.
+ *
+ * Status derivation (JWT is stateless — no per-token revocation):
+ *   - expired:  now > expiresAt
+ *   - revoked:  tokenVersionAtIssue !== current user.tokenVersion (covers
+ *               "Sign out everywhere")
+ *   - active:   neither of the above
+ */
+export const listTokenHistory = withController('List token history', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+
+  const user = await User.findById(userId).select('+tokenVersion issuedTokens');
+  if (!user) {
+    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+  }
+
+  const now = Date.now();
+  const tokens = (user.issuedTokens ?? []).map((t) => {
+    const expiresAt = t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt);
+    const createdAt = t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt);
+    let status: 'active' | 'expired' | 'revoked';
+    if (expiresAt.getTime() <= now) status = 'expired';
+    else if (t.tokenVersionAtIssue !== user.tokenVersion) status = 'revoked';
+    else status = 'active';
+    return {
+      id: t.id,
+      createdAt: createdAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      status,
+    };
+  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  sendSuccess(res, 200, { tokens });
+});
+
+/**
+ * POST /user/tokens/revoke-all
+ * "Sign out everywhere" — bumps the user's tokenVersion, which immediately
+ * invalidates every previously-issued access token (auth middleware compares
+ * the JWT's tokenVersion claim against the current value on every request).
+ * The user's existing access token (used to make this call) is also invalidated;
+ * the response includes a freshly-issued replacement so the dashboard can stay
+ * logged in without a forced re-login.
+ */
+export const revokeAllTokens = withController('Revoke all tokens', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+
+  const user = await User.findById(userId).select('+tokenVersion issuedTokens');
+  if (!user) {
+    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
+  }
+
+  await user.invalidateAllSessions();
+  audit(req, 'user.tokens.revoke-all', { targetType: 'user', targetId: userId });
+
+  // Issue a fresh token at the new version so the active session survives.
+  const { accessToken, refreshToken, expiresIn } = await issueTokens(user, user.lastActiveOrgId?.toString());
+
+  sendSuccess(res, 200, { revoked: true, accessToken, refreshToken, expiresIn });
+});

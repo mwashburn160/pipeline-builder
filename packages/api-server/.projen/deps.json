@@ -112,12 +112,12 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.5",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

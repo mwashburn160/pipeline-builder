@@ -17,7 +17,8 @@ import {
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, db } from '@pipeline-builder/pipeline-core';
+import { sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { resolvePipeline, type PipelineLike } from '../helpers/pipeline-template-validator';
 import { pipelineService } from '../services/pipeline-service';
@@ -56,6 +57,32 @@ export function createReadPipelineRoutes(
     return sendPaginatedNested(res, 'pipelines', result.data.map(r => normalizeArrayFields(r, ['keywords'])), {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore, nextCursor: result.nextCursor,
     });
+  }));
+
+  // GET /pipelines/plugin-usage — counts pipelines (in caller's org) that
+  // reference each plugin name. Used by the plugin-list "Used by N pipelines"
+  // badge. Returns { counts: { [pluginName]: number } }; plugins with zero
+  // usage are absent from the map.
+  router.get('/plugin-usage', withRoute(async ({ res, ctx, orgId }) => {
+    const rows = await db.execute<{ name: string; cnt: string | number }>(sql`
+      SELECT step->'plugin'->>'name' AS name,
+             COUNT(DISTINCT p.id) AS cnt
+        FROM pipeline p,
+             jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
+             jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
+       WHERE p.org_id = ${orgId.toLowerCase()}
+         AND p.is_active = true
+         AND step->'plugin'->>'name' IS NOT NULL
+       GROUP BY step->'plugin'->>'name'
+    `);
+    const counts: Record<string, number> = {};
+    for (const row of rows.rows ?? rows as unknown as Array<{ name: string; cnt: string | number }>) {
+      const n = typeof row.cnt === 'number' ? row.cnt : parseInt(String(row.cnt), 10);
+      if (row.name && Number.isFinite(n)) counts[row.name] = n;
+    }
+    ctx.log('COMPLETED', 'Computed plugin usage', { distinct: Object.keys(counts).length });
+    res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
+    return sendSuccess(res, 200, { counts });
   }));
 
   // GET /pipelines/find — single pipeline by filter

@@ -24,6 +24,13 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "express",
+      "jest",
+      "node",
+      "pg",
+      "ws"
+    ],
     "rootDir": "src",
     "skipLibCheck": true,
     "outDir": "lib",

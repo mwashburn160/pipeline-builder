@@ -117,6 +117,10 @@ export {
   // Drizzle type helpers
   drizzleRows,
   drizzleCount,
+
+  // Migration runner (idempotent startup hook)
+  runMigrations,
+  type MigrateOptions,
 } from '@pipeline-builder/pipeline-data';
 
 // Pipeline (CDK constructs)

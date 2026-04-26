@@ -35,7 +35,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.3.5",
+    "@pipeline-builder/api-core": "workspace:*",
     "drizzle-orm": "0.45.1",
     "pg": "8.18.0"
   },
@@ -67,13 +67,21 @@
   "engines": {
     "node": ">= 24.14.0"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=10",
+      "onFail": "ignore"
+    }
+  },
   "main": "lib/index.js",
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
-  "version": "3.3.6",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
+  "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

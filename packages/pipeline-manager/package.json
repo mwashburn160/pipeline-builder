@@ -44,7 +44,7 @@
     "@aws-sdk/client-lambda": "3.821.0",
     "@aws-sdk/client-secrets-manager": "3.821.0",
     "@aws-sdk/client-sts": "3.821.0",
-    "@pipeline-builder/pipeline-core": "3.3.5",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "aws-cdk-lib": "2.251.0",
     "axios": "1.13.5",
     "commander": "14.0.3",
@@ -84,16 +84,24 @@
   "engines": {
     "node": ">= 24.14.0"
   },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=10",
+      "onFail": "ignore"
+    }
+  },
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.3.6",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
+  "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
     "testMatch": [

@@ -273,6 +273,34 @@ export async function purgeDlq(): Promise<void> {
   await q.obliterate({ force: true });
 }
 
+/**
+ * Replay a single DLQ job back onto the main build queue.
+ * Resets retry counters so the job gets a fresh budget. Removes the DLQ entry
+ * after successful enqueue so it doesn't show up twice.
+ *
+ * @returns the new job's id, or null if the source DLQ job was not found.
+ * @throws if the requesting org doesn't own the job (caller is responsible
+ *         for that check; this helper does no auth).
+ */
+export async function replayDlqJob(jobId: string): Promise<string | null> {
+  const dlq = getDeadLetterQueue();
+  const dlqJob = await dlq.getJob(jobId);
+  if (!dlqJob) return null;
+
+  // Reset transient failure metadata so the replay starts clean.
+  const freshData: PluginBuildJobData = {
+    ...dlqJob.data,
+    totalAttempts: 0,
+  };
+  delete (freshData as { lastError?: string }).lastError;
+  delete (freshData as { failureCategory?: string }).failureCategory;
+
+  const main = getQueue();
+  const replayed = await main.add(`replay-${dlqJob.name}`, freshData);
+  await dlqJob.remove();
+  return String(replayed.id);
+}
+
 // ---------------------------------------------------------------------------
 // Main worker
 // ---------------------------------------------------------------------------

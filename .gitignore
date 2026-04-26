@@ -45,13 +45,13 @@ deploy/**/.env
 image.tar
 plugin.zip
 !/.github/pull_request_template.md
-!/.npmrc
 !/test/
 !/tsconfig.json
 !/tsconfig.dev.json
 !/projenrc/
 /lib
 /dist/
+!/.npmrc
 !/nx.json
 !/pnpm-workspace.yaml
 !/.vscode/settings.json

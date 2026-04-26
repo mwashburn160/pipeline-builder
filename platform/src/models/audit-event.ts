@@ -14,6 +14,7 @@ export type AuditAction =
   | 'user.change_password'
   | 'user.delete'
   | 'user.verify_email'
+  | 'user.tokens.revoke-all'
   | 'org.create'
   | 'org.update'
   | 'org.delete'

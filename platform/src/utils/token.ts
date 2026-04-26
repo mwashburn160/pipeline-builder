@@ -143,7 +143,21 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   const refreshToken = generateRefreshToken(user);
   const hashedRefresh = hashRefreshToken(refreshToken);
 
-  await User.updateOne({ _id: user._id }, { $set: { refreshToken: hashedRefresh } });
+  // Append to the user's issued-tokens history (ring-buffered to 20 most recent).
+  const now = new Date();
+  const tokenRecord = {
+    id: crypto.randomBytes(8).toString('hex'),
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + tokenExpiresIn * 1000),
+    tokenVersionAtIssue: user.tokenVersion,
+  };
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: { refreshToken: hashedRefresh },
+      $push: { issuedTokens: { $each: [tokenRecord], $slice: -20 } },
+    },
+  );
 
   return { accessToken, refreshToken, expiresIn: tokenExpiresIn };
 }

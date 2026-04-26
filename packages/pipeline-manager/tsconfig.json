@@ -26,15 +26,15 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ES2024",
+    "types": [
+      "node",
+      "jest"
+    ],
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "declarationMap": true,
     "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": [
-      "node",
-      "jest"
-    ]
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "src/**/*.ts",

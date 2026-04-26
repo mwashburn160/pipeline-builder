@@ -6,7 +6,7 @@ import {
   Shield, Package, BarChart3,
   Cloud, Server, Container,
   Bot, Globe, Zap, ArrowRight, Check, LogIn, Terminal, Sparkles,
-  Menu, X, Moon, Sun,
+  Menu, X, Moon, Sun, Eye, EyeOff,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -82,6 +82,7 @@ function Hero() {
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionExpired = router.query.expired === '1';
 
@@ -145,7 +146,11 @@ function Hero() {
             {sessionExpired && !error && (
               <p className="text-xs text-[var(--pb-accent)] mb-3">Session expired. Please sign in again.</p>
             )}
-            {error && <div className="alert-error mb-3 text-sm">{error}</div>}
+            {error && (
+              <div className="alert-error mb-3" role="alert" aria-live="polite">
+                <p>{error}</p>
+              </div>
+            )}
 
             <form onSubmit={handleSignIn} className="space-y-3">
               <input
@@ -160,18 +165,30 @@ function Hero() {
                 onChange={(e) => setIdentifier(e.target.value)}
                 disabled={isLoading}
               />
-              <input
-                id="signin-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="input"
-                placeholder="Password"
-                aria-label="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-              />
+              <div className="relative">
+                <input
+                  id="signin-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  className="input pr-10"
+                  placeholder="Password"
+                  aria-label="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  disabled={isLoading}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-brand)]"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                </button>
+              </div>
               <button type="submit" disabled={isLoading} className="btn btn-primary btn-full text-sm">
                 {isLoading
                   ? <><LoadingSpinner size="sm" className="mr-2" /> Signing in...</>

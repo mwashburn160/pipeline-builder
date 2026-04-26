@@ -6,11 +6,19 @@
  * Centralizes common filter-to-API parameter mapping and permission checks.
  */
 
-/** Maps common filter keys (access, status, default) to API parameter names. */
-export function mapCommonParams(params: Record<string, string>, canViewPublic: boolean): Record<string, string> {
+/**
+ * Maps common filter keys (access, status, default) to API parameter names.
+ *
+ * `canViewPublic` is kept on the signature for the rare caller that wants to
+ * scope the request itself, but is intentionally NOT used to force
+ * `accessModifier=private` — the backend's `AccessControlQueryBuilder`
+ * already returns "caller's own org + system-org public catalog" by default,
+ * and forcing `private` here removes the catalog half (regression: shipped
+ * plugins/pipelines stopped appearing on non-admin dashboards).
+ */
+export function mapCommonParams(params: Record<string, string>, _canViewPublic: boolean): Record<string, string> {
   const p: Record<string, string> = {};
   if (params.access) p.accessModifier = params.access;
-  else if (!canViewPublic) p.accessModifier = 'private';
   if (params.status) p.isActive = params.status === 'active' ? 'true' : 'false';
   if (params.default) p.isDefault = params.default === 'default' ? 'true' : 'false';
   return p;

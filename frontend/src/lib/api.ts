@@ -498,6 +498,23 @@ class ApiClient {
     return response;
   }
 
+  /** GET /user/tokens — recent token-issuance history with computed status. */
+  async listTokenHistory() {
+    return this.request<ApiResponse<{ tokens: Array<{ id: string; createdAt: string; expiresAt: string; status: 'active' | 'expired' | 'revoked' }> }>>(
+      '/api/user/tokens',
+    );
+  }
+
+  /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session. */
+  async revokeAllTokens() {
+    const response = await this.request<ApiResponse<{ revoked: boolean; accessToken: string; refreshToken: string; expiresIn: number }>>(
+      '/api/user/tokens/revoke-all',
+      { method: 'POST' },
+    );
+    this.applyTokens(response);
+    return response;
+  }
+
   // ============================================
   // Organization endpoints
   // ============================================
@@ -734,6 +751,14 @@ class ApiClient {
     }>>(`/api/plugins/queue/triage${buildQuery(params)}`);
   }
 
+  /** Re-enqueue a single DLQ job onto the main build queue. Removes the DLQ entry on success. */
+  async replayDlqJob(jobId: string) {
+    return this.request<ApiResponse<{ replayed: boolean; dlqJobId: string; newJobId: string }>>(
+      `/api/plugins/queue/dlq/${encodeURIComponent(jobId)}/replay`,
+      { method: 'POST' },
+    );
+  }
+
   async updatePlugin(id: string, data: {
     name?: string;
     description?: string;
@@ -785,6 +810,11 @@ class ApiClient {
 
   async listPipelines(params?: Record<string, string>) {
     return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`);
+  }
+
+  /** Counts pipelines (in caller's org) that reference each plugin name. Plugins with zero usage are absent from the map. */
+  async getPluginUsage() {
+    return this.request<ApiResponse<{ counts: Record<string, number> }>>('/api/pipelines/plugin-usage');
   }
 
   async getPipelineById(id: string) {

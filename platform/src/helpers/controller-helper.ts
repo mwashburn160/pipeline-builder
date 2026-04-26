@@ -198,6 +198,8 @@ export type ErrorMap = Record<string, { status: number; message: string }>;
 /**
  * Map Mongoose/MongoDB errors to appropriate HTTP responses.
  * Returns null if the error is not a recognized Mongoose error.
+ *
+ * Exported for unit-test access only — callers should use `handleControllerError`.
  */
 export function mapMongooseError(err: unknown): { status: number; message: string; code: string } | null {
   if (!err || typeof err !== 'object') return null;

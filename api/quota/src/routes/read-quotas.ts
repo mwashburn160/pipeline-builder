@@ -55,6 +55,78 @@ router.get(
   }),
 );
 
+// GET /quotas/at-risk — orgs at >=80% on any quota (system admin only).
+// Powers the operations dashboard "orgs about to hit limits" panel and
+// is suitable for an alerting cron (call this hourly, page if response
+// non-empty for tier=Pro/Unlimited).
+//
+// Query params:
+//   - threshold (number, default 80): percent threshold (1-99) above which
+//     an org is considered at-risk. Caps at 99 — to find already-exhausted
+//     orgs use threshold=100.
+//
+// Response shape:
+//   {
+//     atRisk: [
+//       { orgId, name, slug, tier, type, used, limit, percent }
+//     ],
+//     count: number,
+//     threshold: number,
+//   }
+
+router.get(
+  '/at-risk',
+  requireAuth(AUTH_OPTS) as RequestHandler,
+  withRoute(async ({ req, res, ctx }) => {
+    if (!isSystemAdmin(req)) {
+      return sendError(
+        res, 403,
+        'Access denied. Only system administrators can view at-risk orgs.',
+        ErrorCode.INSUFFICIENT_PERMISSIONS,
+      );
+    }
+
+    const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
+    const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
+
+    const organizations = await quotaService.findAll();
+    interface AtRiskEntry {
+      orgId: string;
+      name: string;
+      slug: string;
+      tier?: string;
+      type: QuotaType;
+      used: number;
+      limit: number;
+      percent: number;
+    }
+    const atRisk: AtRiskEntry[] = [];
+    for (const org of organizations) {
+      for (const type of VALID_QUOTA_TYPES) {
+        const summary = org.quotas[type];
+        if (!summary || summary.unlimited || summary.limit <= 0) continue;
+        const percent = Math.min(100, Math.round((summary.used / summary.limit) * 100));
+        if (percent >= threshold) {
+          atRisk.push({
+            orgId: org.orgId,
+            name: org.name,
+            slug: org.slug,
+            tier: org.tier,
+            type,
+            used: summary.used,
+            limit: summary.limit,
+            percent,
+          });
+        }
+      }
+    }
+    atRisk.sort((a, b) => b.percent - a.percent);
+
+    ctx.log('COMPLETED', 'Listed at-risk orgs', { threshold, count: atRisk.length });
+    return sendSuccess(res, 200, { atRisk, count: atRisk.length, threshold });
+  }),
+);
+
 // GET /quotas/:orgId — all quotas for a specific org
 
 router.get(

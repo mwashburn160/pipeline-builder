@@ -140,7 +140,7 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@18 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=ts-node"
+          "exec": "pnpm dlx npm-check-updates@20 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=ts-node"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"

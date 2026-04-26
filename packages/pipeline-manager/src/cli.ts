@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { program } from 'commander';
+import { auditStacks } from './commands/audit-stacks';
+import { auditTokens } from './commands/audit-tokens';
 import { bootstrap } from './commands/bootstrap';
 import { createPipeline } from './commands/create-pipeline';
 import { deploy } from './commands/deploy';
@@ -193,6 +195,11 @@ Examples:
   setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
+
+  // Operator audit commands (cron-friendly: exit 1 on findings)
+  printDebug('Registering audit commands');
+  auditTokens(program); // Scan Secrets Manager for expiring platform tokens
+  auditStacks(program); // Diff CFN stacks vs pipeline_registry to find drift
   synth(program); // Run CDK synthesis
   validateTemplatesCommand(program); // Validate {{ ... }} templates in a pipeline or plugin
 

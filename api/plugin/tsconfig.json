@@ -26,6 +26,17 @@
     "strictPropertyInitialization": true,
     "stripInternal": true,
     "target": "ESNext",
+    "types": [
+      "adm-zip",
+      "cors",
+      "express",
+      "jest",
+      "jsonwebtoken",
+      "multer",
+      "node",
+      "pg",
+      "yauzl"
+    ],
     "skipLibCheck": true,
     "moduleResolution": "nodenext"
   },
