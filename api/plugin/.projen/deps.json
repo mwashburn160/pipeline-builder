@@ -97,22 +97,22 @@
     },
     {
       "name": "@pipeline-builder/ai-core",
-      "version": "workspace:*",
+      "version": "3.3.10",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.9",
+      "version": "3.3.10",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "workspace:*",
+      "version": "3.3.10",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.9",
+      "version": "3.3.10",
       "type": "runtime"
     },
     {
