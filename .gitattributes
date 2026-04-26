@@ -4,6 +4,7 @@
 *.snap linguist-generated
 /.gitattributes linguist-generated
 /.github/pull_request_template.md linguist-generated
+/.github/workflows/pages.yml linguist-generated
 /.github/workflows/pull-request-lint.yml linguist-generated
 /.github/workflows/release.yml linguist-generated
 /.gitignore linguist-generated

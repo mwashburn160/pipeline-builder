@@ -56,4 +56,5 @@ plugin.zip
 !/pnpm-workspace.yaml
 !/.vscode/settings.json
 !/.github/workflows/release.yml
+!/.github/workflows/pages.yml
 !/.projenrc.ts

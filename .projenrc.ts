@@ -7,6 +7,7 @@ import { TypeScriptProject } from 'projen/lib/typescript';
 import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
+import { Pages } from './projenrc/pages';
 import { Workflow } from './projenrc/workflow';
 import { ManagerProject } from './projenrc/manager';
 import { FrontEndProject } from './projenrc/frontend';
@@ -463,5 +464,6 @@ new Nx(root);
 new PnpmWorkspace(root);
 new VscodeSettings(root);
 new Workflow(root, { pnpmVersion });
+new Pages(root);
 
 root.synth();

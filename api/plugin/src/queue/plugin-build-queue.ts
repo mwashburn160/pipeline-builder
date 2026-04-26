@@ -283,8 +283,7 @@ export async function purgeDlq(): Promise<void> {
  *         for that check; this helper does no auth).
  */
 export async function replayDlqJob(jobId: string): Promise<string | null> {
-  const dlq = getDeadLetterQueue();
-  const dlqJob = await dlq.getJob(jobId);
+  const dlqJob = await getDeadLetterQueue().getJob(jobId);
   if (!dlqJob) return null;
 
   // Reset transient failure metadata so the replay starts clean.
