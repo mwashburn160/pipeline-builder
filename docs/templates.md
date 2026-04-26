@@ -3,6 +3,7 @@ title: Template Syntax
 layout: default
 ---
 
+{% raw %}
 # Template Syntax (synth-time scripting)
 
 **Related docs:** [Metadata Keys](metadata-keys.md) | [CDK Usage](cdk-usage.md) | [Plugin Catalog](plugins/README.md) | [API Reference](api-reference.md)
@@ -445,3 +446,4 @@ All pipelines continue to work unchanged; when they start supplying metadata key
 ---
 
 **Related docs:** [Metadata Keys](metadata-keys.md) | [CDK Usage](cdk-usage.md) | [Plugin Catalog](plugins/README.md) | [API Reference](api-reference.md)
+{% endraw %}

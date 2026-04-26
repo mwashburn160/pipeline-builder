@@ -15,12 +15,23 @@ describe('mapCommonParams', () => {
     expect(mapCommonParams({ access: 'private' }, true)).toEqual({ accessModifier: 'private' });
   });
 
-  it('should default to private when canViewPublic is false and no access filter', () => {
-    expect(mapCommonParams({}, false)).toEqual({ accessModifier: 'private' });
+  // Regression: previously this helper forced `accessModifier=private` for
+  // non-admins, which made the API exclude all system-public catalog rows from
+  // the dashboard. The backend's AccessControlQueryBuilder already returns the
+  // correct scope (caller's own org + system-org public catalog), so this
+  // helper now passes nothing through unless the user explicitly picked an
+  // Access filter.
+  it('should NOT force accessModifier when canViewPublic is false and no access filter', () => {
+    expect(mapCommonParams({}, false)).toEqual({});
   });
 
   it('should not add accessModifier when canViewPublic is true and no access filter', () => {
     expect(mapCommonParams({}, true)).toEqual({});
+  });
+
+  it('honors an explicit access filter regardless of canViewPublic', () => {
+    expect(mapCommonParams({ access: 'public' }, false)).toEqual({ accessModifier: 'public' });
+    expect(mapCommonParams({ access: 'private' }, false)).toEqual({ accessModifier: 'private' });
   });
 
   it('should map status filter to isActive param', () => {
