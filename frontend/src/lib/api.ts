@@ -812,10 +812,26 @@ class ApiClient {
     return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`);
   }
 
-  /** Counts pipelines (in caller's org) that reference each plugin name. Plugins with zero usage are absent from the map. */
-  async getPluginUsage() {
-    return this.request<ApiResponse<{ counts: Record<string, number> }>>('/api/pipelines/plugin-usage');
+  /** Counts pipelines (in caller's org) that reference each plugin name. Plugins with zero usage are absent from the map.
+   *
+   * Returns an empty map when the backend doesn't expose this endpoint (older
+   * api/plugin image predating the addition). Avoids spamming 404s into the
+   * browser console once one has been observed for the lifetime of this client. */
+  async getPluginUsage(): Promise<ApiResponse<{ counts: Record<string, number> }>> {
+    if (this._pluginUsageUnsupported) {
+      return { success: true, statusCode: 200, data: { counts: {} } } as ApiResponse<{ counts: Record<string, number> }>;
+    }
+    try {
+      return await this.request<ApiResponse<{ counts: Record<string, number> }>>('/api/plugins/plugin-usage');
+    } catch (err) {
+      if (err instanceof Error && /\b404\b/.test(err.message)) {
+        this._pluginUsageUnsupported = true;
+        return { success: true, statusCode: 200, data: { counts: {} } } as ApiResponse<{ counts: Record<string, number> }>;
+      }
+      throw err;
+    }
   }
+  private _pluginUsageUnsupported = false;
 
   async getPipelineById(id: string) {
     return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);

@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for GET /pipelines/plugin-usage — the aggregation endpoint that
- * powers the "Used by N pipelines" badge on the plugin list.
+ * Tests for GET /plugins/plugin-usage — the aggregation endpoint that powers
+ * the "Used by N pipelines" badge on the plugin list. Lives on the plugin
+ * service even though the data source is the `pipeline` table — the consumer
+ * is the plugins dashboard, and both services share the same Postgres via
+ * pipeline-data's drizzle connection.
  *
  * Verifies:
  * - Returns counts map keyed by plugin name.
@@ -15,8 +18,8 @@
 const mockFindById = jest.fn();
 const mockExecute = jest.fn();
 
-jest.mock('../src/services/pipeline-service', () => ({
-  pipelineService: { findById: mockFindById, find: jest.fn(), findPaginated: jest.fn() },
+jest.mock('../src/services/plugin-service', () => ({
+  pluginService: { findById: mockFindById, find: jest.fn(), findPaginated: jest.fn() },
 }));
 
 jest.mock('@pipeline-builder/api-core', () => ({
@@ -33,7 +36,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   normalizeArrayFields: (x: any) => x,
   validateQuery: () => ({ ok: true, value: {} }),
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
-  PipelineFilterSchema: {},
+  PluginFilterSchema: {},
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
@@ -46,17 +49,12 @@ jest.mock('@pipeline-builder/api-server', () => ({
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
   db: { execute: (...args: unknown[]) => mockExecute(...args) },
-  validateTemplates: () => ({ valid: true, errors: [] }),
-  detectCycles: () => [],
-  allowedScopeRoots: () => () => true,
-  resolveSelfReferencing: jest.fn(),
-  tokenize: jest.fn(),
 }));
 
-import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
+import { createReadPluginRoutes } from '../src/routes/read-plugins';
 
 const mockQuotaService = { increment: jest.fn(), check: jest.fn(), getUsage: jest.fn() } as any;
-const router = createReadPipelineRoutes(mockQuotaService);
+const router = createReadPluginRoutes(mockQuotaService);
 
 function getHandler(path: string) {
   const layer = (router as any).stack.find(
@@ -73,7 +71,7 @@ function mockRes() {
   return res;
 }
 
-describe('GET /pipelines/plugin-usage', () => {
+describe('GET /plugins/plugin-usage', () => {
   const handler = getHandler('/plugin-usage');
 
   beforeEach(() => {
