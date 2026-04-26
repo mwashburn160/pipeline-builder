@@ -50,3 +50,14 @@ XAI_API_KEY=your-key
 | registry-express | 5080 (exposed) | Registry web UI |
 | grafana | 3200 (exposed) | Monitoring dashboards |
 
+## Troubleshooting
+
+**`docker compose up` fails with `unauthorized: authentication required` on `ghcr.io/mwashburn160/...`:**
+Authenticate with the GitHub Container Registry first:
+
+```bash
+echo $YOUR_PAT | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+`YOUR_PAT` is a GitHub Personal Access Token with the `read:packages` scope. The login is cached in `~/.docker/config.json` and persists across `docker compose` runs.
+

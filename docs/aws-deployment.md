@@ -692,7 +692,13 @@ deploy/aws/fargate/
 Check CPU requests vs instance capacity. `kubectl describe pod <name>` shows scheduling failures.
 
 **ImagePullBackOff (EC2):**
-Verify GHCR credentials and that iptables rules aren't intercepting minikube's outbound traffic.
+Verify GHCR credentials and that iptables rules aren't intercepting minikube's outbound traffic. Authenticate with the GitHub Container Registry first if you haven't already:
+
+```bash
+echo $YOUR_PAT | docker login ghcr.io -u USERNAME --password-stdin
+```
+
+`YOUR_PAT` is a GitHub Personal Access Token with the `read:packages` scope. The `bootstrap.sh` and `startup.sh` scripts pick up `GHCR_TOKEN` and `GHCR_USER` env vars to create the in-cluster `ghcr-secret` automatically.
 
 **CrashLoopBackOff on observability pods (EC2):**
 Usually hostPath permission issues. Check pod logs. Init containers handle `chown` for loki (10001), prometheus (65534), grafana (472).
