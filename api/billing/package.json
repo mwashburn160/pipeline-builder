@@ -38,7 +38,7 @@
   "dependencies": {
     "@aws-sdk/client-marketplace-entitlement-service": "3.997.0",
     "@aws-sdk/client-marketplace-metering": "3.997.0",
-    "@pipeline-builder/api-core": "3.3.7",
+    "@pipeline-builder/api-core": "3.3.8",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "cors": "2.8.6",
@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.8",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
