@@ -27,9 +27,9 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.3.1',
-  pipelineData:   '3.3.1',
-  pipelineCore:   ws,
+  apiCore:        '3.3.2',
+  pipelineData:   '3.3.2',
+  pipelineCore:   '3.3.2',
   apiServer:      ws,
   aiCore:         ws,
   eventBridge:    ws
