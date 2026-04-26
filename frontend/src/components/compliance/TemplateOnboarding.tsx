@@ -23,7 +23,9 @@ export default function TemplateOnboarding() {
     api.getRuleTemplates().then(res => {
       if (res.success && res.data) {
         setTemplates(res.data.templates);
-        setSelectedIds(new Set(res.data.templates.map(t => t.id)));
+        // Opt-in by default: org admin must explicitly tick what they want before
+        // Apply enrolls them. Previously every template was pre-selected, which
+        // made it easy to accept the entire system catalog with one click.
       }
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
