@@ -82,12 +82,12 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.8",
+      "version": "3.3.9",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-data",
-      "version": "3.3.8",
+      "version": "3.3.9",
       "type": "runtime"
     },
     {
