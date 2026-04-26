@@ -18,7 +18,7 @@ import { PackageProject } from './projenrc/package';
 // =============================================================================
 
 const branch = 'main';
-const pnpmVersion = '10.33.2';
+const pnpmVersion = '10.33.0';
 const constructsVersion = '10.5.1';
 const typescriptVersion = '5.9.3';
 const cdkVersion = '2.251.0';
