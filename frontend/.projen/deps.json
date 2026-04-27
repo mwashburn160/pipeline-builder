@@ -51,7 +51,7 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.13",
+      "version": "3.3.14",
       "type": "runtime"
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "workspace:*",
+      "version": "3.3.14",
       "type": "runtime"
     },
     {
