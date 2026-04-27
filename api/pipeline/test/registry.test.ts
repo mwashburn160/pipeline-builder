@@ -57,7 +57,7 @@ jest.mock('drizzle-orm', () => ({
   sql: jest.fn(),
 }));
 
-import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } from '@pipeline-builder/api-core';
 import { createRegistryRoutes } from '../src/routes/registry';
 
 describe('POST /pipelines/registry', () => {
@@ -148,7 +148,6 @@ describe('POST /pipelines/registry', () => {
         pipelineName: 'other-pipeline',
       },
     };
-    const { sendError } = require('@pipeline-builder/api-core');
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     await handler(req, res);
 
@@ -173,7 +172,6 @@ describe('POST /pipelines/registry', () => {
     }));
 
     const handler = getHandler();
-    const { sendError } = require('@pipeline-builder/api-core');
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     await handler({
       body: {
@@ -190,7 +188,6 @@ describe('POST /pipelines/registry', () => {
   });
 
   it('GET /registry returns paginated list scoped to caller org', async () => {
-    const { sendPaginatedNested } = require('@pipeline-builder/api-core');
     // db.select for the count query (returns [{count:1}]), then for the rows query
     let callCount = 0;
     mockSelect.mockImplementation(() => ({

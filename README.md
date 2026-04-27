@@ -71,7 +71,6 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 
 ### Synth-Time Scripting
 
-{% raw %}
 Pipeline configs and plugin specs both support a minimal `{{ path | filter }}` template syntax that's resolved once at synthesis time — no runtime evaluation, no code execution. Same template engine, two scopes:
 
 **In `pipeline.json`** — self-references compose values from other metadata/vars:
@@ -111,7 +110,6 @@ commands:
 - **Editor support** — frontend MetadataEditor parses tokens inline as you type
 
 Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
-{% endraw %}
 
 ### Compliance Engine
 
@@ -241,7 +239,7 @@ Open **https://localhost:8443** — register, create an org, and start building 
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
-| [Template Syntax](docs/templates.md) | {% raw %}`{{ ... }}`{% endraw %} interpolation for pipeline configs and plugin specs |
+| [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](docs/plugins/README.md) | 124 pre-built plugins across 10 categories |
 
 ### Operations
