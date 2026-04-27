@@ -26,7 +26,7 @@ app.use(attachRequestContext(sseManager));
 app.use('/pipelines', createCreatePipelineRoutes(quotaService));
 
 // -- AI generation routes — auth + orgId + ai_generation feature gate --------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePipelineRoutes());
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePipelineRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));

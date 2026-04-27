@@ -5,8 +5,8 @@
  * @module lib/ai-constants
  * @description Shared AI provider constants for frontend components.
  *
- * Both {@link AIBuilderTab} (pipeline) and {@link AIPluginBuilderTab} (plugin)
- * use these constants for provider display names and org-level model catalogs.
+ * AIPluginBuilderTab and other AI surfaces use these for provider display
+ * names and org-level model catalogs.
  * This is the frontend counterpart to the backend's `AI_PROVIDER_CATALOG`
  * in api-core.
  */

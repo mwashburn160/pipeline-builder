@@ -11,6 +11,8 @@ import { pipelineService, type PipelineInsert } from '../services/pipeline-servi
 
 const logger = createLogger('create-pipeline');
 
+const complianceClient = createComplianceClient();
+
 /**
  * Register the CREATE route on a router.
  *
@@ -59,7 +61,6 @@ export function createCreatePipelineRoutes(
 
         // -- Compliance check (fail-closed) -----------------------------------
         try {
-          const complianceClient = createComplianceClient();
           const complianceResult = await complianceClient.validatePipeline(orgId, {
             project,
             organization,

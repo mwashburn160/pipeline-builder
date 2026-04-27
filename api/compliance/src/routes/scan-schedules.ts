@@ -16,7 +16,7 @@ import { schema, db, drizzleCount } from '@pipeline-builder/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { calculateNextRun } from '../helpers/scan-scheduler';
+import { calculateNextRun, isValidCronExpression } from '../helpers/scan-scheduler';
 
 /**
  * CRUD routes for compliance scan schedules.
@@ -75,6 +75,9 @@ export function createScanScheduleRoutes(): Router {
     }
 
     const { target, cronExpression } = validation.value;
+    if (!isValidCronExpression(cronExpression)) {
+      return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
+    }
     const nextRunAt = calculateNextRun(cronExpression);
 
     const [schedule] = await db
@@ -112,6 +115,9 @@ export function createScanScheduleRoutes(): Router {
 
     // Recalculate nextRunAt if cronExpression changed
     if (validation.value.cronExpression) {
+      if (!isValidCronExpression(validation.value.cronExpression)) {
+        return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
+      }
       updates.nextRunAt = calculateNextRun(validation.value.cronExpression);
     }
 

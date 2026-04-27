@@ -276,7 +276,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
   }
 
   if (password !== undefined) {
-    if (password.length < config.auth.passwordMinLength) {
+    if (typeof password !== 'string' || password.length < config.auth.passwordMinLength) {
       return sendError(res, 400, `Password must be at least ${config.auth.passwordMinLength} characters`, 'INVALID_PASSWORD');
     }
     user.password = password;

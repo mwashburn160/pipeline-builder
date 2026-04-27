@@ -121,6 +121,9 @@ export {
   // Migration runner (idempotent startup hook)
   runMigrations,
   type MigrateOptions,
+
+  // Reporting service (cache invalidation hook for plugin/reporting events)
+  reportingService,
 } from '@pipeline-builder/pipeline-data';
 
 // Pipeline (CDK constructs)

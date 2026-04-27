@@ -87,7 +87,7 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
         organizationId: activeOrgId,
         organizationName: org?.name,
         role: membership.role as OrgMemberRole,
-        tier: (org as unknown as Record<string, unknown>)?.tier as string | undefined,
+        tier: org?.tier,
       };
     }
   }

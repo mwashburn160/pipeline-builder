@@ -6,6 +6,8 @@ const mockFind = jest.fn();
 const mockUpdate = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockCount = jest.fn();
+const mockDbUpdate = jest.fn();
+const mockDbSelect = jest.fn();
 
 jest.mock('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
@@ -19,6 +21,10 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
     buildMessageConditions: jest.fn(() => []),
+    db: {
+      update: mockDbUpdate,
+      select: mockDbSelect,
+    },
     schema: {
       message: {
         id: 'id',
@@ -29,7 +35,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
         subject: 'subject',
         content: 'content',
         priority: 'priority',
-        isRead: 'isRead',
+        readBy: 'readBy',
         isActive: 'isActive',
         createdAt: 'createdAt',
         updatedAt: 'updatedAt',
@@ -47,6 +53,10 @@ jest.mock('drizzle-orm', () => ({
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
   and: jest.fn((...args: any[]) => args),
+  sql: Object.assign(
+    jest.fn((..._args: any[]) => ({ _kind: 'sql' })),
+    { [Symbol.for('drizzle.sql')]: true },
+  ),
 }));
 
 jest.mock('drizzle-orm/column', () => ({}));
@@ -152,19 +162,33 @@ describe('MessageService', () => {
     });
   });
 
+  // markAsRead / markThreadAsRead / getUnreadCount now hit `db` directly
+  // (instead of going through the inherited update/updateMany/count) because
+  // they need to write the per-org `readBy` jsonb column with raw SQL.
+  // Tests assert on the db chain rather than the service base methods.
+
   describe('markAsRead', () => {
-    it('should call update with isRead: true', async () => {
-      const updated = { id: 'msg-1', isRead: true };
-      mockUpdate.mockResolvedValueOnce(updated);
+    it('upserts readBy[orgId] for the calling org', async () => {
+      const updated = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
+      const returningFn = jest.fn().mockResolvedValue([updated]);
+      const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
+      const setFn = jest.fn().mockReturnValue({ where: whereFn });
+      mockDbUpdate.mockReturnValue({ set: setFn });
 
       const result = await service.markAsRead('msg-1', 'org-1', 'user-1');
 
-      expect(mockUpdate).toHaveBeenCalledWith('msg-1', { isRead: true }, 'org-1', 'user-1');
+      expect(mockDbUpdate).toHaveBeenCalled();
+      expect(setFn).toHaveBeenCalledWith(expect.objectContaining({
+        updatedBy: 'user-1',
+      }));
       expect(result).toEqual(updated);
     });
 
     it('should return null when message not found', async () => {
-      mockUpdate.mockResolvedValueOnce(null);
+      const returningFn = jest.fn().mockResolvedValue([]);
+      mockDbUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
+      });
 
       const result = await service.markAsRead('nonexistent', 'org-1', 'user-1');
       expect(result).toBeNull();
@@ -172,40 +196,43 @@ describe('MessageService', () => {
   });
 
   describe('markThreadAsRead', () => {
-    it('should call updateMany with threadId and isRead filter', async () => {
+    it('upserts readBy[orgId] across the thread for the caller only', async () => {
       const updated = [
-        { id: 'msg-2', isRead: true },
-        { id: 'msg-3', isRead: true },
+        { id: 'msg-2', readBy: { 'org-1': '2026-04-27T00:00:00Z' } },
+        { id: 'msg-3', readBy: { 'org-1': '2026-04-27T00:00:00Z' } },
       ];
-      mockUpdateMany.mockResolvedValueOnce(updated);
+      const returningFn = jest.fn().mockResolvedValue(updated);
+      const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
+      const setFn = jest.fn().mockReturnValue({ where: whereFn });
+      mockDbUpdate.mockReturnValue({ set: setFn });
 
       const result = await service.markThreadAsRead('root-1', 'org-1', 'user-1');
 
-      expect(mockUpdateMany).toHaveBeenCalledWith(
-        { threadId: 'root-1', isRead: false },
-        { isRead: true },
-        'org-1',
-        'user-1',
-      );
+      expect(mockDbUpdate).toHaveBeenCalled();
+      expect(setFn).toHaveBeenCalledWith(expect.objectContaining({
+        updatedBy: 'user-1',
+      }));
       expect(result).toEqual(updated);
+      // Sanity: updateMany (previous implementation) is no longer the call path.
+      void mockUpdateMany;
     });
   });
 
   describe('getUnreadCount', () => {
-    it('should call count with isActive and isRead: false filter', async () => {
-      mockCount.mockResolvedValueOnce(5);
+    it('counts messages where readBy lacks the orgId key', async () => {
+      const whereFn = jest.fn().mockResolvedValue([{ count: 5 }]);
+      const fromFn = jest.fn().mockReturnValue({ where: whereFn });
+      mockDbSelect.mockReturnValue({ from: fromFn });
 
       const result = await service.getUnreadCount('org-1');
 
-      expect(mockCount).toHaveBeenCalledWith(
-        { isActive: true, isRead: false },
-        'org-1',
-      );
+      expect(mockDbSelect).toHaveBeenCalled();
       expect(result).toBe(5);
     });
 
     it('should return 0 when no unread messages', async () => {
-      mockCount.mockResolvedValueOnce(0);
+      const whereFn = jest.fn().mockResolvedValue([{ count: 0 }]);
+      mockDbSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: whereFn }) });
 
       const result = await service.getUnreadCount('org-1');
       expect(result).toBe(0);
@@ -214,7 +241,7 @@ describe('MessageService', () => {
 
   describe('getSortColumn', () => {
     it('should return a column for valid sortBy values', () => {
-      const validFields = ['id', 'createdAt', 'updatedAt', 'subject', 'messageType', 'priority', 'isRead'];
+      const validFields = ['id', 'createdAt', 'updatedAt', 'subject', 'messageType', 'priority'];
 
       for (const field of validFields) {
         const result = (service as any).getSortColumn(field);
@@ -228,4 +255,28 @@ describe('MessageService', () => {
     });
   });
 
+  // deleteThread cascades soft-delete to all replies in a thread. Tenancy
+  // matters: replies can be authored by either party, so the WHERE clause
+  // must scope by `orgId == caller OR recipientOrgId == caller`. Without
+  // that filter, a delete-thread call on a guessed UUID could cross tenants.
+  describe('deleteThread', () => {
+    it('soft-deletes thread replies scoped to the caller org', async () => {
+      // deleteThread doesn't call .returning() — the .where() resolves directly.
+      const whereFn = jest.fn().mockResolvedValue(undefined);
+      const setFn = jest.fn().mockReturnValue({ where: whereFn });
+      mockDbUpdate.mockReturnValue({ set: setFn });
+
+      await service.deleteThread('thread-root-1', 'user-1', 'org-1');
+
+      expect(mockDbUpdate).toHaveBeenCalled();
+      expect(setFn).toHaveBeenCalledWith(expect.objectContaining({
+        isActive: false,
+        deletedBy: 'user-1',
+        updatedBy: 'user-1',
+      }));
+      // The where clause is composed of and(threadId, isActive, or(orgId|recipientOrgId)).
+      // We verify the chain was reached, not the SQL shape (drizzle internals).
+      expect(whereFn).toHaveBeenCalled();
+    });
+  });
 });

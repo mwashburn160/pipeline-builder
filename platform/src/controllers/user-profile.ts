@@ -247,13 +247,20 @@ export const deleteUser = withController('Delete user account', async (req, res)
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
+  const ownerCount = await UserOrganization.countDocuments({
+    userId: new Types.ObjectId(userId),
+    role: 'owner',
+  });
+  if (ownerCount > 0) {
+    return sendError(res, 400, 'Cannot delete account while you own an organization. Transfer ownership first.');
+  }
+
   const result = await User.findByIdAndDelete(userId);
 
   if (!result) {
     return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
   }
 
-  // Clean up all org memberships
   await UserOrganization.deleteMany({ userId: new Types.ObjectId(userId) });
 
   logger.info(`[DELETE USER] Account deleted: ${userId}`);

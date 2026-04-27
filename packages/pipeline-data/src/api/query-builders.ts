@@ -176,11 +176,6 @@ export function buildMessageConditions(
     conditions.push(eq(schema.message.messageType, filter.messageType as MessageType));
   }
 
-  // Read status filter
-  if (filter.isRead !== undefined) {
-    conditions.push(eq(schema.message.isRead, parseBooleanFilter(filter.isRead)));
-  }
-
   // Priority filter
   if (filter.priority !== undefined) {
     conditions.push(eq(schema.message.priority, filter.priority as MessagePriority));

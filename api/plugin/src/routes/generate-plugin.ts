@@ -11,7 +11,8 @@ import {
   validateBody,
   AIGenerateBodySchema,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { incrementQuotaFromCtx, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -22,9 +23,14 @@ const logger = createLogger('generate-plugin');
 /**
  * Create and register AI plugin generation routes.
  *
+ * AI calls consume the org's `apiCalls` quota — until a dedicated `aiCalls`
+ * quota type is added, AI usage is bounded by the same per-org budget that
+ * gates regular API calls. This prevents an org from spamming the platform
+ * AI provider key beyond their tier.
+ *
  * @returns Express Router with AI generation endpoints
  */
-export function createGeneratePluginRoutes(): Router {
+export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // -- GET /providers — list configured AI providers --------------------------
@@ -57,6 +63,7 @@ export function createGeneratePluginRoutes(): Router {
       });
 
       ctx.log('COMPLETED', 'AI plugin generation completed');
+      incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'aiCalls');
 
       return sendSuccess(res, 200, {
         config: result.config,
@@ -122,6 +129,7 @@ export function createGeneratePluginRoutes(): Router {
           })}\n\n`);
         }
         res.write('data: [DONE]\n\n');
+        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'aiCalls');
       }
 
       res.end();

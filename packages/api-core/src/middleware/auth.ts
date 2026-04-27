@@ -124,24 +124,6 @@ function _requireAuth(
   }
 }
 
-
-/** Requires organization membership. Use after requireAuth. */
-export function requireOrganization(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (!req.user) {
-    return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
-  }
-
-  if (!req.user.organizationId) {
-    return sendError(res, HttpStatus.BAD_REQUEST, 'Organization membership required', ErrorCode.ORG_MISMATCH);
-  }
-
-  next();
-}
-
 /**
  * Requires admin role. Use after requireAuth.
  * Permits users whose per-org role is 'admin' or 'owner'.
@@ -230,10 +212,73 @@ export function requireFeature(feature: string) {
   };
 }
 
-/** Only system admins can set access to 'public'; everyone else gets 'private'. */
+/**
+ * Resolve the effective access modifier for an entity being created/updated.
+ * 'public' is permitted for any admin or owner role (system admins create
+ * catalog-wide public entities; org admins create org-wide public entities).
+ * Everyone else (member role, no role) gets 'private'.
+ */
 export function resolveAccessModifier(req: Request, requested: string | undefined): 'public' | 'private' {
-  if (requested === 'public' && isSystemAdmin(req)) {
+  if (requested === 'public' && (req.user?.role === 'admin' || req.user?.role === 'owner')) {
     return 'public';
   }
   return 'private';
+}
+
+// ---------------------------------------------------------------------------
+// Service-to-service tokens
+//
+// Inter-service HTTP calls (billing → message, platform → compliance, etc.)
+// need to satisfy the same `requireAuth` middleware as user requests.
+// `signServiceToken` mints a short-lived JWT signed with the shared
+// JWT_SECRET, identifying the calling service via `sub: 'service:<name>'`.
+// `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
+// and `decoded.role` checks, and downstream `requireOrganization` /
+// `requireAdmin` rely on the org/role embedded in the token.
+//
+// Tokens default to 5-minute TTL — long enough to survive a backend hop,
+// short enough that a leaked token is low-value.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 300;
+
+export interface ServiceTokenOptions {
+  /** Calling service identifier (e.g. 'billing', 'platform'). Embedded as `sub: service:<name>`. */
+  serviceName: string;
+  /** Active org context for the call. Use the target tenant's org ID, or 'system' for system-wide ops. */
+  orgId?: string;
+  /** Active org name. Defaults to orgId. */
+  orgName?: string;
+  /** TTL in seconds (default 300). */
+  ttlSeconds?: number;
+}
+
+/**
+ * Mint a JWT identifying the calling service. Used for inter-service HTTP calls.
+ * The token satisfies `requireAuth` and (when orgId is present) `requireOrganization`.
+ */
+export function signServiceToken(opts: ServiceTokenOptions): string {
+  const payload: JwtPayload = {
+    sub: `service:${opts.serviceName}`,
+    username: `${opts.serviceName}-service`,
+    email: `${opts.serviceName}@internal`,
+    role: 'owner',
+    isAdmin: true,
+    type: 'access',
+    organizationId: opts.orgId,
+    organizationName: opts.orgName ?? opts.orgId,
+  };
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: opts.ttlSeconds ?? DEFAULT_SERVICE_TOKEN_TTL_SECONDS,
+  });
+}
+
+/** Convenience: returns a `Bearer <token>` header value for fetch/axios calls. */
+export function getServiceAuthHeader(opts: ServiceTokenOptions): string {
+  return `Bearer ${signServiceToken(opts)}`;
+}
+
+/** True when `req.user.sub` was issued by `signServiceToken` (i.e. starts with `service:`). */
+export function isServicePrincipal(req: Request): boolean {
+  return req.user?.sub?.startsWith('service:') ?? false;
 }

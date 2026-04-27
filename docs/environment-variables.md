@@ -52,13 +52,15 @@ Complete reference for all environment variables used across Pipeline Builder se
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JWT_SECRET` | — | **Required.** JWT signing secret |
+| `JWT_SECRET` | — | **Required.** JWT signing secret. Must be **identical across all services** — `signServiceToken()` mints inter-service tokens with this same secret so any service's `requireAuth` can verify them. |
 | `REFRESH_TOKEN_SECRET` | — | **Required.** Refresh token secret |
 | `JWT_EXPIRES_IN` | `86400` | Token TTL in seconds (24h) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
 | `JWT_SALT_ROUNDS` | `12` | bcrypt salt rounds |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `12` | Minimum password length |
+| `COOKIE_SAME_SITE` | `lax` | `lax`, `strict`, or `none` for refresh cookie |
+| `COOKIE_SECURE` | `false` (auto-true in prod) | Set `true` to force the `secure` cookie flag; auto-enabled when `NODE_ENV=production` |
 
 ### Google OAuth (Optional)
 
@@ -187,10 +189,10 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 | `QUOTA_DEFAULT_PLUGINS` | `100` | Max plugins per org |
 | `QUOTA_DEFAULT_PIPELINES` | `10` | Max pipelines per org |
 | `QUOTA_DEFAULT_API_CALLS` | `-1` | Max API calls (`-1` = unlimited) |
+| `QUOTA_DEFAULT_AI_CALLS` | `100` | Max AI generation invocations per period (sized smaller than `apiCalls` because each call has external $ cost) |
 | `QUOTA_RESET_DAYS` | `3` | Reset period (days) |
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service host |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
-| `QUOTA_BYPASS_ORG_ID` | `system` | Org that bypasses all quotas |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
 | `LIMITER_WINDOWMS` | `900000` | Global rate limit window (15 min) |
 | `RATE_LIMIT_MAX` | `100` | Per-route rate limit |
@@ -198,7 +200,15 @@ The plugin Docker image is published with target-specific tags: `plugin:<version
 | `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
 | `AUTH_LIMITER_WINDOWMS` | `900000` | Auth rate limit window (15 min) |
 
-Per-operation limits follow the pattern `QUOTA_{ACTION}_{RESOURCE}_LIMIT` and `QUOTA_{ACTION}_{RESOURCE}_WINDOW_MS`.
+Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers.ts`):
+
+| Tier | plugins | pipelines | apiCalls | aiCalls |
+|------|---------|-----------|----------|---------|
+| developer | 100 | 10 | unlimited | 100 |
+| pro | 1000 | 100 | unlimited | 5000 |
+| unlimited | unlimited | unlimited | unlimited | unlimited |
+
+Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bounds the per-request blast radius from a buggy or malicious caller.
 
 ---
 

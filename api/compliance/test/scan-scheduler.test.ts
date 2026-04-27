@@ -33,7 +33,7 @@ jest.mock('../src/helpers/scan-executor', () => ({
   executeScan: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { calculateNextRun, startScanScheduler, stopScanScheduler } from '../src/helpers/scan-scheduler';
+import { calculateNextRun, isValidCronExpression, startScanScheduler, stopScanScheduler } from '../src/helpers/scan-scheduler';
 
 describe('calculateNextRun', () => {
   it('falls back to ~1 hour for invalid cron', () => {
@@ -96,5 +96,45 @@ describe('scheduler lifecycle', () => {
 
   it('stopScanScheduler is safe to call without start', () => {
     expect(() => stopScanScheduler()).not.toThrow();
+  });
+});
+
+// isValidCronExpression — guards POST /scan-schedules against accepting
+// malformed cron that would silently store nextRunAt=null and never fire.
+
+describe('isValidCronExpression', () => {
+  it('accepts standard 5-field cron', () => {
+    expect(isValidCronExpression('0 0 * * *')).toBe(true);
+    expect(isValidCronExpression('30 14 * * *')).toBe(true);
+    expect(isValidCronExpression('* * * * *')).toBe(true);
+  });
+
+  it('accepts step expressions in minute/hour fields', () => {
+    expect(isValidCronExpression('*/15 * * * *')).toBe(true);
+    expect(isValidCronExpression('0 */6 * * *')).toBe(true);
+  });
+
+  it('rejects fewer than 5 fields', () => {
+    expect(isValidCronExpression('* * * *')).toBe(false);
+    expect(isValidCronExpression('0 0')).toBe(false);
+  });
+
+  it('rejects more than 5 fields', () => {
+    expect(isValidCronExpression('0 0 * * * *')).toBe(false);
+  });
+
+  it('rejects empty / whitespace-only', () => {
+    expect(isValidCronExpression('')).toBe(false);
+    expect(isValidCronExpression('   ')).toBe(false);
+  });
+
+  it('rejects garbage that resembles cron', () => {
+    expect(isValidCronExpression('hello world this is bad')).toBe(false);
+    expect(isValidCronExpression('not a cron expression')).toBe(false);
+  });
+
+  it('rejects out-of-range minute or hour literals', () => {
+    expect(isValidCronExpression('60 0 * * *')).toBe(false); // minute 60 invalid
+    expect(isValidCronExpression('0 24 * * *')).toBe(false); // hour 24 invalid
   });
 });

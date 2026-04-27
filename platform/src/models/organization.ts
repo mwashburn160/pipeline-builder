@@ -21,6 +21,7 @@ export interface QuotaLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+  aiCalls: number;
 }
 
 /**
@@ -30,6 +31,7 @@ export interface QuotaUsageTracking {
   plugins: QuotaUsage;
   pipelines: QuotaUsage;
   apiCalls: QuotaUsage;
+  aiCalls: QuotaUsage;
 }
 
 export type { QuotaTier };
@@ -62,10 +64,6 @@ export interface OrganizationDocument extends Document {
   };
   createdAt: Date;
   updatedAt: Date;
-  // Methods
-  checkQuota(type: 'plugins' | 'pipelines' | 'apiCalls'): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date };
-  incrementUsage(type: 'plugins' | 'pipelines' | 'apiCalls', amount?: number): Promise<OrganizationDocument>;
-  resetUsageIfExpired(type: 'plugins' | 'pipelines' | 'apiCalls'): Promise<boolean>;
 }
 
 /**
@@ -106,7 +104,7 @@ function getNextResetDate(resetPeriod: string): Date {
 }
 
 /** Get the reset period for a quota type from a tier config. */
-function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'apiCalls'): string {
+function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'): string {
   return config.quota.tier[tier].resetPeriod[type];
 }
 
@@ -171,6 +169,11 @@ const organizationSchema = new Schema<OrganizationDocument>(
         default: () => config.quota.tier.developer.apiCalls,
         min: -1, // -1 means unlimited
       },
+      aiCalls: {
+        type: Number,
+        default: () => config.quota.tier.developer.aiCalls,
+        min: -1, // -1 means unlimited
+      },
     },
     usage: {
       plugins: {
@@ -184,6 +187,10 @@ const organizationSchema = new Schema<OrganizationDocument>(
       apiCalls: {
         type: quotaUsageSchema,
         default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) }),
+      },
+      aiCalls: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'aiCalls')) }),
       },
     },
     aiProviderKeys: {
@@ -200,111 +207,6 @@ const organizationSchema = new Schema<OrganizationDocument>(
     _id: false,
   },
 );
-
-/**
- * Check if usage should be reset and reset if expired
- */
-organizationSchema.methods.resetUsageIfExpired = async function (
-  type: 'plugins' | 'pipelines' | 'apiCalls',
-): Promise<boolean> {
-  const now = new Date();
-  const tierKey = (this.tier || 'developer') as QuotaTier;
-
-  if (!this.usage) {
-    this.usage = {
-      plugins: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'plugins')) },
-      pipelines: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'pipelines')) },
-      apiCalls: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'apiCalls')) },
-    };
-    await this.save();
-    return true;
-  }
-
-  if (!this.usage[type]) {
-    this.usage[type] = { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, type)) };
-    await this.save();
-    return true;
-  }
-
-  if (this.usage[type].resetAt <= now) {
-    this.usage[type].used = 0;
-    this.usage[type].resetAt = getNextResetDate(getTierResetPeriod(tierKey, type));
-    await this.save();
-    return true;
-  }
-
-  return false;
-};
-
-/**
- * Check quota for a specific type
- * Returns unlimited if limit is -1
- */
-organizationSchema.methods.checkQuota = function (
-  type: 'plugins' | 'pipelines' | 'apiCalls',
-): { allowed: boolean; used: number; limit: number; remaining: number; resetAt: Date } {
-  const tierKey = (this.tier || 'developer') as QuotaTier;
-  const tierLimits = config.quota.tier[tierKey];
-  const limit = this.quotas?.[type] ?? tierLimits[type];
-  const usage = this.usage?.[type] || { used: 0, resetAt: new Date() };
-  const now = new Date();
-
-  // Unlimited quota (-1 means unlimited)
-  if (limit === -1) {
-    return {
-      allowed: true,
-      used: usage.used,
-      limit: -1,
-      remaining: -1,
-      resetAt: usage.resetAt,
-    };
-  }
-
-  // Check if reset period has passed
-  if (usage.resetAt <= now) {
-    return {
-      allowed: true,
-      used: 0,
-      limit,
-      remaining: limit,
-      resetAt: usage.resetAt,
-    };
-  }
-
-  const used = usage.used;
-  const remaining = Math.max(0, limit - used);
-  const allowed = used < limit;
-
-  return { allowed, used, limit, remaining, resetAt: usage.resetAt };
-};
-
-/**
- * Increment usage for a specific type
- */
-organizationSchema.methods.incrementUsage = async function (
-  type: 'plugins' | 'pipelines' | 'apiCalls',
-  amount: number = 1,
-): Promise<OrganizationDocument> {
-  // First, reset if expired
-  await this.resetUsageIfExpired(type);
-
-  // Initialize usage if not present
-  const tierKey = (this.tier || 'developer') as QuotaTier;
-  if (!this.usage) {
-    this.usage = {
-      plugins: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'plugins')) },
-      pipelines: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'pipelines')) },
-      apiCalls: { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, 'apiCalls')) },
-    };
-  }
-
-  if (!this.usage[type]) {
-    this.usage[type] = { used: 0, resetAt: getNextResetDate(getTierResetPeriod(tierKey, type)) };
-  }
-
-  this.usage[type].used += amount;
-  return this.save();
-};
 
 /**
  * Generate unique slug from organization name

@@ -81,12 +81,19 @@ export function createScanRoutes(): Router {
 
     const triggeredBy = validation.value.dryRun ? 'rule-dry-run' : 'manual';
 
+    // Strip caller-supplied orgId from filter — the executor must always
+    // scope to the caller's org, regardless of what the client requested.
+    // Without this, a member could pass `filter: { orgId: 'other-org' }` and
+    // run a scan against another tenant's entities.
+    const rawFilter = validation.value.filter as Record<string, unknown> | undefined;
+    const filter = rawFilter ? { ...rawFilter, orgId } : null;
+
     const [scan] = await db
       .insert(schema.complianceScan)
       .values({
         orgId,
         target: validation.value.target,
-        filter: validation.value.filter as Record<string, unknown> ?? null,
+        filter,
         status: 'pending',
         triggeredBy,
         userId,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, ToggleLeft, ToggleRight, GitFork, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
@@ -22,6 +22,10 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const [loading, setLoading] = useState(true);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<ComplianceCheckResult | null>(null);
+  const [impactResult, setImpactResult] = useState<{
+    total: number; wouldPass: number; wouldFail: number;
+    samples: Array<{ entityId: string; entityName: string | null; messages: string[] }>;
+  } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Pagination
@@ -102,8 +106,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     fetchCatalog();
   };
 
-  const handleFork = async (ruleId: string) => {
-    await api.forkRule(ruleId);
+  const handleClone = async (ruleId: string) => {
+    await api.cloneRule(ruleId);
     fetchSubscriptions();
   };
 
@@ -123,12 +127,34 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   };
 
   const handlePreview = async (ruleId: string) => {
-    if (previewId === ruleId) { setPreviewId(null); setPreviewResult(null); return; }
+    if (previewId === ruleId) {
+      setPreviewId(null);
+      setPreviewResult(null);
+      setImpactResult(null);
+      return;
+    }
     setPreviewId(ruleId);
     setPreviewResult(null);
+    setImpactResult(null);
     try {
-      const res = await api.previewSubscription(ruleId);
-      if (res.success && res.data?.preview) setPreviewResult(res.data.preview);
+      // Run both previews in parallel — the rule-shape one is for display,
+      // the impact one quantifies "how many of MY entities would fail."
+      const [ruleRes, impactRes] = await Promise.allSettled([
+        api.previewSubscription(ruleId),
+        api.previewRuleImpact(ruleId),
+      ]);
+      if (ruleRes.status === 'fulfilled' && ruleRes.value.success && ruleRes.value.data?.preview) {
+        setPreviewResult(ruleRes.value.data.preview);
+      }
+      if (impactRes.status === 'fulfilled' && impactRes.value.success && impactRes.value.data) {
+        const d = impactRes.value.data;
+        setImpactResult({
+          total: d.total,
+          wouldPass: d.wouldPass,
+          wouldFail: d.wouldFail,
+          samples: d.samples.map((s) => ({ entityId: s.entityId, entityName: s.entityName, messages: s.messages })),
+        });
+      }
     } catch { /* handled */ }
   };
 
@@ -247,8 +273,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                           >
                             {sub.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
                           </button>
-                          <button onClick={() => handleFork(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" title="Fork to org rule" aria-label="Fork to org rule">
-                            <GitFork className="h-4 w-4" />
+                          <button onClick={() => handleClone(sub.ruleId)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors" title="Clone as an org-owned rule (one-shot copy, no upstream sync)" aria-label="Clone to org rule">
+                            <Copy className="h-4 w-4" />
                           </button>
                           {sub.pinnedVersion ? (
                             <button onClick={() => handleUnpin(sub.ruleId)} className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title="Unpin version" aria-label="Unpin version">
@@ -285,6 +311,41 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                           <AlertTriangle className="h-3 w-3 shrink-0" /> {w.ruleName}: {w.message}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {previewId === sub.ruleId && impactResult && (
+                    <div className="mx-3 mb-3 p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+                          Impact on your existing entities
+                        </span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                          <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
+                            {impactResult.wouldFail}
+                          </span>
+                          {' / '}
+                          {impactResult.total}
+                          {' would fail'}
+                        </span>
+                      </div>
+                      {impactResult.samples.length > 0 && (
+                        <ul className="space-y-1">
+                          {impactResult.samples.map((s) => (
+                            <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-red-700 dark:text-red-300">
+                              <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                              <span>
+                                <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
+                                {s.messages[0] && <span className="text-gray-600 dark:text-gray-400"> — {s.messages[0]}</span>}
+                              </span>
+                            </li>
+                          ))}
+                          {impactResult.wouldFail > impactResult.samples.length && (
+                            <li className="text-xs text-gray-500 italic">
+                              + {impactResult.wouldFail - impactResult.samples.length} more
+                            </li>
+                          )}
+                        </ul>
+                      )}
                     </div>
                   )}
                 </div>

@@ -74,6 +74,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
 
 jest.mock('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: () => [],
+  incrementQuotaFromCtx: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.context?.identity?.orgId || 'test-org' },
@@ -158,7 +159,8 @@ import { createGeneratePipelineRoutes } from '../src/routes/generate-pipeline';
 
 // Helpers
 
-const router = createGeneratePipelineRoutes();
+const stubQuotaService = { increment: jest.fn().mockResolvedValue(undefined) } as any;
+const router = createGeneratePipelineRoutes(stubQuotaService);
 
 /**
  * Extract a route handler from the Express router by method and path.

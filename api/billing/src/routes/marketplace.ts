@@ -10,7 +10,8 @@ import {
   errorMessage,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, Request, Response, RequestHandler } from 'express';
+import { Router, Request, Response } from 'express';
+import type { RequestHandler } from 'express';
 import { config } from '../config';
 import {
   calculatePeriodEnd,
@@ -26,6 +27,7 @@ import {
 } from '../helpers/marketplace-helpers';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
+import { claimWebhookEvent } from '../models/webhook-dedupe';
 import { AWSMarketplaceProvider } from '../providers/aws-marketplace-provider';
 import { getPaymentProvider } from '../providers/provider-factory';
 
@@ -85,8 +87,13 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   subscription.cancelAtPeriodEnd = statusChange.cancelAtPeriodEnd;
   await subscription.save();
 
-  // Determine event type and sync tier
-  if (statusChange.status === 'canceled' || statusChange.cancelAtPeriodEnd) {
+  // Determine event type and sync tier.
+  // For an immediate cancel ('canceled') we downgrade now. For a soft cancel
+  // ('cancelAtPeriodEnd') the org has paid through `currentPeriodEnd` —
+  // downgrading now would strip their tier mid-period. The lifecycle cron
+  // (api/billing/src/helpers/subscription-lifecycle.ts) handles the actual
+  // downgrade once `currentPeriodEnd` lapses.
+  if (statusChange.status === 'canceled') {
     await syncTierToQuotaService(subscription.orgId, 'developer', '');
     await createBillingEvent(subscription.orgId, 'subscription_canceled', {
       action,
@@ -94,6 +101,15 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
       previousStatus,
       newStatus: statusChange.status,
       customerIdentifier,
+    }, subscription._id.toString());
+  } else if (statusChange.cancelAtPeriodEnd) {
+    await createBillingEvent(subscription.orgId, 'subscription_canceled', {
+      action,
+      provider: 'aws-marketplace',
+      previousStatus,
+      newStatus: statusChange.status,
+      customerIdentifier,
+      pendingDowngradeAt: subscription.currentPeriodEnd,
     }, subscription._id.toString());
   } else if (previousStatus === 'canceled' && statusChange.status === 'active') {
     const plan = await Plan.findById(subscription.planId);
@@ -362,6 +378,15 @@ export function createMarketplaceRoutes(): Router {
             received: snsMessage.TopicArn,
           });
           return sendError(res, 403, 'Unexpected SNS topic', ErrorCode.INSUFFICIENT_PERMISSIONS);
+        }
+
+        // Idempotency guard: SNS retries the same MessageId on transient
+        // failures. Claim the ID before processing — duplicate deliveries
+        // short-circuit with 200 (so SNS stops retrying) but skip side-effects.
+        const isFirstDelivery = await claimWebhookEvent('sns', snsMessage.MessageId);
+        if (!isFirstDelivery) {
+          logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
+          return sendSuccess(res, 200, { message: 'Duplicate message acknowledged' });
         }
 
         switch (snsMessage.Type) {

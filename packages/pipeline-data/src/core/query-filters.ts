@@ -175,11 +175,6 @@ export interface MessageFilter extends CommonFilter {
   readonly messageType?: 'announcement' | 'conversation';
 
   /**
-   * Filter by read status
-   */
-  readonly isRead?: boolean;
-
-  /**
    * Filter by priority level
    */
   readonly priority?: 'normal' | 'high' | 'urgent';

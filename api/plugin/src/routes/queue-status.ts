@@ -43,8 +43,9 @@ export function createQueueStatusRoutes(): Router {
     });
   }));
 
-  router.get('/failed', withRoute(async ({ req, res }) => {
-    if (!isSystemAdmin(req)) {
+  router.get('/failed', withRoute(async ({ req, res, orgId }) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'owner') {
       return sendError(res, 403, 'Only administrators can view queue status', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -52,7 +53,18 @@ export function createQueueStatusRoutes(): Router {
     const queue = getQueue();
     const failedJobs = await queue.getJobs(['failed'], 0, limit - 1);
 
-    const jobs = failedJobs.map((job) => ({
+    // Tenant isolation: non-system admins only see their own org's failed jobs.
+    // Without this filter, an org admin could see another tenant's failure
+    // metadata (plugin names, error messages).
+    const callerIsSysAdmin = isSystemAdmin(req);
+    const visibleJobs = callerIsSysAdmin
+      ? failedJobs
+      : failedJobs.filter((job) => {
+        const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
+        return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
+      });
+
+    const jobs = visibleJobs.map((job) => ({
       id: job.id,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
@@ -68,8 +80,9 @@ export function createQueueStatusRoutes(): Router {
 
   // -- DLQ endpoints --------------------------------------------------------
 
-  router.get('/dlq', withRoute(async ({ req, res }) => {
-    if (!isSystemAdmin(req)) {
+  router.get('/dlq', withRoute(async ({ req, res, orgId }) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'owner') {
       return sendError(res, 403, 'Only administrators can view DLQ', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -77,7 +90,16 @@ export function createQueueStatusRoutes(): Router {
     const dlq = getDeadLetterQueue();
     const allJobs = await dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, limit - 1);
 
-    const jobs = allJobs.map((job) => ({
+    // Tenant isolation — same model as /failed above.
+    const callerIsSysAdmin = isSystemAdmin(req);
+    const visibleJobs = callerIsSysAdmin
+      ? allJobs
+      : allJobs.filter((job) => {
+        const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
+        return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
+      });
+
+    const jobs = visibleJobs.map((job) => ({
       id: job.id,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,

@@ -102,7 +102,6 @@ export function groupPlugins(plugins: Plugin[], filter: string): PluginGroup[] {
       )
     : plugins;
 
-  // Group by category (with fallback to access modifier for legacy plugins)
   const categoryMap = new Map<string, Plugin[]>();
 
   for (const plugin of filtered) {

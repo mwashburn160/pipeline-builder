@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';
 import { Plan } from '../models/plan';
@@ -168,16 +168,22 @@ async function sendRenewalReminders(): Promise<void> {
       });
 
       await messageClient.post('/messages', {
-        orgId: subscription.orgId,
-        senderOrgId: 'system',
+        // Caller's org identity is taken from the JWT — don't pass orgId/
+        // senderOrgId, the message service rejects them. recipientOrgId
+        // is the target tenant. Use 'conversation' (not 'announcement',
+        // which message-service only allows for recipientOrgId='*').
         recipientOrgId: subscription.orgId,
+        messageType: 'conversation',
         subject: `Subscription renewal in ${reminderDays} days`,
-        body: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
+        content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
           + 'If you need to make changes, visit your billing settings.',
-        messageType: 'announcement',
         priority: 'normal',
       }, {
-        headers: { 'x-internal-service': 'true', 'x-org-id': 'system' },
+        headers: {
+          'x-internal-service': 'true',
+          'x-org-id': 'system',
+          authorization: getServiceAuthHeader({ serviceName: 'billing', orgId: 'system' }),
+        },
       });
 
       // Mark as reminded so we don't send duplicates
@@ -193,7 +199,7 @@ async function sendRenewalReminders(): Promise<void> {
         planName,
       });
     } catch (err) {
-      logger.debug('Failed to send renewal reminder', {
+      logger.warn('Failed to send renewal reminder', {
         orgId: subscription.orgId,
         error: errorMessage(err),
       });

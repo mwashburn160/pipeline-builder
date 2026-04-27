@@ -1,4 +1,5 @@
 import { Megaphone, MessageCircle, Trash2 } from 'lucide-react';
+import { formatRelativeTime } from '@/lib/relative-time';
 import type { Message } from '@/types';
 
 /** Props for the MessageList component. */
@@ -15,27 +16,19 @@ interface MessageListProps {
   onDelete?: (id: string) => void;
 }
 
-/** Formats a date string as a relative time label (e.g. "5m ago", "2d ago"). */
-function formatTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
-
 /** Returns the display name for a message row: "Announcement" or the other party's org ID. */
 function getDisplayName(msg: Message, currentOrgId: string): string {
   if (msg.messageType === 'announcement') return 'Announcement';
   if (msg.orgId.toLowerCase() === currentOrgId.toLowerCase()) return msg.recipientOrgId;
   return msg.orgId;
+}
+
+/**
+ * Per-participant unread check. Returns true when the *current* org has not
+ * marked this message read — independent of whether other participants have.
+ */
+function isUnreadFor(msg: Message, currentOrgId: string): boolean {
+  return !msg.readBy[currentOrgId.toLowerCase()];
 }
 
 /** Extracts the first two characters of a name for avatar display. */
@@ -92,7 +85,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
               <div className="flex items-center justify-between">
                 <span
                   className={`text-sm truncate ${
-                    !msg.isRead
+                    isUnreadFor(msg, currentOrgId)
                       ? 'font-semibold text-gray-900 dark:text-gray-100'
                       : 'font-medium text-gray-700 dark:text-gray-300'
                   }`}
@@ -100,14 +93,14 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
                   {displayName}
                 </span>
                 <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
-                  {formatTime(msg.createdAt)}
+                  {formatRelativeTime(msg.createdAt)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-0.5">
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                   {msg.content.slice(0, 60)}
                 </p>
-                {!msg.isRead && (
+                {isUnreadFor(msg, currentOrgId) && (
                   <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ml-2" />
                 )}
               </div>

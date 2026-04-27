@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess, createSafeClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { audit } from '../helpers/audit';
@@ -23,7 +23,10 @@ async function createBillingSubscription(orgId: string, planId: string): Promise
     });
 
     await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
-      headers: { 'x-org-id': orgId },
+      headers: {
+        'x-org-id': orgId,
+        authorization: getServiceAuthHeader({ serviceName: 'platform', orgId }),
+      },
     });
 
     logger.info('Billing subscription created for new org', { orgId, planId });
@@ -43,7 +46,10 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
     });
 
     await client.post('/compliance/subscriptions/auto-subscribe', {}, {
-      headers: { 'x-org-id': orgId },
+      headers: {
+        'x-org-id': orgId,
+        authorization: getServiceAuthHeader({ serviceName: 'platform', orgId }),
+      },
     });
 
     logger.info('Auto-subscribed org to published compliance rules', { orgId });
@@ -182,7 +188,7 @@ export const login = withController('Login', async (req, res) => {
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
   res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
+    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
   });
   audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
   sendSuccess(res, 200, tokens);
@@ -231,7 +237,7 @@ export const refresh = withController('Refresh', async (req, res) => {
   const tokens = await issueTokens(user, activeOrgId);
 
   res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
+    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
   });
   sendSuccess(res, 200, tokens);
 });
@@ -251,7 +257,7 @@ export const logout = withController('Logout', async (req, res) => {
     { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
   );
 
-  res.clearCookie('grafana_token', { httpOnly: true, sameSite: 'lax', path: '/' });
+  res.clearCookie('grafana_token', { httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/' });
   audit(req, 'user.logout');
   sendSuccess(res, 200, undefined, 'Logged out');
 });
@@ -288,7 +294,7 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const tokens = await issueTokens(user, organizationId);
 
   res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
+    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
   });
   sendSuccess(res, 200, tokens);
 });

@@ -14,6 +14,9 @@ const logger = createLogger('scan-executor');
 /** Progress update interval (every N entities). */
 const PROGRESS_BATCH_SIZE = 10;
 
+/** Per-batch concurrency for the entity-evaluation loop. Tunable for very large orgs. */
+const SCAN_CONCURRENCY = parseInt(process.env.COMPLIANCE_SCAN_CONCURRENCY ?? '10', 10);
+
 interface EntityRecord {
   id: string;
   name?: string;
@@ -80,51 +83,73 @@ export async function executeScan(scanId: string): Promise<void> {
       const entityIds = entities.map(e => e.id).filter(Boolean);
       const exemptionMap = await fetchExemptions(scan.orgId, entityIds);
 
-      for (const entity of entities) {
-        // Check for cancellation
-        if (processedEntities % PROGRESS_BATCH_SIZE === 0 && processedEntities > 0) {
-          const [current] = await db
-            .select({ status: schema.complianceScan.status })
-            .from(schema.complianceScan)
-            .where(eq(schema.complianceScan.id, scanId));
-          if (current?.status === 'cancelled') {
-            logger.info('Scan cancelled', { scanId });
-            return;
-          }
+      // Iterate in concurrency-bounded batches. Per-batch we:
+      //   1. Check cancellation
+      //   2. Run rule evaluation in parallel (CPU-bound but fast; the wins are
+      //      in concurrent audit-log writes for large orgs)
+      //   3. Aggregate counts + emit one progress update
+      //
+      // Worker is pure aside from fire-and-forget audit/notification writes;
+      // the `for-let-i` outer loop preserves serialized progress updates.
+      const concurrency = Math.max(1, SCAN_CONCURRENCY);
+      for (let i = 0; i < entities.length; i += concurrency) {
+        // Cancellation check before each batch (was every PROGRESS_BATCH_SIZE
+        // entities — close enough for batches of ~10).
+        const [current] = await db
+          .select({ status: schema.complianceScan.status })
+          .from(schema.complianceScan)
+          .where(eq(schema.complianceScan.id, scanId));
+        if (current?.status === 'cancelled') {
+          logger.info('Scan cancelled', { scanId });
+          return;
+        }
 
-          // Update progress
+        const slice = entities.slice(i, i + concurrency);
+        const settled = await Promise.allSettled(slice.map(async (entity) => {
+          const exemptions = exemptionMap.get(entity.id) ?? [];
+          const result = evaluateRules(rules, entity as Record<string, unknown>, exemptions);
+
+          if (!isDryRun) {
+            logComplianceCheck(
+              scan.orgId,
+              scan.userId ?? 'system',
+              target,
+              'scan',
+              entity.id,
+              entity.name,
+              result,
+              scanId,
+            ).catch((err) => logger.warn('Audit write failed', { error: errorMessage(err) }));
+
+            if (result.blocked) {
+              notifyComplianceBlock(scan.orgId, target, entity.name ?? entity.id, result.violations)
+                .catch((err) => logger.warn('Notification failed', { error: errorMessage(err) }));
+            }
+          }
+          return result;
+        }));
+
+        // Aggregate batch results — failed evaluations count as warnings, not crashes.
+        for (const s of settled) {
+          if (s.status === 'fulfilled') {
+            const r = s.value;
+            if (r.blocked) blockCount++;
+            else if (r.warnings.length > 0) warnCount++;
+            else passCount++;
+          } else {
+            warnCount++;
+            logger.warn('Rule evaluation failed for entity', { error: errorMessage(s.reason) });
+          }
+          processedEntities++;
+        }
+
+        // One progress update per batch (every PROGRESS_BATCH_SIZE entities of work,
+        // not per-entity — fewer DB writes for the same UX).
+        if (processedEntities % PROGRESS_BATCH_SIZE === 0 || i + concurrency >= entities.length) {
           await db.update(schema.complianceScan)
             .set({ processedEntities, passCount, warnCount, blockCount })
             .where(eq(schema.complianceScan.id, scanId));
         }
-
-        const exemptions = exemptionMap.get(entity.id) ?? [];
-        const result = evaluateRules(rules, entity as Record<string, unknown>, exemptions);
-
-        if (result.blocked) blockCount++;
-        else if (result.warnings.length > 0) warnCount++;
-        else passCount++;
-
-        // Write audit entry (skip for dry-runs)
-        if (!isDryRun) {
-          logComplianceCheck(
-            scan.orgId,
-            scan.userId ?? 'system',
-            target,
-            'scan',
-            entity.id,
-            entity.name,
-            result,
-            scanId,
-          ).catch((err) => logger.warn('Audit write failed', { error: errorMessage(err) }));
-
-          if (result.blocked) {
-            notifyComplianceBlock(scan.orgId, target, entity.name ?? entity.id, result.violations, '')
-              .catch((err) => logger.warn('Notification failed', { error: errorMessage(err) }));
-          }
-        }
-
-        processedEntities++;
       }
     }
 

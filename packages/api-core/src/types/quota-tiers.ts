@@ -9,6 +9,7 @@ export interface QuotaTierLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+  aiCalls: number;
 }
 
 /** Full preset for a single tier (label + limits). */
@@ -17,11 +18,17 @@ export interface QuotaTierPreset {
   limits: QuotaTierLimits;
 }
 
-/** Preset limits for each tier. */
+/**
+ * Preset limits for each tier. -1 means unlimited.
+ *
+ * AI calls are sized much smaller than `apiCalls` because each call has
+ * external provider cost (~$0.01–$0.10/call). Developer tier allows light
+ * exploration (100/period); Pro lifts to 5000; Unlimited is uncapped.
+ */
 export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = {
-  developer: { label: 'Developer', limits: { plugins: 100, pipelines: 10, apiCalls: -1 } },
-  pro: { label: 'Pro', limits: { plugins: 1000, pipelines: 100, apiCalls: -1 } },
-  unlimited: { label: 'Unlimited', limits: { plugins: -1, pipelines: -1, apiCalls: -1 } },
+  developer: { label: 'Developer', limits: { plugins: 100, pipelines: 10, apiCalls: -1, aiCalls: 100 } },
+  pro: { label: 'Pro', limits: { plugins: 1000, pipelines: 100, apiCalls: -1, aiCalls: 5000 } },
+  unlimited: { label: 'Unlimited', limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 } },
 };
 
 /** All valid tier names. */

@@ -62,7 +62,7 @@ describe('audit helper', () => {
 
   it('should include target options', () => {
     const req = mockReq({ user: { sub: 'u1' } });
-    audit(req, 'org.update', {
+    audit(req, 'org.create', {
       targetType: 'organization',
       targetId: 'org-99',
       details: { field: 'name' },
@@ -70,7 +70,7 @@ describe('audit helper', () => {
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'org.update',
+        action: 'org.create',
         targetType: 'organization',
         targetId: 'org-99',
         details: { field: 'name' },

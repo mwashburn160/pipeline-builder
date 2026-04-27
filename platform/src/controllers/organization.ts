@@ -140,6 +140,7 @@ export const createOrganization = withController('Create organization', async (r
           plugins: tierConfig.plugins,
           pipelines: tierConfig.pipelines,
           apiCalls: tierConfig.apiCalls,
+          aiCalls: tierConfig.aiCalls,
         };
       }
 
@@ -309,7 +310,7 @@ export const getOrganizationQuotas = withController('Get organization quotas', a
   const authHeader = req.headers.authorization || '';
   const tierKey = (org.tier || 'developer') as QuotaTier;
   const tierConfig = config.quota.tier[tierKey];
-  const quotaTypes = ['plugins', 'pipelines', 'apiCalls'] as const;
+  const quotaTypes = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
   const quotas: Record<string, { used: number; limit: number | string; remaining: number | string; resetAt: Date; resetPeriod: string; unlimited: boolean }> = {};
 
   // Fetch quota status from the quota microservice (parallel)
@@ -366,7 +367,7 @@ export const updateOrganizationQuotas = withController('Update organization quot
   }
 
   // Parse quota values
-  const quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number } = {};
+  const quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number; aiCalls?: number } = {};
 
   const parsedPlugins = parseQuotaValue(body.plugins);
   if (parsedPlugins !== undefined) quotaLimits.plugins = parsedPlugins;
@@ -376,6 +377,9 @@ export const updateOrganizationQuotas = withController('Update organization quot
 
   const parsedApiCalls = parseQuotaValue(body.apiCalls);
   if (parsedApiCalls !== undefined) quotaLimits.apiCalls = parsedApiCalls;
+
+  const parsedAiCalls = parseQuotaValue(body.aiCalls);
+  if (parsedAiCalls !== undefined) quotaLimits.aiCalls = parsedAiCalls;
 
   // Try to update via quota service first
   const authHeader = req.headers.authorization || '';
@@ -389,6 +393,7 @@ export const updateOrganizationQuotas = withController('Update organization quot
         plugins: tierLimits.plugins,
         pipelines: tierLimits.pipelines,
         apiCalls: tierLimits.apiCalls,
+        aiCalls: tierLimits.aiCalls,
       };
     }
 
@@ -415,6 +420,7 @@ export const updateOrganizationQuotas = withController('Update organization quot
       plugins: { limit: formatQuotaValue(finalQuotas.plugins), unlimited: finalQuotas.plugins === -1 },
       pipelines: { limit: formatQuotaValue(finalQuotas.pipelines), unlimited: finalQuotas.pipelines === -1 },
       apiCalls: { limit: formatQuotaValue(finalQuotas.apiCalls), unlimited: finalQuotas.apiCalls === -1 },
+      aiCalls: { limit: formatQuotaValue(finalQuotas.aiCalls), unlimited: finalQuotas.aiCalls === -1 },
     },
   }, 'Organization quotas updated successfully');
 });

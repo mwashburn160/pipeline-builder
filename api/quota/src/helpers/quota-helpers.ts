@@ -8,8 +8,16 @@ export { QUOTA_TIERS, VALID_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@
 import { config } from '../config';
 import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models/organization';
 
-/** Shared auth options — allow x-org-id header override for service-to-service calls. */
-export const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+/**
+ * Auth options for **internal service-to-service mutation routes only**
+ * (specifically `POST /:orgId/increment`). The `allowOrgHeaderOverride` flag
+ * lets calling services pin a target orgId via `x-org-id`.
+ *
+ * SECURITY: This MUST NOT be used on routes reachable from the frontend.
+ * Read routes use plain `requireAuth` (no override) so end-user JWTs cannot
+ * be re-pointed at another tenant by setting the header.
+ */
+export const INTERNAL_AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
 // Date helpers
 
@@ -93,6 +101,7 @@ function buildSummaries(
     plugins: summarize(quotas?.plugins ?? d.plugins, usage?.plugins ?? du),
     pipelines: summarize(quotas?.pipelines ?? d.pipelines, usage?.pipelines ?? du),
     apiCalls: summarize(quotas?.apiCalls ?? d.apiCalls, usage?.apiCalls ?? du),
+    aiCalls: summarize(quotas?.aiCalls ?? d.aiCalls, usage?.aiCalls ?? du),
   };
 }
 

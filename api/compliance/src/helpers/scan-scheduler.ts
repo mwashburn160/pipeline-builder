@@ -119,6 +119,27 @@ async function checkDueSchedules(): Promise<void> {
 }
 
 /**
+ * Validate a cron expression. Returns true if `calculateNextRun` would
+ * succeed without falling back to the safety value. Use in route handlers
+ * to reject malformed input at insert time, rather than silently storing
+ * a schedule that resolves to "1 hour from now" forever.
+ */
+export function isValidCronExpression(cronExpression: string): boolean {
+  try {
+    const parts = cronExpression.trim().split(/\s+/);
+    if (parts.length !== 5) return false;
+    const [minuteSpec, hourSpec] = parts;
+    const minute = parseField(minuteSpec, 0, 59);
+    const hour = parseField(hourSpec, 0, 23);
+    return minuteSpec === '*' || minute !== null || /^\*\/\d+$/.test(minuteSpec)
+      ? hourSpec === '*' || hour !== null || /^\*\/\d+$/.test(hourSpec)
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Calculate the next run time from a cron expression.
  * Supports standard 5-field cron: minute hour dayOfMonth month dayOfWeek.
  * Falls back to 1 hour from now if parsing fails.

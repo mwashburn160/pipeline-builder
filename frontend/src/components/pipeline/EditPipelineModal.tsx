@@ -71,7 +71,7 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
       }
     })();
     return () => { cancelled = true; };
-  }, [pipeline]);
+  }, [pipeline.id]);
 
   // Scroll to top when step changes
   useEffect(() => {

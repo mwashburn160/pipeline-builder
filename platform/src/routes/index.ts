@@ -8,8 +8,6 @@ export { default as usersRoutes } from './users';
 export { default as organizationRoutes } from './organization';
 export { default as organizationsRoutes } from './organizations';
 export { default as invitationRoutes } from './invitation';
-export { default as pluginRoutes } from './plugin';
-export { default as pipelineRoutes } from './pipeline';
 export { default as logRoutes } from './log';
 export { default as auditRoutes } from './audit';
 export { default as configRoutes } from './config';

@@ -88,7 +88,7 @@ export default function PluginsPage() {
     ],
     fetcher: async (params) => {
       const p: Record<string, string> = {
-        ...mapCommonParams(params, canViewPublic),
+        ...mapCommonParams(params),
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',

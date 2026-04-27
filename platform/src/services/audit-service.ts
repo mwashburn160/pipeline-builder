@@ -44,7 +44,10 @@ class AuditService {
     const query: Record<string, unknown> = {};
 
     if (filter.orgId) query.orgId = filter.orgId;
-    if (filter.action) query.action = { $regex: filter.action, $options: 'i' };
+    if (filter.action) {
+      const escaped = filter.action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.action = { $regex: escaped, $options: 'i' };
+    }
     if (filter.targetType) query.targetType = filter.targetType;
     if (filter.targetId) query.targetId = filter.targetId;
 

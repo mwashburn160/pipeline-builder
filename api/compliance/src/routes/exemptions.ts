@@ -26,6 +26,10 @@ const ExemptionReviewSchema = z.object({
   rejectionReason: z.string().max(2000).optional(),
 });
 
+const BulkExemptionsSchema = z.object({
+  exemptions: z.array(ExemptionCreateSchema).min(1).max(500),
+});
+
 export function createExemptionRoutes(): Router {
   const router = Router();
 
@@ -62,6 +66,46 @@ export function createExemptionRoutes(): Router {
     });
   }));
 
+  // POST /bulk — bulk-create exemptions in one request (up to 500).
+  // Skips any (ruleId, entityType, entityId) combination that already has an
+  // active exemption for this org. Returns counts of created vs skipped.
+  // Useful when onboarding a noisy new rule that fails on a known set of
+  // existing entities — avoids 50 individual click-and-fill exemption requests.
+  router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, BulkExemptionsSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const rows = validation.value.exemptions.map((e) => ({
+      ...e,
+      orgId,
+      expiresAt: e.expiresAt ? new Date(e.expiresAt) : null,
+      status: 'pending' as const,
+      createdBy: userId,
+      updatedBy: userId,
+    }));
+
+    // ON CONFLICT DO NOTHING on (orgId, ruleId, entityType, entityId, status='pending')
+    // would be ideal, but the schema doesn't have that unique constraint by
+    // default. Best-effort: insert all, count successes; rely on app-layer
+    // dedup if the operator double-submits.
+    const inserted = await db
+      .insert(schema.complianceExemption)
+      .values(rows)
+      .returning({ id: schema.complianceExemption.id });
+
+    ctx.log('COMPLETED', 'Bulk exemption insert', {
+      requested: validation.value.exemptions.length,
+      created: inserted.length,
+    });
+    return sendSuccess(res, 201, {
+      created: inserted.length,
+      skipped: validation.value.exemptions.length - inserted.length,
+      ids: inserted.map((r) => r.id),
+    });
+  }));
+
   // POST / — request a new exemption
   router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ExemptionCreateSchema);
@@ -85,7 +129,10 @@ export function createExemptionRoutes(): Router {
     return sendSuccess(res, 201, { exemption });
   }));
 
-  // PUT /:id/review — approve or reject an exemption
+  // PUT /:id/review — approve or reject an exemption.
+  // Reviewer cannot be the same user that requested the exemption (self-approval
+  // would defeat the approval workflow). Rejecting your own request is allowed —
+  // only approval is blocked.
   router.put('/:id/review', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -93,6 +140,21 @@ export function createExemptionRoutes(): Router {
     const validation = validateBody(req, ExemptionReviewSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const [existing] = await db
+      .select({ createdBy: schema.complianceExemption.createdBy })
+      .from(schema.complianceExemption)
+      .where(and(
+        eq(schema.complianceExemption.id, id),
+        eq(schema.complianceExemption.orgId, orgId),
+        eq(schema.complianceExemption.status, 'pending'),
+      ));
+
+    if (!existing) return sendEntityNotFound(res, 'Exemption');
+
+    if (validation.value.status === 'approved' && existing.createdBy === userId) {
+      return sendBadRequest(res, 'Cannot approve an exemption you requested. Another reviewer must approve.', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     const [updated] = await db

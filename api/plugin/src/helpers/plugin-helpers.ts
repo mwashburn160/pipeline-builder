@@ -58,7 +58,6 @@ export interface PluginBuildJobData {
   requestId: string;
   orgId: string;
   userId: string;
-  authToken: string;
   buildRequest: BuildRequest;
   pluginRecord: PluginRecordData;
   failureCategory?: FailureCategory;
@@ -72,7 +71,6 @@ export interface CreateBuildJobParams {
   requestId: string;
   orgId: string;
   userId: string;
-  authToken: string;
   buildRequest: BuildRequest;
   pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'imageTag' | 'accessModifier'>;
 }

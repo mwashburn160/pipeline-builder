@@ -97,7 +97,6 @@ async function validateEntity(
   entityId: string | undefined,
   entityName: string | undefined,
   attributes: Record<string, unknown>,
-  authHeader: string,
   isDryRun: boolean,
 ) {
   // System org is exempt from all compliance rules and policies
@@ -126,7 +125,7 @@ async function validateEntity(
 
   // Notify on block (skip for dry-runs). Log failures but don't block.
   if (result.blocked && !isDryRun) {
-    notifyComplianceBlock(orgId, target, entityName ?? 'unknown', result.violations, authHeader)
+    notifyComplianceBlock(orgId, target, entityName ?? 'unknown', result.violations)
       .catch((err) => logger.warn('Compliance notification failed', { error: String(err) }));
   }
 
@@ -146,7 +145,7 @@ export function createValidateRoutes(): Router {
 
       const result = await validateEntity(
         orgId, userId, target, action || defaultAction, entityId, entityName,
-        attributes, req.headers.authorization || '', false,
+        attributes, false,
       );
       ctx.log('COMPLETED', `${target} compliance check`, {
         blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
@@ -160,7 +159,7 @@ export function createValidateRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
       const result = await validateEntity(
-        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, '', true,
+        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true,
       );
       ctx.log('COMPLETED', `${target} compliance dry-run`, { blocked: result.blocked, violations: result.violations.length });
       return sendSuccess(res, 200, result);

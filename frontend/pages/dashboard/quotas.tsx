@@ -12,20 +12,21 @@ import api from '@/lib/api';
 // Constants
 // ---------------------------------------------------------------------------
 
-const QUOTA_KEYS: QuotaType[] = ['plugins', 'pipelines', 'apiCalls'];
+const QUOTA_KEYS: QuotaType[] = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'];
 
 const QUOTA_META: Record<QuotaType, { label: string; description: string }> = {
   plugins: { label: 'Plugins', description: 'Container images deployed' },
   pipelines: { label: 'Pipelines', description: 'Pipeline configurations' },
   apiCalls: { label: 'API Calls', description: 'Requests this period' },
+  aiCalls: { label: 'AI Calls', description: 'AI generation invocations this period' },
 };
 
 const TIER_KEYS: QuotaTier[] = ['developer', 'pro', 'unlimited'];
 
 const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<QuotaType, number> }> = {
-  developer: { label: 'Developer', description: 'Starter tier', color: 'bg-green-500', limits: { pipelines: 10, plugins: 100, apiCalls: -1 } },
-  pro:       { label: 'Pro',       description: 'Production use', color: 'bg-blue-500', limits: { pipelines: 100, plugins: 1000, apiCalls: -1 } },
-  unlimited: { label: 'Unlimited', description: 'No restrictions', color: 'bg-purple-500', limits: { pipelines: -1, plugins: -1, apiCalls: -1 } },
+  developer: { label: 'Developer', description: 'Starter tier', color: 'bg-green-500', limits: { pipelines: 10, plugins: 100, apiCalls: -1, aiCalls: 100 } },
+  pro:       { label: 'Pro',       description: 'Production use', color: 'bg-blue-500', limits: { pipelines: 100, plugins: 1000, apiCalls: -1, aiCalls: 5000 } },
+  unlimited: { label: 'Unlimited', description: 'No restrictions', color: 'bg-purple-500', limits: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 } },
 };
 
 // ---------------------------------------------------------------------------
@@ -193,9 +194,27 @@ export default function QuotasPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0 });
+  const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0, aiCalls: 0 });
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
+
+  // System-admin only: orgs at >= 80% on any quota dimension. Refetched
+  // alongside the org list so the banner updates after edits.
+  const [atRisk, setAtRisk] = useState<Array<{
+    orgId: string;
+    name: string;
+    type: QuotaType;
+    used: number;
+    limit: number;
+    percent: number;
+  }>>([]);
+  const fetchAtRisk = useCallback(async () => {
+    if (!isSysAdmin) return;
+    try {
+      const res = await api.getAtRiskQuotas();
+      if (res.success && res.data) setAtRisk(res.data.atRisk);
+    } catch { /* admin-only diagnostic — silently skip */ }
+  }, [isSysAdmin]);
 
   const fetchAllOrgs = useCallback(async () => {
     if (!isSysAdmin) return;
@@ -242,6 +261,7 @@ export default function QuotasPage() {
       plugins: resolved.quotas.plugins.limit,
       pipelines: resolved.quotas.pipelines.limit,
       apiCalls: resolved.quotas.apiCalls.limit,
+      aiCalls: resolved.quotas.aiCalls.limit,
     });
     setEditTier(resolved.tier || 'developer');
     setDirty(false);
@@ -249,8 +269,11 @@ export default function QuotasPage() {
   }
 
   useEffect(() => {
-    if (isSysAdmin) fetchAllOrgs();
-  }, [fetchAllOrgs, isSysAdmin]);
+    if (isSysAdmin) {
+      fetchAllOrgs();
+      fetchAtRisk();
+    }
+  }, [fetchAllOrgs, fetchAtRisk, isSysAdmin]);
 
   useEffect(() => {
     const orgId = isSysAdmin ? selectedOrgId : user?.organizationId;
@@ -447,6 +470,46 @@ export default function QuotasPage() {
         {/* Main content */}
         <div className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-4xl">
+            {/* At-risk orgs banner — sysadmin only. Click an entry to jump
+                to that org in the sidebar. Hidden when no orgs are at risk. */}
+            {isSysAdmin && atRisk.length > 0 && (
+              <div className="mb-6 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    {atRisk.length} org{atRisk.length !== 1 ? 's' : ''} at risk (≥80% on a quota)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={fetchAtRisk}
+                    className="text-xs text-amber-800 dark:text-amber-200 underline hover:no-underline"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <ul className="space-y-1">
+                  {atRisk.slice(0, 10).map((entry) => (
+                    <li key={`${entry.orgId}:${entry.type}`} className="text-sm">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectOrg(entry.orgId)}
+                        className="text-amber-900 dark:text-amber-100 hover:underline"
+                      >
+                        <span className="font-medium">{entry.name}</span>
+                        <span className="ml-2 text-amber-700 dark:text-amber-300">
+                          {entry.type} {entry.percent}% ({entry.used}/{entry.limit})
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {atRisk.length > 10 && (
+                    <li className="text-xs text-amber-700 dark:text-amber-300">
+                      …and {atRisk.length - 10} more
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+
             {!loading && orgData && (
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
                 {orgData.name} &middot; <span className="font-mono">{orgData.slug}</span>

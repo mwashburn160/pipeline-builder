@@ -87,19 +87,22 @@ describe('statusInfo', () => {
     expect(info.color).toBe('purple');
   });
 
-  it('should return Critical/red at 90%+', () => {
-    const info = statusInfo(90, 100);
+  // Thresholds reconciled with quota-pressure.ts: warning at 80%, critical
+  // at 95%. Previously these diverged (warning=70/critical=90 vs 80/95),
+  // so a 92% quota showed "Critical" badge but only "info" pressure banner.
+  it('should return Critical/red at 95%+', () => {
+    const info = statusInfo(95, 100);
     expect(info.label).toBe('Critical');
     expect(info.color).toBe('red');
   });
 
-  it('should return Warning/yellow at 70-89%', () => {
-    const info = statusInfo(75, 100);
+  it('should return Warning/yellow at 80-94%', () => {
+    const info = statusInfo(85, 100);
     expect(info.label).toBe('Warning');
     expect(info.color).toBe('yellow');
   });
 
-  it('should return Healthy/green below 70%', () => {
+  it('should return Healthy/green below 80%', () => {
     const info = statusInfo(50, 100);
     expect(info.label).toBe('Healthy');
     expect(info.color).toBe('green');
@@ -141,7 +144,7 @@ describe('overallHealthColor', () => {
 
   it('should return yellow when worst is warning', () => {
     const quotas = {
-      plugins: { used: 75, limit: 100 },
+      plugins: { used: 85, limit: 100 }, // 85% — warning band (80-94)
       pipelines: { used: 10, limit: 100 },
     };
     expect(overallHealthColor(quotas)).toBe('bg-yellow-500');

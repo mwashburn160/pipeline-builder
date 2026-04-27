@@ -12,7 +12,7 @@ export function PluginCatalog() {
     const q = search.toLowerCase();
     return PLUGIN_CATALOG.filter((p) => {
       if (category && p.category !== category) return false;
-      if (q && !p.name.includes(q) && !p.description.toLowerCase().includes(q)) return false;
+      if (q && !p.name.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [search, category]);

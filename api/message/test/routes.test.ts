@@ -696,6 +696,35 @@ describe('POST /messages/:id/reply', () => {
     );
   });
 
+  it('returns 400 when target message is itself a reply (thread-root invariant)', async () => {
+    // The reader walks `threadId === root.id`, so a reply-to-reply would
+    // create an orphan grandchild. Force the client to reply to the root.
+    const replyMessage = {
+      id: 'msg-2',
+      orgId: 'org-1',
+      recipientOrgId: 'system',
+      threadId: 'msg-1', // <-- this message IS already a reply
+      messageType: 'conversation',
+      subject: 'Re: Original',
+      priority: 'normal',
+    };
+    mockFindById.mockResolvedValue(replyMessage);
+
+    const req = mockReq({
+      params: { id: 'msg-2' },
+      body: { content: 'reply to reply' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendBadRequest).toHaveBeenCalledWith(
+      res,
+      expect.stringMatching(/Cannot reply to a reply/),
+      'VALIDATION_ERROR',
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when ID param is missing', async () => {
     const req = mockReq({
       params: {},
@@ -716,7 +745,7 @@ describe('PUT /messages/:id/read', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('marks a message as read', async () => {
-    const message = { id: 'msg-1', isRead: true };
+    const message = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
     mockMarkAsRead.mockResolvedValue(message);
     mockGetUnreadCount.mockResolvedValue(3);
 
@@ -770,7 +799,7 @@ describe('PUT /messages/:id/thread/read', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('marks entire thread as read', async () => {
-    mockMarkAsRead.mockResolvedValue({ id: 'msg-1', isRead: true });
+    mockMarkAsRead.mockResolvedValue({ id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } });
     mockMarkThreadAsRead.mockResolvedValue([{ id: 'msg-2' }, { id: 'msg-3' }]);
     mockGetUnreadCount.mockResolvedValue(0);
 

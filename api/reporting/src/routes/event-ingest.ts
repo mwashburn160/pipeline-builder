@@ -88,17 +88,29 @@ export function createEventIngestRoutes(): Router {
     if (rows.length > 0) {
       await db.insert(schema.pipelineEvent).values(rows);
 
-      // Invalidate reporting caches for affected orgs
-      const affectedOrgs = new Set(rows.map(r => r.orgId));
-      for (const org of affectedOrgs) {
+      // Invalidate reporting caches for affected orgs.
+      // `await Promise.all` so the response doesn't return before invalidation
+      // — otherwise dashboards can serve stale data right after the event
+      // succeeds. Per-org failures are logged but don't fail the batch.
+      const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
+      await Promise.all(affectedOrgs.map((org) =>
         reportingService.invalidateOrg(org).catch((err) => {
           logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
-        });
-      }
+        }),
+      ));
     }
 
+    // Surface unregistered-ARN drops at WARN with the actual ARNs so an
+    // operator can see when EventBridge is delivering events for pipelines
+    // that haven't called POST /pipelines/registry yet (debug was invisible).
     if (skipped > 0) {
-      logger.debug('Skipped events for unregistered ARNs', { skipped });
+      const unregisteredArns = events
+        .filter((e) => !arnMap.has(e.pipelineArn))
+        .map((e) => e.pipelineArn);
+      logger.warn('Skipped events for unregistered ARNs', {
+        skipped,
+        sampleArns: unregisteredArns.slice(0, 5),
+      });
     }
 
     ctx.log('COMPLETED', `Ingested ${rows.length} events, skipped ${skipped}`);

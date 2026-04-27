@@ -79,7 +79,16 @@ export function createReadPluginRoutes(
     const { filter } = req.body;
     if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const effectiveFilter = applyAccessControl(filter, req);
+    // Validate the filter shape — without this, callers can inject internal
+    // fields (e.g. `deletedAt`, `orgId`) to peek at soft-deleted plugins or
+    // bypass tenant scoping. PluginFilterSchema is the same whitelist the
+    // GET /plugins listing uses.
+    const filterValidation = PluginFilterSchema.safeParse(filter);
+    if (!filterValidation.success) {
+      return sendBadRequest(res, `Invalid filter: ${filterValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
+    }
+
+    const effectiveFilter = applyAccessControl(filterValidation.data, req);
     const plugins = await pluginService.find(effectiveFilter, orgId);
     const result = plugins[0];
 

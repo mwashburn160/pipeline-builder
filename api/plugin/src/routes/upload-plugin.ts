@@ -3,11 +3,12 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, errorMessage, requireSystemAdmin, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, errorMessage, resolveAccessModifier, sendBadRequest, sendError, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, checkQuota, requireOrgId, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Router, Request, Response, RequestHandler } from 'express';
+import { Router, Request, Response } from 'express';
+import type { RequestHandler } from 'express';
 import multer from 'multer';
 
 import { createBuildJobData } from '../helpers/plugin-helpers';
@@ -17,6 +18,8 @@ import { pluginService } from '../services/plugin-service';
 import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('upload-plugin');
+
+const complianceClient = createComplianceClient();
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
@@ -66,8 +69,9 @@ export function createUploadPluginRoutes(
     }) as unknown as RequestHandler,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
-    // Admin check BEFORE quota — non-admins should be rejected without consuming quota
-    requireSystemAdmin as RequestHandler,
+    // Any authenticated org member may upload a plugin. The accessModifier is
+    // resolved by `resolveAccessModifier` below — only admins/owners can mark
+    // a plugin 'public'; member uploads are forced to 'private' (org-scoped).
     checkQuota(quotaService, 'plugins') as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
@@ -104,7 +108,6 @@ export function createUploadPluginRoutes(
         // -- Compliance check (fail-closed) -----------------------------------
         const s = plugin.pluginSpec;
         try {
-          const complianceClient = createComplianceClient();
           const complianceResult = await complianceClient.validatePlugin(orgId, {
             name: s.name,
             version: s.version,
@@ -199,7 +202,6 @@ export function createUploadPluginRoutes(
           requestId: ctx.requestId,
           orgId,
           userId: userId || 'system',
-          authToken: req.headers.authorization || '',
           buildRequest: {
             contextDir: plugin.extractDir,
             dockerfile: plugin.dockerfile,

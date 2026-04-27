@@ -56,8 +56,9 @@ export interface RefreshTokenPayload {
 }
 
 /**
- * User role type.
- * - 'user': Standard user with limited permissions
- * - 'admin': Organization administrator with full permissions
+ * User role within an organization.
+ * - 'owner': created the org or had ownership transferred to them; cannot be deleted while owning.
+ * - 'admin': can manage org members and resources but not transfer/delete the org itself.
+ * - 'member': standard org member.
  */
 export type UserRole = 'owner' | 'admin' | 'member';

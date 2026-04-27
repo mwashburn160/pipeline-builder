@@ -17,6 +17,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { FilterBar } from '@/components/ui/FilterBar';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
+import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import type { Pipeline, BuilderProps } from '@/types';
@@ -44,7 +45,7 @@ export default function PipelinesPage() {
     ],
     fetcher: async (params) => {
       const p: Record<string, string> = {
-        ...mapCommonParams(params, canViewPublic),
+        ...mapCommonParams(params),
         limit: params.limit,
         offset: params.offset,
         includeTotal: 'true',
@@ -301,6 +302,8 @@ export default function PipelinesPage() {
         <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
         {list.error && <div className="alert-error"><p>{list.error}</p></div>}
+
+        <DeployedPipelinesPanel />
 
         <FilterBar
           searchValue={list.filters.name}

@@ -163,31 +163,6 @@ export async function isValidRefreshToken(
 }
 
 /**
- * Middleware to verify user belongs to the specified organization.
- * Checks orgId from route params or request body against user's organizationId.
- * System admins bypass this check.
- *
- * @param req - Express request object
- * @param res - Express response object
- * @param next - Express next function
- * @returns 403 if user doesn't belong to the organization and is not an admin
- *
- * @example
- * router.get('/org/:orgId/data', requireAuth, isOrgMember, handler);
- */
-export function isOrgMember(req: Request, res: Response, next: NextFunction): void {
-  const orgId = req.params.orgId || req.body.organizationId;
-
-  if (!req.user?.organizationId || req.user.organizationId !== orgId) {
-    if (req.user?.role !== 'admin' && req.user?.role !== 'owner') {
-      return sendError(res, 403, 'You do not belong to this organization');
-    }
-  }
-
-  next();
-}
-
-/**
  * Middleware factory for role-based access control.
  * Creates middleware that restricts access to users with specified roles.
  *

@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
-  requireSystemAdmin,
+  requireAdmin,
   resolveAccessModifier,
   sendBadRequest,
   sendSuccess,
@@ -15,7 +15,8 @@ import {
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { checkQuota, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
-import { Router, RequestHandler } from 'express';
+import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
@@ -38,8 +39,9 @@ export function createDeployGeneratedPluginRoutes(
 
   router.post(
     '/deploy-generated',
-    // Admin check BEFORE quota — non-admins should be rejected without consuming quota
-    requireSystemAdmin as RequestHandler,
+    // Admin check BEFORE quota — non-admins should be rejected without consuming quota.
+    // Both system admins and org admins/owners can deploy AI-generated plugins.
+    requireAdmin as RequestHandler,
     checkQuota(quotaService, 'plugins') as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
@@ -78,7 +80,6 @@ export function createDeployGeneratedPluginRoutes(
         requestId: ctx.requestId,
         orgId,
         userId: userId || 'system',
-        authToken: req.headers.authorization || '',
         buildRequest: {
           contextDir: tempDir,
           dockerfile: 'Dockerfile',

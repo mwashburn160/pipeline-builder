@@ -32,7 +32,7 @@ jest.mock('../src/models', () => ({
   },
 }));
 
-import { isOrgMember, requireRole } from '../src/middleware/auth';
+import { requireRole } from '../src/middleware/auth';
 
 // Helpers
 
@@ -52,75 +52,6 @@ function mockNext() {
 
 describe('auth middleware', () => {
   beforeEach(() => jest.clearAllMocks());
-
-  describe('isOrgMember', () => {
-    it('should call next when user belongs to the org', () => {
-      const req = {
-        user: { organizationId: 'org-1', role: 'user' },
-        params: { orgId: 'org-1' },
-        body: {},
-      } as any;
-      const res = mockRes();
-      const next = mockNext();
-
-      isOrgMember(req, res, next);
-      expect(next).toHaveBeenCalled();
-    });
-
-    it('should allow admin to access any org', () => {
-      const req = {
-        user: { organizationId: 'system', role: 'admin' },
-        params: { orgId: 'org-1' },
-        body: {},
-      } as any;
-      const res = mockRes();
-      const next = mockNext();
-
-      isOrgMember(req, res, next);
-      expect(next).toHaveBeenCalled();
-    });
-
-    it('should deny non-admin cross-org access', () => {
-      const req = {
-        user: { organizationId: 'org-2', role: 'user' },
-        params: { orgId: 'org-1' },
-        body: {},
-      } as any;
-      const res = mockRes();
-      const next = mockNext();
-
-      isOrgMember(req, res, next);
-      expect(next).not.toHaveBeenCalled();
-      expect(res.status).toHaveBeenCalledWith(403);
-    });
-
-    it('should deny user with no organizationId', () => {
-      const req = {
-        user: { role: 'user' },
-        params: { orgId: 'org-1' },
-        body: {},
-      } as any;
-      const res = mockRes();
-      const next = mockNext();
-
-      isOrgMember(req, res, next);
-      expect(next).not.toHaveBeenCalled();
-      expect(res.status).toHaveBeenCalledWith(403);
-    });
-
-    it('should use body.organizationId when params.orgId is missing', () => {
-      const req = {
-        user: { organizationId: 'org-1', role: 'user' },
-        params: {},
-        body: { organizationId: 'org-1' },
-      } as any;
-      const res = mockRes();
-      const next = mockNext();
-
-      isOrgMember(req, res, next);
-      expect(next).toHaveBeenCalled();
-    });
-  });
 
   describe('requireRole', () => {
     it('should allow user with matching role', () => {

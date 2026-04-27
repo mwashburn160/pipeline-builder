@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 
 const RuleList = lazy(() => import('./RuleList'));
@@ -283,8 +284,11 @@ function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onRe
                       <span className="text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || 'Unknown'}</span>
                       <span className="text-xs text-gray-400">({entry.target})</span>
                     </div>
-                    <span className="flex items-center gap-1 text-xs text-gray-400">
-                      <Clock className="h-3 w-3" /> {new Date(entry.createdAt).toLocaleString()}
+                    <span
+                      className="flex items-center gap-1 text-xs text-gray-400"
+                      title={new Date(entry.createdAt).toLocaleString()}
+                    >
+                      <Clock className="h-3 w-3" /> {formatRelativeTime(entry.createdAt)}
                     </span>
                   </div>
                 );

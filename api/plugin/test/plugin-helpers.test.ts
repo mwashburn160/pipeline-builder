@@ -68,7 +68,6 @@ describe('plugin-helpers', () => {
         requestId: 'req-1',
         orgId: 'org-1',
         userId: 'user-1',
-        authToken: 'Bearer tok',
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
@@ -99,7 +98,6 @@ describe('plugin-helpers', () => {
         requestId: 'req-1',
         orgId: 'org-1',
         userId: 'user-1',
-        authToken: 'Bearer tok',
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',

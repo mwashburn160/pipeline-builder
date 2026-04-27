@@ -4,10 +4,10 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, errorMessage, extractDbError, incrementQuota } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, extractDbError, incrementQuota, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import type { SSEManager } from '@pipeline-builder/api-server';
-import { Config, CoreConstants, db, schema } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants, db, schema, reportingService } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
 import IORedis from 'ioredis';
@@ -134,7 +134,7 @@ function classifyFailure(error: Error): FailureCategory {
 // ---------------------------------------------------------------------------
 
 /** Returns true if the worker is connected and ready to process jobs. */
-export function isWorkerReady(): boolean {
+function isWorkerReady(): boolean {
   if (!worker || !connection) return false;
   return connection.status === 'ready';
 }
@@ -176,7 +176,16 @@ function cleanupContextDir(dir: string): void {
 }
 
 /**
- * Persist a plugin build event to the pipeline_events table (fire-and-forget).
+ * Persist a plugin build event to the pipeline_events table (fire-and-forget),
+ * then invalidate the org's reporting cache so the dashboard reflects it on
+ * next read.
+ *
+ * Plugin builds aren't tied to a pipelineArn (no registry mapping), so we
+ * write directly to `pipeline_event` rather than going through the reporting
+ * service's `/reports/events` ingest endpoint (which requires an ARN). The
+ * cache invalidation runs through the same `reportingService.invalidateOrg`
+ * used by the ingest path — without it, the dashboard serves stale data
+ * after every plugin build until the org's TTL elapses.
  */
 function recordBuildEvent(
   orgId: string,
@@ -209,7 +218,14 @@ function recordBuildEvent(
       },
     })
     .catch((err: unknown) => {
+      // The DB insert itself failed — the event was NOT recorded.
       logger.warn('Failed to record build event', { error: errorMessage(err) });
+    })
+    .then(() => reportingService.invalidateOrg(orgId))
+    .catch((err: unknown) => {
+      // The event was recorded but cache invalidation failed; dashboards
+      // will serve stale data until next TTL.
+      logger.warn('Reporting cache invalidation failed after build event', { orgId, error: errorMessage(err) });
     });
 }
 
@@ -319,7 +335,7 @@ export function startWorker(
   worker = new Worker<PluginBuildJobData>(
     QUEUE_NAME,
     async (job: Job<PluginBuildJobData>) => {
-      const { requestId, orgId, userId, authToken, buildRequest, pluginRecord } = job.data;
+      const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
 
       sseManager.send(requestId, 'INFO', 'Build started', {
         jobId: job.id,
@@ -356,7 +372,7 @@ export function startWorker(
 
         const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId);
 
-        incrementQuota(quotaService, orgId, 'plugins', authToken, logger.warn.bind(logger));
+        incrementQuota(quotaService, orgId, 'plugins', getServiceAuthHeader({ serviceName: 'plugin', orgId }), logger.warn.bind(logger));
 
         recordBuildEvent(orgId, 'completed', job, {
           pluginName: result.name,

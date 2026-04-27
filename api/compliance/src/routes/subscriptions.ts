@@ -195,16 +195,18 @@ export function createSubscriptionRoutes(): Router {
     return sendSuccess(res, 200, { requested: ruleIds.length, updated });
   }));
 
-  // POST /fork — fork a published rule into org scope (Feature #1)
-  router.post('/fork', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST /clone — clone a published rule into org scope (one-shot copy, no
+  // upstream link). Previously named `/fork`; "fork" carried git connotations
+  // (track upstream for merge) we never delivered.
+  router.post('/clone', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ForkRuleSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
     try {
-      const rule = await complianceRuleService.forkRule(validation.value.ruleId, orgId, userId);
-      ctx.log('COMPLETED', 'Forked published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
+      const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
+      ctx.log('COMPLETED', 'Cloned published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
       return sendSuccess(res, 201, { rule });
     } catch (err) {
       const message = errorMessage(err);
@@ -222,6 +224,72 @@ export function createSubscriptionRoutes(): Router {
 
     ctx.log('COMPLETED', 'Listed all enforced rules', { count: rules.length });
     return sendSuccess(res, 200, { rules, total: rules.length });
+  }));
+
+  // POST /preview/impact — evaluate a published-or-org rule against the caller's
+  // existing plugins/pipelines (whichever target the rule applies to) WITHOUT
+  // subscribing or persisting. Returns aggregate counts + up to 10 samples of
+  // failing entities so the org admin can see "this rule would fail 12/80
+  // entities right now" before they enable it.
+  //
+  // Distinct from POST /preview, which evaluates against caller-supplied
+  // sample attributes — that's "what if X looked like this," whereas this is
+  // "what would happen to my existing X."
+  router.post('/preview/impact', withRoute(async ({ req, res, ctx, orgId }) => {
+    const validation = validateBody(req, SubscribeSchema); // shape: { ruleId: uuid }
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+
+    const [rule] = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(and(eq(schema.complianceRule.id, validation.value.ruleId), isNull(schema.complianceRule.deletedAt)));
+    if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
+
+    const target = rule.target as 'plugin' | 'pipeline';
+    const SAMPLE_CAP = 10;
+
+    // Fetch the caller's own active entities for this rule's target.
+    const entities: Array<{ id: string; name: string | null; raw: Record<string, unknown> }> = target === 'plugin'
+      ? await db
+        .select()
+        .from(schema.plugin)
+        .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
+        .limit(1000)
+        .then(rows => rows.map(r => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> })))
+      : await db
+        .select()
+        .from(schema.pipeline)
+        .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
+        .limit(1000)
+        .then(rows => rows.map(r => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> })));
+
+    let wouldPass = 0;
+    let wouldFail = 0;
+    const samples: Array<{ entityType: string; entityId: string; entityName: string | null; messages: string[] }> = [];
+
+    for (const entity of entities) {
+      const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], entity.raw, []);
+      if (result.blocked || result.warnings.length > 0) {
+        wouldFail++;
+        if (samples.length < SAMPLE_CAP) {
+          const msgs = [...result.violations, ...result.warnings].map(v => v.message);
+          samples.push({ entityType: target, entityId: entity.id, entityName: entity.name, messages: msgs });
+        }
+      } else {
+        wouldPass++;
+      }
+    }
+
+    ctx.log('COMPLETED', 'Rule impact preview', { ruleId: rule.id, target, total: entities.length, wouldFail });
+    return sendSuccess(res, 200, {
+      ruleId: rule.id,
+      ruleName: rule.name,
+      target,
+      total: entities.length,
+      wouldPass,
+      wouldFail,
+      samples,
+    });
   }));
 
   // POST /preview — dry-run preview of how a rule would affect existing entities (Feature #10)

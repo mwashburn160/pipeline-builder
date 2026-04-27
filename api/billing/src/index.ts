@@ -23,6 +23,10 @@ const logger = createLogger('billing');
 const { app, sseManager } = createApp({
   // Only check MongoDB when billing is enabled — disabled mode never connects
   checkDependencies: config.enabled ? mongoHealthCheck(mongoose.connection) : undefined,
+  // Warm Mongo on /warmup when billing is active.
+  warmupHooks: config.enabled
+    ? [async () => { await mongoose.connection.db?.admin().ping(); }]
+    : [],
 });
 
 app.use(attachRequestContext(sseManager));

@@ -95,7 +95,7 @@ export interface QuotaSummary {
 /**
  * Quota type identifiers
  */
-export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls';
+export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
 
 /**
  * Quota tier identifiers.
@@ -421,7 +421,12 @@ export interface Message {
   messageType: MessageType;
   subject: string;
   content: string;
-  isRead: boolean;
+  /**
+   * Per-participant read receipts: maps `orgId` → ISO timestamp of when that
+   * org marked the thread read. Empty `{}` means no participant has read it.
+   * Sender's mark-as-read does not flip recipient's view and vice-versa.
+   */
+  readBy: Record<string, string>;
   priority: MessagePriority;
   createdBy: string;
   createdAt: string;
@@ -452,33 +457,6 @@ export interface ApiResponse<T = unknown> {
   message?: string;
   code?: string;
   details?: Record<string, unknown>;
-  timestamp?: string;
-}
-
-/**
- * Paginated API response format (matches backend)
- */
-export interface PaginatedResponse<T = unknown> {
-  success: boolean;
-  statusCode: number;
-  data?: T[];
-  // Backend uses specific field names for different resources
-  pipelines?: T[];
-  plugins?: T[];
-  users?: T[];
-  pagination?: {
-    total: number;
-    limit: number;
-    offset: number;
-    hasMore: boolean;
-  };
-  meta?: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-    hasMore: boolean;
-  };
   timestamp?: string;
 }
 

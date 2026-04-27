@@ -11,7 +11,12 @@ import updateQuotaRoutes from './routes/update-quota';
 
 // -- Express app ---------------------------------------------------------------
 
-const { app, sseManager } = createApp({ checkDependencies: mongoHealthCheck(mongoose.connection) });
+const { app, sseManager } = createApp({
+  checkDependencies: mongoHealthCheck(mongoose.connection),
+  // Warm Mongo on /warmup so the first real request doesn't pay TCP+TLS+
+  // auth cold-start. Postgres is already warmed by the default hook.
+  warmupHooks: [async () => { await mongoose.connection.db?.admin().ping(); }],
+});
 
 app.use(attachRequestContext(sseManager));
 

@@ -8,6 +8,4 @@ export * from './user-admin';
 export * from './organization';
 export * from './organization-members';
 export * from './invitation';
-export * from './plugin';
-export * from './pipeline';
 export * from './log';

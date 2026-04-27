@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { messageClient } from './message-client';
 import type { Violation } from '../engine/rule-engine';
 
@@ -10,13 +10,15 @@ const logger = createLogger('compliance-notifier');
 /**
  * Send a compliance violation notification to org admins via the message service.
  * Fire-and-forget: errors are logged but never thrown.
+ *
+ * Always uses a service token — the user's bearer (when present) doesn't have
+ * cross-tenant write permission on the message service.
  */
 export async function notifyComplianceBlock(
   orgId: string,
   target: string,
   entityName: string,
   violations: Violation[],
-  authHeader: string,
 ): Promise<void> {
   // Filter out violations with suppressNotification
   const notifiableViolations = violations.filter((v) => !v.suppressNotification);
@@ -35,7 +37,7 @@ export async function notifyComplianceBlock(
       priority: 'high',
     }, {
       headers: {
-        'Authorization': authHeader,
+        'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system' }),
         'x-org-id': 'system',
         'x-internal-service': 'true',
       },

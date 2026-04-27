@@ -29,7 +29,10 @@ export const IncrementQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
     message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
   }),
-  amount: z.number().int().min(1).default(1),
+  // Bound `amount` to a sane per-call ceiling. A buggy or malicious caller
+  // passing `amount: 1_000_000` could exhaust the org's quota in one call;
+  // 1000 is well above any legitimate batch size we issue today.
+  amount: z.number().int().min(1).max(1000).default(1),
 });
 
 /** POST /quotas/:orgId/reset — reset usage counters. */

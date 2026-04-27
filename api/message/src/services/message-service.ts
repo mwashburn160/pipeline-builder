@@ -3,7 +3,7 @@
 
 import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { CoreConstants, CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-core';
-import { SQL, eq, and } from 'drizzle-orm';
+import { SQL, eq, and, or, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -41,7 +41,6 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       subject: schema.message.subject,
       messageType: schema.message.messageType,
       priority: schema.message.priority,
-      isRead: schema.message.isRead,
     };
     return sortableColumns[sortBy] || null;
   }
@@ -129,56 +128,107 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
-   * Mark a single message as read.
+   * Mark a single message as read for the calling org.
+   * Stamps `readBy[orgId] = now()` — per-participant. The recipient
+   * marking the thread does NOT flip the sender's view.
    *
    * @param id - Message ID
-   * @param orgId - Organization ID for access control
+   * @param orgId - Organization ID — scopes access AND identifies the reader
    * @param userId - User performing the action (for updatedBy)
    * @returns Updated message, or null if not found
    */
   async markAsRead(id: string, orgId: string, userId: string): Promise<Message | null> {
-    return this.update(id, { isRead: true } as Partial<MessageUpdate>, orgId, userId);
+    const now = new Date().toISOString();
+    const [updated] = await db
+      .update(schema.message)
+      .set({
+        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(schema.message.id, id),
+        or(
+          eq(schema.message.orgId, orgId),
+          eq(schema.message.recipientOrgId, orgId),
+        ),
+      ))
+      .returning();
+    return (updated as Message) ?? null;
   }
 
   /**
    * Mark all unread messages in a thread as read for the given org.
+   * Stamps `readBy[orgId]` on every active message in the thread that the
+   * caller hasn't already read. Cross-participant: a sender marking the
+   * thread read does not flip the recipient's read state.
    *
    * @param threadId - Root message ID of the thread
-   * @param orgId - Organization ID for access control
+   * @param orgId - Organization ID — scopes access AND identifies the reader
    * @param userId - User performing the action (for updatedBy)
    * @returns Array of updated messages
    */
   async markThreadAsRead(threadId: string, orgId: string, userId: string): Promise<Message[]> {
-    return this.updateMany(
-      { threadId, isRead: false } as Partial<MessageFilter>,
-      { isRead: true } as Partial<MessageUpdate>,
-      orgId,
-      userId,
-    );
+    const now = new Date().toISOString();
+    const updated = await db
+      .update(schema.message)
+      .set({
+        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(schema.message.threadId, threadId),
+        eq(schema.message.isActive, true),
+        sql`not (${schema.message.readBy} ? ${orgId})`,
+        or(
+          eq(schema.message.orgId, orgId),
+          eq(schema.message.recipientOrgId, orgId),
+        ),
+      ))
+      .returning();
+    return updated as Message[];
   }
 
   /**
-   * Get count of unread messages for an org.
+   * Get count of unread messages for an org. Counts messages where the org
+   * is a participant (sender or recipient) AND has not yet stamped
+   * `readBy[orgId]`. Per-participant — the same thread read by the sender
+   * but not the recipient counts as unread for the recipient only.
    *
-   * @param orgId - Organization ID for access control
+   * @param orgId - Organization ID for access control + reader identity
    * @returns Number of unread active messages
    */
   async getUnreadCount(orgId: string): Promise<number> {
-    const filter: Partial<MessageFilter> = {
-      isActive: true,
-      isRead: false,
-    };
-    return this.count(filter, orgId);
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.message)
+      .where(and(
+        eq(schema.message.isActive, true),
+        sql`not (${schema.message.readBy} ? ${orgId})`,
+        or(
+          eq(schema.message.orgId, orgId),
+          eq(schema.message.recipientOrgId, orgId),
+        ),
+      ));
+    return row?.count ?? 0;
   }
 
   /**
    * Cascade soft-delete all replies in a thread.
    * Called after deleting a root message to prevent orphaned replies.
    *
+   * Tenancy: replies in a thread can have either the original sender's
+   * orgId OR the recipient org's orgId (depending on who replied), so we
+   * scope the cascade to BOTH `orgId` and `recipientOrgId` matching the
+   * caller's org. Without this filter, a UUID collision (or a buggy
+   * client passing an arbitrary threadId) could cascade across tenants.
+   *
    * @param threadId - Root message ID whose replies should be soft-deleted
    * @param userId - User performing the deletion (for audit)
+   * @param orgId - The caller's org — scopes the cascade to that tenant
    */
-  async deleteThread(threadId: string, userId: string): Promise<void> {
+  async deleteThread(threadId: string, userId: string, orgId: string): Promise<void> {
     await db
       .update(schema.message)
       .set({
@@ -192,6 +242,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         and(
           eq(schema.message.threadId, threadId),
           eq(schema.message.isActive, true),
+          or(
+            eq(schema.message.orgId, orgId),
+            eq(schema.message.recipientOrgId, orgId),
+          ),
         ),
       );
   }

@@ -12,9 +12,9 @@ import {
 } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, RequestHandler } from 'express';
+import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import {
-  AUTH_OPTS,
   isValidQuotaType,
 } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
@@ -26,7 +26,7 @@ const router: Router = Router();
 
 router.get(
   '/',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   withRoute(async ({ res, ctx, orgId }) => {
     const quota = await quotaService.findByOrgId(orgId);
     ctx.log('COMPLETED', 'Retrieved own org quotas', { orgId });
@@ -39,7 +39,7 @@ router.get(
 
 router.get(
   '/all',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     if (!isSystemAdmin(req)) {
       return sendError(
@@ -76,7 +76,7 @@ router.get(
 
 router.get(
   '/at-risk',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     if (!isSystemAdmin(req)) {
       return sendError(
@@ -131,7 +131,7 @@ router.get(
 
 router.get(
   '/:orgId',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   authorizeOrg() as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
@@ -146,7 +146,7 @@ router.get(
 
 router.get(
   '/:orgId/:quotaType',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   authorizeOrg() as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;

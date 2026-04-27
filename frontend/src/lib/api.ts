@@ -333,7 +333,8 @@ class ApiClient {
       if (statusCode === 429) {
         const retryAfter = response.headers.get('Retry-After');
         if (retryAfter) {
-          error.retryAfter = parseInt(retryAfter, 10) || undefined;
+          const parsed = parseInt(retryAfter, 10);
+          error.retryAfter = Number.isFinite(parsed) ? parsed : undefined;
         }
       }
       throw error;
@@ -621,6 +622,56 @@ class ApiClient {
       body: JSON.stringify(data),
     });
   }
+
+  /**
+   * List the pipeline registry rows for the caller's org. Each row is an
+   * ARN→pipelineId mapping written by CDK at deploy time. Powers the
+   * dashboard "deployed pipelines" panel; the `pipeline-manager
+   * audit-stacks` CLI joins this against live CloudFormation to find drift.
+   */
+  async listPipelineRegistry(params?: { limit?: number; offset?: number }) {
+    return this.request<ApiResponse<{
+      registry: Array<{
+        id: string;
+        pipelineId: string;
+        orgId: string;
+        pipelineArn: string;
+        pipelineName: string;
+        accountId?: string;
+        region?: string;
+        project?: string;
+        organization?: string;
+        stackName?: string;
+        lastDeployed: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+      pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+    }>>(`/api/pipelines/registry${buildQuery(params)}`);
+  }
+
+  /**
+   * List orgs at >= threshold% on any quota dimension (system admin only).
+   * Powers the operations dashboard "orgs about to hit limits" panel.
+   * @param threshold integer 1-100 (default 80 server-side)
+   */
+  async getAtRiskQuotas(threshold?: number) {
+    const qs = threshold ? `?threshold=${threshold}` : '';
+    return this.request<ApiResponse<{
+      atRisk: Array<{
+        orgId: string;
+        name: string;
+        slug: string;
+        tier?: string;
+        type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
+        used: number;
+        limit: number;
+        percent: number;
+      }>;
+      count: number;
+      threshold: number;
+    }>>(`/api/quota/at-risk${qs}`);
+  }
   // ============================================
   // Billing endpoints (billing service — nginx proxies /api/billing → billing:3000/billing)
   // ============================================
@@ -812,26 +863,11 @@ class ApiClient {
     return this.request<ApiResponse<{ pipelines: Pipeline[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/pipelines${buildQuery(params)}`);
   }
 
-  /** Counts pipelines (in caller's org) that reference each plugin name. Plugins with zero usage are absent from the map.
-   *
-   * Returns an empty map when the backend doesn't expose this endpoint (older
-   * api/plugin image predating the addition). Avoids spamming 404s into the
-   * browser console once one has been observed for the lifetime of this client. */
-  async getPluginUsage(): Promise<ApiResponse<{ counts: Record<string, number> }>> {
-    if (this._pluginUsageUnsupported) {
-      return { success: true, statusCode: 200, data: { counts: {} } } as ApiResponse<{ counts: Record<string, number> }>;
-    }
-    try {
-      return await this.request<ApiResponse<{ counts: Record<string, number> }>>('/api/plugins/plugin-usage');
-    } catch (err) {
-      if (err instanceof Error && /\b404\b/.test(err.message)) {
-        this._pluginUsageUnsupported = true;
-        return { success: true, statusCode: 200, data: { counts: {} } } as ApiResponse<{ counts: Record<string, number> }>;
-      }
-      throw err;
-    }
+  /** Counts pipelines (in caller's org) that reference each plugin name.
+   *  Plugins with zero usage are absent from the map. */
+  async getPluginUsage() {
+    return this.request<ApiResponse<{ counts: Record<string, number> }>>('/api/plugins/plugin-usage');
   }
-  private _pluginUsageUnsupported = false;
 
   async getPipelineById(id: string) {
     return this.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipeline/${id}`);
@@ -930,15 +966,6 @@ class ApiClient {
     } finally {
       reader.releaseLock();
     }
-  }
-
-  /**
-   * Stream AI pipeline generation with progressive partial results.
-   */
-  async *streamPipelineGeneration(prompt: string, provider: string, model: string, apiKey?: string) {
-    yield* this.streamRequest('/api/pipeline/generate/stream', {
-      prompt, provider, model, ...(apiKey ? { apiKey } : {}),
-    });
   }
 
   /**
@@ -1318,9 +1345,9 @@ class ApiClient {
     });
   }
 
-  /** Fork a published rule into org scope */
-  async forkRule(ruleId: string) {
-    return this.request<ApiResponse<{ rule: ComplianceRule }>>('/api/compliance/subscriptions/fork', {
+  /** Clone a published rule into org scope (one-shot copy, no upstream tracking). */
+  async cloneRule(ruleId: string) {
+    return this.request<ApiResponse<{ rule: ComplianceRule }>>('/api/compliance/subscriptions/clone', {
       method: 'POST',
       body: JSON.stringify({ ruleId }),
     });
@@ -1345,11 +1372,31 @@ class ApiClient {
     });
   }
 
-  /** Preview impact of activating a rule */
+  /** Preview impact of activating a rule against caller-supplied sample attributes (what-if). */
   async previewSubscription(ruleId: string, sampleAttributes?: Record<string, unknown>) {
     return this.request<ApiResponse<{ preview?: ComplianceCheckResult; rule?: ComplianceRule }>>('/api/compliance/subscriptions/preview', {
       method: 'POST',
       body: JSON.stringify({ ruleId, sampleAttributes }),
+    });
+  }
+
+  /**
+   * Preview a rule's impact against the caller's existing entities — answers
+   * "if I subscribed to this rule today, how many of my plugins/pipelines
+   * would fail it right now?". Returns aggregate counts + up to 10 failure samples.
+   */
+  async previewRuleImpact(ruleId: string) {
+    return this.request<ApiResponse<{
+      ruleId: string;
+      ruleName: string;
+      target: 'plugin' | 'pipeline';
+      total: number;
+      wouldPass: number;
+      wouldFail: number;
+      samples: Array<{ entityType: string; entityId: string; entityName: string | null; messages: string[] }>;
+    }>>('/api/compliance/subscriptions/preview/impact', {
+      method: 'POST',
+      body: JSON.stringify({ ruleId }),
     });
   }
 
@@ -1367,6 +1414,14 @@ class ApiClient {
     return this.request<ApiResponse<{ exemption: ComplianceExemption }>>('/api/compliance/exemptions', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  /** Bulk-create exemptions in one request (caps at 500). */
+  async bulkCreateExemptions(exemptions: ExemptionCreate[]) {
+    return this.request<ApiResponse<{ created: number; skipped: number; ids: string[] }>>('/api/compliance/exemptions/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ exemptions }),
     });
   }
 

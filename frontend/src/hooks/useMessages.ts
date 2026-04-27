@@ -113,12 +113,21 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
   const markAsRead = useCallback(async (id: string) => {
     try {
       await api.markMessageAsRead(id);
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, isRead: true } : m));
+      // Optimistic per-participant update: stamp our org's readBy entry so
+      // the row immediately stops looking unread for this viewer. Server's
+      // returned `readBy` will overwrite on the next list refetch.
+      const stamp = new Date().toISOString();
+      const orgKey = orgId?.toLowerCase();
+      if (orgKey) {
+        setMessages(prev => prev.map(m => m.id === id
+          ? { ...m, readBy: { ...m.readBy, [orgKey]: stamp } }
+          : m));
+      }
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch {
       // Silently fail
     }
-  }, []);
+  }, [orgId]);
 
   const markThreadAsRead = useCallback(async (id: string) => {
     try {

@@ -37,15 +37,17 @@ import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
-  AUTH_OPTS,
+  INTERNAL_AUTH_OPTS,
 } from '../src/helpers/quota-helpers';
 
 // Tests
 
 describe('quota-helpers', () => {
-  describe('AUTH_OPTS', () => {
-    it('should allow org header override', () => {
-      expect(AUTH_OPTS).toEqual({ allowOrgHeaderOverride: true });
+  describe('INTERNAL_AUTH_OPTS', () => {
+    it('allows x-org-id header override (internal mutation routes only)', () => {
+      // Renamed from AUTH_OPTS to make the security boundary explicit —
+      // public read routes use plain requireAuth without override.
+      expect(INTERNAL_AUTH_OPTS).toEqual({ allowOrgHeaderOverride: true });
     });
   });
 

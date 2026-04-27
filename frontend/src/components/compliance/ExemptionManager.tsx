@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2, Upload } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
+import { parseCsv } from '@/lib/csv';
 
 interface ExemptionManagerProps {
   readOnly?: boolean;
@@ -20,6 +21,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ limit: 10, offset: 0, total: 0 });
+  const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; total: number } | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchExemptions = useCallback(async (offset = pagination.offset, limit = pagination.limit) => {
     setLoading(true);
@@ -87,6 +91,59 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     } catch { /* handled by API layer */ }
   };
 
+  // Bulk-import exemptions from a user-uploaded CSV.
+  // Required columns: ruleId, entityType, entityId, reason.
+  // Optional: entityName, expiresAt (ISO datetime).
+  // Caps at 500 rows server-side; the frontend validates each row before send.
+  const REQUIRED_COLS = ['ruleId', 'entityType', 'entityId', 'reason'];
+  const handleBulkImport = async (file: File) => {
+    setBulkError(null);
+    setBulkResult(null);
+    try {
+      const text = await file.text();
+      const parsed = parseCsv(text);
+      if (parsed.rowCount === 0) {
+        setBulkError('CSV is empty.');
+        return;
+      }
+      const missing = REQUIRED_COLS.filter((c) => !parsed.headers.includes(c));
+      if (missing.length > 0) {
+        setBulkError(`Missing required column(s): ${missing.join(', ')}. Required: ${REQUIRED_COLS.join(', ')}.`);
+        return;
+      }
+      if (parsed.rowCount > 500) {
+        setBulkError(`Row count (${parsed.rowCount}) exceeds the 500-row import limit. Split the file and retry.`);
+        return;
+      }
+
+      const exemptions = parsed.rows
+        .filter((r) => r.ruleId && r.entityId && r.reason)
+        .map((r) => ({
+          ruleId: r.ruleId,
+          entityType: (r.entityType === 'pipeline' ? 'pipeline' : 'plugin') as 'plugin' | 'pipeline',
+          entityId: r.entityId,
+          entityName: r.entityName || undefined,
+          reason: r.reason,
+          expiresAt: r.expiresAt || undefined,
+        }));
+
+      if (exemptions.length === 0) {
+        setBulkError('No rows had all required fields filled.');
+        return;
+      }
+
+      const res = await api.bulkCreateExemptions(exemptions);
+      if (res.success && res.data) {
+        setBulkResult({ created: res.data.created, skipped: res.data.skipped, total: parsed.rowCount });
+        fetchExemptions();
+      }
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Failed to import CSV.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const openReject = (id: string) => {
     setRejectingId(id);
     setRejectionReason('');
@@ -115,12 +172,43 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
             <option value="rejected">Rejected</option>
           </select>
           {!readOnly && (
-            <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
-              <Plus className="h-4 w-4" /> Request
-            </button>
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleBulkImport(f);
+                }}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                title="Import exemptions from a CSV (columns: ruleId, entityType, entityId, reason; optional: entityName, expiresAt)"
+              >
+                <Upload className="h-4 w-4" /> Import CSV
+              </button>
+              <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
+                <Plus className="h-4 w-4" /> Request
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {bulkError && (
+        <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+          {bulkError}
+        </div>
+      )}
+      {bulkResult && (
+        <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-300">
+          Imported <strong>{bulkResult.created}</strong> exemption{bulkResult.created === 1 ? '' : 's'}
+          {bulkResult.skipped > 0 && <> ({bulkResult.skipped} skipped of {bulkResult.total})</>}.
+        </div>
+      )}
 
       {showForm && (
         <div className="p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 space-y-3">

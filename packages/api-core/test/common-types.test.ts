@@ -8,8 +8,8 @@ import {
 } from '../src/types/common';
 
 describe('VALID_QUOTA_TYPES', () => {
-  it('should contain plugins, pipelines, apiCalls', () => {
-    expect(VALID_QUOTA_TYPES).toEqual(['plugins', 'pipelines', 'apiCalls']);
+  it('should contain plugins, pipelines, apiCalls, aiCalls', () => {
+    expect(VALID_QUOTA_TYPES).toEqual(['plugins', 'pipelines', 'apiCalls', 'aiCalls']);
   });
 });
 
@@ -43,13 +43,13 @@ describe('validateQuotaType', () => {
 
   it('should throw for invalid values', () => {
     expect(() => validateQuotaType('invalid')).toThrow(
-      'Invalid quotaType: "invalid". Must be one of: plugins, pipelines, apiCalls',
+      'Invalid quotaType: "invalid". Must be one of: plugins, pipelines, apiCalls, aiCalls',
     );
   });
 
   it('should use custom field name in error message', () => {
     expect(() => validateQuotaType('bad', 'type')).toThrow(
-      'Invalid type: "bad". Must be one of: plugins, pipelines, apiCalls',
+      'Invalid type: "bad". Must be one of: plugins, pipelines, apiCalls, aiCalls',
     );
   });
 

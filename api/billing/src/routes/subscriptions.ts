@@ -80,9 +80,12 @@ export function createSubscriptionRoutes(): Router {
       );
     }
 
-    // Call payment provider
+    // Call payment provider — pass the user's email so the provider's
+    // dunning/receipt emails reach a real inbox (Stripe accepts blank but
+    // then has no contact for failed-payment notifications).
     const provider = getPaymentProvider();
-    const customerId = await provider.createCustomer(orgId, '');
+    const customerEmail = req.user?.email || '';
+    const customerId = await provider.createCustomer(orgId, customerEmail);
     const externalResult = await provider.createSubscription(customerId, planId, interval);
 
     // Create subscription

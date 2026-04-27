@@ -344,8 +344,12 @@ export const message = pgTable('messages', {
     .notNull(),
 
   // Status
-  isRead: boolean('is_read')
-    .default(false)
+  // `readBy` is the per-participant read-receipt map: orgId → ISO timestamp.
+  // Recipient marking the thread does NOT flip sender's view. Empty `{}`
+  // means nobody has read it yet.
+  readBy: jsonb('read_by')
+    .$type<Record<string, string>>()
+    .default({})
     .notNull(),
   priority: varchar('priority', { length: 20 })
     .$type<MessagePriority>()
@@ -375,7 +379,6 @@ export const message = pgTable('messages', {
   messageTypeIdx: index('message_message_type_idx').on(table.messageType),
   createdAtIdx: index('message_created_at_idx').on(table.createdAt),
   activeIdx: index('message_active_idx').on(table.isActive),
-  isReadIdx: index('message_is_read_idx').on(table.isRead),
 
   // Composite index for inbox queries (recipient + active + created)
   recipientActiveCreatedIdx: index('message_recipient_active_created_idx')

@@ -7,7 +7,7 @@ Express server infrastructure for [Pipeline Builder](https://mwashburn160.github
 ## Key Exports
 
 ### App Factory
-- `createApp` — Creates a configured Express app with CORS, Helmet, rate limiting, health checks, metrics, and OpenAPI/Swagger UI
+- `createApp({ checkDependencies?, warmupHooks?, ... })` — Creates a configured Express app with CORS, Helmet, rate limiting, `/health` (liveness), `/ready` (readiness), `/warmup`, `/metrics`, and OpenAPI/Swagger UI. Pass `warmupHooks: [() => mongoose.connection.db?.admin().ping()]` for services that need to pre-warm Mongo/Redis on cold start.
 - `runServer`, `startServer` — Server lifecycle with graceful shutdown
 
 ### Middleware
@@ -23,9 +23,9 @@ Express server infrastructure for [Pipeline Builder](https://mwashburn160.github
 - `createProtectedRoute`, `createAuthenticatedWithOrgRoute` — Composable middleware chains
 
 ### Health & Quota Helpers
-- `postgresHealthCheck` — `checkDependencies` callback for Postgres-backed services
-- `mongoHealthCheck(connection)` — `checkDependencies` factory for MongoDB services
-- `incrementQuotaFromCtx(service, { req, ctx, orgId }, type)` — Increments a quota counter using values pulled from the route context
+- `postgresHealthCheck` — Returns `{ postgres: 'connected' | 'disconnected' }` (the `'unknown'` fallback was removed — a real probe failure now correctly fails `/ready`)
+- `mongoHealthCheck(connection)` — Returns `{ mongodb: 'connected' | 'unknown' | 'disconnected' }` based on mongoose's `readyState` (1 = connected, 2 = connecting/unknown, anything else = disconnected)
+- `incrementQuotaFromCtx(service, { req, ctx, orgId }, type)` — Increments a quota counter using values pulled from the route context. `type` is `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'`.
 
 ### Server-Sent Events
 - `SSEManager` — Connection manager for streaming logs to clients

@@ -14,6 +14,7 @@ import { config } from '../config';
 import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers';
 import { Plan } from '../models/plan';
+import { claimWebhookEvent } from '../models/webhook-dedupe';
 import { getPaymentProvider } from '../providers/provider-factory';
 import { StripeProvider } from '../providers/stripe-provider';
 
@@ -59,11 +60,22 @@ export function createStripeWebhookRoutes(): Router {
 
       /** Stripe event type → handler dispatch map. */
       const eventHandlers: Record<string, (data: unknown) => Promise<void>> = {
+        'customer.subscription.created': (data) => handleSubscriptionCreated(data as Stripe.Subscription),
         'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
         'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
         'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
         'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
+        'invoice.upcoming': (data) => handleInvoiceUpcoming(data as Stripe.Invoice),
       };
+
+      // Idempotency guard: Stripe retries the same event.id on transient
+      // failures. Claim the ID before processing — duplicate deliveries
+      // short-circuit with 200 (so Stripe stops retrying) and skip side-effects.
+      const isFirstDelivery = await claimWebhookEvent('stripe', event.id);
+      if (!isFirstDelivery) {
+        logger.info('Skipping duplicate Stripe delivery', { eventId: event.id, type: event.type });
+        return sendSuccess(res, 200, { received: true, duplicate: true });
+      }
 
       try {
         const handler = eventHandlers[event.type];
@@ -88,6 +100,66 @@ export function createStripeWebhookRoutes(): Router {
 }
 
 // Event Handlers
+
+/**
+ * Handle a subscription created out-of-band (e.g. directly in the Stripe
+ * dashboard or via a non-app checkout flow). Without this, the local DB
+ * drifts from Stripe and the org has no Subscription row backing the
+ * Stripe customer.
+ *
+ * If we already have a row matching this Stripe subscription ID we treat it
+ * as an update (in-app create + webhook race). Otherwise we log a warning —
+ * we don't auto-provision a Subscription row because we'd need to know which
+ * orgId to bind it to, and Stripe's `metadata.orgId` is the only safe source.
+ */
+async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
+  const externalId = stripeSubscription.id;
+  const existing = await findSubscriptionByStripeId(externalId);
+  if (existing) {
+    return handleSubscriptionUpdated(stripeSubscription);
+  }
+  const orgId = (stripeSubscription.metadata?.orgId || '').trim();
+  if (!orgId) {
+    logger.warn('Stripe subscription created without orgId metadata — cannot auto-provision', { externalId });
+    return;
+  }
+  // Provisioning would need plan ID resolution + a primary contact email,
+  // which the in-app create flow already handles. Out-of-band creates need
+  // operator follow-up — log and continue.
+  logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
+}
+
+/**
+ * Handle the `invoice.upcoming` event Stripe sends ~7 days before renewal.
+ * Logs a billing event so support staff can see renewal warnings without
+ * waiting for the lifecycle cron to run a separate reminder.
+ */
+async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<void> {
+  const stripeSubscriptionId = typeof invoice.subscription === 'string'
+    ? invoice.subscription
+    : invoice.subscription?.id;
+  if (!stripeSubscriptionId) return;
+
+  const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
+  if (!subscription) {
+    logger.warn('No subscription found for invoice.upcoming', { stripeSubscriptionId });
+    return;
+  }
+
+  await createBillingEvent(subscription.orgId, 'subscription_updated', {
+    provider: 'stripe',
+    eventKind: 'invoice_upcoming',
+    invoiceId: invoice.id,
+    nextRenewalAt: invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : null,
+    amountDue: invoice.amount_due,
+    currency: invoice.currency,
+  }, subscription._id.toString());
+
+  logger.info('Stripe invoice.upcoming recorded', {
+    orgId: subscription.orgId,
+    stripeSubscriptionId,
+  });
+}
 
 /**
  * Handle subscription updates from Stripe.

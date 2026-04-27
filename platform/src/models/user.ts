@@ -59,8 +59,6 @@ export interface UserDocument extends Document {
   oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
   invalidateAllSessions(): Promise<UserDocument>;
-  hasOAuthProvider(provider: keyof OAuthProviders): boolean;
-  getLinkedProviders(): string[];
 }
 
 const oauthProviderSchema = new Schema<OAuthProviderData>(
@@ -132,7 +130,8 @@ const userSchema = new Schema<UserDocument>(
     featureOverrides: {
       type: Map,
       of: Boolean,
-      default: new Map(),
+      // Factory — without this every doc shares the same Map instance.
+      default: () => new Map(),
     },
     oauth: {
       google: oauthProviderSchema,
@@ -182,23 +181,6 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
 userSchema.methods.invalidateAllSessions = async function (): Promise<UserDocument> {
   this.tokenVersion += 1;
   return this.save();
-};
-
-/**
- * Check if user has a specific OAuth provider linked
- */
-userSchema.methods.hasOAuthProvider = function (provider: keyof OAuthProviders): boolean {
-  return !!this.oauth?.[provider]?.id;
-};
-
-/**
- * Get list of linked OAuth providers
- */
-userSchema.methods.getLinkedProviders = function (): string[] {
-  const providers: string[] = [];
-  if (this.oauth?.google?.id) providers.push('google');
-  if (this.oauth?.github?.id) providers.push('github');
-  return providers;
 };
 
 /**

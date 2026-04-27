@@ -130,6 +130,18 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendEntityNotFound(res, 'Message');
     }
 
+    // Thread-root invariant: the target must be a root message (not itself a
+    // reply). Allowing replies-to-replies creates orphan grandchildren — the
+    // thread reader walks `threadId === root.id`, so a deeper hierarchy is
+    // invisible from the UI. Force the client to reply to the root.
+    if (rootMessage.threadId) {
+      return sendBadRequest(
+        res,
+        'Cannot reply to a reply. Reply to the root message of the thread instead.',
+        ErrorCode.VALIDATION_ERROR,
+      );
+    }
+
     // Validate the user can reply (must be sender org, recipient org, or system org)
     const isSender = rootMessage.orgId.toLowerCase() === orgId;
     const isRecipient = rootMessage.recipientOrgId.toLowerCase() === orgId;

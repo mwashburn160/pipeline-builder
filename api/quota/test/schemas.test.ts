@@ -143,6 +143,24 @@ describe('IncrementQuotaSchema', () => {
     const result = IncrementQuotaSchema.safeParse({ quotaType: 'plugins', amount: 1.5 });
     expect(result.success).toBe(false);
   });
+
+  // Per-call ceiling — bounds the per-request blast radius. A buggy or
+  // malicious caller passing `amount: 1_000_000` could exhaust the org's
+  // quota in a single call without this cap.
+  it('accepts amount up to the 1000 ceiling', () => {
+    const result = IncrementQuotaSchema.safeParse({ quotaType: 'plugins', amount: 1000 });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects amount above 1000', () => {
+    const result = IncrementQuotaSchema.safeParse({ quotaType: 'plugins', amount: 1001 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an absurdly large amount', () => {
+    const result = IncrementQuotaSchema.safeParse({ quotaType: 'plugins', amount: 1_000_000 });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('ResetQuotaSchema', () => {

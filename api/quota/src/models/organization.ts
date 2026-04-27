@@ -17,12 +17,14 @@ export interface QuotaLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+  aiCalls: number;
 }
 
 export interface QuotaUsageTracking {
   plugins: QuotaUsage;
   pipelines: QuotaUsage;
   apiCalls: QuotaUsage;
+  aiCalls: QuotaUsage;
 }
 
 export type { QuotaTier };
@@ -58,11 +60,13 @@ const organizationSchema = new Schema<OrganizationDocument>(
       plugins: { type: Number, default: config.quota.defaults.plugins },
       pipelines: { type: Number, default: config.quota.defaults.pipelines },
       apiCalls: { type: Number, default: config.quota.defaults.apiCalls },
+      aiCalls: { type: Number, default: config.quota.defaults.aiCalls },
     },
     usage: {
       plugins: { type: quotaUsageSchema, default: defaultUsage },
       pipelines: { type: quotaUsageSchema, default: defaultUsage },
       apiCalls: { type: quotaUsageSchema, default: defaultUsage },
+      aiCalls: { type: quotaUsageSchema, default: defaultUsage },
     },
   },
   { collection: 'organizations' },

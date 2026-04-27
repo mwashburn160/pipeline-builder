@@ -14,8 +14,9 @@ import {
 } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, RequestHandler } from 'express';
-import { AUTH_OPTS } from '../helpers/quota-helpers';
+import { Router } from 'express';
+import type { RequestHandler } from 'express';
+import { INTERNAL_AUTH_OPTS } from '../helpers/quota-helpers';
 import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService, OrgNotFoundError } from '../services/quota-service';
 import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
@@ -26,7 +27,7 @@ const router: Router = Router();
 
 router.put(
   '/:orgId',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
@@ -50,7 +51,7 @@ router.put(
 
 router.post(
   '/:orgId/reset',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth as RequestHandler,
   authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;
@@ -81,7 +82,7 @@ router.post(
 
 router.post(
   '/:orgId/increment',
-  requireAuth(AUTH_OPTS) as RequestHandler,
+  requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
   authorizeOrg() as RequestHandler,
   withRoute(async ({ req, res, ctx }) => {
     const targetOrgId = getParam(req.params, 'orgId')!;

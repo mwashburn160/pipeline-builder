@@ -42,7 +42,7 @@ export default function MessagesPage() {
     markThreadAsRead,
     deleteMessage,
     fetchMessages,
-  } = useMessages();
+  } = useMessages(user?.organizationId);
 
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
@@ -56,10 +56,13 @@ export default function MessagesPage() {
 
   const handleSelectMessage = useCallback((msg: Message) => {
     setSelectedMessage(msg);
-    if (!msg.isRead) {
+    // Per-participant read state — mark as read only if the *current* org
+    // hasn't already done so.
+    const currentOrg = user?.organizationId?.toLowerCase();
+    if (currentOrg && !msg.readBy[currentOrg]) {
       markAsRead(msg.id);
     }
-  }, [markAsRead]);
+  }, [markAsRead, user?.organizationId]);
 
   const handleBack = useCallback(() => {
     setSelectedMessage(null);

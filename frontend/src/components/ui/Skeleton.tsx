@@ -24,16 +24,6 @@ export function SkeletonText({ lines = 3, className = '' }: { lines?: number; cl
   );
 }
 
-export function SkeletonCard({ className = '' }: SkeletonProps) {
-  return (
-    <div aria-hidden="true" className={`card space-y-4 ${className}`}>
-      <Skeleton className="h-5 w-1/3" />
-      <SkeletonText lines={2} />
-      <Skeleton className="h-8 w-24" />
-    </div>
-  );
-}
-
 export function SkeletonTableRow({ columns = 5 }: { columns?: number }) {
   return (
     <tr aria-hidden="true">
@@ -43,28 +33,5 @@ export function SkeletonTableRow({ columns = 5 }: { columns?: number }) {
         </td>
       ))}
     </tr>
-  );
-}
-
-export function SkeletonTable({ rows = 5, columns = 5 }: { rows?: number; columns?: number }) {
-  return (
-    <div aria-hidden="true" className="data-table">
-      <table className="min-w-full">
-        <thead>
-          <tr>
-            {Array.from({ length: columns }).map((_, i) => (
-              <th key={`skel-th-${i}`}>
-                <Skeleton className="h-3 w-16" />
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-          {Array.from({ length: rows }).map((_, i) => (
-            <SkeletonTableRow key={`skel-row-${i}`} columns={columns} />
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

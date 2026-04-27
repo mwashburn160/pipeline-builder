@@ -20,6 +20,7 @@ const TYPE_LABEL: Record<QuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
+  aiCalls: 'AI calls',
 };
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */
@@ -50,7 +51,7 @@ export function highestPressure(response: OrgQuotaResponse | undefined | null): 
     const pct = quotaPercent(summary);
     const lvl = pressureLevel(pct);
     if (lvl === 'none') continue;
-    if (!best.percent || pct > best.percent) {
+    if (best.level === 'none' || pct > (best.percent ?? 0)) {
       best = { level: lvl, type, percent: pct, label: TYPE_LABEL[type] };
     }
   }

@@ -124,11 +124,23 @@ Per-organization rule enforcement that validates plugins and pipelines before cr
 
 ### Multi-Tenant Organizations
 
-Every resource — pipelines, plugins, compliance rules, quotas, secrets, billing — scoped to an organization with role-based access (Owner, Admin, Member), feature tiers (Developer, Pro, Unlimited), and per-org quotas.
+Every resource — pipelines, plugins, compliance rules, quotas, secrets, billing — scoped to an organization with role-based access (Owner, Admin, Member), feature tiers (Developer, Pro, Unlimited), and per-org quotas across four dimensions: `plugins`, `pipelines`, `apiCalls`, and `aiCalls` (sized smaller per tier because AI calls have external $ cost).
 
 ### Execution Analytics
 
 EventBridge captures CodePipeline and CodeBuild state changes. Reports include execution counts, success rates, duration percentiles, stage failure heatmaps, and error categorization.
+
+### Service-to-Service Auth
+
+Inter-service HTTP calls (billing → message renewals, compliance → message rule updates, platform → billing on org register, etc.) mint short-lived JWTs via `signServiceToken()` in api-core. Tokens identify the calling service via `sub: 'service:<name>'`, are signed with the shared `JWT_SECRET`, and satisfy the standard `requireAuth` middleware — so internal calls don't need per-route bypass.
+
+### Operational Endpoints
+
+Every service exposes:
+- `GET /health` — liveness probe (returns 200 unless the process is dead)
+- `GET /ready` — readiness probe (returns 503 when any dependency is `disconnected`)
+- `GET /warmup` — pre-opens connection pools (Postgres + per-service hooks for Mongo/Redis)
+- `GET /metrics` — Prometheus scrape endpoint
 
 ---
 

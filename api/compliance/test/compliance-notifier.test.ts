@@ -11,6 +11,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 jest.mock('../src/helpers/message-client', () => ({
@@ -44,7 +45,7 @@ describe('notifyComplianceBlock', () => {
   });
 
   it('sends a high-priority message with violation details', async () => {
-    await notifyComplianceBlock('org-1', 'plugin', 'my-plugin', [makeViolation()], 'Bearer token');
+    await notifyComplianceBlock('org-1', 'plugin', 'my-plugin', [makeViolation()]);
 
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [path, body, opts] = mockPost.mock.calls[0];
@@ -55,17 +56,18 @@ describe('notifyComplianceBlock', () => {
     expect(body.subject).toContain('my-plugin');
     expect(body.content).toContain('rule-1');
     expect(body.content).toContain('mismatch');
-    expect(opts.headers.Authorization).toBe('Bearer token');
+    // Always uses a service-minted token now (not the user's bearer).
+    expect(opts.headers.Authorization).toBe('Bearer test-service-token');
     expect(opts.headers['x-internal-service']).toBe('true');
   });
 
   it('skips when all violations have suppressNotification', async () => {
-    await notifyComplianceBlock('org-1', 'plugin', 'name', [makeViolation({ suppressNotification: true })], 'auth');
+    await notifyComplianceBlock('org-1', 'plugin', 'name', [makeViolation({ suppressNotification: true })]);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
   it('skips when violations array is empty', async () => {
-    await notifyComplianceBlock('org-1', 'plugin', 'name', [], 'auth');
+    await notifyComplianceBlock('org-1', 'plugin', 'name', []);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -73,7 +75,7 @@ describe('notifyComplianceBlock', () => {
     await notifyComplianceBlock('org-1', 'plugin', 'p', [
       makeViolation({ ruleName: 'visible' }),
       makeViolation({ ruleName: 'hidden', suppressNotification: true }),
-    ], 'auth');
+    ]);
     const [, body] = mockPost.mock.calls[0];
     expect(body.content).toContain('visible');
     expect(body.content).not.toContain('hidden');
@@ -82,7 +84,7 @@ describe('notifyComplianceBlock', () => {
   it('swallows messageClient errors (fire-and-forget)', async () => {
     mockPost.mockRejectedValue(new Error('boom'));
     await expect(
-      notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()], 'auth'),
+      notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]),
     ).resolves.toBeUndefined();
   });
 
@@ -90,7 +92,7 @@ describe('notifyComplianceBlock', () => {
     await notifyComplianceBlock('org-1', 'pipeline', 'pl', [
       makeViolation({ ruleName: 'r-a', message: 'A failed' }),
       makeViolation({ ruleName: 'r-b', message: 'B failed' }),
-    ], 'auth');
+    ]);
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [, body] = mockPost.mock.calls[0];
     expect(body.content).toContain('r-a');

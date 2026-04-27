@@ -19,6 +19,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   createSafeClient: () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
   }),
+  getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 jest.mock('../src/helpers/billing-helpers', () => ({

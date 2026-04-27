@@ -5,6 +5,7 @@ export interface QuotaDefaults {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+  aiCalls: number;
 }
 
 export interface AppConfig {
@@ -40,6 +41,7 @@ export const config: AppConfig = {
       plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || '100', 10),
       pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || '10', 10),
       apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || '-1', 10),
+      aiCalls: parseInt(process.env.QUOTA_DEFAULT_AI_CALLS || '100', 10),
     },
     resetDays: parseInt(process.env.QUOTA_RESET_DAYS || '3', 10),
   },

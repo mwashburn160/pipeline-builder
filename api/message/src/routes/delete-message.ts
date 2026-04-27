@@ -57,9 +57,10 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
       return sendEntityNotFound(res, 'Message');
     }
 
-    // Cascade soft-delete to all replies if this is a root message
+    // Cascade soft-delete to all replies if this is a root message.
+    // Pass orgId so the cascade scopes to the caller's tenant.
     if (!deleted.threadId) {
-      await messageService.deleteThread(id, userId);
+      await messageService.deleteThread(id, userId, orgId);
     }
 
     ctx.log('COMPLETED', 'Message deleted', { id });

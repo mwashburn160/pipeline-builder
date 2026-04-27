@@ -10,6 +10,7 @@ import {
   createAuthenticatedWithOrgRoute,
   postgresHealthCheck,
 } from '@pipeline-builder/api-server';
+import { startAuditPruneCron } from './helpers/audit-logger';
 import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
 import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue';
@@ -93,11 +94,17 @@ startComplianceWorker(async (event) => {
   });
 });
 
+// Daily prune of compliance_audit_log (default 180 days, override via
+// COMPLIANCE_AUDIT_RETENTION_DAYS). The handle is captured for graceful
+// shutdown so tests/process-exit don't leave a dangling timer.
+const auditPrune = startAuditPruneCron();
+
 void runServer(app, {
   name: 'Compliance Service',
   sseManager,
   onShutdown: async () => {
     stopScanScheduler();
+    auditPrune.stop();
     await stopComplianceWorker();
   },
 });

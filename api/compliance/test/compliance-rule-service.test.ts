@@ -119,13 +119,13 @@ describe('ComplianceRuleService', () => {
     });
   });
 
-  describe('forkRule', () => {
+  describe('cloneRule', () => {
     it('throws when source rule is missing', async () => {
       selectResult = [];
-      await expect(svc.forkRule('rule-x', 'org-1', 'user-1')).rejects.toThrow('Published rule not found');
+      await expect(svc.cloneRule('rule-x', 'org-1', 'user-1')).rejects.toThrow('Published rule not found');
     });
 
-    it('creates a forked rule with scope=org and source ref', async () => {
+    it('creates a cloned rule with scope=org and source ref', async () => {
       const source = {
         id: 'src',
         name: 'security-scan',
@@ -144,7 +144,7 @@ describe('ComplianceRuleService', () => {
       selectResult = [source];
       const createSpy = jest.spyOn(svc, 'create').mockImplementation(async (data: any) => ({ ...(data as Record<string, unknown>), id: 'new' } as never));
 
-      const result = await svc.forkRule('src', 'org-1', 'user-1');
+      const result = await svc.cloneRule('src', 'org-1', 'user-1');
 
       expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
         orgId: 'org-1',

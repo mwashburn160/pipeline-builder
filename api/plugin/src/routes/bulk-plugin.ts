@@ -5,7 +5,22 @@ import { sendBadRequest, sendSuccess, ErrorCode } from '@pipeline-builder/api-co
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
+import { z } from 'zod';
 import { pluginService } from '../services/plugin-service';
+
+/**
+ * Whitelist of plugin fields that may be set via bulk update.
+ * Excludes `orgId`, `id`, `createdAt`, `createdBy`, `deletedAt`, `imageTag` —
+ * those are either tenancy boundaries, immutable, or set by build pipeline.
+ */
+const BulkPluginUpdateDataSchema = z.object({
+  isActive: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
+  category: z.string().max(100).optional(),
+  description: z.string().max(2000).optional(),
+  keywords: z.array(z.string()).optional(),
+  accessModifier: z.enum(['public', 'private']).optional(),
+}).strict();
 
 
 /**
@@ -52,11 +67,19 @@ export function createBulkPluginRoutes(): Router {
       return sendBadRequest(res, 'Request body must include a "data" object with fields to update', ErrorCode.VALIDATION_ERROR);
     }
 
+    // Validate the update payload against a strict whitelist — without this,
+    // a caller could write internal fields (orgId, deletedAt, imageTag) on
+    // every plugin in the org with one call.
+    const dataValidation = BulkPluginUpdateDataSchema.safeParse(data);
+    if (!dataValidation.success) {
+      return sendBadRequest(res, `Invalid update data: ${dataValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
+    }
+
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });
 
     const updated = await pluginService.updateMany(
       { id: ids } as unknown as Record<string, unknown>,
-      data,
+      dataValidation.data,
       orgId,
       userId,
     );

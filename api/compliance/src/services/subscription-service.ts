@@ -5,8 +5,23 @@ import { SYSTEM_ORG_ID, createLogger } from '@pipeline-builder/api-core';
 import { schema, db } from '@pipeline-builder/pipeline-core';
 import type { RuleScope } from '@pipeline-builder/pipeline-core';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
+import { complianceRuleService } from './compliance-rule-service';
 
 const logger = createLogger('subscription-service');
+
+/**
+ * Invalidate the per-org rules cache after a subscription mutation.
+ * `findActiveByOrgAndTarget` is cached per `orgId:target` and otherwise has no
+ * way to learn that the subscription set changed.
+ */
+async function invalidateRulesFor(orgId: string): Promise<void> {
+  try {
+    await complianceRuleService.invalidateRulesCache(orgId);
+  } catch (err) {
+    // Non-fatal — cache will self-expire at TTL even if invalidation fails.
+    logger.warn('Failed to invalidate rules cache after subscription mutation', { orgId, err });
+  }
+}
 
 export type ComplianceRuleSubscription = typeof schema.complianceRuleSubscription.$inferSelect;
 
@@ -21,7 +36,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot subscribe to published rules');
     }
 
-    return db.transaction(async (tx) => {
+    const sub = await db.transaction(async (tx) => {
       // Verify rule exists, is published, and not soft-deleted
       const [rule] = await tx
         .select({
@@ -56,6 +71,8 @@ export class ComplianceRuleSubscriptionService {
       logger.info('Org subscribed to published rule (inactive)', { orgId, ruleId, userId });
       return result;
     });
+    await invalidateRulesFor(orgId);
+    return sub;
   }
 
   /**
@@ -67,7 +84,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    return db.transaction(async (tx) => {
+    const updated = await db.transaction(async (tx) => {
       const [existing] = await tx
         .select()
         .from(schema.complianceRuleSubscription)
@@ -79,15 +96,17 @@ export class ComplianceRuleSubscriptionService {
 
       if (!existing) throw new Error('Subscription not found');
 
-      const [updated] = await tx
+      const [row] = await tx
         .update(schema.complianceRuleSubscription)
         .set({ isActive })
         .where(eq(schema.complianceRuleSubscription.id, existing.id))
         .returning();
 
       logger.info('Subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, ruleId, userId });
-      return updated;
+      return row;
     });
+    await invalidateRulesFor(orgId);
+    return updated;
   }
 
   /**
@@ -98,7 +117,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    return db.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
       const [existing] = await tx
         .select({ id: schema.complianceRuleSubscription.id })
         .from(schema.complianceRuleSubscription)
@@ -117,6 +136,7 @@ export class ComplianceRuleSubscriptionService {
 
       logger.info('Org unsubscribed from published rule', { orgId, ruleId, userId });
     });
+    await invalidateRulesFor(orgId);
   }
 
   /** List all subscriptions for an org (active + inactive, excludes unsubscribed and soft-deleted rules). */
@@ -199,6 +219,7 @@ export class ComplianceRuleSubscriptionService {
 
     const subscribed = result.length;
     logger.info('Auto-subscribed org to published rules', { orgId, total: publishedRules.length, subscribed });
+    if (subscribed > 0) await invalidateRulesFor(orgId);
     return subscribed;
   }
 
@@ -223,6 +244,7 @@ export class ComplianceRuleSubscriptionService {
 
     const updated = result.length;
     logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated });
+    if (updated > 0) await invalidateRulesFor(orgId);
     return updated;
   }
 
@@ -234,7 +256,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    return db.transaction(async (tx) => {
+    const updated = await db.transaction(async (tx) => {
       // Fetch the subscription
       const [sub] = await tx
         .select()
@@ -265,15 +287,17 @@ export class ComplianceRuleSubscriptionService {
         pinnedBy: userId,
       };
 
-      const [updated] = await tx
+      const [row] = await tx
         .update(schema.complianceRuleSubscription)
         .set({ pinnedVersion: snapshot })
         .where(eq(schema.complianceRuleSubscription.id, sub.id))
         .returning();
 
       logger.info('Subscription pinned to rule version', { orgId, ruleId, userId });
-      return updated;
+      return row;
     });
+    await invalidateRulesFor(orgId);
+    return updated;
   }
 
   /**
@@ -291,6 +315,7 @@ export class ComplianceRuleSubscriptionService {
       .returning();
 
     if (!updated) throw new Error('Subscription not found');
+    await invalidateRulesFor(orgId);
     return updated;
   }
 

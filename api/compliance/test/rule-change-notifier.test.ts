@@ -12,6 +12,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 jest.mock('../src/helpers/message-client', () => ({

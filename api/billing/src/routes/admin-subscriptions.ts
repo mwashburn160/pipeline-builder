@@ -14,7 +14,8 @@ import {
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, RequestHandler } from 'express';
+import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
 import { BillingEvent } from '../models/billing-event';
 import { Plan } from '../models/plan';

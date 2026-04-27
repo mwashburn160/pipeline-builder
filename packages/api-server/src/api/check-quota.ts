@@ -11,6 +11,7 @@ const logger = createLogger('check-quota');
 /** Human-readable labels for quota exceeded messages. */
 const QUOTA_LABELS: Record<QuotaType, string> = {
   apiCalls: 'API call',
+  aiCalls: 'AI call',
   pipelines: 'Pipeline',
   plugins: 'Plugin',
 };

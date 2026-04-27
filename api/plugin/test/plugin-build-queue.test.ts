@@ -107,6 +107,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   extractDbError: jest.fn(() => ({})),
   incrementQuota: mockIncrementQuota,
+  getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({}));
@@ -130,7 +131,6 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
     requestId: 'req-123',
     orgId: 'org-1',
     userId: 'user-1',
-    authToken: 'Bearer tok',
     buildRequest: {
       contextDir: '/tmp/build-ctx',
       dockerfile: 'Dockerfile',
@@ -251,6 +251,7 @@ describe('plugin-build-queue', () => {
       errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
       extractDbError: jest.fn(() => ({})),
       incrementQuota: mockIncrementQuota,
+      getServiceAuthHeader: () => 'Bearer test-service-token',
     }));
 
     jest.mock('@pipeline-builder/api-server', () => ({}));
@@ -330,7 +331,10 @@ describe('plugin-build-queue', () => {
         name: 'my-plugin',
       }));
 
-      expect(mockIncrementQuota).toHaveBeenCalledWith(quota, 'org-1', 'plugins', 'Bearer tok', expect.any(Function));
+      // Worker now mints a fresh service token via getServiceAuthHeader
+      // instead of forwarding the user's bearer (so a leaked Redis blob
+      // doesn't leak a long-lived user token).
+      expect(mockIncrementQuota).toHaveBeenCalledWith(quota, 'org-1', 'plugins', 'Bearer test-service-token', expect.any(Function));
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
     });
 

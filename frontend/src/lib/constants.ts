@@ -16,9 +16,15 @@ export const MAX_REFRESH_ATTEMPTS = 3;
 /** Module-level plugin cache time-to-live in ms. */
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-/** Quota usage percentage thresholds for status indicators. */
-export const QUOTA_CRITICAL_THRESHOLD = 90;
-export const QUOTA_WARNING_THRESHOLD = 70;
+/**
+ * Quota usage percentage thresholds for status indicators.
+ * Aligned with quota-pressure.ts: warning at 80%, critical at 95%.
+ * A previous mismatch (warning=70, critical=90) caused the dashboard badge
+ * to show "Critical" while the page banner only showed "info" — same data,
+ * two different verdicts. Keep these in sync.
+ */
+export const QUOTA_CRITICAL_THRESHOLD = 95;
+export const QUOTA_WARNING_THRESHOLD = 80;
 
 /** Maximum character length for AI prompts. */
 export const AI_MAX_PROMPT_LENGTH = 5000;

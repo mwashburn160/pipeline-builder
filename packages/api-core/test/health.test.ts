@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHealthCheck, createHealthRouter } from '../src/routes/health';
+import { createHealthCheck, createHealthRouter, createReadinessCheck } from '../src/routes/health';
 
 // Mock sendSuccess and sendError from response utilities
 jest.mock('../src/utils/response', () => ({
@@ -52,7 +52,10 @@ describe('createHealthCheck', () => {
     );
   });
 
-  it('returns 503 when a dependency is disconnected', async () => {
+  it('still returns 200 when a dependency is disconnected (liveness probe)', async () => {
+    // /health is the liveness probe — it should NOT 503 on dependency blips,
+    // only when the process is genuinely stuck. /ready handles dependency
+    // status (see createReadinessCheck tests below).
     const handler = createHealthCheck({
       serviceName: 'test-service',
       checkDependencies: async () => ({
@@ -64,11 +67,12 @@ describe('createHealthCheck', () => {
 
     await handler(mockReq(), res);
 
-    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        success: false,
-        status: 'unhealthy',
+        success: true,
+        status: 'healthy',
+        dependencies: { database: 'connected', cache: 'disconnected' },
       }),
     );
   });
@@ -88,7 +92,9 @@ describe('createHealthCheck', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('returns 503 when checkDependencies throws', async () => {
+  it('still returns 200 when checkDependencies throws (liveness probe)', async () => {
+    // Liveness shouldn't fail just because the dependency probe blew up —
+    // /ready handles that. See createReadinessCheck tests below.
     const handler = createHealthCheck({
       serviceName: 'test-service',
       checkDependencies: async () => {
@@ -99,13 +105,51 @@ describe('createHealthCheck', () => {
 
     await handler(mockReq(), res);
 
-    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'unhealthy',
+        status: 'healthy',
         dependencies: { check: 'disconnected' },
       }),
     );
+  });
+
+  describe('createReadinessCheck', () => {
+    it('returns 200 when all dependencies connected', async () => {
+      const handler = createReadinessCheck({
+        serviceName: 'test-service',
+        checkDependencies: async () => ({ database: 'connected' }),
+      });
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('returns 503 when any dependency disconnected', async () => {
+      const handler = createReadinessCheck({
+        serviceName: 'test-service',
+        checkDependencies: async () => ({ database: 'connected', cache: 'disconnected' }),
+      });
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, status: 'unhealthy' }),
+      );
+    });
+
+    it('returns 503 when checkDependencies throws', async () => {
+      const handler = createReadinessCheck({
+        serviceName: 'test-service',
+        checkDependencies: async () => { throw new Error('boom'); },
+      });
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'unhealthy', dependencies: { check: 'disconnected' } }),
+      );
+    });
   });
 
   it('includes uptime and timestamp', async () => {

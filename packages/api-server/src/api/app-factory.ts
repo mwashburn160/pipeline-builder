@@ -46,6 +46,14 @@ export interface CreateAppOptions {
   openApiOptions?: OpenApiSpecOptions;
   /** Enable gzip/deflate response compression (default: true) */
   enableCompression?: boolean;
+  /**
+   * Extra warmup callbacks invoked by `GET /warmup` in addition to the
+   * default Postgres ping. Use for services that depend on Mongo, Redis,
+   * SQS, etc. — pre-warming opens connection pools before real traffic
+   * arrives. Each callback should resolve when its dependency is ready;
+   * any rejection causes /warmup to return 503.
+   */
+  warmupHooks?: Array<() => Promise<void>>;
 }
 
 /**
@@ -99,6 +107,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     enableOpenApi = true,
     openApiOptions,
     enableCompression = true,
+    warmupHooks = [],
   } = options;
 
   // Fail fast if JWT_SECRET is not configured — prevents silent auth failures at runtime
@@ -184,12 +193,16 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     checkDependencies,
   }));
 
-  // Warm-up endpoint — initializes connection pool without a real API call (for Lambda pre-warming)
+  // Warm-up endpoint — pre-opens connection pools so the first real request
+  // doesn't pay cold-start latency. Always pings Postgres; services using
+  // Mongo / Redis / SQS pass `warmupHooks` so those are warmed in parallel.
   app.get('/warmup', async (_req: Request, res: Response) => {
     try {
-      const connection = getConnection();
-      await connection.testConnection();
-      sendSuccess(res, 200, { warmed: true });
+      await Promise.all([
+        getConnection().testConnection(),
+        ...warmupHooks.map((hook) => hook()),
+      ]);
+      sendSuccess(res, 200, { warmed: true, hooks: warmupHooks.length });
     } catch {
       sendError(res, 503, 'Warmup failed');
     }

@@ -32,7 +32,7 @@ app.use('/plugins', createUploadPluginRoutes(quotaService));
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
 
 // -- AI generation routes — ai_generation feature gate (MUST be before read routes)
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePluginRoutes());
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePluginRoutes(quotaService));
 
 // -- Deploy AI-generated plugin — manages its own admin + quota middleware
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService));

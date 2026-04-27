@@ -3,13 +3,18 @@
 
 /**
  * Quota type identifiers.
+ *
+ * - `plugins` / `pipelines` — count of created entities
+ * - `apiCalls` — generic API call count (read-heavy paths)
+ * - `aiCalls` — AI provider invocations (counted separately because each call
+ *   has external dollar cost; sized smaller than apiCalls per tier)
  */
-export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls';
+export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
 
 /**
  * Valid quota type values.
  */
-export const VALID_QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls'] as const;
+export const VALID_QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
 
 /**
  * Type guard to check if a value is a valid QuotaType.

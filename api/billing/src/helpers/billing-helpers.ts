@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { createLogger, createSafeClient } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { config } from '../config';
 import { BillingEvent } from '../models/billing-event';
@@ -44,6 +44,11 @@ export async function createBillingEvent(
 
 /**
  * Sync organization tier to the quota service after a subscription change.
+ *
+ * `authHeader` is optional — webhook / lifecycle / SNS paths have no user
+ * context and should pass `''`. In that case we mint a service token (which
+ * satisfies the quota service's system-admin gate). User-initiated paths
+ * (POST /subscriptions, PUT /admin) pass through their bearer.
  */
 export async function syncTierToQuotaService(
   orgId: string,
@@ -57,9 +62,10 @@ export async function syncTierToQuotaService(
       timeout: ((Config as unknown as { getAny(k: string): unknown }).getAny?.('server') as { services: { billingTimeout: number } })?.services?.billingTimeout ?? 5000,
     });
 
+    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId: 'system' });
     const response = await client.put(`/quotas/${orgId}`, { tier }, {
       headers: {
-        'Authorization': authHeader,
+        'Authorization': effectiveAuth,
         'x-org-id': orgId,
       },
     });

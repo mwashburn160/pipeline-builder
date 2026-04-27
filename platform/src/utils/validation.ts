@@ -138,5 +138,6 @@ export const updateQuotasSchema = z.object({
   plugins: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
   pipelines: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
   apiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
+  aiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
 });
 

@@ -37,6 +37,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
   SYSTEM_ORG_ID: 'system',
 }));
 
+const mockInvalidate = jest.fn().mockResolvedValue(undefined);
+jest.mock('../src/services/compliance-rule-service', () => ({
+  complianceRuleService: { invalidateRulesCache: mockInvalidate },
+}));
+
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceRule: {
@@ -71,7 +76,49 @@ describe('ComplianceRuleSubscriptionService', () => {
     dbInsert.mockClear();
     dbUpdate.mockClear();
     dbTransaction.mockClear();
+    mockInvalidate.mockClear();
     svc = new ComplianceRuleSubscriptionService();
+  });
+
+  describe('cache invalidation (regression: subscription mutations did not invalidate compliance-rule-service cache)', () => {
+    it('subscribe invalidates the per-org rules cache after upsert', async () => {
+      // Two select results: rule lookup + (no second select). Upsert returns the row.
+      nextSelectResult = [{ id: 'rule-1', scope: 'published' }];
+      nextReturningResult = [{ id: 'sub-1', orgId: 'org-1', ruleId: 'rule-1', isActive: false }];
+      await svc.subscribe('org-1', 'rule-1', 'u1');
+      expect(mockInvalidate).toHaveBeenCalledWith('org-1');
+    });
+
+    it('setActive invalidates after the update', async () => {
+      nextSelectResult = [{ id: 'sub-1', orgId: 'org-1', ruleId: 'rule-1', isActive: false }];
+      nextReturningResult = [{ id: 'sub-1', isActive: true }];
+      await svc.setActive('org-1', 'rule-1', true, 'u1');
+      expect(mockInvalidate).toHaveBeenCalledWith('org-1');
+    });
+
+    it('unsubscribe invalidates after the soft-delete', async () => {
+      nextSelectResult = [{ id: 'sub-1' }];
+      await svc.unsubscribe('org-1', 'rule-1', 'u1');
+      expect(mockInvalidate).toHaveBeenCalledWith('org-1');
+    });
+
+    it('bulkSetActive invalidates only when at least one row was updated', async () => {
+      nextReturningResult = [{ id: 'sub-1' }, { id: 'sub-2' }];
+      await svc.bulkSetActive('org-1', ['r1', 'r2'], true, 'u1');
+      expect(mockInvalidate).toHaveBeenCalledWith('org-1');
+
+      mockInvalidate.mockClear();
+      nextReturningResult = [];
+      await svc.bulkSetActive('org-1', ['r3'], true, 'u1');
+      expect(mockInvalidate).not.toHaveBeenCalled();
+    });
+
+    it('cache-invalidate failure does not abort the mutation', async () => {
+      mockInvalidate.mockRejectedValueOnce(new Error('redis down'));
+      nextSelectResult = [{ id: 'rule-1', scope: 'published' }];
+      nextReturningResult = [{ id: 'sub-1', orgId: 'org-1', ruleId: 'rule-1', isActive: false }];
+      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).resolves.toBeDefined();
+    });
   });
 
   describe('subscribe', () => {

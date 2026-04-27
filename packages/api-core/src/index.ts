@@ -7,8 +7,9 @@
  * Core API utilities shared across all services.
  *
  * **Middleware**
- * - requireAuth, optionalAuth, requireOrganization, requireAdmin — JWT authentication
- * - isSystemOrg, isSystemAdmin — authorization helpers
+ * - requireAuth, requireAdmin, requireSystemAdmin, requireFeature — JWT authentication
+ * - isSystemOrg, isSystemAdmin, isServicePrincipal — authorization helpers
+ * - signServiceToken, getServiceAuthHeader — inter-service JWT minting
  *
  * **Types**
  * - ErrorCode, ErrorCodeStatus — standardized error code enum and status mapping
@@ -16,7 +17,7 @@
  * - ServiceConfig, RequestOptions, HttpResponse — HTTP client types
  * - QuotaType, QuotaCheckResult — quota service types
  * - PipelineType, ComputeType, AccessModifier — pipeline domain types
- * - FeatureFlags, BillingPlan — feature and billing types
+ * - FeatureFlags — feature flag types
  *
  * **Utilities**
  * - createLogger — Winston-based structured logger factory

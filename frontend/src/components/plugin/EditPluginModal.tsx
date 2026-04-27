@@ -85,7 +85,7 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
       }
     })();
     return () => { cancelled = true; };
-  }, [plugin]);
+  }, [plugin.id]);
 
   // Resolved plugin data (fetched by ID, or fallback to list data)
   const p = fullPlugin ?? plugin;

@@ -37,10 +37,10 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/ai-core": "3.3.10",
-    "@pipeline-builder/api-core": "3.3.10",
-    "@pipeline-builder/api-server": "3.3.10",
-    "@pipeline-builder/pipeline-core": "3.3.10",
+    "@pipeline-builder/ai-core": "workspace:*",
+    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-server": "workspace:*",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "cors": "2.8.6",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
@@ -66,7 +66,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.12",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

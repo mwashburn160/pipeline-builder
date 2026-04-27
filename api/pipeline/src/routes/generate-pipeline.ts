@@ -15,7 +15,8 @@ import {
   SYSTEM_ORG_ID,
   AccessModifier,
 } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { createAuthenticatedWithOrgRoute, incrementQuotaFromCtx, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, db, schema } from '@pipeline-builder/pipeline-core';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import { Router } from 'express';
@@ -52,9 +53,14 @@ const pluginClient = createSafeClient({
 /**
  * Create and register AI pipeline generation routes.
  *
+ * AI calls consume the org's `apiCalls` quota — until a dedicated `aiCalls`
+ * quota type is added, AI usage is bounded by the same per-org budget that
+ * gates regular API calls. This prevents an org from spamming the platform
+ * AI provider key beyond their tier.
+ *
  * @returns Express Router with AI generation endpoints
  */
-export function createGeneratePipelineRoutes(): Router {
+export function createGeneratePipelineRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // -- GET /providers — list configured AI providers --------------------------
@@ -113,6 +119,7 @@ export function createGeneratePipelineRoutes(): Router {
           ...(result.servedBy && { servedBy: result.servedBy }),
           ...(result.usage && { tokens: result.usage.totalTokens }),
         });
+        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'aiCalls');
 
         return sendSuccess(res, 200, {
           props: result.props,
@@ -188,6 +195,7 @@ export function createGeneratePipelineRoutes(): Router {
             })}\n\n`);
           }
           res.write('data: [DONE]\n\n');
+          incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'aiCalls');
         }
 
         res.end();
@@ -319,6 +327,7 @@ export function createGeneratePipelineRoutes(): Router {
             }
           }
           res.write('data: [DONE]\n\n');
+          incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'aiCalls');
         }
 
         res.end();
@@ -430,6 +439,10 @@ async function autoCreateMissingPlugins(
 
   for (const name of missing) {
     try {
+      // Idempotency-Key scopes the deploy to (requestId, plugin name) so a
+      // client retrying a failed /generate/from-url/stream call doesn't enqueue
+      // duplicate plugin builds. Plugin service should treat the same key
+      // within a short window as a no-op.
       const deployResponse = await pluginClient.post<{ data?: { requestId?: string } }>('/plugins/deploy-generated', {
         name,
         description: 'Auto-generated plugin for pipeline',
@@ -445,6 +458,7 @@ async function autoCreateMissingPlugins(
           'Authorization': context.authToken,
           'x-org-id': orgId,
           'x-request-id': context.requestId,
+          'Idempotency-Key': `${context.requestId}:${name}`,
         },
       });
 

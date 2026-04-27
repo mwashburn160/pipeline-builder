@@ -7,11 +7,17 @@ Core server-side utilities shared by every backend service in [Pipeline Builder]
 ## Key Exports
 
 ### Authentication Middleware
-- `requireAuth` — JWT authentication middleware
-- `optionalAuth` — Optional JWT authentication (allows unauthenticated)
-- `requireOrganization` — Requires valid orgId in JWT
-- `requireAdmin` — Requires admin role
-- `isSystemOrg`, `isSystemAdmin` — System-level access checks
+- `requireAuth` — JWT authentication middleware (also accepts `RequireAuthOptions` for `allowOrgHeaderOverride` on internal-service routes)
+- `requireAdmin`, `requireSystemAdmin` — role gates (admin/owner; system-org admin/owner)
+- `requireFeature` — feature-flag gate
+- `isSystemOrg`, `isSystemAdmin`, `isServicePrincipal` — authorization checks (last one is true when `req.user.sub` starts with `service:`)
+- `resolveAccessModifier(req, requested)` — coerces `requested='public'` to `'private'` unless caller is admin/owner
+
+### Service-to-Service Tokens
+- `signServiceToken({ serviceName, orgId?, orgName?, ttlSeconds? })` — mints a short-lived JWT identifying the calling service. Default TTL 5 minutes.
+- `getServiceAuthHeader(opts)` — convenience wrapper returning `Bearer <token>` for direct use in fetch/axios headers.
+
+Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<name>`, role: `owner`, type: `access`). Use for inter-service HTTP calls (billing → message renewals, platform → billing on register, etc.).
 
 ### Request/Response Utilities
 - `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendPaginated`, `sendPaginatedNested`
@@ -40,7 +46,11 @@ Core server-side utilities shared by every backend service in [Pipeline Builder]
 
 ### Quota Service
 - `QuotaService` (type), `createQuotaService` — Quota enforcement client
-- `QuotaType`, `QuotaCheckResult` — Quota types
+- `QuotaType` — `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'`
+- `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` — Quota domain types and tier presets
+
+### Health Endpoints
+- `createHealthRouter({ serviceName, version?, checkDependencies? })` — registers `GET /health` (liveness; always 200 unless process is dead) and `GET /ready` (readiness; 503 when any dependency is `'disconnected'`). Use as Kubernetes/ECS liveness + readiness probes respectively.
 
 ## License
 

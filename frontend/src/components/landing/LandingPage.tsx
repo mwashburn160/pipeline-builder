@@ -4,8 +4,8 @@ import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import {
   Shield, Package, BarChart3,
-  Cloud, Server, Container,
-  Bot, Globe, Zap, ArrowRight, Check, LogIn, Terminal, Sparkles,
+  Cloud,
+  Bot, Globe, Zap, ArrowRight, Check, LogIn, Sparkles,
   Menu, X, Moon, Sun, Eye, EyeOff,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -294,74 +294,6 @@ function AI() {
   ]
 }`} />
         </motion.div>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Plugins
-// ---------------------------------------------------------------------------
-
-const categories = [
-  'Language 11', 'Security 40', 'Quality 17', 'Testing 14',
-  'Artifact 16', 'Deploy 11', 'Infra 5', 'Monitoring 3', 'Notify 5', 'AI 2',
-];
-
-function Plugins() {
-  return (
-    <section id="plugins" className="py-14 px-6 bg-[var(--pb-surface-muted)]">
-      <div className="max-w-3xl mx-auto text-center">
-        <h2 className="text-2xl font-bold mb-2">124 pre-built plugins</h2>
-        <p className="text-sm text-[var(--pb-text-muted)] mb-5">Full CI/CD lifecycle in containerized steps</p>
-        <div className="flex flex-wrap justify-center gap-2">
-          {categories.map((c) => {
-            const [name, count] = c.split(' ');
-            return (
-              <span key={c} className="px-2.5 py-1 rounded-full text-xs bg-[var(--pb-surface)] border border-[var(--pb-border)]">
-                {name} <span className="text-[var(--pb-brand)] font-bold">{count}</span>
-              </span>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Deploy
-// ---------------------------------------------------------------------------
-
-const deploys = [
-  { name: 'Local', cost: 'Free', icon: Terminal },
-  { name: 'Minikube', cost: 'Free', icon: Container },
-  { name: 'EC2', cost: '~$30/mo', icon: Server },
-  { name: 'Fargate', cost: '~$100/mo', icon: Cloud },
-];
-
-function Deploy() {
-  return (
-    <section id="deploy" className="py-14 px-6">
-      <div className="max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-center mb-6">Deploy anywhere</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {deploys.map((d, i) => (
-            <motion.div
-              key={d.name}
-              className="card p-4 text-center"
-              variants={fadeUp}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true }}
-              custom={i}
-            >
-              <d.icon className="w-5 h-5 text-[var(--pb-brand)] mx-auto mb-2" strokeWidth={1.5} />
-              <p className="font-semibold text-sm">{d.name}</p>
-              <p className="text-xs text-[var(--pb-brand)]">{d.cost}</p>
-            </motion.div>
-          ))}
-        </div>
       </div>
     </section>
   );

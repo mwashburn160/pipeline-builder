@@ -16,12 +16,14 @@ const logger = createLogger('OAuthController');
 const MAX_PENDING_STATES = 1000;
 const pendingOAuthStates = new Map<string, number>();
 
+// `.unref()` so this background sweep doesn't keep Node alive in tests
+// or worker scripts that import this module without starting the server.
 setInterval(() => {
   const now = Date.now();
   for (const [key, createdAt] of pendingOAuthStates) {
     if (now - createdAt > config.oauth.stateTtlMs) pendingOAuthStates.delete(key);
   }
-}, config.oauth.cleanupIntervalMs);
+}, config.oauth.cleanupIntervalMs).unref();
 
 // Types
 

@@ -157,10 +157,17 @@ export class ComplianceRuleService extends CrudService<
   }
 
   /**
-   * Feature #1: Fork a published rule into the org's own rules.
-   * Creates a copy with scope='org' and tracks the source via forkedFromRuleId.
+   * Clone a published rule into the org's own rules.
+   *
+   * Creates a copy with scope='org' and tracks the source via forkedFromRuleId
+   * (column name kept for schema-compat). One-shot copy — no upstream sync,
+   * no notification when the source rule changes. If the org wants future
+   * upstream changes, they should subscribe instead of clone.
+   *
+   * Previously named `forkRule`; "fork" carried git connotations (track upstream
+   * for merge) we never delivered. The old name is exposed as a deprecated alias.
    */
-  async forkRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
+  async cloneRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
     const [sourceRule] = await db
       .select()
       .from(schema.complianceRule)
@@ -171,7 +178,7 @@ export class ComplianceRuleService extends CrudService<
 
     if (!sourceRule) throw new Error('Published rule not found');
 
-    const forked = await this.create({
+    const cloned = await this.create({
       orgId,
       name: `${sourceRule.name}-custom`,
       description: sourceRule.description ?? undefined,
@@ -192,7 +199,7 @@ export class ComplianceRuleService extends CrudService<
       updatedBy: userId,
     } as ComplianceRuleInsert, userId);
 
-    return forked;
+    return cloned;
   }
 
   /**

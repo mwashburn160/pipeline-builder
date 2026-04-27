@@ -21,38 +21,17 @@ function requireSecret(envVar: string, name: string): string {
 }
 
 /**
- * Parse quota limit from environment variable.
- * Supports 'unlimited' string or numeric values.
- *
- * @param value - Environment variable value
- * @param defaultValue - Default if not set or invalid
- * @returns Parsed limit or 'unlimited'
- * @internal
- */
-function parseQuotaLimit(value: string | undefined, defaultValue: number | 'unlimited'): number | 'unlimited' {
-  if (!value) return defaultValue;
-  if (value === 'unlimited') return 'unlimited';
-  const parsed = parseInt(value, 10);
-  return isNaN(parsed) ? defaultValue : parsed;
-}
-
-/**
  * Application configuration object.
  * All values are loaded from environment variables with defaults.
  */
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
-    baseUrl: process.env.PLATFORM_BASE_URL || DEFAULT_PLATFORM_URL,
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
   },
 
   server: {
     trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
-  },
-
-  logger: {
-    level: process.env.LOG_LEVEL || 'debug',
   },
 
   cors: {
@@ -84,6 +63,7 @@ export const config = {
     },
     cookie: {
       sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'strict' | 'none',
+      secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
     },
   },
 
@@ -145,12 +125,6 @@ export const config = {
   },
 
   services: {
-    listPlugins: process.env.LIST_PLUGINS_URL || DEFAULT_PLATFORM_URL,
-    getPlugin: process.env.GET_PLUGIN_URL || DEFAULT_PLATFORM_URL,
-    uploadPlugin: process.env.UPLOAD_PLUGIN_URL || DEFAULT_PLATFORM_URL,
-    listPipelines: process.env.LIST_PIPELINES_URL || DEFAULT_PLATFORM_URL,
-    getPipeline: process.env.GET_PIPELINE_URL || DEFAULT_PLATFORM_URL,
-    createPipeline: process.env.CREATE_PIPELINE_URL || DEFAULT_PLATFORM_URL,
     timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000', 10), // 30s
   },
 
@@ -159,45 +133,20 @@ export const config = {
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
     servicePort: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
     serviceTimeout: parseInt(process.env.QUOTA_SERVICE_TIMEOUT || '5000', 10), // 5s
-    // Organization ID that bypasses all quotas
-    bypassOrgId: process.env.QUOTA_BYPASS_ORG_ID || 'system',
-    // Default window in milliseconds (60 seconds)
-    defaultWindowMs: parseInt(process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10), // 1 min
-    // Quota tier presets (each tier defines its own limits and reset periods)
+    // Quota tier presets (each tier defines its own limits and reset periods).
+    // Consumed by Organization model schema defaults.
     tier: {
       developer: {
         ...QUOTA_TIERS.developer.limits,
-        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days' },
+        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days', aiCalls: '3days' },
       },
       pro: {
         ...QUOTA_TIERS.pro.limits,
-        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days' },
+        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days', aiCalls: '3days' },
       },
       unlimited: {
         ...QUOTA_TIERS.unlimited.limits,
-        resetPeriod: { plugins: '30days', pipelines: '30days', apiCalls: '30days' },
-      },
-    },
-    // Pipeline quotas
-    pipeline: {
-      create: {
-        limit: parseQuotaLimit(process.env.QUOTA_CREATE_PIPELINE_LIMIT, 'unlimited'),
-        windowMs: parseInt(process.env.QUOTA_CREATE_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
-      },
-      get: {
-        limit: parseQuotaLimit(process.env.QUOTA_GET_PIPELINE_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_GET_PIPELINE_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
-      },
-    },
-    // Plugin quotas
-    plugin: {
-      create: {
-        limit: parseQuotaLimit(process.env.QUOTA_CREATE_PLUGIN_LIMIT, 'unlimited'),
-        windowMs: parseInt(process.env.QUOTA_CREATE_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
-      },
-      get: {
-        limit: parseQuotaLimit(process.env.QUOTA_GET_PLUGIN_LIMIT, 10),
-        windowMs: parseInt(process.env.QUOTA_GET_PLUGIN_WINDOW_MS || process.env.QUOTA_DEFAULT_WINDOW_MS || '60000', 10),
+        resetPeriod: { plugins: '30days', pipelines: '30days', apiCalls: '30days', aiCalls: '30days' },
       },
     },
   },
