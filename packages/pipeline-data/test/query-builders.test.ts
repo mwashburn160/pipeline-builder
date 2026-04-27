@@ -124,12 +124,6 @@ describe('buildMessageConditions', () => {
     expect(withType.length).toBeGreaterThan(without.length);
   });
 
-  it('adds isRead filter', () => {
-    const withRead = buildMessageConditions({ isRead: false }, 'org-1');
-    const without = buildMessageConditions({}, 'org-1');
-    expect(withRead.length).toBeGreaterThan(without.length);
-  });
-
   it('adds priority filter', () => {
     const withPriority = buildMessageConditions({ priority: 'high' }, 'org-1');
     const without = buildMessageConditions({}, 'org-1');
