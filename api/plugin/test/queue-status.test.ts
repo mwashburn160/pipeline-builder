@@ -20,14 +20,6 @@ jest.mock('../src/queue/plugin-build-queue', () => ({
   replayDlqJob: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-core/src/utils/params', () => ({
-  parseQueryInt: (val: unknown, defaultVal: number) => {
-    const n = parseInt(String(val), 10);
-    return Number.isFinite(n) ? n : defaultVal;
-  },
-  getParam: (params: Record<string, unknown>, key: string) => params[key],
-}));
-
 jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
     info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn(),
