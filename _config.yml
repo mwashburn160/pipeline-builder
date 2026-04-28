@@ -22,13 +22,14 @@ plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
   - jekyll-feed
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: true
 
 # Exclude non-docs files from generated site.
-# README.md is excluded so it can use natural `{{ ... }}` in code samples
-# without Jekyll/Liquid tags polluting the GitHub view. The docs site uses
-# docs/README.md as its landing page anyway.
 exclude:
-  - README.md
   - node_modules/
   - packages/
   - api/

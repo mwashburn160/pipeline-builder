@@ -1,3 +1,10 @@
+---
+layout: default
+permalink: /
+title: Pipeline Builder
+description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt.
+---
+
 <p align="center">
   <strong>Pipeline Builder</strong><br/>
   <em>Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt.</em>
@@ -71,10 +78,11 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 
 ### Synth-Time Scripting
 
-Pipeline configs and plugin specs both support a minimal `{{ path | filter }}` template syntax that's resolved once at synthesis time — no runtime evaluation, no code execution. Same template engine, two scopes:
+Pipeline configs and plugin specs both support a minimal {% raw %}`{{ path | filter }}`{% endraw %} template syntax that's resolved once at synthesis time — no runtime evaluation, no code execution. Same template engine, two scopes:
 
 **In `pipeline.json`** — self-references compose values from other metadata/vars:
 
+{% raw %}
 ```json
 {
   "projectName": "{{ vars.service }}-{{ metadata.env }}",
@@ -86,9 +94,11 @@ Pipeline configs and plugin specs both support a minimal `{{ path | filter }}` t
   "vars": { "service": "checkout" }
 }
 ```
+{% endraw %}
 
 **In `plugin-spec.yaml`** — one plugin, many environments:
 
+{% raw %}
 ```yaml
 name: kubectl-deploy
 requiredMetadata: [namespace]
@@ -99,6 +109,7 @@ commands:
   - "kubectl apply -f k8s/{{ pipeline.metadata.env | default: 'staging' }}/"
   - "kubectl scale deployment {{ pipeline.projectName }} --replicas={{ pipeline.metadata.replicas | number }}"
 ```
+{% endraw %}
 
 **Capabilities:**
 - **Path lookups** — `pipeline.*` (metadata, vars, projectName, orgId), `plugin.*`, `env.*` (own declared env vars)
@@ -109,7 +120,7 @@ commands:
 - **Preview & validate** — `pipeline-manager validate-templates`, `--show-resolved` flag, `?resolve=true` API param
 - **Editor support** — frontend MetadataEditor parses tokens inline as you type
 
-Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
+Fully backward-compatible: pipelines and plugins without {% raw %}`{{ ... }}`{% endraw %} continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
 
 ### Compliance Engine
 
@@ -239,7 +250,7 @@ Open **https://localhost:8443** — register, create an org, and start building 
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
-| [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
+| [Template Syntax](docs/templates.md) | {% raw %}`{{ ... }}`{% endraw %} interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](docs/plugins/README.md) | 124 pre-built plugins across 10 categories |
 
 ### Operations
