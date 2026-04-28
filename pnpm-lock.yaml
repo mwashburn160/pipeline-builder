@@ -54,14 +54,14 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -142,14 +142,14 @@ importers:
   api/compliance:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       bullmq:
         specifier: 5.34.8
         version: 5.34.8
@@ -218,14 +218,14 @@ importers:
   api/message:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
@@ -297,17 +297,17 @@ importers:
   api/pipeline:
     dependencies:
       '@pipeline-builder/ai-core':
-        specifier: 3.3.25
-        version: 3.3.25(zod@4.3.6)
-      '@pipeline-builder/api-core':
         specifier: 3.3.26
-        version: 3.3.26
+        version: 3.3.26(zod@4.3.6)
+      '@pipeline-builder/api-core':
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -394,17 +394,17 @@ importers:
   api/plugin:
     dependencies:
       '@pipeline-builder/ai-core':
-        specifier: 3.3.25
-        version: 3.3.25(zod@4.3.6)
-      '@pipeline-builder/api-core':
         specifier: 3.3.26
-        version: 3.3.26
+        version: 3.3.26(zod@4.3.6)
+      '@pipeline-builder/api-core':
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -515,14 +515,14 @@ importers:
   api/quota:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -600,17 +600,17 @@ importers:
   api/reporting:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-data':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
@@ -673,14 +673,14 @@ importers:
   frontend:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/api-server':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       framer-motion:
         specifier: 12.34.3
         version: 12.34.3(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -755,8 +755,8 @@ importers:
         specifier: 3.0.59
         version: 3.0.59(zod@4.3.6)
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       ai:
         specifier: 6.0.99
         version: 6.0.99(zod@4.3.6)
@@ -877,11 +877,11 @@ importers:
         specifier: 0.213.0
         version: 0.213.0(@opentelemetry/api@1.9.0)
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       compression:
         specifier: 1.8.0
         version: 1.8.0
@@ -974,11 +974,11 @@ importers:
   packages/pipeline-core:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       '@pipeline-builder/pipeline-data':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.251.0
         version: 2.251.0(constructs@10.5.1)
@@ -1050,8 +1050,8 @@ importers:
   packages/pipeline-data:
     dependencies:
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       drizzle-orm:
         specifier: 0.45.1
         version: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
@@ -1162,8 +1162,8 @@ importers:
         specifier: 3.821.0
         version: 3.821.0
       '@pipeline-builder/pipeline-core':
-        specifier: 3.3.25
-        version: 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        specifier: 3.3.26
+        version: 3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       aws-cdk-lib:
         specifier: 2.251.0
         version: 2.251.0(constructs@10.5.1)
@@ -1244,8 +1244,8 @@ importers:
         specifier: 3.997.0
         version: 3.997.0
       '@pipeline-builder/api-core':
-        specifier: 3.3.26
-        version: 3.3.26
+        specifier: 3.3.27
+        version: 3.3.27
       adm-zip:
         specifier: 0.5.16
         version: 0.5.16
@@ -3901,12 +3901,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@pipeline-builder/ai-core@3.3.25':
-    resolution: {integrity: sha512-iS8UAqrGO18H3cnC41b/TwT/y5ph4q96xVa101euBk4VJE0y4Pk7Ac9hwMCV5W/em9Up/dbLHPQrP2cfZxSvmg==}
-    engines: {node: '>= 24.14.0'}
-
-  '@pipeline-builder/api-core@3.3.23':
-    resolution: {integrity: sha512-AHB7Sne/tsKIWXzRnKBTkGcG+7mc2q/2jxunM9n0X1eXq1cERNbqZd8k4kC4WW7VOWhx7j+UpEe7fiV8WQrhEQ==}
+  '@pipeline-builder/ai-core@3.3.26':
+    resolution: {integrity: sha512-Alhw2kcxMZgpOG9vHMTVB3BPkTl1D1YlY2p6w5LRh5J0SDvni680SkxYMCkUeWDh/dRX6Gk9ySC6pVeob7Jxag==}
     engines: {node: '>= 24.14.0'}
 
   '@pipeline-builder/api-core@3.3.24':
@@ -3921,20 +3917,20 @@ packages:
     resolution: {integrity: sha512-urw1DXgfsUlcsuLRHsCFHKfQ1gCJA2Aw9ix1DRJNRaO5B5Gr4shQvgao0LsihTc/eAK9BlIRglIDIY1haEYlbQ==}
     engines: {node: '>= 24.14.0'}
 
-  '@pipeline-builder/api-server@3.3.25':
-    resolution: {integrity: sha512-2iHjV9IahaAXBZgRMZuUXoTF3CxeIrChp9Xs3NTXoHFmSAFVeNCO2lg7bTfU6O5bTaJRhIponQCgjatew838Ew==}
+  '@pipeline-builder/api-core@3.3.27':
+    resolution: {integrity: sha512-Ts8PIgSSl/qdzPoXIYnKhLMnusuFZ9jmNf/Xe7J/7M2pDgxRx/dtOpVYKWM5eC0jsdikz5dGj1ln6Ukv63n3CQ==}
     engines: {node: '>= 24.14.0'}
 
-  '@pipeline-builder/pipeline-core@3.3.24':
-    resolution: {integrity: sha512-OaP5f/SZFzyk+KCK8/o4yhUJddMICe6TLM4vV7rcc+l07z7MOX2G6k1bRhYozbe+C+s8jhddi431VDq6yXwKNA==}
+  '@pipeline-builder/api-server@3.3.26':
+    resolution: {integrity: sha512-bvtqLGYLqXXyBmgBDZmMPovuGlK+j5T8XmOYOB0ZoDqkOf7Je/m2Wg2tem1x/GY2uAyxGA8FDOeqqHTV+/DsBQ==}
     engines: {node: '>= 24.14.0'}
 
   '@pipeline-builder/pipeline-core@3.3.25':
     resolution: {integrity: sha512-ezYiK4rZVfR5M0ZhJrMQ6Dw+kqql8+0TBlGBcjG0FYbUhE+WTi827g1ZjTDx6qbi53jNuznHfdx+v3sugqlZMQ==}
     engines: {node: '>= 24.14.0'}
 
-  '@pipeline-builder/pipeline-data@3.3.23':
-    resolution: {integrity: sha512-WGFxKpcl9oFmXfLdLt1OUNQ3t4a6MUy7ldSyAI5RKrBXRXhas2ziF9vdDp1X+9YE557Tx96lgUscdSghj/c2ow==}
+  '@pipeline-builder/pipeline-core@3.3.26':
+    resolution: {integrity: sha512-OVWUOW1yXZFD0l7LqwsJiUaIXrsySVD7K+xCU4xiwNOD0PWMObR4UOSKb+z35qwdZCQkwob6AcMFa8X+P6MAmA==}
     engines: {node: '>= 24.14.0'}
 
   '@pipeline-builder/pipeline-data@3.3.24':
@@ -3943,6 +3939,10 @@ packages:
 
   '@pipeline-builder/pipeline-data@3.3.25':
     resolution: {integrity: sha512-5b3JTBBfPQxQ2cskJpRh//CA4nlEXEDJvOVy5S8JOjomk5d4Vehl20EY7Q4XyawxWkqOpRMJbZ9hyyOUXuF7Yg==}
+    engines: {node: '>= 24.14.0'}
+
+  '@pipeline-builder/pipeline-data@3.3.26':
+    resolution: {integrity: sha512-rf2NwOcRowtx94NCcNNT6H7so0O/pV3RFe8bDEOi42jCG3JXsiLoYJZDFaRoSXXSOBv23JV4HNFXqa4yaACILQ==}
     engines: {node: '>= 24.14.0'}
 
   '@pkgjs/parseargs@0.11.0':
@@ -11711,7 +11711,7 @@ snapshots:
   '@oxc-resolver/binding-win32-x64-msvc@11.19.1':
     optional: true
 
-  '@pipeline-builder/ai-core@3.3.25(zod@4.3.6)':
+  '@pipeline-builder/ai-core@3.3.26(zod@4.3.6)':
     dependencies:
       '@ai-sdk/amazon-bedrock': 4.0.64(zod@4.3.6)
       '@ai-sdk/anthropic': 3.0.47(zod@4.3.6)
@@ -11719,21 +11719,11 @@ snapshots:
       '@ai-sdk/openai': 3.0.31(zod@4.3.6)
       '@ai-sdk/openai-compatible': 2.0.31(zod@4.3.6)
       '@ai-sdk/xai': 3.0.59(zod@4.3.6)
-      '@pipeline-builder/api-core': 3.3.25
+      '@pipeline-builder/api-core': 3.3.26
       ai: 6.0.99(zod@4.3.6)
     transitivePeerDependencies:
       - supports-color
       - zod
-
-  '@pipeline-builder/api-core@3.3.23':
-    dependencies:
-      '@asteasolutions/zod-to-openapi': 8.4.0(zod@4.3.6)
-      express: 5.2.1
-      jsonwebtoken: 9.0.3
-      winston: 3.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
 
   '@pipeline-builder/api-core@3.3.24':
     dependencies:
@@ -11765,15 +11755,25 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@pipeline-builder/api-server@3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)':
+  '@pipeline-builder/api-core@3.3.27':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 8.4.0(zod@4.3.6)
+      express: 5.2.1
+      jsonwebtoken: 9.0.3
+      winston: 3.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
+
+  '@pipeline-builder/api-server@3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/auto-instrumentations-node': 0.67.1(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))
       '@opentelemetry/exporter-trace-otlp-http': 0.213.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.6.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-node': 0.213.0(@opentelemetry/api@1.9.0)
-      '@pipeline-builder/api-core': 3.3.25
-      '@pipeline-builder/pipeline-core': 3.3.24(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+      '@pipeline-builder/api-core': 3.3.26
+      '@pipeline-builder/pipeline-core': 3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       compression: 1.8.0
       cors: 2.8.6
       express: 5.2.1
@@ -11819,15 +11819,15 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@pipeline-builder/api-server@3.3.25(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)':
+  '@pipeline-builder/api-server@3.3.26(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/auto-instrumentations-node': 0.67.1(@opentelemetry/api@1.9.0)(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))
       '@opentelemetry/exporter-trace-otlp-http': 0.213.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.6.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-node': 0.213.0(@opentelemetry/api@1.9.0)
-      '@pipeline-builder/api-core': 3.3.25
-      '@pipeline-builder/pipeline-core': 3.3.24(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+      '@pipeline-builder/api-core': 3.3.26
+      '@pipeline-builder/pipeline-core': 3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       compression: 1.8.0
       cors: 2.8.6
       express: 5.2.1
@@ -11861,48 +11861,6 @@ snapshots:
       - bun-types
       - debug
       - encoding
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-      - supports-color
-
-  '@pipeline-builder/pipeline-core@3.3.24(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
-    dependencies:
-      '@pipeline-builder/api-core': 3.3.24
-      '@pipeline-builder/pipeline-data': 3.3.23(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
-      aws-cdk-lib: 2.251.0(constructs@10.5.1)
-      axios: 1.13.5
-      constructs: 10.5.1
-      jsonwebtoken: 9.0.3
-      uuid: 13.0.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - debug
       - expo-sqlite
       - gel
       - knex
@@ -11957,10 +11915,10 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@pipeline-builder/pipeline-core@3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)':
+  '@pipeline-builder/pipeline-core@3.3.26(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
-      '@pipeline-builder/api-core': 3.3.25
-      '@pipeline-builder/pipeline-data': 3.3.24(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+      '@pipeline-builder/api-core': 3.3.26
+      '@pipeline-builder/pipeline-data': 3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       aws-cdk-lib: 2.251.0(constructs@10.5.1)
       axios: 1.13.5
       constructs: 10.5.1
@@ -11999,11 +11957,15 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@pipeline-builder/pipeline-data@3.3.23(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
+  '@pipeline-builder/pipeline-core@3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)':
     dependencies:
-      '@pipeline-builder/api-core': 3.3.23
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
-      pg: 8.18.0
+      '@pipeline-builder/api-core': 3.3.26
+      '@pipeline-builder/pipeline-data': 3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+      aws-cdk-lib: 2.251.0(constructs@10.5.1)
+      axios: 1.13.5
+      constructs: 10.5.1
+      jsonwebtoken: 9.0.3
+      uuid: 13.0.0
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
       - '@cloudflare/workers-types'
@@ -12024,6 +11986,7 @@ snapshots:
       - '@xata.io/client'
       - better-sqlite3
       - bun-types
+      - debug
       - expo-sqlite
       - gel
       - knex
@@ -12073,10 +12036,10 @@ snapshots:
       - sqlite3
       - supports-color
 
-  '@pipeline-builder/pipeline-data@3.3.24(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)':
+  '@pipeline-builder/pipeline-data@3.3.25(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)':
     dependencies:
-      '@pipeline-builder/api-core': 3.3.24
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
+      '@pipeline-builder/api-core': 3.3.25
+      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
       pg: 8.18.0
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -12113,6 +12076,43 @@ snapshots:
   '@pipeline-builder/pipeline-data@3.3.25(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)':
     dependencies:
       '@pipeline-builder/api-core': 3.3.25
+      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
+      pg: 8.18.0
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+      - supports-color
+
+  '@pipeline-builder/pipeline-data@3.3.26(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)':
+    dependencies:
+      '@pipeline-builder/api-core': 3.3.26
       drizzle-orm: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
       pg: 8.18.0
     transitivePeerDependencies:
