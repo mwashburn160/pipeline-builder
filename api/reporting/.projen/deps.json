@@ -72,22 +72,22 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.15",
+      "version": "3.3.16",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "3.3.15",
+      "version": "3.3.16",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.15",
+      "version": "3.3.16",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-data",
-      "version": "3.3.15",
+      "version": "3.3.16",
       "type": "runtime"
     },
     {
