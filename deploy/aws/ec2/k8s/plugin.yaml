@@ -118,7 +118,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:3.3.24-docker
+          image: ghcr.io/mwashburn160/plugin:3.3.30-docker
           securityContext:
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
