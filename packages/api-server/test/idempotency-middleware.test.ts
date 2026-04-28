@@ -75,16 +75,23 @@ describe('idempotencyMiddleware', () => {
     expect(res.json).toBe(originalJson);
   });
 
-  it('intercepts res.json on first call with key', () => {
+  // Note: middleware now performs an async store.get() lookup before
+  // intercepting res.json — these tests await with `setImmediate` to let
+  // the microtask queue drain. With the default in-memory store the
+  // lookup resolves synchronously-ish; one microtask tick is enough.
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  it('intercepts res.json on first call with key', async () => {
     const middleware = idempotencyMiddleware();
     const req = mockReq({ headers: { 'idempotency-key': 'fresh-key-1' } });
     const res = mockRes();
     const originalJson = res.json;
     middleware(req, res, jest.fn());
+    await flush();
     expect(res.json).not.toBe(originalJson);
   });
 
-  it('replays cached response on second call with same key', () => {
+  it('replays cached response on second call with same key', async () => {
     const middleware = idempotencyMiddleware();
     const key = 'cache-key-' + Math.random();
 
@@ -93,6 +100,7 @@ describe('idempotencyMiddleware', () => {
     const res1 = mockRes();
     res1.statusCode = 201;
     middleware(req1, res1, jest.fn());
+    await flush();
     res1.json({ id: 'created' });
 
     // Second call — should replay from cache
@@ -100,6 +108,7 @@ describe('idempotencyMiddleware', () => {
     const res2 = mockRes();
     const next2 = jest.fn();
     middleware(req2, res2, next2);
+    await flush();
 
     expect(next2).not.toHaveBeenCalled();
     expect(res2.setHeader).toHaveBeenCalledWith('X-Idempotent-Replayed', 'true');
@@ -107,7 +116,7 @@ describe('idempotencyMiddleware', () => {
     expect(res2.json).toHaveBeenCalledWith({ id: 'created' });
   });
 
-  it('namespaces cache by orgId to prevent cross-org collisions', () => {
+  it('namespaces cache by orgId to prevent cross-org collisions', async () => {
     const middleware = idempotencyMiddleware();
     const key = 'shared-key-' + Math.random();
 
@@ -118,6 +127,7 @@ describe('idempotencyMiddleware', () => {
     });
     const resA = mockRes();
     middleware(reqA, resA, jest.fn());
+    await flush();
     resA.json({ for: 'a' });
 
     // Org B sees no cached entry
@@ -128,6 +138,7 @@ describe('idempotencyMiddleware', () => {
     const resB = mockRes();
     const nextB = jest.fn();
     middleware(reqB, resB, nextB);
+    await flush();
     expect(nextB).toHaveBeenCalled();
   });
 });

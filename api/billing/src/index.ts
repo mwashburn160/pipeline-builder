@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, ErrorCode } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, mongoSanitize } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -30,6 +30,9 @@ const { app, sseManager } = createApp({
 });
 
 app.use(attachRequestContext(sseManager));
+// Mongo operator-injection guard — strips `$`-prefixed keys + dot-walks
+// from incoming JSON. Billing is Mongo-backed so this matters here.
+app.use(mongoSanitize());
 
 if (config.enabled) {
 

@@ -124,14 +124,21 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   const serverConfig = Config.get('server');
   const app = express();
 
-  // Security middleware
+  // Security middleware.
+  //
+  // Swagger UI needs unsafe-inline + unsafe-eval for its bundled scripts —
+  // but we only relax CSP that far when (a) OpenAPI is enabled AND (b) we're
+  // not in production. In prod, Swagger should be served behind a separate
+  // host or auth-gated route; the main app keeps the strict CSP so a Stored
+  // XSS in any handler can't `eval()` arbitrary script.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const allowSwaggerCsp = enableOpenApi && !isProduction;
   if (enableHelmet) {
     app.use(helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          // Swagger UI requires unsafe-inline + unsafe-eval for its scripts
-          scriptSrc: enableOpenApi
+          scriptSrc: allowSwaggerCsp
             ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
             : ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],

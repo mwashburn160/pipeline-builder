@@ -45,6 +45,13 @@ export interface SSEManagerOptions {
   clientTimeoutMs?: number;
   /** Interval for cleanup checks in milliseconds (default: 5 minutes) */
   cleanupIntervalMs?: number;
+  /**
+   * Hard cap on total open connections per process. Defaults to 1000 from
+   * `SSE_MAX_TOTAL_CLIENTS`. New connections beyond this are rejected at
+   * `addClient()`. Tune up if your service serves > 1000 concurrent SSE
+   * dashboards, but be aware Node.js fd limits dominate above ~5000.
+   */
+  maxTotalClients?: number;
 }
 
 /**
@@ -77,15 +84,24 @@ export interface SSEManagerStats {
 export class SSEManager {
   private clients = new Map<string, SSEClient[]>();
   private readonly maxClientsPerRequest: number;
+  private readonly maxTotalClients: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(options: SSEManagerOptions = {}) {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10);
+    this.maxTotalClients = options.maxTotalClients ?? parseInt(process.env.SSE_MAX_TOTAL_CLIENTS || '1000', 10);
     this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10); // 30 minutes
 
     const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
+  }
+
+  /** Total open connections across all requests. */
+  private totalClients(): number {
+    let n = 0;
+    for (const clients of this.clients.values()) n += clients.length;
+    return n;
   }
 
   /**
@@ -101,6 +117,12 @@ export class SSEManager {
     // Check client limit
     if (existing.length >= this.maxClientsPerRequest) {
       logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
+      return false;
+    }
+
+    // Process-wide cap: protects fd table + memory from runaway dashboards.
+    if (this.totalClients() >= this.maxTotalClients) {
+      logger.warn(`Total SSE client cap reached (max: ${this.maxTotalClients}); rejecting new connection`);
       return false;
     }
 
@@ -362,7 +384,12 @@ export class SSEManager {
       const active: SSEClient[] = [];
 
       for (const client of clients) {
-        if (now - client.connectedAt > this.clientTimeoutMs) {
+        // Time-based eviction OR a socket that silently closed (no 'close'
+        // event) — Node sometimes drops sockets without firing the event,
+        // so we explicitly check writableEnded/destroyed here.
+        const ageStale = now - client.connectedAt > this.clientTimeoutMs;
+        const socketDead = client.res.writableEnded || (client.res as { destroyed?: boolean }).destroyed === true;
+        if (ageStale || socketDead) {
           stale.push(client);
         } else {
           active.push(client);

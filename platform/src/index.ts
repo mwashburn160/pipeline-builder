@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import net from 'net';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, mongoSanitize } from '@pipeline-builder/api-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -116,6 +116,10 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(config.cors));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+// Mongo operator-injection guard — Platform is Mongo-backed (users, orgs,
+// invitations, audit). Strips $-prefixed keys from req.body/query/params
+// so a `{"email": {"$ne": null}}` payload can't match any document.
+app.use(mongoSanitize());
 app.set('trust proxy', config.server.trustProxy);
 app.use(requestIdMiddleware);
 
@@ -204,9 +208,14 @@ async function startServer(): Promise<void> {
       logger.info('MongoDB reconnected');
     });
 
-    // Connect to MongoDB
-    await mongoose.connect(config.mongodb.uri);
-    logger.info('MongoDB connection established');
+    // Connect to MongoDB. Pool sizing via env (see api/billing/database.ts
+    // for rationale): bound the connection ceiling so multiple replicas
+    // don't exhaust Mongo's default 100-connection cap.
+    const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL || '20', 10);
+    const minPoolSize = parseInt(process.env.MONGO_MIN_POOL || '2', 10);
+    const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
+    await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+    logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
 
     // Start HTTP server
     const server = app.listen(config.app.port, () => {

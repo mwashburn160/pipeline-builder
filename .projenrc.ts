@@ -7,7 +7,6 @@ import { TypeScriptProject } from 'projen/lib/typescript';
 import { PnpmWorkspace } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
-import { Pages } from './projenrc/pages';
 import { Workflow } from './projenrc/workflow';
 import { ManagerProject } from './projenrc/manager';
 import { FrontEndProject } from './projenrc/frontend';
@@ -26,14 +25,14 @@ const cdkVersion = '2.251.0';
 const expressVersion = '5.2.1';
 
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
-//const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.3.16',
-  pipelineData:   '3.3.16',
-  pipelineCore:   '3.3.16',
-  apiServer:      '3.3.16',
-  aiCore:         '3.3.16',
-  eventBridge:    '3.3.16'
+  apiCore:        ws,
+  pipelineData:   ws,
+  pipelineCore:   ws,
+  apiServer:      ws,
+  aiCore:         ws,
+  eventBridge:    ws
 };
 
 // =============================================================================
@@ -464,6 +463,5 @@ new Nx(root);
 new PnpmWorkspace(root);
 new VscodeSettings(root);
 new Workflow(root, { pnpmVersion });
-new Pages(root);
 
 root.synth();

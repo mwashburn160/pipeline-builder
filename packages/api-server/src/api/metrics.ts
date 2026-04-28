@@ -92,3 +92,80 @@ export function metricsHandler() {
     res.end(await register.metrics());
   };
 }
+
+// ---------------------------------------------------------------------------
+// Business / domain metrics
+//
+// Services should emit counters for the things operators actually care about
+// (pipelines generated, plugin builds completed, compliance violations,
+// AI tokens consumed) — not just HTTP traffic. The helpers below register
+// counters lazily on the shared registry so multiple services can call
+// `incCounter('plugin_builds_total', { status: 'completed' })` without
+// worrying about double-registration.
+//
+// Naming convention: `<domain>_<noun>_total` for counters, `_seconds` for
+// histograms — matches Prometheus best-practice.
+// ---------------------------------------------------------------------------
+
+const businessCounters = new Map<string, Counter<string>>();
+const businessHistograms = new Map<string, Histogram<string>>();
+
+/**
+ * Increment a business counter, creating it on first use.
+ *
+ * @example
+ * ```typescript
+ * incCounter('pipelines_generated_total', { provider: 'anthropic' });
+ * incCounter('plugin_builds_total', { status: 'completed' });
+ * incCounter('quota_threshold_crossed_total', { type: 'aiCalls', tier: 'pro' });
+ * incCounter('compliance_violations_found_total', { severity: 'critical' });
+ * ```
+ */
+export function incCounter(name: string, labels: Record<string, string> = {}, value = 1): void {
+  let counter = businessCounters.get(name);
+  if (!counter) {
+    counter = new Counter({
+      name,
+      help: humanizeName(name),
+      labelNames: Object.keys(labels),
+      registers: [register],
+    });
+    businessCounters.set(name, counter);
+  }
+  counter.inc(labels, value);
+}
+
+/**
+ * Record an observation on a business histogram, creating it on first use.
+ * Use for durations, sizes, anything where percentiles matter.
+ *
+ * @example
+ * ```typescript
+ * observe('ai_generation_duration_seconds', { provider: 'anthropic', model: 'sonnet' }, durationSec);
+ * observe('plugin_build_duration_seconds', { buildType: 'docker' }, durationSec);
+ * ```
+ */
+export function observe(name: string, labels: Record<string, string>, value: number): void {
+  let hist = businessHistograms.get(name);
+  if (!hist) {
+    hist = new Histogram({
+      name,
+      help: humanizeName(name),
+      labelNames: Object.keys(labels),
+      // Default buckets target sub-second through several-minute observations.
+      // Override by registering the histogram explicitly before first call
+      // if you need a different bucket distribution.
+      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
+      registers: [register],
+    });
+    businessHistograms.set(name, hist);
+  }
+  hist.observe(labels, value);
+}
+
+function humanizeName(metricName: string): string {
+  // `pipelines_generated_total` → "Pipelines generated total"
+  return metricName
+    .replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase());
+}

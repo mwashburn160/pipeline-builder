@@ -48,7 +48,11 @@ describe('connectDatabase', () => {
     await connectDatabase('mongodb://localhost:27017/test');
 
     expect(mockSet).toHaveBeenCalledWith('strictQuery', true);
-    expect(mockConnect).toHaveBeenCalledWith('mongodb://localhost:27017/test');
+    // Pool sizing options were added to bound connection growth across replicas.
+    expect(mockConnect).toHaveBeenCalledWith(
+      'mongodb://localhost:27017/test',
+      expect.objectContaining({ maxPoolSize: 20, minPoolSize: 2, serverSelectionTimeoutMS: 5000 }),
+    );
   });
 
   it('registers error, disconnected, and reconnected handlers', async () => {

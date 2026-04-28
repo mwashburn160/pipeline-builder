@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { mongoSanitize } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
@@ -19,6 +20,8 @@ const { app, sseManager } = createApp({
 });
 
 app.use(attachRequestContext(sseManager));
+// Mongo operator-injection guard — Quota is Mongo-backed.
+app.use(mongoSanitize());
 
 app.use('/quotas', getQuotaRoutes);
 app.use('/quotas', updateQuotaRoutes);

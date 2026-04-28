@@ -92,7 +92,7 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.16",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
