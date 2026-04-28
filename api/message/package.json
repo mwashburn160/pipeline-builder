@@ -36,7 +36,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.3.21",
+    "@pipeline-builder/api-core": "3.3.23",
     "@pipeline-builder/api-server": "3.3.21",
     "@pipeline-builder/pipeline-core": "3.3.21",
     "drizzle-orm": "0.45.1",
@@ -60,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.22",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
