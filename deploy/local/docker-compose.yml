@@ -123,7 +123,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: platform
     volumes:
-      - './data/db-data/mongodb/:/data/db/:rw'
+      - 'mongodb-data:/data/db/:rw'
       - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
       - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
@@ -155,7 +155,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - './data/db-data/postgres/:/var/lib/postgresql/data:rw'
+      - 'postgres-data:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
@@ -359,7 +359,7 @@ services:
       TMPDIR: /tmp
     volumes:
       - './data/plugins-data/builds:/tmp:rw'
-      - './data/plugins-data/dind:/var/lib/docker'
+      - 'plugin-dind-data:/var/lib/docker'
     networks:
       - backend-network
     healthcheck:
@@ -840,6 +840,9 @@ services:
 # =============================================================================
 volumes:
   promtail-positions:
+  mongodb-data:
+  postgres-data:
+  plugin-dind-data:
 
 networks:
   proxy-network:
