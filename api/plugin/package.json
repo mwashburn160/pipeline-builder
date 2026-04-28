@@ -41,9 +41,9 @@
   },
   "dependencies": {
     "@pipeline-builder/ai-core": "3.3.21",
-    "@pipeline-builder/api-core": "3.3.24",
+    "@pipeline-builder/api-core": "3.3.25",
     "@pipeline-builder/api-server": "3.3.21",
-    "@pipeline-builder/pipeline-core": "3.3.21",
+    "@pipeline-builder/pipeline-core": "3.3.24",
     "adm-zip": "0.5.16",
     "bullmq": "5.34.8",
     "cors": "2.8.6",
@@ -74,7 +74,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.26",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
