@@ -1,4 +1,4 @@
-# @pipeline-builder/event-bridge
+# @pipeline-builder/pipeline-events
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 

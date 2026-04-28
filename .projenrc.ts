@@ -27,12 +27,12 @@ const expressVersion = '5.2.1';
 // Internal package versions — use workspace:* so pnpm resolves from local workspace
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.3.25',
-  pipelineData:   '3.3.24',
-  pipelineCore:   '3.3.24',
-  apiServer:      '3.3.21',
-  aiCore:         '3.3.21',
-  eventBridge:    '3.3.21'
+  apiCore:        '3.3.26',
+  pipelineData:   '3.3.25',
+  pipelineCore:   '3.3.25',
+  apiServer:      '3.3.25',
+  aiCore:         '3.3.25',
+  pipelineEvents: '3.3.25'
 };
 
 // =============================================================================
@@ -277,20 +277,20 @@ aiCore.eslint?.addRules(rules);
 addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 configureJest(aiCore);
 
-// -- EventBridge Lambda --
-const eventBridge = new PackageProject({
+// -- Pipeline Events (CodePipeline → Reporting Lambda) --
+const pipelineEvents = new PackageProject({
   ...pkgDefaults, parent: root,
-  name: '@pipeline-builder/event-bridge',
-  outdir: './packages/event-bridge',
+  name: '@pipeline-builder/pipeline-events',
+  outdir: './packages/pipeline-events',
   deps: [],
   devDeps: [
     '@types/node@25.3.0', '@types/aws-lambda@8.10.160',
     '@aws-sdk/client-secrets-manager@3.997.0', `typescript@${typescriptVersion}`,
   ],
 });
-eventBridge.eslint?.addRules(rules);
-addPackageMetadata(eventBridge, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
-configureJest(eventBridge);
+pipelineEvents.eslint?.addRules(rules);
+addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
+configureJest(pipelineEvents);
 
 // =============================================================================
 // Pipeline Manager CLI
