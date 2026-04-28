@@ -28,6 +28,14 @@ app.use('/pipelines', createCreatePipelineRoutes(quotaService));
 // -- AI generation routes — auth + orgId + ai_generation feature gate --------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePipelineRoutes(quotaService));
 
+// -- Registry route — must be BEFORE read routes so `/registry` doesn't get
+//    swallowed by read's `/:id` matcher (would 404 with "Pipeline not found.")
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
+
+// -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
+//    Also before read routes — `/bulk/create` must not hit `/:id`.
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPipelineRoutes());
+
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
@@ -36,12 +44,6 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createUpdatePipeline
 
 // -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipelineRoutes());
-
-// -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPipelineRoutes());
-
-// -- Registry route — auth + orgId (upsert pipeline ARN for event reporting) -
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
 
 // -- Register compliance event subscriber for entity lifecycle events --------
 registerComplianceEventSubscriber();
