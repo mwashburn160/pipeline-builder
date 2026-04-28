@@ -309,7 +309,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:3.3.23-docker'
+    image: 'ghcr.io/mwashburn160/plugin:3.3.24-docker'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
@@ -389,7 +389,7 @@ services:
           memory: 512M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:3.3.23'
+    image: 'ghcr.io/mwashburn160/pipeline:3.3.24'
     container_name: pipeline
     restart: always
     stop_grace_period: 10s

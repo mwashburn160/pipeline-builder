@@ -22,12 +22,12 @@ Parameters:
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:3.3.23
+    Default: ghcr.io/mwashburn160/pipeline:3.3.24
     Description: Docker image for the Pipeline service
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:3.3.23-kaniko
+    Default: ghcr.io/mwashburn160/plugin:3.3.24-kaniko
     Description: Docker image for the Plugin service
 
   QuotaImage:
