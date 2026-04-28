@@ -52,6 +52,20 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "https"
     spec:
+      initContainers:
+        - name: wait-for-upstreams
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              for s in billing compliance frontend grafana message pipeline platform plugin quota reporting; do
+                until nslookup "$s" >/dev/null 2>&1; do
+                  echo "waiting for $s..."
+                  sleep 2
+                done
+              done
+              echo "all upstreams resolvable"
       containers:
         - name: nginx
           image: nginx:1.27

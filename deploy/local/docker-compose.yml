@@ -94,6 +94,17 @@ services:
     networks:
       - proxy-network
       - backend-network
+    depends_on:
+      billing:    { condition: service_started }
+      compliance: { condition: service_started }
+      frontend:   { condition: service_started }
+      grafana:    { condition: service_started }
+      message:    { condition: service_started }
+      pipeline:   { condition: service_started }
+      platform:   { condition: service_started }
+      plugin:     { condition: service_started }
+      quota:      { condition: service_started }
+      reporting:  { condition: service_started }
     healthcheck:
       test: ["CMD-SHELL", "curl -sfk https://localhost:8443/health || exit 1"]
       interval: 30s

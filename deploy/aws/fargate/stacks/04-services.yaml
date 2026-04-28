@@ -198,6 +198,16 @@ Resources:
   # ---------------------------------------------------------------------------
   NginxService:
     Type: AWS::ECS::Service
+    DependsOn:
+      - BillingService
+      - ComplianceService
+      - FrontendService
+      - MessageService
+      - PipelineService
+      - PlatformService
+      - PluginService
+      - QuotaService
+      - ReportingService
     Properties:
       ServiceName: !Sub "${StackPrefix}-nginx"
       Cluster:
