@@ -135,7 +135,9 @@ CREATE TABLE IF NOT EXISTS messages (
     content             TEXT NOT NULL,
 
     -- Status
-    is_read             BOOLEAN NOT NULL DEFAULT false,
+    -- read_by is the per-participant read-receipt map: orgId → ISO timestamp.
+    -- Empty {} means nobody has read it yet.
+    read_by             JSONB NOT NULL DEFAULT '{}'::jsonb,
     priority            VARCHAR(20) NOT NULL DEFAULT 'normal'
                         CHECK (priority IN ('normal', 'high', 'urgent')),
 
@@ -405,8 +407,8 @@ CREATE INDEX IF NOT EXISTS message_created_at_idx
 CREATE INDEX IF NOT EXISTS message_active_idx
     ON messages(is_active);
 
-CREATE INDEX IF NOT EXISTS message_is_read_idx
-    ON messages(is_read);
+CREATE INDEX IF NOT EXISTS message_read_by_idx
+    ON messages USING GIN (read_by);
 
 CREATE INDEX IF NOT EXISTS message_recipient_active_created_idx
     ON messages(recipient_org_id, is_active, created_at);
