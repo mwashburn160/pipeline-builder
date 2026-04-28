@@ -249,7 +249,11 @@ export function sendPaginatedNested<T>(
   const pagination: Record<string, unknown> = { limit, offset, hasMore };
   if (total !== undefined) pagination.total = total;
   if (nextCursor) pagination.nextCursor = nextCursor;
-  res.status(statusCode).json({ [dataKey]: data, pagination });
+  res.status(statusCode).json({
+    success: true,
+    statusCode,
+    data: { [dataKey]: data, pagination },
+  });
 }
 
 /**

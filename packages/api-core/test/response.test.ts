@@ -191,15 +191,16 @@ describe('sendPaginatedNested', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.pipelines).toEqual([{ id: '1' }, { id: '2' }]);
-    expect(res.body.pagination).toEqual({ total: 50, limit: 25, offset: 0, hasMore: true });
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.pipelines).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(res.body.data.pagination).toEqual({ total: 50, limit: 25, offset: 0, hasMore: true });
   });
 
   it('should omit total when not provided', () => {
     const res = mockRes();
     sendPaginatedNested(res, 'rows', [], { limit: 10, offset: 0, hasMore: false });
-    expect(res.body.pagination.total).toBeUndefined();
-    expect(res.body.pagination).toEqual({ limit: 10, offset: 0, hasMore: false });
+    expect(res.body.data.pagination.total).toBeUndefined();
+    expect(res.body.data.pagination).toEqual({ limit: 10, offset: 0, hasMore: false });
   });
 
   it('should include nextCursor when provided', () => {
@@ -207,7 +208,7 @@ describe('sendPaginatedNested', () => {
     sendPaginatedNested(res, 'rows', [], {
       limit: 10, offset: 0, hasMore: true, nextCursor: 'abc123',
     });
-    expect(res.body.pagination.nextCursor).toBe('abc123');
+    expect(res.body.data.pagination.nextCursor).toBe('abc123');
   });
 
   it('should use custom statusCode', () => {
