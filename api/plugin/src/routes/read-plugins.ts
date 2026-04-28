@@ -26,7 +26,7 @@ export function createReadPluginRoutes(
     const rows = await db.execute<{ name: string; cnt: string | number }>(sql`
       SELECT step->'plugin'->>'name' AS name,
              COUNT(DISTINCT p.id) AS cnt
-        FROM pipeline p,
+        FROM pipelines p,
              jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
              jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
        WHERE p.org_id = ${orgId.toLowerCase()}
