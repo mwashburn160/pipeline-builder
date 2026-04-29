@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
 import api from '@/lib/api';
-import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, ComplianceCheckResult } from '@/types/compliance';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
+import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 
 const OPERATORS: { value: RuleOperator; label: string }[] = [
   { value: 'eq', label: 'Equals' },
@@ -41,6 +42,7 @@ interface FormState {
   name: string;
   description: string;
   target: RuleTarget;
+  scope: RuleScope;
   severity: RuleSeverity;
   priority: number;
   tags: string;
@@ -58,7 +60,7 @@ interface FormState {
 function ruleToForm(rule?: ComplianceRule): FormState {
   if (!rule) {
     return {
-      name: '', description: '', target: 'plugin', severity: 'warning', priority: 0,
+      name: '', description: '', target: 'plugin', scope: 'org', severity: 'warning', priority: 0,
       tags: '', suppressNotification: false, effectiveFrom: '', effectiveUntil: '',
       useConditions: false, field: '', operator: 'eq', value: '',
       conditionMode: 'all', conditions: [],
@@ -69,6 +71,7 @@ function ruleToForm(rule?: ComplianceRule): FormState {
     name: rule.name,
     description: rule.description || '',
     target: rule.target,
+    scope: rule.scope,
     severity: rule.severity,
     priority: rule.priority,
     tags: (rule.tags || []).join(', '),
@@ -92,6 +95,7 @@ function parseValue(str: string): unknown {
 }
 
 export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
+  const { isSysAdmin } = useAuthGuard();
   const [form, setForm] = useState<FormState>(() => ruleToForm(rule));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +156,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           name: form.name,
           description: form.description || undefined,
           target: form.target,
+          scope: isSysAdmin ? form.scope : undefined,
           severity: form.severity,
           priority: form.priority,
           tags,
@@ -216,6 +221,16 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </select>
           </div>
         </div>
+        {isSysAdmin && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
+            <select value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} className={inputCls} disabled={isEdit}>
+              <option value="org">Org — private to your organization</option>
+              <option value="published">Published — shared catalog, other orgs can subscribe</option>
+            </select>
+            {isEdit && <p className="mt-1 text-xs text-gray-500">Scope is set at creation and cannot be changed.</p>}
+          </div>
+        )}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
           <textarea value={form.description} onChange={e => set('description', e.target.value)} className={inputCls} rows={2} placeholder="Optional description" />
