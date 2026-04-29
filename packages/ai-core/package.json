@@ -39,7 +39,7 @@
     "@ai-sdk/openai": "3.0.31",
     "@ai-sdk/openai-compatible": "2.0.31",
     "@ai-sdk/xai": "3.0.59",
-    "@pipeline-builder/api-core": "3.3.28",
+    "@pipeline-builder/api-core": "3.3.29",
     "ai": "6.0.99"
   },
   "keywords": [
@@ -80,7 +80,7 @@
   "main": "lib/index.js",
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
-  "version": "3.3.28",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
