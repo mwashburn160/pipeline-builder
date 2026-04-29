@@ -61,7 +61,7 @@ export function DeployedPipelinesPanel() {
         {loading && <p className="text-sm text-gray-500">Loading registry…</p>}
         {error && <p className="text-sm text-red-600">{error}</p>}
         {!loading && !error && rows?.length === 0 && (
-          <p className="text-sm text-gray-500">No deployed pipelines yet. Pipelines register here when their CDK stack runs `pipeline-manager register`.</p>
+          <p className="text-sm text-gray-500">No deployed pipelines yet. Pipelines register here when <code>pipeline-manager deploy</code> succeeds.</p>
         )}
         {!loading && !error && rows && rows.length > 0 && (
           <ul className="divide-y divide-gray-100 dark:divide-gray-800">
