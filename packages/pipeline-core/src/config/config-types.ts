@@ -171,6 +171,8 @@ export interface ObservabilityConfig {
 
 export interface ComplianceConfig {
   readonly scanSchedulerIntervalMs: number;
+  /** When false, the scheduler skips scans/schedules for the system org. Default: false. */
+  readonly systemOrgScansEnabled: boolean;
 }
 
 export interface AWSConfig {

@@ -1,16 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config, schema, db } from '@pipeline-builder/pipeline-core';
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, ne, and, lte } from 'drizzle-orm';
 import { executeScan } from './scan-executor';
 
 const logger = createLogger('scan-scheduler');
 
 /** How often the scheduler runs (ms). */
-const complianceConfig = Config.getAny('compliance') as { scanSchedulerIntervalMs: number };
+const complianceConfig = Config.getAny('compliance') as { scanSchedulerIntervalMs: number; systemOrgScansEnabled: boolean };
 const SCHEDULER_INTERVAL_MS = complianceConfig.scanSchedulerIntervalMs;
+const SYSTEM_ORG_SCANS_ENABLED = complianceConfig.systemOrgScansEnabled;
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -54,10 +55,17 @@ async function runSchedulerCycle(): Promise<void> {
 
 /** Find and execute all pending scans. */
 async function processPendingScans(): Promise<void> {
+  // System-org scans are skipped unless SYSTEM_ORG_SCANS_ENABLED — they tend to
+  // be catalog/template seeds, not real workloads, so running them by default
+  // wastes cycles and pollutes the audit feed.
+  const conditions = [eq(schema.complianceScan.status, 'pending')];
+  if (!SYSTEM_ORG_SCANS_ENABLED) {
+    conditions.push(ne(schema.complianceScan.orgId, SYSTEM_ORG_ID));
+  }
   const pendingScans = await db
     .select({ id: schema.complianceScan.id })
     .from(schema.complianceScan)
-    .where(eq(schema.complianceScan.status, 'pending'))
+    .where(and(...conditions))
     .limit(10);
 
   for (const scan of pendingScans) {
@@ -73,13 +81,17 @@ async function processPendingScans(): Promise<void> {
 async function checkDueSchedules(): Promise<void> {
   const now = new Date();
 
+  const conditions = [
+    eq(schema.complianceScanSchedule.isActive, true),
+    lte(schema.complianceScanSchedule.nextRunAt, now),
+  ];
+  if (!SYSTEM_ORG_SCANS_ENABLED) {
+    conditions.push(ne(schema.complianceScanSchedule.orgId, SYSTEM_ORG_ID));
+  }
   const dueSchedules = await db
     .select()
     .from(schema.complianceScanSchedule)
-    .where(and(
-      eq(schema.complianceScanSchedule.isActive, true),
-      lte(schema.complianceScanSchedule.nextRunAt, now),
-    ))
+    .where(and(...conditions))
     .limit(10);
 
   for (const schedule of dueSchedules) {

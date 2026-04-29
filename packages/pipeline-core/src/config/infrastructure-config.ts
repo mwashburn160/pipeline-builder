@@ -101,6 +101,7 @@ export function loadObservabilityConfig(): ObservabilityConfig {
 export function loadComplianceConfig(): ComplianceConfig {
   return {
     scanSchedulerIntervalMs: parseInt(process.env.SCAN_SCHEDULER_INTERVAL_MS || '60000', 10),
+    systemOrgScansEnabled: process.env.SYSTEM_ORG_SCANS_ENABLED === 'true',
   };
 }
 
