@@ -9,6 +9,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  SYSTEM_ORG_ID: 'system',
 }));
 
 // Provide minimal Config + db + schema so the module loads.
