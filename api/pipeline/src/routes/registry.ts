@@ -132,5 +132,47 @@ export function createRegistryRoutes(): Router {
     sendSuccess(res, 200, { registry: result });
   }));
 
+  /**
+   * DELETE /pipelines/registry/:id — remove a single registry row by its UUID.
+   *
+   * Used to reconcile drift after a CloudFormation stack is deleted out-of-band
+   * (i.e. without `pipeline-manager deploy`), which leaves a stale registry row.
+   * The `pipeline-manager audit-stacks` CLI surfaces such rows; this endpoint is
+   * the supported path to clear them.
+   *
+   * Tenancy: scoped to the caller's orgId. A 404 is returned for both
+   * "row does not exist" and "row exists but belongs to another org" so a
+   * caller cannot probe other orgs' registry contents.
+   *
+   * Note: this is a hard delete, not a soft delete. The registry table is a
+   * pure mapping cache — losing a row never loses information that isn't
+   * already in CloudFormation, so there's nothing to recover.
+   */
+  router.delete('/registry/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+    const id = req.params.id;
+    if (!id) {
+      return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+    }
+
+    const [deleted] = await db
+      .delete(schema.pipelineRegistry)
+      .where(and(
+        eq(schema.pipelineRegistry.id, id),
+        eq(schema.pipelineRegistry.orgId, orgId),
+      ))
+      .returning({
+        id: schema.pipelineRegistry.id,
+        pipelineArn: schema.pipelineRegistry.pipelineArn,
+      });
+
+    if (!deleted) {
+      return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
+    }
+
+    ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, arn: deleted.pipelineArn });
+
+    sendSuccess(res, 200, { id: deleted.id });
+  }));
+
   return router;
 }

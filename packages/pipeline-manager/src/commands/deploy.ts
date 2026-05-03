@@ -1,8 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash } from 'crypto';
-import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants';
@@ -12,6 +10,7 @@ import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } fr
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { buildRegistryPayload, writePendingIntent } from '../utils/registry';
 
 const { bold, cyan, dim } = pico;
 
@@ -219,35 +218,50 @@ export function deploy(program: Command): void {
             printInfo('Skipping pipeline registry (local-spec mode)');
             return;
           }
+          // Build the payload up-front so a registration POST failure can write
+          // the same payload to a pending-intent file for `pipeline-manager
+          // register` to drain later. We never want to retry STS lookups —
+          // they can fail too (e.g. credential rotation) and would compound
+          // the issue.
+          let payload;
           try {
-            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION });
-            const identity = await stsClient.send(new GetCallerIdentityCommand({}));
-            const account = identity.Account ?? '';
-            const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
-
-            const pipelineName = pipeline.pipelineName
-              || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
-
-            const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
-            const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
-
-            await platformClient.post(`${platformConfig.api.pipelineUrl}/registry`, {
-              pipelineId: pipeline.id,
-              orgId: pipeline.orgId,
-              pipelineArn,
-              pipelineName,
-              accountId: hashedAccount,
-              region,
-              project: pipeline.project,
-              organization: pipeline.organization,
-              stackName: `${pipeline.project}-${pipeline.organization}`.toLowerCase(),
+            payload = await buildRegistryPayload(
+              {
+                id: pipeline.id,
+                orgId: pipeline.orgId,
+                pipelineName: pipeline.pipelineName,
+                project: pipeline.project,
+                organization: pipeline.organization,
+              },
+              options.region,
+            );
+          } catch (buildError) {
+            printWarning('Could not build registry payload — skipping registration', {
+              error: buildError instanceof Error ? buildError.message : String(buildError),
             });
+            return;
+          }
 
-            printSuccess('Pipeline registered for event reporting', { arn: pipelineArn });
+          try {
+            await platformClient.post(`${platformConfig.api.pipelineUrl}/registry`, payload);
+            printSuccess('Pipeline registered for event reporting', { arn: payload.pipelineArn });
           } catch (regError) {
-            printWarning('Pipeline registry update failed (reporting may be incomplete)', {
-              error: regError instanceof Error ? regError.message : String(regError),
-            });
+            // Persist for retry. The user can drain with `pipeline-manager
+            // register` (or just re-run that command at any time — it's
+            // idempotent). The deploy itself does NOT fail.
+            try {
+              const intentPath = await writePendingIntent(payload);
+              printWarning('Pipeline registry update failed; queued for retry', {
+                error: regError instanceof Error ? regError.message : String(regError),
+                retry: 'pipeline-manager register',
+                intent: intentPath,
+              });
+            } catch (writeErr) {
+              printWarning('Pipeline registry update failed (retry queue also failed)', {
+                error: regError instanceof Error ? regError.message : String(regError),
+                queueError: writeErr instanceof Error ? writeErr.message : String(writeErr),
+              });
+            }
           }
         }
 

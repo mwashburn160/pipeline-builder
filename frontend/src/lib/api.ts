@@ -651,6 +651,16 @@ class ApiClient {
   }
 
   /**
+   * Delete a single pipeline registry row by UUID (org-scoped on the server).
+   * Used to reconcile drift after a CloudFormation stack is removed out-of-band.
+   */
+  async deletePipelineRegistry(id: string) {
+    return this.request<ApiResponse<{ id: string }>>(`/api/pipelines/registry/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
    * List orgs at >= threshold% on any quota dimension (system admin only).
    * Powers the operations dashboard "orgs about to hit limits" panel.
    * @param threshold integer 1-100 (default 80 server-side)

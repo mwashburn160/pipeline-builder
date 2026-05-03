@@ -11,6 +11,7 @@ Both deploy the full stack: app services, databases, observability (Prometheus, 
 - [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
 - [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
+- [Drift Detection (`audit-stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
 - [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
 - [Access Points](#access-points) -- Service URLs after deployment
 - [File Structure](#file-structure) -- Deployment file layout
@@ -576,6 +577,69 @@ View    → Dashboard Reports page or GET /api/reports/...
 > AWS account numbers are **never stored in plain text**. Both the deploy command and Lambda handler hash account numbers with SHA-256 before sending to the API. The reporting API applies the same hash as defense in depth.
 
 > Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
+
+### Drift Detection (`audit-stacks`)
+
+The `pipeline_registry` table is written only when `pipeline-manager deploy` succeeds. CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
+
+The `audit-stacks` command joins the registry against live CloudFormation stacks tagged `pipeline-builder` and surfaces two categories of drift:
+
+| Finding | Meaning | Typical cause |
+|---------|---------|---------------|
+| **Orphaned stack** | Tagged stack exists in CloudFormation, but no matching row in `pipeline_registry` | Pipeline was deleted from the dashboard but the CDK stack stayed in AWS |
+| **Missing stack** | Registry row exists, but no matching CloudFormation stack | Stack was deleted manually (e.g. `aws cloudformation delete-stack`) without going through the platform |
+
+#### Usage
+
+```bash
+# Scan all orgs in the default region
+pipeline-manager audit-stacks --region us-east-1
+
+# Scan one org, JSON output (suitable for piping into jq / cron alerting)
+pipeline-manager audit-stacks --org acme --region us-east-1 --json
+
+# With a specific AWS profile
+pipeline-manager audit-stacks --profile production --region us-east-1
+```
+
+Flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--region <region>` | AWS region to scan. Defaults to `AWS_REGION` env, then `CDK_DEFAULT_REGION`, then `us-east-1`. |
+| `--org <orgId>` | Restrict both the registry fetch and the stack scan to a single org. |
+| `--profile <profile>` | AWS CLI profile (default: `default`). |
+| `--json` | Emit a single JSON document instead of human output. |
+
+#### Exit codes
+
+The command is designed to be cron-friendly:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | No drift |
+| `1` | One or more findings (orphaned and/or missing stacks) |
+| `2` | AWS error or scan failure |
+
+A typical alerting setup runs the audit nightly and pages on non-zero exit:
+
+```bash
+# /etc/cron.d/pipeline-builder-audit
+0 6 * * * deploy-bot pipeline-manager audit-stacks --region us-east-1 --json > /var/log/pb-audit.json || alert-on-call "pipeline-builder drift detected"
+```
+
+#### Remediation
+
+Drift is **not auto-fixed** — the command only reports. Reconciliation is manual and depends on the cause:
+
+- **Orphaned stack**: confirm the pipeline definition really was deleted, then `aws cloudformation delete-stack --stack-name <name>` to clean up the leftover. If the deletion was unintentional, recreate the pipeline definition and redeploy.
+- **Missing stack**: redeploy the pipeline (`pipeline-manager deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_arn = '<arn>'`).
+
+#### What it doesn't catch
+
+- **Out-of-region drift** — only scans the region you pass with `--region`. Run once per region you deploy to.
+- **Stack content drift** — doesn't detect when a stack's resources have been edited in-console but the template still matches the last deploy. Use `aws cloudformation detect-stack-drift` for that.
+- **Mid-deploy states** — only `*_COMPLETE` statuses are considered active. A stack stuck in `CREATE_IN_PROGRESS` or `ROLLBACK_FAILED` will look like a missing stack.
 
 ---
 

@@ -13,6 +13,7 @@ import { getPlugin } from './commands/get-plugin';
 import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
 import { login } from './commands/login';
+import { register } from './commands/register';
 import { setupEvents } from './commands/setup-events';
 import { status } from './commands/status';
 import { storeToken } from './commands/store-token';
@@ -195,6 +196,7 @@ Examples:
   setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
+  register(program); // Re-register a deployed pipeline ARN + drain pending intents from prior failed deploys
 
   // Operator audit commands (cron-friendly: exit 1 on findings)
   printDebug('Registering audit commands');
@@ -210,12 +212,15 @@ Examples:
     .description('Generate shell completions (bash, zsh, fish)')
     .argument('<shell>', 'Shell type: bash, zsh, or fish')
     .action((shell: string) => {
+      // Pull command names from commander's registered list so completions never
+      // drift from the actual CLI surface. Sorted for stable output.
+      const commands = program.commands.map(c => c.name()).sort().join(' ');
       switch (shell) {
         case 'bash':
           console.log(`# pipeline-manager bash completions
 _pipeline_manager_completions() {
   local cur="\${COMP_WORDS[COMP_CWORD]}"
-  local commands="login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions"
+  local commands="${commands}"
   COMPREPLY=($(compgen -W "\${commands}" -- "\${cur}"))
 }
 complete -F _pipeline_manager_completions pipeline-manager`);
@@ -223,14 +228,14 @@ complete -F _pipeline_manager_completions pipeline-manager`);
         case 'zsh':
           console.log(`# pipeline-manager zsh completions
 _pipeline_manager() {
-  local commands=(login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions)
+  local commands=(${commands})
   _describe 'command' commands
 }
 compdef _pipeline_manager pipeline-manager`);
           break;
         case 'fish':
           console.log(`# pipeline-manager fish completions
-complete -c pipeline-manager -n '__fish_use_subcommand' -a 'login deploy synth upload-plugin create-pipeline status version bootstrap setup-events store-token completions'`);
+complete -c pipeline-manager -n '__fish_use_subcommand' -a '${commands}'`);
           break;
         default:
           console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);

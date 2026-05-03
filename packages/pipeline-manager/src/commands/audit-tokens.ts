@@ -103,7 +103,7 @@ export function auditTokens(program: Command): void {
           const status: TokenAuditEntry['status'] =
             expiresAt.getTime() < now ? 'expired'
               : expiresAt.getTime() < warnCutoff ? 'expiring-soon'
-              : 'ok';
+                : 'ok';
           entries.push({ secretName: s.name, arn: s.arn, expiresAt, daysUntilExpiry, status });
         }
 

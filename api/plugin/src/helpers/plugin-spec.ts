@@ -374,14 +374,14 @@ export function validatePluginTemplates(pluginSpec: PluginSpec): void {
   if (missing.length) {
     const uniq = Array.from(new Set(missing)).sort();
     problems.push(
-      `Plugin spec uses template paths not declared in contract:\n` +
+      'Plugin spec uses template paths not declared in contract:\n' +
       uniq.map(p => `  • ${p} — declare it in 'requiredMetadata' or 'requiredVars'`).join('\n'),
     );
   }
   if (typeMismatches.length) {
     const uniq = Array.from(new Set(typeMismatches)).sort();
     problems.push(
-      `Plugin spec has type mismatches between coercion filters and declared types:\n` +
+      'Plugin spec has type mismatches between coercion filters and declared types:\n' +
       uniq.map(p => `  • ${p}`).join('\n'),
     );
   }

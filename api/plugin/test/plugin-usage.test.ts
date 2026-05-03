@@ -91,7 +91,7 @@ describe('GET /plugins/plugin-usage', () => {
 
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      data: { counts: { 'snyk-scan': 5, 'docker-build': 12, pytest: 3 } },
+      data: { counts: { 'snyk-scan': 5, 'docker-build': 12, 'pytest': 3 } },
     }));
   });
 
