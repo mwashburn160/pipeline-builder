@@ -380,6 +380,15 @@ export class Workflow extends Component {
 
         return [
             {
+                // Disable Nx telemetry prompt and daemon for non-interactive CI.
+                // Without these the first nx invocation hangs on "Share usage data?"
+                // and the daemon adds startup overhead + stale-state risk in
+                // ephemeral runners. Set via $GITHUB_ENV so all subsequent steps
+                // (and any tools they spawn) inherit the values.
+                name: 'Disable Nx telemetry and daemon',
+                run: 'echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV',
+            },
+            {
                 name: 'Clear cache',
                 uses: 'actions/github-script@v8',
                 with: {
@@ -390,7 +399,7 @@ export class Workflow extends Component {
                         try {
                             await github.rest.actions.deleteActionsCacheById({repo: context.repo.repo,owner: context.repo.owner,cache_id: cache.id})
                             console.log('Successfully deleted cache with ID: ',cache.id);
-                        } catch (error) { 
+                        } catch (error) {
                             console.log('Error deleting cache with ID: ',cache.id, error);
                         }
                     }`,
