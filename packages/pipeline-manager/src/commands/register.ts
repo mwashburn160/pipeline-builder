@@ -106,6 +106,10 @@ export function register(program: Command): void {
             throw new Error(`No pipeline returned for id ${options.id}`);
           }
 
+          if (!pipeline.orgId) {
+            printError('Pipeline has no orgId — cannot register');
+            throw new Error(`Pipeline ${pipeline.id} is missing orgId`);
+          }
           const payload = await buildRegistryPayload(
             {
               id: pipeline.id,

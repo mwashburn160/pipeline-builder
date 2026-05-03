@@ -223,6 +223,10 @@ export function deploy(program: Command): void {
           // register` to drain later. We never want to retry STS lookups —
           // they can fail too (e.g. credential rotation) and would compound
           // the issue.
+          if (!pipeline.orgId) {
+            printWarning('Pipeline has no orgId — skipping registration');
+            return;
+          }
           let payload;
           try {
             payload = await buildRegistryPayload(

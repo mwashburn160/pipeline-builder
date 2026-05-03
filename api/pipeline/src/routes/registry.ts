@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, sendPaginatedNested, ErrorCode, hashAccountInArn, hashId, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, sendPaginatedNested, ErrorCode, getParam, hashAccountInArn, hashId, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { db, schema } from '@pipeline-builder/pipeline-core';
 import { and, eq, desc, sql } from 'drizzle-orm';
@@ -149,7 +149,7 @@ export function createRegistryRoutes(): Router {
    * already in CloudFormation, so there's nothing to recover.
    */
   router.delete('/registry/:id', withRoute(async ({ req, res, ctx, orgId }) => {
-    const id = req.params.id;
+    const id = getParam(req.params, 'id');
     if (!id) {
       return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
     }
