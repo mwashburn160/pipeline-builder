@@ -1,6 +1,6 @@
 # Documentation
 
-Operational guides, usage how-to's, and detailed reference for Pipeline Builder.
+Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting Started](#getting-started) below, then jump into [Creating Pipelines](#creating-pipelines).
 
 ## Getting Started
 
@@ -24,69 +24,24 @@ Operational guides, usage how-to's, and detailed reference for Pipeline Builder.
 
 ## Guides
 
+### How-To
+
 | Document | Description |
 |----------|-------------|
-| [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, and AI generation |
+| [AWS Deployment](aws-deployment.md) | EC2 and Fargate deployment, post-deploy setup, drift detection |
+| [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Environment Variables](environment-variables.md) | Configuration reference for all services |
-| [AWS Deployment](aws-deployment.md) | EC2 and Fargate deployment with post-deploy setup |
-| [Metadata Keys](metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
-| [CDK Usage](cdk-usage.md) | PipelineBuilder construct, sources, stages, VPC, IAM, secrets |
-| [Template Syntax](templates.md) | {% raw %}`{{ ... }}`{% endraw %} interpolation for pipeline configs and plugin specs |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
+
+### Reference
+
+| Document | Description |
+|----------|-------------|
+| [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
+| [Metadata Keys](metadata-keys.md) | 56 CodePipeline / CodeBuild configuration keys |
+| [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](plugins/README.md) | 124 pre-built plugins across 10 categories |
-
----
-
-## Organizations
-
-Organizations are the core isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization.
-
-### Creating an Organization
-
-Register an account, then create one or more organizations. The creator becomes the **owner**.
-
-**From the dashboard** — navigate to **Team** and click **Create Organization**.
-
-**From the API:**
-
-```bash
-curl -X POST https://localhost:8443/api/organization \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
-```
-
-### Roles
-
-| Role | Capabilities |
-|------|-------------|
-| **Owner** | Full control — manage members, transfer ownership, delete org |
-| **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
-| **Member** | Create and manage their own pipelines and plugins |
-
-Invite members via email from the dashboard or API. A user can belong to multiple organizations.
-
-### Feature Tiers
-
-| Feature | Developer | Pro | Unlimited |
-|---------|-----------|-----|-----------|
-| Pipeline / plugin CRUD | yes | yes | yes |
-| AI pipeline generation | - | yes | yes |
-| AI plugin generation | - | yes | yes |
-| Bulk operations | - | yes | yes |
-| Audit log | - | - | yes |
-| Custom integrations | - | - | yes |
-| Priority support | - | yes | yes |
-
-System org users always have access to all features.
-
-### What Each Org Controls
-
-- **Plugins** — upload private plugins or use shared public ones; control which versions are available
-- **Compliance rules** — enforce security standards, naming conventions, resource limits
-- **Quotas** — set limits on pipelines, plugins, and API calls
-- **Billing** — per-org subscription plans and usage tracking
-- **Secrets** — stored in AWS Secrets Manager, injected at build time
 
 ---
 
@@ -227,6 +182,58 @@ Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGO
 
 ---
 
+## Organizations
+
+Organizations are the multi-tenant isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization. This section covers admin tasks; new evaluators can skip ahead to [Architecture](#architecture).
+
+### Creating an Organization
+
+Register an account, then create one or more organizations. The creator becomes the **owner**.
+
+**From the dashboard** — navigate to **Team** and click **Create Organization**.
+
+**From the API:**
+
+```bash
+curl -X POST https://localhost:8443/api/organization \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"acme-platform","displayName":"Acme Platform Team"}'
+```
+
+### Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **Owner** | Full control — manage members, transfer ownership, delete org |
+| **Admin** | Manage plugins, pipelines, compliance rules, quotas, and invite members |
+| **Member** | Create and manage their own pipelines and plugins |
+
+Invite members via email from the dashboard or API. A user can belong to multiple organizations.
+
+### Feature Tiers
+
+| Feature | Developer | Pro | Unlimited |
+|---------|-----------|-----|-----------|
+| Pipeline / plugin CRUD | yes | yes | yes |
+| AI pipeline generation | - | yes | yes |
+| AI plugin generation | - | yes | yes |
+| Bulk operations | - | yes | yes |
+| Audit log | - | - | yes |
+| Custom integrations | - | - | yes |
+| Priority support | - | yes | yes |
+
+System org users always have access to all features.
+
+### What Each Org Controls
+
+- **Plugins** — upload private plugins or use shared public ones; control which versions are available
+- **Compliance rules** — enforce security standards, naming conventions, resource limits
+- **Quotas** — set limits on pipelines, plugins, and API calls
+- **Billing** — per-org subscription plans and usage tracking
+- **Secrets** — stored in AWS Secrets Manager, injected at build time
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -252,6 +259,8 @@ flowchart TB
 | **Billing** | Subscriptions and usage billing |
 | **Message** | Org announcements and conversations |
 
+For end-to-end request → build → deploy flow diagrams, see [Architecture Flow](architecture-flow.md). For the case for adopting Pipeline Builder org-wide, see [Organization Benefits](organization-benefits.md).
+
 ---
 
 ## Plugin Categories
@@ -270,3 +279,12 @@ flowchart TB
 | [Monitoring](plugins/monitoring.md) | 3 | Datadog, New Relic, Sentry |
 | [Notification](plugins/notification.md) | 5 | Slack, Teams, PagerDuty, email |
 | [AI](plugins/ai.md) | 1 | Dockerfile generation (multi-provider) |
+
+---
+
+## Next Steps
+
+- **First time?** Deploy [Local](../deploy/local/) and walk through [Creating Pipelines](#creating-pipelines).
+- **Setting up for your team?** Read [Organization Benefits](organization-benefits.md), then [Organizations](#organizations) above.
+- **Wiring CI from code?** [CDK Usage](cdk-usage.md) → [Samples](samples.md) → [Template Syntax](templates.md).
+- **Going to production on AWS?** [AWS Deployment](aws-deployment.md) covers EC2, Fargate, drift detection, and event reporting.

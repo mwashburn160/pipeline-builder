@@ -29,7 +29,11 @@ relative_links:
   collections: true
 
 # Exclude non-docs files from generated site.
+# README.md is excluded so it can use natural `{{ ... }}` in code samples
+# without polluting the GitHub repo view with `{% raw %}` Liquid tags. The
+# Jekyll landing page lives at index.md.
 exclude:
+  - README.md
   - node_modules/
   - packages/
   - api/
