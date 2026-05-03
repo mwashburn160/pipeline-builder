@@ -44,8 +44,8 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.213.0",
     "@opentelemetry/resources": "2.6.0",
     "@opentelemetry/sdk-node": "0.213.0",
-    "@pipeline-builder/api-core": "3.3.29",
-    "@pipeline-builder/pipeline-core": "3.3.29",
+    "@pipeline-builder/api-core": "3.3.31",
+    "@pipeline-builder/pipeline-core": "3.3.31",
     "compression": "1.8.0",
     "cors": "2.8.6",
     "express": "5.2.1",
@@ -96,7 +96,7 @@
   "main": "lib/index.js",
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
-  "version": "3.3.30",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
