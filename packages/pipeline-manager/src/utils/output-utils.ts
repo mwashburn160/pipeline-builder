@@ -44,10 +44,15 @@ function logOutput(level: LogLevel, message: string, data?: unknown): void {
   const prefixes = { info: 'ℹ', success: '✓', warn: '⚠', error: '✗', debug: '●' };
   const writers = { error: console.error, warn: console.warn, info: console.log, success: console.log, debug: console.log };
 
-  const styledMessage = `${colors[level](prefixes[level])} ${message}`;
-  const write = writers[level];
+  // Fall back to console.log + raw message if a caller leaks an unknown level
+  // (e.g. an `as LogLevel` cast on user input). The whole point of the logger
+  // is to surface errors — failing inside the logger and masking the real
+  // error with a TypeError defeats it.
+  const color = colors[level] ?? ((s: string) => s);
+  const prefix = prefixes[level] ?? '?';
+  const write = writers[level] ?? console.log;
 
-  write(styledMessage);
+  write(`${color(prefix)} ${message}`);
   if (data !== undefined) write(dim(formatDataForLog(data)));
 }
 

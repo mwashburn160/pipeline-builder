@@ -21,13 +21,39 @@ export interface CdkInfo {
 
 /**
  * Checks whether the AWS CDK CLI is installed and returns its version.
+ *
+ * Tries `cdk --version` first. If that fails (typically because the user has
+ * cdk on PATH via their shell rc but execSync's default `/bin/sh` doesn't
+ * source it), falls back to running through the user's interactive shell
+ * (`$SHELL -i -c`) so node version managers like nvm/asdf and homebrew paths
+ * become visible.
  */
 export function getCdkInfo(): CdkInfo {
   try {
     const output = execSync('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
     return { available: true, version: output.trim() };
-  } catch (error) {
-    return { available: false, version: null, error: error instanceof Error ? error.message : 'Unknown error' };
+  } catch (firstError) {
+    // Fallback: invoke through the user's login shell so PATH from their rc
+    // file is sourced. Skip when SHELL isn't set or is /bin/sh (which would
+    // be the same default).
+    const userShell = process.env.SHELL;
+    if (userShell && !userShell.endsWith('/sh')) {
+      try {
+        const output = execSync('cdk --version', {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          shell: userShell,
+        });
+        return { available: true, version: output.trim() };
+      } catch {
+        // fall through to the original error
+      }
+    }
+    return {
+      available: false,
+      version: null,
+      error: firstError instanceof Error ? firstError.message : 'Unknown error',
+    };
   }
 }
 
