@@ -19,39 +19,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── PHP via ondrej/php PPA ───
+# ─── PHP via deb.sury.org ───
 #
-# `add-apt-repository ppa:ondrej/php` calls Launchpad's API to fetch the
-# signing key, which intermittently 504s under load and aborts the whole
-# build. We bypass it by:
-#   1. Fetching the PPA's signing key directly (retried, multiple keyservers)
-#   2. Writing the apt source list ourselves
-#   3. Retrying `apt-get update` since archive mirrors can also flap
+# We use packages.sury.org (Ondřej Surý's own repo) instead of the Launchpad
+# PPA `ondrej/php`. Same maintainer, but the .org repo:
+#   - Has faster + more complete coverage (PHP 8.4 for noble is here; the
+#     Launchpad PPA was missing it)
+#   - Is CDN-fronted, so no Launchpad-API 504s during key/index fetch
+#   - Ships its own signing key over HTTPS, no keyserver dance required
 #
-# Effective build is identical to `add-apt-repository ppa:ondrej/php` but
-# resilient to single-mirror failures.
+# Steps are wrapped in retry loops so transient mirror flaps self-heal.
 RUN set -eux; \
-    KEY_ID=4F4EA0AAE5267A6C; \
     install -d -m 0755 /etc/apt/keyrings; \
-    for keyserver in \
-        keyserver.ubuntu.com \
-        keys.openpgp.org \
-        pgp.mit.edu; do \
-      if gpg --keyserver "hkps://${keyserver}" --no-default-keyring \
-             --keyring /etc/apt/keyrings/ondrej-php.gpg --recv-keys "${KEY_ID}"; then \
-        echo "fetched PPA key from ${keyserver}"; \
-        break; \
-      fi; \
-      echo "keyserver ${keyserver} failed, trying next"; \
-      sleep 5; \
+    for i in 1 2 3 4 5; do \
+      curl -fsSL --retry 3 https://packages.sury.org/php/apt.gpg \
+        -o /etc/apt/keyrings/sury-php.gpg && break \
+        || { echo "key fetch attempt $i failed, retrying"; sleep $((i * 5)); }; \
     done; \
-    test -s /etc/apt/keyrings/ondrej-php.gpg; \
+    test -s /etc/apt/keyrings/sury-php.gpg; \
+    chmod 0644 /etc/apt/keyrings/sury-php.gpg; \
     UBUNTU_CODENAME=$(. /etc/os-release && echo "${UBUNTU_CODENAME}"); \
-    echo "deb [signed-by=/etc/apt/keyrings/ondrej-php.gpg] http://ppa.launchpad.net/ondrej/php/ubuntu ${UBUNTU_CODENAME} main" \
-      > /etc/apt/sources.list.d/ondrej-php.list; \
+    echo "deb [signed-by=/etc/apt/keyrings/sury-php.gpg] https://packages.sury.org/php/ ${UBUNTU_CODENAME} main" \
+      > /etc/apt/sources.list.d/sury-php.list; \
     for i in 1 2 3 4 5; do \
       apt-get update && break || { echo "apt-get update attempt $i failed, retrying"; sleep $((i * 5)); }; \
-    done
+    done; \
+    # Sanity-check that the repo actually contributed php8.4 packages.
+    # Surfaces a missing version NOW with a clear error, instead of failing
+    # 30s later on `apt-get install` with "Unable to locate package".
+    apt-cache policy php8.4-cli | grep -q packages.sury.org \
+      || { echo "ERROR: sury repo loaded but php8.4-cli not found for ${UBUNTU_CODENAME}"; \
+           apt-cache policy php8.4-cli; exit 1; }
 
 # Pre-install PHP 8.3 (previous)
 RUN apt-get install -y --no-install-recommends \
