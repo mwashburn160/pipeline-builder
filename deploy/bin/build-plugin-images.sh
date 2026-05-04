@@ -179,13 +179,40 @@ while IFS= read -r plugin_dir; do
 
     echo "  [${CURRENT}/${TOTAL}] BUILD $label -> $tag"
 
-    # Build image
+    # Build image — with retry on transient network failures.
+    #
+    # Plugin Dockerfiles overwhelmingly use `apt-get update && apt-get install`
+    # which has no built-in retry. When archive.ubuntu.com / launchpad / sury
+    # mirrors flap (504s, connection timeouts), the build fails on a fully
+    # transient error. Retry the whole `docker build` up to BUILD_MAX_ATTEMPTS
+    # times when the failure log matches a known-transient pattern; surface
+    # any other failure (compile error, missing package, etc.) immediately.
     build_args=$(parse_build_arg_flags "$plugin_dir/plugin-spec.yaml")
     build_log=$(mktemp)
-    # shellcheck disable=SC2086
-    if ! docker build --progress plain $build_args \
-        -t "plugin:${tag}" -f "$plugin_dir/Dockerfile" "$plugin_dir" > "$build_log" 2>&1; then
-      echo "    FAIL (docker build failed — last 20 lines:)"
+    max_attempts=${BUILD_MAX_ATTEMPTS:-3}
+    attempt=1
+    build_ok=false
+    while [ "$attempt" -le "$max_attempts" ]; do
+      # shellcheck disable=SC2086
+      if docker build --progress plain $build_args \
+          -t "plugin:${tag}" -f "$plugin_dir/Dockerfile" "$plugin_dir" > "$build_log" 2>&1; then
+        build_ok=true
+        break
+      fi
+      # Detect transient apt/network failures. Anything else is a real bug
+      # and should fail immediately so the operator sees it.
+      if grep -qE 'connection timed out|Could not connect|Temporary failure resolving|503 Service Unavailable|504 Gateway|Gateway Time-out|Connection reset by peer|TLS handshake' "$build_log"; then
+        backoff=$((attempt * 10))
+        echo "    transient network failure on attempt $attempt/$max_attempts — sleeping ${backoff}s"
+        sleep "$backoff"
+        attempt=$((attempt + 1))
+        continue
+      fi
+      # Real failure — break out and report.
+      break
+    done
+    if [ "$build_ok" != "true" ]; then
+      echo "    FAIL (docker build failed after $attempt attempt(s) — last 20 lines:)"
       tail -20 "$build_log" | sed 's/^/      /'
       rm -f "$build_log"
       FAILED=$((FAILED + 1))
