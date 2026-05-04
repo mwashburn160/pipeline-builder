@@ -14,31 +14,35 @@ FROM pipeline-plugin-base:24.04
 # Snyk's CLI is JavaScript — needs Node + npm. corepack ships with
 # NodeSource's nodejs and provides the npm/pnpm/yarn shims at /usr/local/bin
 # without conflicting with Ubuntu's `npm` deb (which would shadow nodejs).
-# Retries on apt mirror flaps. Three discrete steps with their own retry:
-#   1) NodeSource setup — registers the apt source for nodejs 24
-#   2) `apt-get update` — fetches BOTH Ubuntu and NodeSource indices fresh.
-#      The base image purges /var/lib/apt/lists/*; without this fresh
-#      update, transient deps like `netbase`, `media-types`, `mime-support`
-#      that nodejs's transitive closure needs are "not installable".
-#   3) `apt-get install nodejs` — no --fix-missing (a silent downgrade to
-#      Ubuntu's old nodejs 18 would break corepack below).
+# Install Node.js from the official prebuilt tarball, bypassing apt entirely.
+#
+# Why not NodeSource's apt source: their setup_X.x script does its own
+# apt-get update internally, which on slow/flaky networks (EC2 ↔ ubuntu
+# mirrors) can partially succeed — curl returns 0, but NodeSource's
+# package index never lands. Then `apt-get install nodejs` silently falls
+# back to Ubuntu's old nodejs 18 (which doesn't ship corepack), and the
+# build looks like it succeeded but produces an unusable image.
+#
+# The official tarball at nodejs.org/dist is a single static binary tree.
+# No transitive deps, no apt state, no mirror dance — just curl + tar.
+ARG NODE_VERSION=24.15.0
 RUN set -eux; \
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+      x86_64)  NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    # Use .tar.gz, not .tar.xz — gzip is in the base image, xz-utils is not.
     for i in 1 2 3 4 5; do \
-      curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && break \
-        || { echo "NodeSource setup attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz \
+        && break \
+        || { echo "node tarball download attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \
-    for i in 1 2 3 4 5; do \
-      apt-get update && break \
-        || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
-    for i in 1 2 3 4 5; do \
-      apt-get install -y --no-install-recommends nodejs && break \
-        || { echo "apt install nodejs attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
-    # Verify we got NodeSource's nodejs (24.x), not Ubuntu's old fallback.
-    NODE_MAJOR=$(node --version | sed 's/^v//;s/\..*//'); \
-    [ "$NODE_MAJOR" -ge 24 ] || { echo "ERROR: nodejs $NODE_MAJOR installed (expected 24+); NodeSource source not active"; exit 1; }; \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb; \
+    tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
+    rm /tmp/node.tar.gz; \
+    node --version; \
+    npm --version; \
     corepack enable
 
 # Snyk CLI itself.

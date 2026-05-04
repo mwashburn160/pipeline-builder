@@ -24,23 +24,26 @@ ARG SONAR_PREV_VERSION
 # Sonar-scanner is JavaScript-based — needs Node + npm at runtime. corepack
 # ships with NodeSource's nodejs and provides npm/pnpm/yarn shims without
 # conflicting with Ubuntu's npm deb.
-# Retries on apt mirror flaps — see _snyk-base/Dockerfile for full rationale.
+# Install Node.js from the official prebuilt tarball — see _snyk-base/Dockerfile
+# for full rationale (NodeSource's apt source is too flaky on slow networks).
+ARG NODE_VERSION=24.15.0
 RUN set -eux; \
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+      x86_64)  NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    # Use .tar.gz, not .tar.xz — gzip is in the base image, xz-utils is not.
     for i in 1 2 3 4 5; do \
-      curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && break \
-        || { echo "NodeSource setup attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz \
+        && break \
+        || { echo "node tarball download attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \
-    for i in 1 2 3 4 5; do \
-      apt-get update && break \
-        || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
-    for i in 1 2 3 4 5; do \
-      apt-get install -y --no-install-recommends nodejs && break \
-        || { echo "apt install nodejs attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
-    NODE_MAJOR=$(node --version | sed 's/^v//;s/\..*//'); \
-    [ "$NODE_MAJOR" -ge 24 ] || { echo "ERROR: nodejs $NODE_MAJOR installed (expected 24+); NodeSource source not active"; exit 1; }; \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb; \
+    tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
+    rm /tmp/node.tar.gz; \
+    node --version; \
+    npm --version; \
     corepack enable
 
 # Two scanner versions; default symlinked to /usr/local/bin/sonar-scanner.
