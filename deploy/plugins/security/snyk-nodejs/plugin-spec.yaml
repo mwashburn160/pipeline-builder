@@ -21,6 +21,7 @@ installCommands:
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
+    set -e
     if [ -f package-lock.json ]; then npm ci
     elif [ -f package.json ]; then npm install
     fi

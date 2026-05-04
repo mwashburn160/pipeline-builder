@@ -77,6 +77,39 @@ RUN set -eux; \
     for p in $PKGS; do dpkg -s "$p" >/dev/null 2>&1 || { echo "ERROR: $p not installed after retries"; exit 1; }; done; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 
+# apt-retry-install — shared helper for plugin Dockerfiles. Wraps
+# `apt-get update` + `apt-get install` in a 5-attempt retry loop with
+# linear backoff. Exits 0 on success, non-zero if EVERY attempt failed.
+#
+# Usage in a plugin Dockerfile:
+#   RUN apt-retry-install nodejs python3 build-essential
+#
+# Without this helper, every per-plugin apt install is a roll of the dice
+# against archive.ubuntu.com / vendor-repo flaps. With it, every install
+# is self-healing and the pattern is one line per plugin.
+RUN cat > /usr/local/bin/apt-retry-install <<'SCRIPT' && chmod +x /usr/local/bin/apt-retry-install
+#!/bin/sh
+set -eu
+if [ "$#" -eq 0 ]; then
+  echo "usage: apt-retry-install <pkg> [<pkg>...]" >&2
+  exit 2
+fi
+for i in 1 2 3 4 5; do
+  apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }
+done
+for i in 1 2 3 4 5; do
+  apt-get install -y --no-install-recommends "$@" && break \
+    || { echo "apt-get install attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }
+done
+# Verify every requested package was actually installed (apt sometimes
+# returns 0 with --fix-missing even when fetches failed).
+for p in "$@"; do
+  case "$p" in -*) continue ;; esac  # skip flags
+  dpkg -s "$p" >/dev/null 2>&1 || { echo "ERROR: $p not installed after retries"; exit 1; }
+done
+rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+SCRIPT
+
 # Working directory for pipeline source — every plugin overrides commands
 # relative to this path.
 WORKDIR /app

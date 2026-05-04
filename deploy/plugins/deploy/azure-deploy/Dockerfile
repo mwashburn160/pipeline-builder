@@ -8,10 +8,7 @@ ARG KUBECTL_VERSION=1.31.4
 FROM pipeline-plugin-base:24.04
 ARG KUBECTL_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    lsb-release \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install apt-transport-https lsb-release
 
 # ─── Azure CLI ───
 RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft.gpg \

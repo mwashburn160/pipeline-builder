@@ -16,24 +16,29 @@ FROM pipeline-plugin-base:24.04
 ARG DC_DEFAULT_VERSION
 ARG DC_PREV_VERSION
 
-# System dependencies + Python + Node.js for multi-language dependency resolution
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    wget \
-    jq \
-    ca-certificates \
-    build-essential \
-    gnupg \
-    openjdk-17-jre-headless \
-    python3 \
-    python3-pip \
-    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && corepack enable
+# Java JRE (required by dependency-check engine), Python (pip lockfile
+# parsing), and Node.js (npm lockfile parsing). build-essential is NOT
+# needed at runtime — dependency-check parses lockfiles, never compiles.
+# Base image already provides git, curl, jq, ca-certificates, gnupg, etc.
+RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip
+
+# Node.js — installed from official tarball (apt-based NodeSource is too
+# flaky on slow EC2 networks; see _base/_snyk-base for full rationale).
+ARG NODE_VERSION=24.15.0
+RUN set -eux; \
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+      x86_64)  NODE_ARCH=x64 ;; \
+      aarch64) NODE_ARCH=arm64 ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    for i in 1 2 3 4 5; do \
+      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz && break \
+        || { echo "node tarball attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
+    rm /tmp/node.tar.gz; \
+    corepack enable
 
 # ─── Go (for go.mod dependency resolution) ───
 ENV GOENV_ROOT=/opt/goenv

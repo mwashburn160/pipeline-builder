@@ -5,10 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip
 
 # ─── Install twine and build ───
 RUN pip3 install --no-cache-dir --break-system-packages twine==6.1.0 build==1.2.2

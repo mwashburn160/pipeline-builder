@@ -22,11 +22,13 @@ installCommands:
   - cx version 2>/dev/null || echo "Checkmarx CLI ready"
   - kics version 2>/dev/null || echo "KICS ready"
   - |
+    set -e
     if [ -z "${CX_CLIENT_SECRET}" ]; then
       echo "WARNING: CX_CLIENT_SECRET must be injected via CodeBuild secrets"
     fi
 commands:
   - |
+    set -e
     case "${CX_SCAN_TYPE}" in
       sast)
         echo "Running Checkmarx SAST scan..."

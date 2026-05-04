@@ -17,12 +17,14 @@ dockerfile: Dockerfile
 installCommands:
   - test -d serverless-output || mkdir -p serverless-output
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
   - serverless --version
   - aws --version
   # Install project dependencies
   - |
+    set -e
     cd ${SLS_SERVICE_PATH}
     if [ -f package.json ]; then
       if [ -f package-lock.json ]; then npm ci; else npm install; fi
@@ -32,6 +34,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     cd ${SLS_SERVICE_PATH}
     REGION_ARG=""

@@ -5,14 +5,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + rbenv compilation prerequisites
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
-    zlib1g-dev \
-    libreadline-dev \
-    libyaml-dev \
-    libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev
 
 # Install rbenv + ruby-build
 ENV RBENV_ROOT=/opt/rbenv

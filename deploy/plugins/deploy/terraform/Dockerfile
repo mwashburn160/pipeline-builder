@@ -10,13 +10,7 @@ ARG TFSEC_VERSION=1.28.11
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
 FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
 
-FROM pipeline-plugin-base:24.04
-
-# ─── AWS CLI ───
-RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
+FROM pipeline-aws-cli-base:1.0
 
 # ─── tfenv for Terraform version management ───
 ENV TFENV_ROOT=/opt/tfenv

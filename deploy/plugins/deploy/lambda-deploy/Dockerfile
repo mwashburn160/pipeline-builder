@@ -2,13 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Updates Lambda function code with zip or container image packaging
 
-FROM pipeline-plugin-base:24.04
-
-# ─── AWS CLI v2 ───
-RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
+FROM pipeline-aws-cli-base:1.0
 
 # ─── Runtime configuration defaults ───
 ENV LAMBDA_FUNCTION=""

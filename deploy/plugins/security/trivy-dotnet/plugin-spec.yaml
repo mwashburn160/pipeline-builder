@@ -17,6 +17,7 @@ dockerfile: Dockerfile
 installCommands:
   - test -d trivy-reports || mkdir -p trivy-reports
   - |
+    set -e
     if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
       ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
     else
@@ -26,6 +27,7 @@ installCommands:
   - trivy --version
   - dotnet --version
   - |
+    set -e
     if ls *.sln *.csproj 1>/dev/null 2>&1; then dotnet restore; fi
 commands:
   - trivy fs --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .

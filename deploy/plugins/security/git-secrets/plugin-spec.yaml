@@ -18,6 +18,7 @@ installCommands:
   # Gitleaks version selection
   - test -d secrets-reports || mkdir -p secrets-reports
   - |
+    set -e
     if [ -f /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} ]; then
       ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /usr/local/bin/gitleaks
     else
@@ -30,6 +31,7 @@ installCommands:
 commands:
   # Gitleaks scan
   - |
+    set -e
     CONFIG_ARG=""
     if [ -n "${GITLEAKS_CONFIG}" ] && [ -f "${GITLEAKS_CONFIG}" ]; then
       CONFIG_ARG="--config ${GITLEAKS_CONFIG}"
@@ -52,6 +54,7 @@ commands:
     esac
   # TruffleHog scan
   - |
+    set -e
     echo "Running TruffleHog filesystem scan..."
     trufflehog filesystem . \
       --json \

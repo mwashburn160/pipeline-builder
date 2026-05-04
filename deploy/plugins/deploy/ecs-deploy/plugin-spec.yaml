@@ -29,6 +29,7 @@ installCommands:
   - aws --version
 commands:
   - |
+    set -e
     if [ -z "${ECS_CLUSTER}" ] || [ -z "${ECS_SERVICE}" ]; then
       echo "ERROR: ECS_CLUSTER and ECS_SERVICE must be set"
       exit 1
@@ -63,6 +64,7 @@ commands:
         > ecs-output/update-service.json
     fi
   - |
+    set -e
     if [ "${ECS_WAIT}" = "true" ]; then
       echo "Waiting for service ${ECS_SERVICE} to stabilize..."
       aws ecs wait services-stable \

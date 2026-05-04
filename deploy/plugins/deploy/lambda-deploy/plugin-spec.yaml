@@ -30,6 +30,7 @@ installCommands:
   - zip --version | head -1
 commands:
   - |
+    set -e
     if [ -z "${LAMBDA_FUNCTION}" ]; then
       echo "ERROR: LAMBDA_FUNCTION must be set"
       exit 1
@@ -66,6 +67,7 @@ commands:
     aws lambda wait function-updated --function-name ${LAMBDA_FUNCTION}
     echo "Function code updated successfully"
   - |
+    set -e
     if [ "${LAMBDA_PUBLISH}" = "true" ]; then
       echo "Publishing new version..."
       VERSION=$(aws lambda publish-version \

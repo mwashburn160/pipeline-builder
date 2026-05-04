@@ -32,11 +32,13 @@ installCommands:
   - curl --version | head -1
   - jq --version
   - |
+    set -e
     if [ -z "${SLACK_WEBHOOK_URL}" ]; then
       echo "WARNING: SLACK_WEBHOOK_URL not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     if [ -z "${SLACK_WEBHOOK_URL}" ]; then
       echo "ERROR: SLACK_WEBHOOK_URL must be set (injected via CodeBuild secrets)"
       exit 1

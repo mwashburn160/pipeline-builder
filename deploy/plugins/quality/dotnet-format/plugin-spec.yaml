@@ -19,6 +19,7 @@ installCommands:
   - dotnet --version
 commands:
   - |
+    set -e
     echo "Running dotnet format check..."
     dotnet format --verify-no-changes --verbosity diagnostic \
       2>&1 | tee format-reports/dotnet-format.log || true

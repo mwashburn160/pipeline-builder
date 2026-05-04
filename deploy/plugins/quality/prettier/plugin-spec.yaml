@@ -18,10 +18,12 @@ installCommands:
   # Node.js version selection
   - test -d format-reports || mkdir -p format-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
   # Install project dependencies (includes Prettier from project if configured)
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -35,6 +37,7 @@ installCommands:
     npx prettier --version 2>/dev/null || npm install -g prettier
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Checking code formatting with Prettier..."
     npx prettier --check "${PRETTIER_GLOB}" \

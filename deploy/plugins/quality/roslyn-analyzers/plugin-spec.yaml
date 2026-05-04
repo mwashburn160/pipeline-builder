@@ -19,6 +19,7 @@ installCommands:
   - dotnet --version
 commands:
   - |
+    set -e
     echo "Running Roslyn analyzers..."
     dotnet build \
       /p:TreatWarningsAsErrors=${TREAT_WARNINGS_AS_ERRORS} \

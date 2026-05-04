@@ -8,10 +8,7 @@ FROM pipeline-plugin-base:24.04
 # System dependencies. python3 + pip are needed for the Codecov CLI;
 # they replace the prior nvm + node install that existed only to run the
 # now-deprecated `npm install -g codecov` package.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip
 
 # ─── Codecov CLI ───
 # `npm install -g codecov` was deprecated by Codecov in 2023; the maintained

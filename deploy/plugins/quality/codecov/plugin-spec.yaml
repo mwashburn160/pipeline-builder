@@ -21,6 +21,7 @@ installCommands:
   - test -d codecov-reports || mkdir -p codecov-reports
   - codecov --version || echo "Codecov uploader ready"
   - |
+    set -e
     if [ -z "${CODECOV_TOKEN}" ]; then
       echo "WARNING: CODECOV_TOKEN is not set. Coverage upload will fail."
       echo "Provide CODECOV_TOKEN via CodeBuild secrets or environment variables."
@@ -28,6 +29,7 @@ installCommands:
 commands:
   # Auto-detect coverage files and upload to Codecov
   - |
+    set -e
     CODECOV_ARGS=""
     if [ -n "${CODECOV_FLAGS}" ]; then
       CODECOV_ARGS="${CODECOV_ARGS} --flags ${CODECOV_FLAGS}"

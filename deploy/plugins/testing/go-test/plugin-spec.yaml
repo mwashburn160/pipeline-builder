@@ -22,6 +22,7 @@ installCommands:
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
+    set -e
     echo "Running go test..."
     go test -v -coverprofile=test-reports/coverage.out ./... \
       2>&1 | tee test-reports/go-test.log

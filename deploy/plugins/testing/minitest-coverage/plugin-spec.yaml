@@ -21,10 +21,12 @@ installCommands:
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
+    set -e
     echo "Running tests with coverage..."
     COVERAGE=true bundle exec rails test \
       2>&1 | tee coverage-reports/coverage-run.log || true
   - |
+    set -e
     if [ -d coverage ]; then
       cp -r coverage/* coverage-reports/ 2>/dev/null || true
     fi

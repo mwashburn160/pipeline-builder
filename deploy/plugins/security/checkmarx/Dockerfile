@@ -13,10 +13,6 @@ FROM pipeline-plugin-base:24.04
 
 ARG CX_CLI_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl jq ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── Checkmarx One CLI ───
 # Multi-arch: ast-cli releases ship both _linux_x64 and _linux_arm64 tarballs.
 RUN ARCH=$(dpkg --print-architecture) \

@@ -27,6 +27,7 @@ installCommands:
   - aws --version
   # Registry login
   - |
+    set -e
     case "${REGISTRY_TYPE}" in
       ecr)
         echo "Logging into Amazon ECR..."
@@ -59,6 +60,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     # Build args
     BUILD_ARGS=""
     if [ -n "${DOCKER_BUILD_ARGS}" ]; then
@@ -96,6 +98,7 @@ commands:
     echo "${FULL_IMAGE}" > docker-output/image-name.txt
   # Push image (unless REGISTRY_TYPE=none)
   - |
+    set -e
     FULL_IMAGE=$(cat docker-output/image-name.txt)
     if [ "${REGISTRY_TYPE}" != "none" ]; then
       echo "Pushing image: ${FULL_IMAGE}"

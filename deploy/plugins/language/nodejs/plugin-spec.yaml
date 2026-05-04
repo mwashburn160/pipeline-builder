@@ -17,12 +17,14 @@ dockerfile: Dockerfile
 installCommands:
   # Node.js version selection
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh
     nvm install ${NODE_VERSION}
     nvm use ${NODE_VERSION}
   - node --version
   # Auto-detect or use explicit package manager, then install dependencies
   - |
+    set -e
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f pnpm-lock.yaml ]; then
@@ -53,6 +55,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f pnpm-lock.yaml ]; then PKG="pnpm"

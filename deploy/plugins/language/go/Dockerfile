@@ -5,9 +5,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential
 
 # Install goenv
 ENV GOENV_ROOT=/opt/goenv

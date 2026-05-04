@@ -3,9 +3,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl jq ca-certificates build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential
 
 ENV GOENV_ROOT=/opt/goenv
 RUN git clone https://github.com/go-nv/goenv.git ${GOENV_ROOT}

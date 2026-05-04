@@ -18,10 +18,12 @@ installCommands:
   - test -d spotbugs-reports || mkdir -p spotbugs-reports
   - java -version
   - |
+    set -e
     if [ -f gradlew ]; then chmod +x gradlew; fi
     if [ -f mvnw ]; then chmod +x mvnw; fi
 commands:
   - |
+    set -e
     echo "Running SpotBugs analysis..."
     if [ -f gradlew ]; then
       ./gradlew spotbugsMain --no-daemon 2>&1 | tee spotbugs-reports/spotbugs.log || true

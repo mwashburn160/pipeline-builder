@@ -23,6 +23,7 @@ installCommands:
   - curl --version | head -1
 commands:
   - |
+    set -e
     if [ -z "${GITHUB_OWNER}" ] || [ -z "${GITHUB_REPO}" ] || [ -z "${GITHUB_SHA}" ]; then
       echo "ERROR: GITHUB_OWNER, GITHUB_REPO, and GITHUB_SHA must be set"
       exit 1

@@ -22,6 +22,7 @@ installCommands:
   - aws --version
 commands:
   - |
+    set -e
     if [ -z "${EMAIL_TO}" ]; then
       echo "ERROR: EMAIL_TO must be set"
       exit 1

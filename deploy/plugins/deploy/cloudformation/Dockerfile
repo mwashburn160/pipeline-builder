@@ -6,20 +6,11 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG RAIN_VERSION=1.18.0
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-aws-cli-base:1.0
 
 ARG RAIN_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-# ─── AWS CLI ───
-RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
+RUN apt-retry-install python3 python3-pip
 
 # ─── cfn-lint for CloudFormation template validation ───
 RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.31.1

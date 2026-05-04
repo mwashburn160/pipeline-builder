@@ -27,6 +27,7 @@ installCommands:
   - test -d fortify-reports || mkdir -p fortify-reports
   - fcli --version 2>/dev/null || echo "Fortify CLI ready"
   - |
+    set -e
     case "${FORTIFY_SCAN_TYPE}" in
       fod)
         if [ -z "${FOD_CLIENT_ID}" ] || [ -z "${FOD_CLIENT_SECRET}" ]; then
@@ -41,6 +42,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     case "${FORTIFY_SCAN_TYPE}" in
       fod)
         echo "Submitting to Fortify on Demand..."

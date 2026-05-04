@@ -30,6 +30,7 @@ installCommands:
   - mvn --version
   - gpg --version | head -1
   - |
+    set -e
     if [ -z "${OSSRH_USERNAME}" ] || [ -z "${OSSRH_PASSWORD}" ]; then
       echo "WARNING: OSSRH_USERNAME/OSSRH_PASSWORD not set. Inject via CodeBuild secrets at runtime."
     fi
@@ -38,6 +39,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     source ${SDKMAN_DIR}/bin/sdkman-init.sh
     # Import GPG private key if provided
     if [ -n "${GPG_PRIVATE_KEY}" ]; then
@@ -48,6 +50,7 @@ commands:
       echo "No GPG_PRIVATE_KEY provided — skipping GPG key import"
     fi
   - |
+    set -e
     source ${SDKMAN_DIR}/bin/sdkman-init.sh
     # Build repository URL arguments
     REPO_ARGS=""
@@ -65,6 +68,7 @@ commands:
       -B \
       2>&1 | tee publish-output/maven-deploy.log
   - |
+    set -e
     # Save publish metadata
     if [ -f pom.xml ]; then
       GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout 2>/dev/null || echo "unknown")

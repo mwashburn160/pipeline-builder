@@ -20,10 +20,12 @@ installCommands:
   - pip install ruff
 commands:
   - |
+    set -e
     echo "Running Ruff linter..."
     ruff check . --output-format json > lint-reports/ruff-check.json 2>&1 || true
     ruff check . 2>&1 | tee lint-reports/ruff-check.log || true
   - |
+    set -e
     echo "Running Ruff formatter check..."
     ruff format --check . 2>&1 | tee lint-reports/ruff-format.log || true
   - "echo \"Ruff analysis complete. Reports available in lint-reports/\""

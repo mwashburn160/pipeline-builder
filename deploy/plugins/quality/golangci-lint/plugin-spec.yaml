@@ -22,6 +22,7 @@ installCommands:
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
+    set -e
     echo "Running golangci-lint..."
     golangci-lint run \
       --timeout ${GOLANGCI_LINT_TIMEOUT} \

@@ -5,10 +5,6 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl wget jq ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── Prisma Cloud (twistcli) ───
 # twistcli is downloaded at runtime from the Prisma Cloud console URL
 # This ensures version compatibility with your console

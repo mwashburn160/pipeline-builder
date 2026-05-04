@@ -22,6 +22,7 @@ installCommands:
 commands:
   # Validate required parameters
   - |
+    set -e
     if [ -z "${CACHE_BUCKET}" ]; then
       echo "ERROR: CACHE_BUCKET must be set"
       exit 1
@@ -35,6 +36,7 @@ commands:
     echo "Compression: ${CACHE_COMPRESSION}"
   # Define compression extension
   - |
+    set -e
     case "${CACHE_COMPRESSION}" in
       zstd) CACHE_EXT="tar.zst" ;;
       gzip) CACHE_EXT="tar.gz" ;;
@@ -44,6 +46,7 @@ commands:
     echo "${CACHE_EXT}" > cache-output/cache-ext.txt
   # Execute cache action
   - |
+    set -e
     RESOLVED_KEY="${CACHE_KEY:-${CODEBUILD_BUILD_ID:-default}}"
     CACHE_EXT=$(cat cache-output/cache-ext.txt)
     S3_PATH="s3://${CACHE_BUCKET}/${RESOLVED_KEY}.${CACHE_EXT}"

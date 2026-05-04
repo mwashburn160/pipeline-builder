@@ -21,6 +21,7 @@ installCommands:
   - cargo install cargo-audit
 commands:
   - |
+    set -e
     echo "Running cargo audit..."
     cargo audit --json > audit-reports/cargo-audit.json 2>&1 || true
     cargo audit 2>&1 | tee audit-reports/cargo-audit.log || true

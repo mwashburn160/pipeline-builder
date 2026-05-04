@@ -22,11 +22,13 @@ installCommands:
   - rustc --version
   - cargo --version
   - |
+    set -e
     if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
       echo "WARNING: CARGO_REGISTRY_TOKEN not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     # Build dry-run flag
     DRY_RUN_FLAG=""
     if [ "${CARGO_DRY_RUN}" = "true" ]; then
@@ -39,6 +41,7 @@ commands:
       ${DRY_RUN_FLAG} \
       2>&1 | tee publish-output/cargo-publish.log
   - |
+    set -e
     # Save publish metadata
     if [ -f Cargo.toml ]; then
       CRATE_NAME=$(grep -m1 '^name' Cargo.toml | sed 's/name *= *"\(.*\)"/\1/' || echo "unknown")

@@ -20,6 +20,7 @@ installCommands:
   - python --version
   # Auto-detect or use explicit package manager, then install dependencies
   - |
+    set -e
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f poetry.lock ] || ([ -f pyproject.toml ] && grep -q '\[tool.poetry\]' pyproject.toml 2>/dev/null); then
@@ -55,6 +56,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f poetry.lock ] || ([ -f pyproject.toml ] && grep -q '\[tool.poetry\]' pyproject.toml 2>/dev/null); then

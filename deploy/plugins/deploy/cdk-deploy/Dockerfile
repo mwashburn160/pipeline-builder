@@ -8,14 +8,11 @@
 # retry hardening). Adds Node.js, Python, Docker CLI, AWS CLI, AWS CDK.
 
 ARG NODE_VERSION=24.15.0
-FROM pipeline-plugin-base:24.04
+FROM pipeline-aws-cli-base:1.0
 ARG NODE_VERSION
 
 # Python (for Python CDK apps).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip
 
 # Node.js — installed from official tarball (apt-based NodeSource is too flaky;
 # see _base/_snyk-base/Dockerfile rationale).
@@ -50,10 +47,6 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI v2.
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
 
 # AWS CDK + TS toolchain. Versions pinned for reproducibility.
 RUN npm install -g aws-cdk@2.177.0 typescript@5.7.3 ts-node@10.9.2

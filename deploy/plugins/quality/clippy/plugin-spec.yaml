@@ -22,6 +22,7 @@ installCommands:
   - if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
   - |
+    set -e
     echo "Running Clippy..."
     cargo clippy --all-targets --all-features -- ${CLIPPY_FLAGS} \
       2>&1 | tee lint-reports/clippy.log || true

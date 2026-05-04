@@ -20,9 +20,11 @@ installCommands:
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
+    set -e
     echo "Setting up database..."
     bundle exec rake db:create db:migrate 2>&1 || true
   - |
+    set -e
     echo "Running Rails tests..."
     bundle exec rails test \
       2>&1 | tee test-reports/rails-test.log || true

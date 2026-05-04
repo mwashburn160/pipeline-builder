@@ -24,6 +24,7 @@ installCommands:
 commands:
   # Scan project files and call AI provider to generate Dockerfile
   - |
+    set -e
     # --- Collect project context from known config files ---
     PROJECT_CONTEXT=""
     PROJECT_FILES="package.json tsconfig.json requirements.txt pyproject.toml Pipfile go.mod Cargo.toml Gemfile CMakeLists.txt .nvmrc .python-version .tool-versions"

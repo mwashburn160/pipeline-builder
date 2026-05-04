@@ -30,11 +30,13 @@ installCommands:
   - curl --version | head -1
   - jq --version
   - |
+    set -e
     if [ -z "${TEAMS_WEBHOOK_URL}" ]; then
       echo "WARNING: TEAMS_WEBHOOK_URL not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     if [ -z "${TEAMS_WEBHOOK_URL}" ]; then
       echo "ERROR: TEAMS_WEBHOOK_URL must be set (injected via CodeBuild secrets)"
       exit 1

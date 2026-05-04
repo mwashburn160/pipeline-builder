@@ -23,6 +23,7 @@ installCommands:
   - if [ -f Gemfile.lock ]; then bundle install; elif [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
+    set -e
     if bundle exec rspec --version > /dev/null 2>&1; then
       echo "Running RSpec..."
       bundle exec rspec --format documentation --format RspecJunitFormatter --out junit/test-results.xml 2>/dev/null || bundle exec rspec --format documentation

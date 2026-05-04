@@ -18,10 +18,12 @@ installCommands:
   - test -d coverage-reports || mkdir -p coverage-reports
   - java -version
   - |
+    set -e
     if [ -f gradlew ]; then chmod +x gradlew; fi
     if [ -f mvnw ]; then chmod +x mvnw; fi
 commands:
   - |
+    set -e
     echo "Running JaCoCo coverage report..."
     if [ -f gradlew ]; then
       ./gradlew jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
@@ -34,6 +36,7 @@ commands:
       gradle jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
     fi
   - |
+    set -e
     if [ -d build/reports/jacoco ]; then
       cp -r build/reports/jacoco/* coverage-reports/ 2>/dev/null || true
     fi

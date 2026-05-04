@@ -22,6 +22,7 @@ installCommands:
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
+    set -e
     echo "Running govulncheck..."
     govulncheck -json ./... > vuln-reports/govulncheck.json 2>&1 || true
     govulncheck ./... 2>&1 | tee vuln-reports/govulncheck.log || true

@@ -5,9 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl jq ca-certificates python3 python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip
 
 # ─── ggshield (GitGuardian CLI) ───
 RUN pip3 install --no-cache-dir --break-system-packages ggshield==1.33.0

@@ -35,6 +35,7 @@ installCommands:
 commands:
   # Decode kubeconfig if provided
   - |
+    set -e
     if [ -n "${KUBECONFIG_DATA}" ]; then
       echo "Decoding provided KUBECONFIG_DATA..."
       mkdir -p ~/.kube
@@ -44,6 +45,7 @@ commands:
     fi
   # Set context and namespace
   - |
+    set -e
     if [ -n "${KUBE_CONTEXT}" ]; then
       echo "Switching to context: ${KUBE_CONTEXT}"
       kubectl config use-context "${KUBE_CONTEXT}"
@@ -51,6 +53,7 @@ commands:
     echo "Using namespace: ${KUBE_NAMESPACE}"
   # Execute deploy action
   - |
+    set -e
     case "${DEPLOY_ACTION}" in
       apply)
         echo "Applying manifests from ${MANIFEST_PATH}..."

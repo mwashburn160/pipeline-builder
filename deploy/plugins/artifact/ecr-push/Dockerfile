@@ -2,11 +2,9 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Builds Docker images and pushes to ECR using AWS CLI authentication
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-aws-cli-base:1.0
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    lsb-release \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install lsb-release
 
 # ─── Docker CLI + Buildx ───
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
@@ -16,12 +14,6 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     docker-ce-cli \
     docker-buildx-plugin \
     && rm -rf /var/lib/apt/lists/*
-
-# ─── AWS CLI v2 ───
-RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
 
 # ─── Runtime configuration defaults ───
 ENV ECR_REPOSITORY=""

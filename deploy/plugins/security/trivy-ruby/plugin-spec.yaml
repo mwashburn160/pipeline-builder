@@ -17,6 +17,7 @@ dockerfile: Dockerfile
 installCommands:
   - test -d trivy-reports || mkdir -p trivy-reports
   - |
+    set -e
     if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
       ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
     else
@@ -25,6 +26,7 @@ installCommands:
     fi
   - trivy --version
   - |
+    set -e
     rbenv install -s ${RUBY_VERSION} && rbenv global ${RUBY_VERSION}
     gem install bundler
     if [ -f Gemfile.lock ]; then bundle install; fi

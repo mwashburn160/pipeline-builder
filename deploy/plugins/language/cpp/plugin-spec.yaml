@@ -21,6 +21,7 @@ installCommands:
   - cmake --version | head -1
   # Auto-detect or use explicit build system, then configure
   - |
+    set -e
     BUILD="${BUILD_SYSTEM}"
     if [ "${BUILD}" = "auto" ]; then
       if [ -f CMakeLists.txt ]; then
@@ -53,6 +54,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     BUILD="${BUILD_SYSTEM}"
     if [ "${BUILD}" = "auto" ]; then
       if [ -f CMakeLists.txt ]; then BUILD="cmake"

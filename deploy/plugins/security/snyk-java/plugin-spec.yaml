@@ -21,6 +21,7 @@ installCommands:
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
+    set -e
     source ${SDKMAN_DIR}/bin/sdkman-init.sh
     sdk use java ${JAVA_VERSION}
     if [ -f pom.xml ]; then mvn dependency:resolve -q; fi

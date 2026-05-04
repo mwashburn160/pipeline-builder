@@ -7,11 +7,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + native-image prerequisites
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libz-dev \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential libz-dev zlib1g-dev
 
 # Install SDKMAN for JDK + build tool management
 ENV SDKMAN_DIR=/opt/sdkman

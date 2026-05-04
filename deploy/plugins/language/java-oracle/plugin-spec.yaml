@@ -20,12 +20,14 @@ installCommands:
   - java -version
   - kotlin -version
   - |
+    set -e
     if [ "${NATIVE_BUILD}" = "true" ]; then
       echo "GraalVM native-image enabled"
       native-image --version
     fi
   # Auto-detect or use explicit build tool, then install dependencies
   - |
+    set -e
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then
@@ -48,6 +50,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then

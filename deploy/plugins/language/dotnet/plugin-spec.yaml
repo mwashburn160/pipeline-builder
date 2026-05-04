@@ -17,6 +17,7 @@ dockerfile: Dockerfile
 installCommands:
   # .NET version selection
   - |
+    set -e
     if ! dotnet --list-sdks | grep -q "^${DOTNET_VERSION}"; then
       curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel ${DOTNET_VERSION} --install-dir /opt/dotnet
     fi

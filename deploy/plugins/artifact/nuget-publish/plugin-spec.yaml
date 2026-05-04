@@ -21,16 +21,19 @@ installCommands:
   - test -d publish-output || mkdir -p publish-output
   - dotnet --version
   - |
+    set -e
     if [ -z "${NUGET_API_KEY}" ]; then
       echo "WARNING: NUGET_API_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     # Pack the project
     echo "Packing .NET project..."
     dotnet pack --configuration Release --output publish-output/ \
       2>&1 | tee publish-output/dotnet-pack.log
   - |
+    set -e
     # Push all .nupkg files to NuGet source
     echo "Publishing to ${NUGET_SOURCE}..."
     for PACKAGE in publish-output/*.nupkg; do
@@ -44,6 +47,7 @@ commands:
       fi
     done
   - |
+    set -e
     # Save publish metadata
     PACKAGE_COUNT=$(ls publish-output/*.nupkg 2>/dev/null | wc -l | tr -d ' ')
     PACKAGE_FILES=$(ls publish-output/*.nupkg 2>/dev/null | xargs -I{} basename {} | tr '\n' ', ')

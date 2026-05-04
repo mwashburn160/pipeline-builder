@@ -22,11 +22,13 @@ installCommands:
   - ruby --version
   - gem --version
   - |
+    set -e
     if [ -z "${GEM_HOST_API_KEY}" ]; then
       echo "WARNING: GEM_HOST_API_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     # Configure gem credentials
     mkdir -p ~/.gem
     echo "---" > ~/.gem/credentials
@@ -34,6 +36,7 @@ commands:
     chmod 0600 ~/.gem/credentials
     echo "Configured RubyGems authentication"
   - |
+    set -e
     # Build the gem
     echo "Building gem..."
     GEMSPEC=$(ls *.gemspec 2>/dev/null | head -1)
@@ -43,6 +46,7 @@ commands:
     fi
     gem build "${GEMSPEC}" 2>&1 | tee publish-output/gem-build.log
   - |
+    set -e
     # Push the gem
     GEM_FILE=$(ls *.gem 2>/dev/null | head -1)
     if [ -z "${GEM_FILE}" ]; then
@@ -59,6 +63,7 @@ commands:
       cp "${GEM_FILE}" publish-output/
     fi
   - |
+    set -e
     # Save publish metadata
     GEM_FILE=$(ls *.gem 2>/dev/null | head -1)
     echo "{\"gem\": \"${GEM_FILE:-unknown}\", \"dryRun\": ${GEM_DRY_RUN}}" \

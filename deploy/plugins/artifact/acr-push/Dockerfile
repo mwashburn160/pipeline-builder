@@ -5,9 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    lsb-release \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install lsb-release
 
 # ─── Docker CLI + Buildx ───
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \

@@ -17,10 +17,12 @@ dockerfile: Dockerfile
 installCommands:
   - test -d postman-reports || mkdir -p postman-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
   - newman --version
   - |
+    set -e
     if [ -z "${COLLECTION_FILE}" ]; then
       # Auto-detect Postman collection files
       COLLECTION_FILE=$(find . -name "*.postman_collection.json" -not -path "*/node_modules/*" | head -1)
@@ -32,6 +34,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     if [ -z "${COLLECTION_FILE}" ]; then
       COLLECTION_FILE=$(find . -name "*.postman_collection.json" -not -path "*/node_modules/*" | head -1)
     fi

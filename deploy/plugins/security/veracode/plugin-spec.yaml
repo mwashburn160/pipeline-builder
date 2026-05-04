@@ -25,11 +25,13 @@ installCommands:
   - veracode --version 2>/dev/null || echo "Veracode CLI ready"
   - java -version
   - |
+    set -e
     if [ -z "${VERACODE_API_ID}" ] || [ -z "${VERACODE_API_KEY}" ]; then
       echo "WARNING: VERACODE_API_ID and VERACODE_API_KEY must be injected via CodeBuild secrets"
     fi
 commands:
   - |
+    set -e
     case "${VERACODE_SCAN_TYPE}" in
       pipeline)
         echo "Running Veracode Pipeline Scan..."

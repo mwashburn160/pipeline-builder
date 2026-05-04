@@ -10,9 +10,7 @@ FROM pipeline-plugin-base:24.04
 ARG KUBECTL_VERSION
 ARG TERRAFORM_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install apt-transport-https
 
 # ─── Google Cloud SDK ───
 RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \

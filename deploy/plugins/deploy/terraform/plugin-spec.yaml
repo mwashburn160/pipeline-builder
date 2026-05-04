@@ -27,6 +27,7 @@ installCommands:
   # Terraform version selection
   - test -d tf-output || mkdir -p tf-output
   - |
+    set -e
     tfenv use ${TF_VERSION} 2>/dev/null || tfenv install ${TF_VERSION} && tfenv use ${TF_VERSION}
   - terraform version
   - tflint --version
@@ -35,6 +36,7 @@ installCommands:
 commands:
   # Initialize Terraform
   - |
+    set -e
     cd ${TF_WORKING_DIR}
     BACKEND_ARG=""
     if [ -n "${TF_BACKEND_CONFIG}" ] && [ -f "${TF_BACKEND_CONFIG}" ]; then
@@ -44,6 +46,7 @@ commands:
     terraform init ${BACKEND_ARG} -input=false
   # Lint and security scan
   - |
+    set -e
     cd ${TF_WORKING_DIR}
     echo "Running TFLint..."
     tflint --init 2>/dev/null || true
@@ -52,6 +55,7 @@ commands:
     tfsec . --format=json > ${OLDPWD}/tf-output/tfsec-results.json 2>&1 || true
   # Plan or Apply
   - |
+    set -e
     cd ${TF_WORKING_DIR}
     VAR_FILE_ARG=""
     if [ -n "${TF_VAR_FILE}" ] && [ -f "${TF_VAR_FILE}" ]; then

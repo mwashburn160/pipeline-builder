@@ -24,11 +24,13 @@ installCommands:
   - test -d mend-reports || mkdir -p mend-reports
   - mend --version 2>/dev/null || echo "Mend CLI ready"
   - |
+    set -e
     if [ -z "${MEND_API_KEY}" ]; then
       echo "WARNING: MEND_API_KEY must be injected via CodeBuild secrets"
     fi
 commands:
   - |
+    set -e
     echo "Running Mend ${MEND_SCAN_TYPE} scan..."
     case "${MEND_SCAN_TYPE}" in
       sca)

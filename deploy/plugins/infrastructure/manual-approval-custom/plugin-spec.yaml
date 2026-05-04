@@ -20,11 +20,13 @@ installCommands:
 commands:
   # Generate approval token
   - |
+    set -e
     APPROVAL_TOKEN=$(date +%s)-$(head -c 16 /dev/urandom | xxd -p)
     echo "${APPROVAL_TOKEN}" > approval-output/approval-token.txt
     echo "Approval token generated: ${APPROVAL_TOKEN}"
   # Publish SNS notification
   - |
+    set -e
     if [ -z "${APPROVAL_TOPIC_ARN}" ]; then
       echo "ERROR: APPROVAL_TOPIC_ARN must be set"
       exit 1
@@ -57,6 +59,7 @@ commands:
     echo "Notification sent. Waiting for approval..."
   # Poll for approval response
   - |
+    set -e
     APPROVAL_TOKEN=$(cat approval-output/approval-token.txt)
     BUILD_ID="${CODEBUILD_BUILD_ID:-unknown}"
     PARAMETER_NAME="/pipeline-builder/approvals/${BUILD_ID}"

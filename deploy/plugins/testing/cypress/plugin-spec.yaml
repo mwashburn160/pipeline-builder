@@ -18,11 +18,13 @@ installCommands:
   # Node.js version selection
   - test -d cypress-reports || mkdir -p cypress-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
   - node --version
   # Install project dependencies
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -35,6 +37,7 @@ installCommands:
   - npx cypress verify
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     SPEC_ARG=""
     if [ -n "${CYPRESS_SPEC}" ]; then

@@ -36,6 +36,7 @@ installCommands:
 commands:
   # Decode kubeconfig if provided
   - |
+    set -e
     if [ -n "${KUBECONFIG_DATA}" ]; then
       echo "Decoding provided KUBECONFIG_DATA..."
       mkdir -p ~/.kube
@@ -45,6 +46,7 @@ commands:
     fi
   # Add Helm repo if HELM_REPO_URL is set
   - |
+    set -e
     if [ -n "${HELM_REPO_URL}" ]; then
       REPO_NAME="${HELM_REPO_NAME:-helm-repo}"
       echo "Adding Helm repo: ${REPO_NAME} -> ${HELM_REPO_URL}"
@@ -53,6 +55,7 @@ commands:
     fi
   # Execute Helm action
   - |
+    set -e
     VALUES_ARGS=""
     if [ -n "${HELM_VALUES_FILE}" ]; then
       VALUES_ARGS="-f ${HELM_VALUES_FILE}"

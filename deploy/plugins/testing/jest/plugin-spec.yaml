@@ -17,9 +17,11 @@ dockerfile: Dockerfile
 installCommands:
   - test -d test-reports || mkdir -p test-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -34,6 +36,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     CONFIG_ARG=""
     if [ -n "${JEST_CONFIG}" ] && [ -f "${JEST_CONFIG}" ]; then

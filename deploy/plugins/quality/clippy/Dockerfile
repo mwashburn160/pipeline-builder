@@ -3,9 +3,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git zip unzip curl jq ca-certificates build-essential libssl-dev pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential libssl-dev pkg-config
 
 ENV RUSTUP_HOME=/opt/rustup
 ENV CARGO_HOME=/opt/cargo

@@ -5,11 +5,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential libssl-dev pkg-config
 
 # Install Rust via rustup
 ENV RUSTUP_HOME=/opt/rustup

@@ -34,6 +34,7 @@ installCommands:
   - aws --version
   # Install project dependencies
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -45,6 +46,7 @@ installCommands:
     fi
   # Build TypeScript if applicable
   - |
+    set -e
     if [ -f tsconfig.json ]; then
       echo "Building TypeScript..."
       npm run build 2>/dev/null || npx tsc 2>/dev/null || true
@@ -52,6 +54,7 @@ installCommands:
 commands:
   # Bootstrap check
   - |
+    set -e
     echo "Target: account=${CDK_DEFAULT_ACCOUNT}, region=${CDK_DEFAULT_REGION}"
     STACK_ARG=""
     if [ -n "${CDK_STACK}" ]; then
@@ -69,6 +72,7 @@ commands:
     fi
   # Execute CDK action
   - |
+    set -e
     STACK_ARG=""
     if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
     CONTEXT_ARG=""

@@ -5,10 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    netcat-openbsd \
-    dnsutils \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install netcat-openbsd dnsutils
 
 # ─── Runtime configuration defaults ───
 ENV HEALTH_ENDPOINTS=""

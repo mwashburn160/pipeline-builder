@@ -4,11 +4,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-venv \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip python3-venv
 
 # ─── Semgrep CLI ───
 # Pinned for reproducible builds — matches the version-pinning policy used

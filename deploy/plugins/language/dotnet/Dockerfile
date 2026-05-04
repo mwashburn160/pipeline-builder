@@ -5,11 +5,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
-    libicu-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential libssl-dev libicu-dev
 
 # Install current + previous .NET SDK versions
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \

@@ -18,6 +18,7 @@ installCommands:
   # Hadolint version selection
   - test -d docker-lint-reports || mkdir -p docker-lint-reports
   - |
+    set -e
     if [ -f /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} ]; then
       ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
     else
@@ -28,6 +29,7 @@ installCommands:
   - hadolint --version
   # Dockle version selection
   - |
+    set -e
     if [ -f /opt/dockle/versions/dockle-${DOCKLE_VERSION} ]; then
       ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
     else
@@ -39,6 +41,7 @@ installCommands:
 commands:
   # Hadolint — lint all Dockerfiles found in the project
   - |
+    set -e
     echo "Running Hadolint on Dockerfiles..."
     FOUND_DOCKERFILES=false
     for df in $(find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*"); do
@@ -53,6 +56,7 @@ commands:
     fi
   # Dockle — audit a built container image (if DOCKER_IMAGE is set)
   - |
+    set -e
     if [ -n "${DOCKER_IMAGE}" ]; then
       echo "Running Dockle on image: ${DOCKER_IMAGE}..."
       dockle --format ${DOCKLE_FORMAT} \

@@ -5,19 +5,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies + Cypress browser prerequisites
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgtk2.0-0 \
-    libgtk-3-0 \
-    libgbm-dev \
-    libnotify-dev \
-    libnss3 \
-    libxss1 \
-    libasound2t64 \
-    libxtst6 \
-    xauth \
-    xvfb \
-    fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1 libasound2t64 libxtst6 xauth xvfb fonts-liberation
 
 # ─── Node.js via nvm ───
 ENV NVM_DIR=/opt/nvm

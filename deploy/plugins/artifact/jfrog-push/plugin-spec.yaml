@@ -24,6 +24,7 @@ installCommands:
   - jf --version
   # Authenticate with JFrog Artifactory
   - |
+    set -e
     if [ -n "${JFROG_TOKEN}" ] && [ -n "${JFROG_URL}" ]; then
       echo "Configuring JFrog CLI..."
       jf c add --url="${JFROG_URL}" --access-token="${JFROG_TOKEN}" --interactive=false
@@ -34,6 +35,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"
       exit 1
@@ -59,6 +61,7 @@ commands:
     echo "${FULL_IMAGE}" > registry-output/image-name.txt
   # Push image to JFrog Artifactory
   - |
+    set -e
     FULL_IMAGE=$(cat registry-output/image-name.txt)
     echo "Pushing image: ${FULL_IMAGE}"
     jf docker push "${FULL_IMAGE}"

@@ -9,16 +9,10 @@ ARG HELM_VERSION=3.16.4
 
 FROM alpine/helm:${HELM_VERSION} AS helm-src
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-aws-cli-base:1.0
 
 ARG KUBECTL_VERSION
 ARG HELM_VERSION
-
-# ─── AWS CLI v2 (for EKS authentication) ───
-RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
 
 # ─── kubectl ───
 # SHA256-verified — see deploy/kubectl-deploy/Dockerfile for the rationale.

@@ -5,11 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ruby \
-    ruby-dev \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install ruby ruby-dev build-essential
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — GEM_HOST_API_KEY injected at runtime via CodeBuild secrets

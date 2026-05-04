@@ -18,6 +18,7 @@ installCommands:
   # ShellCheck version selection
   - test -d shellcheck-reports || mkdir -p shellcheck-reports
   - |
+    set -e
     if [ -f /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} ]; then
       ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /usr/local/bin/shellcheck
     else
@@ -28,6 +29,7 @@ installCommands:
   - shellcheck --version
 commands:
   - |
+    set -e
     echo "Scanning for shell scripts..."
     SCRIPTS=$(find . -type f \( -name "*.sh" -o -name "*.bash" -o -name "*.zsh" \) \
       -not -path "*/node_modules/*" \

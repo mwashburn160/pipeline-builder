@@ -21,6 +21,7 @@ installCommands:
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
+    set -e
     echo "Running bundler-audit..."
     bundle audit check --update \
       2>&1 | tee audit-reports/bundler-audit.log || true

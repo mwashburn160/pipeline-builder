@@ -24,6 +24,7 @@ installCommands:
   - test -d prisma-reports || mkdir -p prisma-reports
   - checkov --version
   - |
+    set -e
     if [ -n "${PRISMA_CONSOLE_URL}" ] && [ -n "${PRISMA_ACCESS_KEY}" ] && [ -n "${PRISMA_SECRET_KEY}" ]; then
       echo "Downloading twistcli from Prisma Console..."
       curl -fsSL -u "${PRISMA_ACCESS_KEY}:${PRISMA_SECRET_KEY}" \
@@ -36,6 +37,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     case "${PRISMA_SCAN_TYPE}" in
       iac)
         echo "Running Checkov IaC scan..."

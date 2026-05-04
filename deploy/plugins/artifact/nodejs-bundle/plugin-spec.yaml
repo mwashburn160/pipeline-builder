@@ -17,9 +17,11 @@ dockerfile: Dockerfile
 installCommands:
   - test -d build-output || mkdir -p build-output
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -31,6 +33,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running build script: ${BUILD_SCRIPT}"
     if [ -f pnpm-lock.yaml ]; then

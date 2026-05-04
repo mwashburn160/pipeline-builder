@@ -17,6 +17,7 @@ dockerfile: Dockerfile
 installCommands:
   # Java version selection (switch Corretto version via alternatives)
   - |
+    set -e
     export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
     if [ ! -d "${JAVA_HOME}" ]; then
       echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 17, 21"
@@ -29,6 +30,7 @@ installCommands:
   - kotlin -version
   # Auto-detect or use explicit build tool, then install dependencies
   - |
+    set -e
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then
@@ -51,6 +53,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
     export PATH="${JAVA_HOME}/bin:${PATH}"
     source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use kotlin ${KOTLIN_VERSION}

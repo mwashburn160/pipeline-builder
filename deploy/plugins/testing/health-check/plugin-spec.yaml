@@ -18,12 +18,14 @@ installCommands:
   - test -d health-reports || mkdir -p health-reports
   - curl --version | head -1
   - |
+    set -e
     if [ -z "${HEALTH_ENDPOINTS}" ]; then
       echo "WARNING: HEALTH_ENDPOINTS not set. Set to comma-separated URLs to check."
       echo "Example: HEALTH_ENDPOINTS=https://api.example.com/health,https://app.example.com"
     fi
 commands:
   - |
+    set -e
     if [ -z "${HEALTH_ENDPOINTS}" ]; then
       echo "ERROR: HEALTH_ENDPOINTS must be set (comma-separated URLs)"
       exit 1

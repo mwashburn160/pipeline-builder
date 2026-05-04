@@ -17,11 +17,13 @@ dockerfile: Dockerfile
 installCommands:
   - test -d artillery-reports || mkdir -p artillery-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh
     nvm use ${NODE_VERSION}
   - artillery version
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     if [ -z "${ARTILLERY_CONFIG}" ]; then
       ARTILLERY_CONFIG=$(find . -name "artillery*.yml" -o -name "artillery*.yaml" -o -name "load-test*.yml" 2>/dev/null | head -1)

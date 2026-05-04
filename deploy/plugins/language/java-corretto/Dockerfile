@@ -7,9 +7,7 @@
 FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install build-essential
 
 # Install Amazon Corretto repository
 RUN curl -fsSL https://apt.corretto.aws/corretto.key | gpg --dearmor -o /usr/share/keyrings/corretto-keyring.gpg \
@@ -17,10 +15,7 @@ RUN curl -fsSL https://apt.corretto.aws/corretto.key | gpg --dearmor -o /usr/sha
     > /etc/apt/sources.list.d/corretto.list
 
 # Pre-install current + previous Corretto LTS versions
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    java-17-amazon-corretto-jdk \
-    java-21-amazon-corretto-jdk \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install java-17-amazon-corretto-jdk java-21-amazon-corretto-jdk
 
 # Install Maven, Gradle, and Kotlin via SDKMAN
 ENV SDKMAN_DIR=/opt/sdkman

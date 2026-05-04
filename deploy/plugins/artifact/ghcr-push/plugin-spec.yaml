@@ -24,6 +24,7 @@ installCommands:
   - gh --version
   # Authenticate with GitHub Container Registry
   - |
+    set -e
     if [ -n "${GITHUB_TOKEN}" ]; then
       echo "Logging into GitHub Container Registry (ghcr.io)..."
       echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin
@@ -32,6 +33,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     if [ -z "${IMAGE_NAME}" ]; then
       echo "ERROR: IMAGE_NAME must be set"
       exit 1
@@ -51,6 +53,7 @@ commands:
     echo "${FULL_IMAGE}" > registry-output/image-name.txt
   # Push image to GHCR
   - |
+    set -e
     FULL_IMAGE=$(cat registry-output/image-name.txt)
     echo "Pushing image: ${FULL_IMAGE}"
     docker push "${FULL_IMAGE}"

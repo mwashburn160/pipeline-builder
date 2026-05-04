@@ -17,9 +17,11 @@ dockerfile: Dockerfile
 installCommands:
   - test -d tsc-reports || mkdir -p tsc-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -33,6 +35,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running TypeScript type check..."
     npx tsc ${TSC_FLAGS} 2>&1 | tee tsc-reports/tsc-output.log || true

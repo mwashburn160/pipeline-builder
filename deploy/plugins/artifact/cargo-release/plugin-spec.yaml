@@ -19,12 +19,14 @@ installCommands:
   - rustup default ${RUST_VERSION}
   - rustc --version && cargo --version
   - |
+    set -e
     if [ -n "${TARGET}" ]; then
       rustup target add ${TARGET}
     fi
   - if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
   - |
+    set -e
     echo "Building Rust release binary..."
     TARGET_ARG=""
     if [ -n "${TARGET}" ]; then

@@ -17,10 +17,12 @@ dockerfile: Dockerfile
 installCommands:
   - test -d audit-reports || mkdir -p audit-reports
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
   - node -v && npm -v
 commands:
   - |
+    set -e
     source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
     echo "Running dependency audit..."
     if [ -f yarn.lock ]; then

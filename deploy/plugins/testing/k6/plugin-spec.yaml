@@ -18,6 +18,7 @@ installCommands:
   # k6 version selection
   - test -d k6-reports || mkdir -p k6-reports
   - |
+    set -e
     if [ -f /opt/k6/versions/k6-${K6_VERSION} ]; then
       ln -sf /opt/k6/versions/k6-${K6_VERSION} /usr/local/bin/k6
     else
@@ -27,6 +28,7 @@ installCommands:
     fi
   - k6 version
   - |
+    set -e
     if [ -z "${K6_SCRIPT}" ]; then
       K6_SCRIPT=$(find . -name "*.js" -path "*/k6/*" -o -name "load-test*.js" -o -name "perf-test*.js" 2>/dev/null | head -1)
       if [ -z "${K6_SCRIPT}" ]; then
@@ -37,6 +39,7 @@ installCommands:
     fi
 commands:
   - |
+    set -e
     if [ -z "${K6_SCRIPT}" ]; then
       K6_SCRIPT=$(find . -name "*.js" -path "*/k6/*" -o -name "load-test*.js" -o -name "perf-test*.js" 2>/dev/null | head -1)
     fi

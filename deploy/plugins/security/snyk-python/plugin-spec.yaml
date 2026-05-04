@@ -21,6 +21,7 @@ installCommands:
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
+    set -e
     pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
     python -m pip install --upgrade pip setuptools wheel
     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi

@@ -20,6 +20,7 @@ installCommands:
   - gem install brakeman
 commands:
   - |
+    set -e
     echo "Running Brakeman security scan..."
     brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \
       -f json -o security-reports/brakeman-results.json \

@@ -24,6 +24,7 @@ installCommands:
   - aws --version
   # Install project dependencies
   - |
+    set -e
     if [ -f pnpm-lock.yaml ]; then
       npm install -g pnpm && pnpm install --frozen-lockfile
     elif [ -f yarn.lock ]; then
@@ -35,12 +36,14 @@ installCommands:
     fi
   # Build TypeScript if applicable
   - |
+    set -e
     if [ -f tsconfig.json ]; then
       echo "Building TypeScript..."
       npm run build 2>/dev/null || npx tsc 2>/dev/null || true
     fi
   # Validate region configuration
   - |
+    set -e
     if [ -z "${CDK_REGIONS}" ]; then
       echo "ERROR: CDK_REGIONS must be set (comma-separated list of AWS regions)"
       echo "Example: CDK_REGIONS=us-east-1,us-west-2,eu-west-1"
@@ -54,6 +57,7 @@ installCommands:
 commands:
   # Synthesize once (shared across all regions)
   - |
+    set -e
     STACK_ARG=""
     if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
     CONTEXT_ARG=""
@@ -68,6 +72,7 @@ commands:
     echo "Synth complete"
   # Deploy to regions
   - |
+    set -e
     STACK_ARG=""
     if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
     CONTEXT_ARG=""

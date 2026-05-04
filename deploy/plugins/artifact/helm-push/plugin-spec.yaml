@@ -20,6 +20,7 @@ installCommands:
   - aws --version
 commands:
   - |
+    set -e
     if [ -z "${HELM_REGISTRY}" ]; then
       echo "ERROR: HELM_REGISTRY must be set (e.g., oci://123456789.dkr.ecr.us-east-1.amazonaws.com)"
       exit 1

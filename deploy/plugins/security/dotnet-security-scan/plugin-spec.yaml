@@ -20,6 +20,7 @@ installCommands:
   - dotnet tool install --global security-scan
 commands:
   - |
+    set -e
     echo "Running .NET security scan..."
     security-scan . \
       --excl-proj=*test* \

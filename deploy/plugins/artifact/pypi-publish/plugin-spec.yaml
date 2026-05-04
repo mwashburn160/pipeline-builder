@@ -26,15 +26,18 @@ installCommands:
   - twine --version
   - python3 -m build --version
   - |
+    set -e
     if [ -z "${TWINE_PASSWORD}" ]; then
       echo "WARNING: TWINE_PASSWORD not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     # Build the package
     echo "Building Python package..."
     python3 -m build 2>&1 | tee publish-output/build.log
   - |
+    set -e
     # Build repository URL flag
     REPO_FLAG=""
     if [ -n "${PYPI_REPOSITORY}" ]; then
@@ -50,6 +53,7 @@ commands:
       dist/* \
       2>&1 | tee publish-output/twine-upload.log
   - |
+    set -e
     # Save publish metadata
     if [ -f setup.py ] || [ -f setup.cfg ] || [ -f pyproject.toml ]; then
       PACKAGE_FILES=$(ls dist/ 2>/dev/null | tr '\n' ', ')

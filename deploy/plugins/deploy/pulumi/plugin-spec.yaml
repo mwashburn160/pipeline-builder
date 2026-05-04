@@ -23,6 +23,7 @@ installCommands:
   - aws --version
   # Runtime activation based on PULUMI_RUNTIME
   - |
+    set -e
     case "${PULUMI_RUNTIME}" in
       nodejs)
         source ${NVM_DIR}/nvm.sh && nvm use 24
@@ -46,6 +47,7 @@ installCommands:
     esac
 commands:
   - |
+    set -e
     cd ${PULUMI_WORK_DIR}
     pulumi login
     if [ -n "${PULUMI_STACK}" ]; then

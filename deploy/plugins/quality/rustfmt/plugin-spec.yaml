@@ -21,6 +21,7 @@ installCommands:
   - rustup component add rustfmt
 commands:
   - |
+    set -e
     echo "Running rustfmt check..."
     cargo fmt --all -- --check \
       2>&1 | tee fmt-reports/rustfmt.log || true

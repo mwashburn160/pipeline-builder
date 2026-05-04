@@ -20,6 +20,7 @@ dockerfile: Dockerfile
 installCommands:
   - test -d .scannerwork || mkdir -p .scannerwork
   - |
+    set -e
     SCANNER_DIR=$(find /opt/sonar-scanner/versions -maxdepth 1 -name "scanner-${SONAR_SCANNER_VERSION}*" -type d | head -1)
     if [ -n "${SCANNER_DIR}" ]; then
       ln -sf ${SCANNER_DIR}/bin/sonar-scanner /usr/local/bin/sonar-scanner
@@ -29,11 +30,13 @@ installCommands:
     fi
   - sonar-scanner --version
   - |
+    set -e
     rustup default ${RUST_VERSION}
     rustc --version
     if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
   - |
+    set -e
     sonar-scanner \
       -Dsonar.host.url=https://sonarcloud.io \
       -Dsonar.token=${SONAR_TOKEN} \

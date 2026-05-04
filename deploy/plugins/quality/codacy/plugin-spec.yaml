@@ -21,6 +21,7 @@ installCommands:
   - test -d codacy-reports || mkdir -p codacy-reports
   - codacy-coverage-reporter version || echo "Codacy coverage reporter ready"
   - |
+    set -e
     if [ -z "${CODACY_PROJECT_TOKEN}" ]; then
       echo "WARNING: CODACY_PROJECT_TOKEN is not set. Coverage upload will fail."
       echo "Provide CODACY_PROJECT_TOKEN via CodeBuild secrets or environment variables."
@@ -28,6 +29,7 @@ installCommands:
 commands:
   # Auto-detect coverage files and upload to Codacy
   - |
+    set -e
     echo "Scanning for coverage files..."
     COVERAGE_FILE=""
     LANG_FLAG=""

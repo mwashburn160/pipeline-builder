@@ -21,11 +21,13 @@ installCommands:
   - test -d semgrep-reports || mkdir -p semgrep-reports
   - semgrep --version
   - |
+    set -e
     if [ -n "${SEMGREP_APP_TOKEN}" ]; then
       echo "Semgrep App token configured — results will sync to dashboard"
     fi
 commands:
   - |
+    set -e
     echo "Running Semgrep with rules: ${SEMGREP_RULES}"
     semgrep scan \
       --config ${SEMGREP_RULES} \

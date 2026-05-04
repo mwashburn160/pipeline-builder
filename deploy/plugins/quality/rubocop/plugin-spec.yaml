@@ -21,6 +21,7 @@ installCommands:
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
+    set -e
     echo "Running RuboCop..."
     CONFIG_ARG=""
     if [ -n "${RUBOCOP_CONFIG}" ] && [ -f "${RUBOCOP_CONFIG}" ]; then

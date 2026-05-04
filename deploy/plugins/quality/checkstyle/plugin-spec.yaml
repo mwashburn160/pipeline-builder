@@ -21,6 +21,7 @@ installCommands:
   - java -version
   # Checkstyle version selection
   - |
+    set -e
     if [ -f /opt/checkstyle/versions/checkstyle-${CHECKSTYLE_VERSION}.jar ]; then
       ln -sf /opt/checkstyle/versions/checkstyle-${CHECKSTYLE_VERSION}.jar /opt/checkstyle/checkstyle.jar
     else
@@ -31,6 +32,7 @@ installCommands:
   - java -jar /opt/checkstyle/checkstyle.jar --version
 commands:
   - |
+    set -e
     source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION}
     # Resolve config file
     case "${CHECKSTYLE_CONFIG}" in

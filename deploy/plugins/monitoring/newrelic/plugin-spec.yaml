@@ -22,11 +22,13 @@ installCommands:
   - curl --version | head -1
   - jq --version
   - |
+    set -e
     if [ -z "${NEW_RELIC_API_KEY}" ]; then
       echo "WARNING: NEW_RELIC_API_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     if [ -z "${NEW_RELIC_API_KEY}" ]; then
       echo "ERROR: NEW_RELIC_API_KEY must be set (injected via CodeBuild secrets)"
       exit 1

@@ -22,11 +22,13 @@ installCommands:
   - curl --version | head -1
   - jq --version
   - |
+    set -e
     if [ -z "${PAGERDUTY_ROUTING_KEY}" ]; then
       echo "WARNING: PAGERDUTY_ROUTING_KEY not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     if [ -z "${PAGERDUTY_ROUTING_KEY}" ]; then
       echo "ERROR: PAGERDUTY_ROUTING_KEY must be set (injected via CodeBuild secrets)"
       exit 1

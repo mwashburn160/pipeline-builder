@@ -6,14 +6,11 @@
 # AWS CDK, pipeline-manager.
 
 ARG NODE_VERSION=24.15.0
-FROM pipeline-plugin-base:24.04
+FROM pipeline-aws-cli-base:1.0
 ARG NODE_VERSION
 
 # Python + Docker CLI deps.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-retry-install python3 python3-pip
 
 # Node.js — see _base/_snyk-base/Dockerfile for rationale on tarball install.
 RUN set -eux; \
@@ -47,10 +44,6 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI v2.
-RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip
 
 # AWS CDK + TS toolchain + pipeline-manager. pipeline-manager is left
 # unpinned (Pipeline Builder internal package, ships frequent versions);

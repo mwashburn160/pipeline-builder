@@ -19,12 +19,15 @@ installCommands:
   - dotnet --version
 commands:
   - |
+    set -e
     echo "Restoring packages..."
     dotnet restore
   - |
+    set -e
     echo "Building project..."
     dotnet build --no-restore --configuration ${CONFIGURATION}
   - |
+    set -e
     echo "Running tests..."
     dotnet test --no-build --configuration ${CONFIGURATION} \
       --logger trx --results-directory test-reports \

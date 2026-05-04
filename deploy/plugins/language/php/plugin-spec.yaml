@@ -17,20 +17,24 @@ dockerfile: Dockerfile
 installCommands:
   # PHP version selection
   - |
+    set -e
     update-alternatives --set php /usr/bin/php${PHP_VERSION}
   - php --version
   - composer --version
   # Install dependencies
   - |
+    set -e
     if [ -f composer.json ]; then
       composer install ${COMPOSER_FLAGS}
     fi
 commands:
   - |
+    set -e
     if composer run-script --list 2>/dev/null | grep -q "build"; then
       composer run-script build
     fi
   - |
+    set -e
     if [ -f vendor/bin/phpunit ]; then
       vendor/bin/phpunit
     elif composer run-script --list 2>/dev/null | grep -q "test"; then

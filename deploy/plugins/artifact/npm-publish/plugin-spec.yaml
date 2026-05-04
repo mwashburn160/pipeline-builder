@@ -22,15 +22,18 @@ installCommands:
   - node --version
   - npm --version
   - |
+    set -e
     if [ -z "${NPM_TOKEN}" ]; then
       echo "WARNING: NPM_TOKEN not set. Inject via CodeBuild secrets at runtime."
     fi
 commands:
   - |
+    set -e
     # Configure npm authentication
     echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
     echo "Configured npm registry authentication"
   - |
+    set -e
     # Build dry-run flag
     DRY_RUN_FLAG=""
     if [ "${NPM_DRY_RUN}" = "true" ]; then
@@ -45,6 +48,7 @@ commands:
       ${DRY_RUN_FLAG} \
       2>&1 | tee publish-output/npm-publish.log
   - |
+    set -e
     # Save publish metadata
     if [ -f package.json ]; then
       PACKAGE_NAME=$(jq -r '.name // "unknown"' package.json)

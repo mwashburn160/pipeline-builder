@@ -22,6 +22,7 @@ installCommands:
   - snyk --version
   - dotnet --version
   - |
+    set -e
     if ls *.sln *.csproj 1>/dev/null 2>&1; then dotnet restore; fi
 commands:
   - snyk auth ${SNYK_TOKEN}

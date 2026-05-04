@@ -22,6 +22,7 @@ installCommands:
 commands:
   # Validate template
   - |
+    set -e
     if [ -z "${CFN_TEMPLATE}" ]; then
       # Auto-detect CloudFormation templates
       CFN_TEMPLATE=$(find . -maxdepth 2 -name "*.yaml" -o -name "*.yml" -o -name "*.json" \
@@ -37,6 +38,7 @@ commands:
     cfn-lint ${CFN_TEMPLATE} || true
   # Validate with AWS API
   - |
+    set -e
     echo "Validating template with AWS CloudFormation..."
     aws cloudformation validate-template \
       --template-body file://${CFN_TEMPLATE} \
@@ -44,6 +46,7 @@ commands:
       > cfn-output/validate-result.json 2>&1 || true
   # Deploy action
   - |
+    set -e
     case "${CFN_ACTION}" in
       validate)
         echo "Validation complete (deploy skipped)"

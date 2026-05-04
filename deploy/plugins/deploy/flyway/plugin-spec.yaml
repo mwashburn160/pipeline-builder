@@ -27,12 +27,14 @@ installCommands:
 commands:
   # Validate required parameters
   - |
+    set -e
     if [ -z "${FLYWAY_URL}" ]; then
       echo "ERROR: FLYWAY_URL must be set (e.g., jdbc:postgresql://host:5432/db)"
       exit 1
     fi
   # Build Flyway arguments
   - |
+    set -e
     FLYWAY_ARGS="-url=${FLYWAY_URL} -user=${FLYWAY_USER} -password=${FLYWAY_PASSWORD}"
     if [ -n "${FLYWAY_SCHEMAS}" ]; then
       FLYWAY_ARGS="${FLYWAY_ARGS} -schemas=${FLYWAY_SCHEMAS}"

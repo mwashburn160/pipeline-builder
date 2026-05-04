@@ -20,6 +20,7 @@ installCommands:
   - pip-licenses --version || echo "pip-licenses ready"
   # Install project dependencies for accurate license scanning
   - |
+    set -e
     if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
     if [ -f yarn.lock ]; then npm install -g yarn && yarn install --frozen-lockfile; fi
     if [ -f pnpm-lock.yaml ]; then npm install -g pnpm && pnpm install --frozen-lockfile; fi
@@ -29,6 +30,7 @@ installCommands:
 commands:
   # Node.js license scan
   - |
+    set -e
     if [ -f package.json ]; then
       echo "Scanning Node.js licenses..."
       DENY_ARG=""
@@ -39,6 +41,7 @@ commands:
     fi
   # Python license scan
   - |
+    set -e
     if [ -f requirements.txt ] || [ -f setup.py ] || [ -f pyproject.toml ] || [ -f Pipfile ]; then
       echo "Scanning Python licenses..."
       pip-licenses --format=json --output-file=license-reports/python-licenses.json || true
@@ -48,6 +51,7 @@ commands:
     fi
   # Ruby license scan
   - |
+    set -e
     if [ -f Gemfile ]; then
       echo "Scanning Ruby licenses..."
       license_finder report --format=json > license-reports/ruby-licenses.json 2>/dev/null || true
