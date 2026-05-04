@@ -24,18 +24,22 @@ ARG SONAR_PREV_VERSION
 # Sonar-scanner is JavaScript-based — needs Node + npm at runtime. corepack
 # ships with NodeSource's nodejs and provides npm/pnpm/yarn shims without
 # conflicting with Ubuntu's npm deb.
-# Retries on apt mirror flaps. NO --fix-missing: see _snyk-base/Dockerfile.
+# Retries on apt mirror flaps — see _snyk-base/Dockerfile for full rationale.
 RUN set -eux; \
     for i in 1 2 3 4 5; do \
       curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && break \
         || { echo "NodeSource setup attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \
     for i in 1 2 3 4 5; do \
+      apt-get update && break \
+        || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    for i in 1 2 3 4 5; do \
       apt-get install -y --no-install-recommends nodejs && break \
         || { echo "apt install nodejs attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \
     NODE_MAJOR=$(node --version | sed 's/^v//;s/\..*//'); \
-    [ "$NODE_MAJOR" -ge 24 ] || { echo "ERROR: nodejs $NODE_MAJOR installed (expected 24+); NodeSource source likely not active"; exit 1; }; \
+    [ "$NODE_MAJOR" -ge 24 ] || { echo "ERROR: nodejs $NODE_MAJOR installed (expected 24+); NodeSource source not active"; exit 1; }; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb; \
     corepack enable
 
