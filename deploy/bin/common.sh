@@ -113,15 +113,20 @@ compute_image_tag() {
   # Hash every file in the plugin directory in sorted order, excluding build
   # outputs that aren't part of the source. We hash filename+content so a
   # rename also invalidates the tag.
+  #
+  # `cd` first so find doesn't try (and fail) to restore cwd when the
+  # script is invoked via `sudo -u <other>` from a directory the new user
+  # can't read (typical EC2 case: cwd=/home/ec2-user, running as minikube).
   local _content_hash
   _content_hash=$(
-    find "$_plugin_dir" -type f \
+    cd "$_plugin_dir" && \
+    find . -type f \
       -not -name 'image.tar' \
       -not -name 'plugin.zip' \
       -not -name '.DS_Store' \
       | LC_ALL=C sort \
       | while read -r _f; do
-          printf '%s\n' "${_f#"$_plugin_dir"/}"
+          printf '%s\n' "${_f#./}"
           cat "$_f"
         done \
       | sha256_hash

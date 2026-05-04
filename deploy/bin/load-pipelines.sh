@@ -79,7 +79,9 @@ upload_pipelines_bulk() {
 
   # Validate each pipeline.json individually so a single bad file doesn't kill the whole run silently
   _files=()
-  while IFS= read -r f; do _files+=("$f"); done < <(find "$PIPELINES_DIR" -maxdepth 2 -name "pipeline.json" | sort)
+  # cd first so find doesn't fail to restore cwd when run via sudo -u from
+  # a dir the target user can't read (typical EC2 case from /home/ec2-user).
+  while IFS= read -r f; do _files+=("$f"); done < <(cd "$PIPELINES_DIR" && find . -maxdepth 2 -name "pipeline.json" | sort | sed "s|^\./|$PIPELINES_DIR/|")
   if [ "${#_files[@]}" -eq 0 ]; then
     echo "  No pipeline.json files found under $PIPELINES_DIR"
     return
