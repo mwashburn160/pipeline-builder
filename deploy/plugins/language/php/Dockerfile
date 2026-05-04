@@ -20,7 +20,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── PHP via ondrej/php PPA ───
-RUN add-apt-repository ppa:ondrej/php -y && apt-get update
+#
+# `add-apt-repository ppa:ondrej/php` calls Launchpad's API to fetch the
+# signing key, which intermittently 504s under load and aborts the whole
+# build. We bypass it by:
+#   1. Fetching the PPA's signing key directly (retried, multiple keyservers)
+#   2. Writing the apt source list ourselves
+#   3. Retrying `apt-get update` since archive mirrors can also flap
+#
+# Effective build is identical to `add-apt-repository ppa:ondrej/php` but
+# resilient to single-mirror failures.
+RUN set -eux; \
+    KEY_ID=4F4EA0AAE5267A6C; \
+    install -d -m 0755 /etc/apt/keyrings; \
+    for keyserver in \
+        keyserver.ubuntu.com \
+        keys.openpgp.org \
+        pgp.mit.edu; do \
+      if gpg --keyserver "hkps://${keyserver}" --no-default-keyring \
+             --keyring /etc/apt/keyrings/ondrej-php.gpg --recv-keys "${KEY_ID}"; then \
+        echo "fetched PPA key from ${keyserver}"; \
+        break; \
+      fi; \
+      echo "keyserver ${keyserver} failed, trying next"; \
+      sleep 5; \
+    done; \
+    test -s /etc/apt/keyrings/ondrej-php.gpg; \
+    UBUNTU_CODENAME=$(. /etc/os-release && echo "${UBUNTU_CODENAME}"); \
+    echo "deb [signed-by=/etc/apt/keyrings/ondrej-php.gpg] http://ppa.launchpad.net/ondrej/php/ubuntu ${UBUNTU_CODENAME} main" \
+      > /etc/apt/sources.list.d/ondrej-php.list; \
+    for i in 1 2 3 4 5; do \
+      apt-get update && break || { echo "apt-get update attempt $i failed, retrying"; sleep $((i * 5)); }; \
+    done
 
 # Pre-install PHP 8.3 (previous)
 RUN apt-get install -y --no-install-recommends \

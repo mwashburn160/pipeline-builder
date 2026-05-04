@@ -53,38 +53,57 @@ spec:
         prometheus.io/scheme: "https"
     spec:
       initContainers:
-        # Wait for upstream Service DNS to resolve before starting nginx.
-        # Bounded by WAIT_TIMEOUT_SEC (default 180s) per upstream so a
-        # missing/typo'd service surfaces as a CrashLoopBackOff instead of
-        # an infinite Init:0/1 hang. To diagnose:
-        #   kubectl logs <nginx-pod> -c wait-for-upstreams
+        # See deploy/aws/ec2/k8s/nginx.yaml for full rationale.
+        # Escape hatch: kubectl set env deployment/nginx SKIP_UPSTREAM_WAIT=true
         - name: wait-for-upstreams
           image: busybox:1.36
           env:
             - name: WAIT_TIMEOUT_SEC
-              value: "180"
+              value: "60"
+            - name: SKIP_UPSTREAM_WAIT
+              value: "false"
           command:
             - sh
             - -c
             - |
+              if [ "$SKIP_UPSTREAM_WAIT" = "true" ]; then
+                echo "SKIP_UPSTREAM_WAIT=true — bypassing upstream-readiness gate"
+                exit 0
+              fi
+              NS=$(awk '/^search/ { for (i=2;i<=NF;i++) if ($i ~ /\.svc\./) { sub(/\.svc\..*/, "", $i); print $i; exit } }' /etc/resolv.conf 2>/dev/null)
+              SUFFIX=""
+              if [ -n "$NS" ]; then
+                CLUSTER_DOMAIN=$(awk '/^search/ { for (i=2;i<=NF;i++) if ($i ~ /\.svc\./) { sub(/^[^.]+\.svc\./, "", $i); print $i; exit } }' /etc/resolv.conf 2>/dev/null)
+                CLUSTER_DOMAIN=${CLUSTER_DOMAIN:-cluster.local}
+                SUFFIX=".${NS}.svc.${CLUSTER_DOMAIN}"
+                echo "Resolving upstreams via FQDN suffix: ${SUFFIX}"
+              else
+                echo "Could not derive FQDN suffix — falling back to bare hostnames"
+              fi
+
               UPSTREAMS="billing compliance frontend grafana message pipeline platform plugin quota reporting"
               FAILED=""
               for s in $UPSTREAMS; do
                 deadline=$(( $(date +%s) + WAIT_TIMEOUT_SEC ))
-                while ! nslookup "$s" >/dev/null 2>&1; do
-                  if [ "$(date +%s)" -ge "$deadline" ]; then
-                    echo "TIMEOUT waiting for $s (no Service after ${WAIT_TIMEOUT_SEC}s)"
-                    FAILED="$FAILED $s"
+                resolved=false
+                while [ "$(date +%s)" -lt "$deadline" ]; do
+                  if nslookup "${s}${SUFFIX}" >/dev/null 2>&1 || nslookup "$s" >/dev/null 2>&1; then
+                    echo "resolved: $s"
+                    resolved=true
                     break
                   fi
                   echo "waiting for $s..."
                   sleep 2
                 done
-                [ -z "$FAILED" ] || [ "${FAILED##* }" != "$s" ] && echo "resolved: $s" || true
+                if [ "$resolved" = "false" ]; then
+                  echo "TIMEOUT: $s (no Service after ${WAIT_TIMEOUT_SEC}s)"
+                  FAILED="$FAILED $s"
+                fi
               done
               if [ -n "$FAILED" ]; then
                 echo "FAILED upstreams:$FAILED"
-                echo "Hint: check 'kubectl get svc' — these Service objects are missing."
+                echo "Hint: 'kubectl get svc -n <ns>' — these Service objects are missing."
+                echo "Hint: 'kubectl set env deployment/nginx SKIP_UPSTREAM_WAIT=true' to bypass."
                 exit 1
               fi
               echo "all upstreams resolvable"
