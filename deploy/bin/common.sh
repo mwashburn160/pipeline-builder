@@ -312,9 +312,9 @@ select_categories() {
   local _available
   # cd into plugins dir first so `find` doesn't try (and fail) to restore
   # cwd when called as sudo -u from a directory the new user can't read.
-  # `_base` IS shown — it's infrastructure but operators want visibility
-  # into what's there (and may want to build it explicitly).
-  _available=$(cd "$_plugins_dir" && find -L . -mindepth 1 -maxdepth 1 -type d | sort | sed 's|^\./||')
+  # Skip `_`-prefixed dirs (build infrastructure like _base — not loadable
+  # plugins, would confuse the operator's category selection).
+  _available=$(cd "$_plugins_dir" && find -L . -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | sed 's|^\./||')
 
   echo ""
   # Show running user + the plugins-dir owner. If they differ, find/sed/etc.
