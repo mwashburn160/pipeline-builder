@@ -7,12 +7,6 @@ FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 

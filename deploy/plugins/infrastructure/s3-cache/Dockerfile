@@ -7,10 +7,6 @@
 FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    unzip \
     tar \
     zstd \
     gzip \

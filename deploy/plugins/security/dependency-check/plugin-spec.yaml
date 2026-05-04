@@ -65,3 +65,7 @@ env:
   DC_FAIL_ON_CVSS: "7"
   DC_FORMAT: JSON
   DC_SUPPRESSION_FILE: ""
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "dependency-check.sh --version"

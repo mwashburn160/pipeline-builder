@@ -63,3 +63,7 @@ env:
   SCAN_MODE: directory
   GITLEAKS_CONFIG: ""
   REPORT_FORMAT: json
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "gitleaks version && trufflehog --version"

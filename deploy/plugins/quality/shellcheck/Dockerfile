@@ -15,15 +15,6 @@ FROM pipeline-plugin-base:24.04
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_PREV_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── ShellCheck — multi-version support (copied from official images) ───
 RUN mkdir -p /opt/shellcheck/versions
 COPY --from=shellcheck-default /bin/shellcheck /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION}

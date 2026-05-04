@@ -1,10 +1,14 @@
+# check=skip=SecretsUsedInArgOrEnv
+# (SONAR_PROJECT_KEY/SONAR_ORGANIZATION are public project identifiers,
+# not secrets. The token IS injected at runtime via CodeBuild secrets.)
 # Pipeline Builder — SonarCloud Family Base Image
 #
 # Built tag: pipeline-sonarcloud-base:1.0
 #
-# Used as the FROM by all 7 sonarcloud-{nodejs,python,go,java,dotnet,ruby,
-# rust} plugins. Bundles two pinned sonar-scanner-cli versions (default +
-# previous) for runtime selection.
+# Used as the FROM by 6 of 7 sonarcloud language variants (sonarcloud-
+# nodejs, -go, -java, -dotnet, -ruby, -rust). sonarcloud-python opted
+# into a multistage build with pyenv, so it doesn't inherit this base.
+# Bundles two pinned sonar-scanner-cli versions for runtime selection.
 #
 # Each variant adds only its language toolchain in ~10 lines.
 #
@@ -34,7 +38,7 @@ RUN set -eux; \
       aarch64) NODE_ARCH=arm64 ;; \
       *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac; \
-    # Use .tar.gz, not .tar.xz — gzip is in the base image, xz-utils is not.
+    # See _snyk-base/Dockerfile for tarball-format rationale.
     for i in 1 2 3 4 5; do \
       curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz \
         && break \

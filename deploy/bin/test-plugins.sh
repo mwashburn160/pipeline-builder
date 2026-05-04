@@ -283,9 +283,9 @@ validate_config() {
   local bt
   bt=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//')
   case "$bt" in
-    build_image|prebuilt) log_pass "Valid buildType: ${bt}" ;;
+    build_image|prebuilt|metadata_only) log_pass "Valid buildType: ${bt}" ;;
     "") log_fail "Missing buildType in config.yaml" "$fqn" ;;
-    *)  log_fail "Invalid buildType: ${bt} (expected build_image or prebuilt)" "$fqn" ;;
+    *)  log_fail "Invalid buildType: ${bt} (expected build_image, prebuilt, or metadata_only)" "$fqn" ;;
   esac
 }
 

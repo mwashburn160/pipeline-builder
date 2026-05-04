@@ -3,13 +3,12 @@
 # Supports Web App, Container Instances, AKS, and Function deployments
 # Includes Azure CLI and kubectl for infrastructure management
 
+ARG KUBECTL_VERSION=1.31.4
+
 FROM pipeline-plugin-base:24.04
+ARG KUBECTL_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
     apt-transport-https \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
@@ -22,8 +21,15 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     && rm -rf /var/lib/apt/lists/*
 
 # ─── kubectl ───
-RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
-    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+# Pinned + SHA256-verified, matching kubectl-deploy/helm-deploy.
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+       -o /usr/local/bin/kubectl \
+    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" \
+       -o /tmp/kubectl.sha256 \
+    && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - \
+    && rm /tmp/kubectl.sha256 \
+    && chmod +x /usr/local/bin/kubectl
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID injected at runtime

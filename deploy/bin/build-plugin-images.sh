@@ -73,18 +73,54 @@ fi
 # All `_*` directories at any depth are infrastructure, not plugins —
 # excluded from the upload/load flow by the `! -name '_*'` filter on
 # category list at the top level.
+# Detect EC2 region (if running on EC2) and pick a regional Ubuntu mirror.
+# Same-region traffic stays in AWS (free + fast — 100s of MB/s vs the ~1
+# MB/s archive.ubuntu.com gives EC2 boxes). On non-EC2 hosts (or when IMDS
+# is disabled), prints nothing and apt uses the global mirror as before.
+#
+# Operator override: `APT_MIRROR=<host>` env var bypasses detection.
+_detect_apt_mirror() {
+  if [ -n "${APT_MIRROR:-}" ]; then
+    echo "$APT_MIRROR"
+    return
+  fi
+  local _token _region
+  # IMDSv2 token first (required on hardened EC2). Tiny timeout so we don't
+  # stall non-EC2 builds.
+  _token=$(curl -sf -X PUT --max-time 1 \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 60" \
+    http://169.254.169.254/latest/api/token 2>/dev/null || true)
+  if [ -n "$_token" ]; then
+    _region=$(curl -sf --max-time 1 \
+      -H "X-aws-ec2-metadata-token: $_token" \
+      http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)
+  fi
+  [ -n "$_region" ] && echo "${_region}.ec2.archive.ubuntu.com"
+}
+
 # Build a single base image with output captured. Silent on success
 # (just prints "  ✓ tag (Ns)"); dumps last 30 lines on failure. Set
 # VERBOSE_BUILD=1 to stream output the old way (debugging).
 _build_base_quiet() {
   local _tag="$1" _ctx="$2"
   local _start _elapsed _log _rc=0
+  local _build_extra=""
+  # The root base image takes APT_MIRROR as a build arg; family bases
+  # don't (they inherit from a fully-installed base image, no apt needed).
+  if [ "$(basename "$_ctx")" = "_default" ]; then
+    local _mirror
+    _mirror=$(_detect_apt_mirror)
+    [ -n "$_mirror" ] && _build_extra="--build-arg APT_MIRROR=${_mirror}"
+    [ -n "$_mirror" ] && echo "  → using apt mirror: ${_mirror}"
+  fi
   _start=$(date +%s)
   if [ "${VERBOSE_BUILD:-0}" = "1" ]; then
-    docker build --progress plain -t "$_tag" "$_ctx" || _rc=$?
+    # shellcheck disable=SC2086
+    docker build --progress plain $_build_extra -t "$_tag" "$_ctx" || _rc=$?
   else
     _log=$(mktemp)
-    docker build --progress plain -t "$_tag" "$_ctx" > "$_log" 2>&1 || _rc=$?
+    # shellcheck disable=SC2086
+    docker build --progress plain $_build_extra -t "$_tag" "$_ctx" > "$_log" 2>&1 || _rc=$?
     if [ "$_rc" -ne 0 ]; then
       echo "  ✗ $_tag — build failed (last 30 lines):" >&2
       tail -30 "$_log" | sed 's/^/    /' >&2
@@ -255,7 +291,9 @@ while IFS= read -r plugin_dir; do
       fi
       # Detect transient apt/network failures. Anything else is a real bug
       # and should fail immediately so the operator sees it.
-      if grep -qE 'connection timed out|Could not connect|Temporary failure resolving|503 Service Unavailable|504 Gateway|Gateway Time-out|Connection reset by peer|TLS handshake' "$build_log"; then
+      if grep -qE \
+        'connection timed out|Could not connect|Temporary failure resolving|503 Service Unavailable|504 Gateway|Gateway Time-out|Connection reset by peer|TLS handshake|Connection failed|Failed to fetch|Unable to fetch some archives|did not get expected size|hash sum mismatch|server can'"'"'t find|HTTP 5[0-9]{2}|EOF occurred in violation of protocol|read timeout|operation timed out|Network is unreachable|No route to host' \
+        "$build_log"; then
         backoff=$((attempt * 10))
         echo "    transient network failure on attempt $attempt/$max_attempts — sleeping ${backoff}s"
         sleep "$backoff"

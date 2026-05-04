@@ -9,11 +9,6 @@ FROM pipeline-plugin-base:24.04
 # they replace the prior nvm + node install that existed only to run the
 # now-deprecated `npm install -g codecov` package.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
     python3 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*

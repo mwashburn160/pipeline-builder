@@ -6,12 +6,6 @@
 FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
     ruby \
     ruby-dev \
     build-essential \

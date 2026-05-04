@@ -51,3 +51,7 @@ env:
   SHELLCHECK_SEVERITY: warning
   SHELLCHECK_FORMAT: json
   SHELLCHECK_SHELL: bash
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "shellcheck --version"

@@ -28,16 +28,44 @@ FROM public.ecr.aws/docker/library/ubuntu:24.04
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive
 
+# APT mirror selection. Default is the global archive.ubuntu.com, which is
+# slow + flaky from EC2 (we've seen 600 B/s with mid-fetch drops). Build
+# orchestrator passes `--build-arg APT_MIRROR=<region>.ec2.archive.ubuntu.com`
+# when running inside EC2 so apt traffic stays in-region (free + fast).
+#
+# This mutation persists in the image layer, so EVERY plugin Dockerfile
+# that uses `FROM pipeline-plugin-base:24.04` inherits the regional mirror
+# automatically — no per-plugin Dockerfile change needed.
+#
+# Both archive.ubuntu.com (main/universe/multiverse/restricted) AND
+# security.ubuntu.com (security updates) are redirected; Canonical's EC2
+# mirrors host both.
+#
+# Set at build time:
+#   docker build --build-arg APT_MIRROR=us-east-1.ec2.archive.ubuntu.com ...
+# Default leaves the global mirror in place for local dev / non-AWS builds.
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+      _files="/etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list"; \
+      for _f in $_files; do \
+        [ -f "$_f" ] || continue; \
+        sed -i \
+          -e "s|http://archive.ubuntu.com/ubuntu|http://${APT_MIRROR}/ubuntu|g" \
+          -e "s|http://security.ubuntu.com/ubuntu|http://${APT_MIRROR}/ubuntu|g" \
+          "$_f"; \
+      done; \
+      echo "APT mirror: ${APT_MIRROR} (both archive + security)"; \
+    fi
+
 # Common deps used by ~all plugins. Order chosen to maximize layer caching
 # in consumer images (this layer is the same hash everywhere).
 #
 # Retries archive.ubuntu.com transient failures: the mirror network
-# intermittently drops mid-fetch under load (we've hit this with PHP and
-# the base build). The retry loop + `--fix-missing` re-attempts only the
-# debs that didn't land, giving us self-healing build behavior without
-# blowing up the whole pipeline on a single mirror flap.
+# intermittently drops mid-fetch under load. The retry loop + `--fix-missing`
+# re-attempts only the debs that didn't land, giving us self-healing build
+# behavior without blowing up the whole pipeline on a single mirror flap.
 RUN set -eux; \
-    PKGS="git curl jq ca-certificates gnupg wget unzip"; \
+    PKGS="git curl jq ca-certificates gnupg wget unzip zip xz-utils"; \
     for i in 1 2 3 4 5; do \
       apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \

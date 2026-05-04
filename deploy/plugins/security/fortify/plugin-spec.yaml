@@ -76,3 +76,7 @@ env:
   FORTIFY_RELEASE: ""
   FOD_URL: https://ams.fortify.com
   SSC_URL: ""
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "fcli --version"

@@ -12,16 +12,6 @@ FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── AWS CLI ───
 RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \

@@ -2,9 +2,10 @@
 #
 # Built tag: pipeline-trivy-base:1.0
 #
-# Used as the FROM by all 7 trivy-{nodejs,python,go,java,dotnet,ruby,rust}
-# plugins. Bundles two pinned trivy versions (default + previous) for
-# runtime selection.
+# Used as the FROM by 6 of 7 trivy language variants (trivy-nodejs, -go,
+# -java, -dotnet, -ruby, -rust). trivy-python opted into a multistage
+# build with pyenv, so it doesn't inherit this base.
+# Bundles two pinned trivy versions for runtime selection.
 #
 # Each variant adds only its language toolchain in ~10 lines.
 

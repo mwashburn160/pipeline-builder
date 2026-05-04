@@ -2,9 +2,10 @@
 #
 # Built tag: pipeline-snyk-base:1.0
 #
-# Used as the FROM by all 7 snyk-{nodejs,python,go,java,dotnet,ruby,rust}
-# plugins. Centralizes the ~30 lines of Node.js + corepack + snyk CLI
-# installation that previously lived in every variant.
+# Used as the FROM by 6 of 7 snyk language variants (snyk-nodejs, -go,
+# -java, -dotnet, -ruby, -rust). snyk-python opted into a multistage
+# build that compiles its own Python via pyenv, so it doesn't inherit
+# this base. Centralizes ~30 lines of Node.js + corepack + snyk CLI install.
 #
 # Each variant adds only its language toolchain (goenv/pyenv/SDKMAN/etc.)
 # in ~10 lines.
@@ -33,7 +34,8 @@ RUN set -eux; \
       aarch64) NODE_ARCH=arm64 ;; \
       *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac; \
-    # Use .tar.gz, not .tar.xz — gzip is in the base image, xz-utils is not.
+    # Use .tar.gz — both gzip and xz-utils are in the base image, but gzip
+    # is the more universally-available choice (e.g., busybox tar variants).
     for i in 1 2 3 4 5; do \
       curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz \
         && break \

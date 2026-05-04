@@ -3,15 +3,15 @@
 # Supports App Engine, Cloud Run, GKE, and Compute Engine deployments
 # Includes gcloud SDK, kubectl, and Terraform for infrastructure management
 
+ARG KUBECTL_VERSION=1.31.4
+ARG TERRAFORM_VERSION=1.10.3
+
 FROM pipeline-plugin-base:24.04
+ARG KUBECTL_VERSION
+ARG TERRAFORM_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
     apt-transport-https \
-    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Google Cloud SDK ───
@@ -24,12 +24,24 @@ RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dea
     && rm -rf /var/lib/apt/lists/*
 
 # ─── kubectl ───
-RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
-    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+# Pinned + SHA256-verified, matching kubectl-deploy/helm-deploy. Was previously
+# using `stable.txt` (floating) and no checksum.
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+       -o /usr/local/bin/kubectl \
+    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" \
+       -o /tmp/kubectl.sha256 \
+    && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - \
+    && rm /tmp/kubectl.sha256 \
+    && chmod +x /usr/local/bin/kubectl
 
 # ─── Terraform ───
-RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://releases.hashicorp.com/terraform/1.10.3/terraform_1.10.3_linux_${ARCH}.zip" \
-    -o /tmp/terraform.zip && unzip -q /tmp/terraform.zip -d /usr/local/bin && rm /tmp/terraform.zip
+# Bumping requires only changing TERRAFORM_VERSION arg, not edit-search-replace.
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" \
+       -o /tmp/terraform.zip \
+    && unzip -q /tmp/terraform.zip -d /usr/local/bin \
+    && rm /tmp/terraform.zip
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — GOOGLE_APPLICATION_CREDENTIALS injected at runtime via CodeBuild secrets

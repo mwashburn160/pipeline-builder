@@ -6,13 +6,6 @@
 FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    wget \
-    jq \
-    ca-certificates \
     netcat-openbsd \
     dnsutils \
     && rm -rf /var/lib/apt/lists/*

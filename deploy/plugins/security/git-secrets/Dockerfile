@@ -18,15 +18,6 @@ ARG GITLEAKS_VERSION
 ARG GITLEAKS_PREV_VERSION
 ARG TRUFFLEHOG_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── Gitleaks — secret detection (copied from official image) ───
 RUN mkdir -p /opt/gitleaks/versions
 COPY --from=gitleaks-default /usr/bin/gitleaks /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION}

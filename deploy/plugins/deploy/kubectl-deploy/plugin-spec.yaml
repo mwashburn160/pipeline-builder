@@ -88,3 +88,7 @@ env:
   DEPLOY_ACTION: apply
   MANIFEST_PATH: "{{ pipeline.metadata.manifestPath | default: 'k8s/' }}"
   ROLLOUT_TIMEOUT: "{{ pipeline.metadata.rolloutTimeoutSeconds | default: '300' }}s"
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "kubectl version --client"

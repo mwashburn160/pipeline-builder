@@ -528,10 +528,11 @@ codacy:
 
 codecov:
   plugin: quality/codecov
-  install_type: npm
-  package: codecov
-  versions: ["latest"]
-  default: "latest"
+  install_type: pip
+  package: codecov-cli
+  versions: ["11.2.8"]
+  default: "11.2.8"
+  note: "npm 'codecov' was deprecated by Codecov in 2023; replaced with codecov-cli from PyPI."
 
 dotnet_format:
   plugin: quality/dotnet-format

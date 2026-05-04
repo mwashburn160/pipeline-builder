@@ -17,7 +17,10 @@ ENV DOTNET_ROOT=/opt/dotnet
 ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 ENV DOTNET_NOLOGO=1
-ENV DOTNET_VERSION=8.0
+# Aligned with the rest of the dotnet-* family (dotnet-format, dotnet-test,
+# dotnet-security-scan, snyk-dotnet, sonarcloud-dotnet, trivy-dotnet) and
+# plugin-versions.yaml default. Was previously 8.0 — outlier.
+ENV DOTNET_VERSION=9.0
 
 WORKDIR /app
 CMD ["bash"]

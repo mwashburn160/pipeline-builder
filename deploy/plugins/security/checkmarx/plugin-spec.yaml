@@ -83,3 +83,7 @@ env:
   CX_PROJECT_NAME: ""
   CX_SCAN_TYPE: sast
   CX_SEVERITY_THRESHOLD: high
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "cx version && kics version"

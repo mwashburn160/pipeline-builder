@@ -4,15 +4,6 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── Node.js via nvm ───
 ENV NVM_DIR=/opt/nvm
 RUN mkdir -p ${NVM_DIR} \

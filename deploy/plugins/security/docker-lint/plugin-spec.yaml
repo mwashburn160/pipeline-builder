@@ -71,3 +71,7 @@ env:
   HADOLINT_FORMAT: json
   DOCKLE_FORMAT: json
   HADOLINT_SEVERITY: warning
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "hadolint --version && dockle --version"

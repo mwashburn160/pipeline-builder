@@ -23,7 +23,8 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install gradle 8.12"
 ENV PATH="${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
-ENV JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
+# JAVA_HOME must match JAVA_VERSION below — see spotbugs/Dockerfile.
+ENV JAVA_HOME=/usr/lib/jvm/java-21-amazon-corretto
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 ENV JAVA_VERSION=21
 

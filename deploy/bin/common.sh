@@ -9,6 +9,14 @@ SCRIPT_DIR="${SCRIPT_DIR:-$COMMON_DIR}"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 
+# Move out of any cwd we might not be able to restore. When the script is
+# invoked via `sudo -u minikube ...` from `/home/ec2-user`, every `find`
+# subprocess emits "Failed to restore initial working directory" because
+# the new user can't read ec2-user's home. Working from /tmp (world-readable)
+# sidesteps that entirely. Done in common.sh so EVERY script that sources
+# it inherits the fix without per-script edits.
+cd /tmp 2>/dev/null || cd / 2>/dev/null || true
+
 # ---- Colors ----
 RED='\033[0;31m'
 GREEN='\033[0;32m'

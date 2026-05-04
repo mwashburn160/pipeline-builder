@@ -63,3 +63,7 @@ env:
   K6_VUS: "10"
   K6_DURATION: "30s"
   K6_THRESHOLDS: ""
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "k6 version"

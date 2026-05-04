@@ -6,13 +6,6 @@ FROM pipeline-plugin-base:24.04
 
 # System dependencies + Cypress browser prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
     libgtk2.0-0 \
     libgtk-3-0 \
     libgbm-dev \

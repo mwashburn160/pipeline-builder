@@ -6,12 +6,6 @@ FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + rbenv compilation prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
     build-essential \
     libssl-dev \
     zlib1g-dev \

@@ -101,3 +101,7 @@ env:
   CFN_PARAMETERS: ""
   CFN_CAPABILITIES: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
   CFN_REGION: us-east-1
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "rain --version && cfn-lint --version"

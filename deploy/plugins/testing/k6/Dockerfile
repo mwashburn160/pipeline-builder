@@ -15,16 +15,6 @@ FROM pipeline-plugin-base:24.04
 ARG K6_VERSION
 ARG K6_PREV_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── k6 — multi-version support (copied from official images) ───
 RUN mkdir -p /opt/k6/versions
 COPY --from=k6-default /usr/bin/k6 /opt/k6/versions/k6-${K6_VERSION}

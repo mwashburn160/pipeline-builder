@@ -123,3 +123,7 @@ env:
   HELM_ATOMIC: "true"
   HELM_REPO_URL: ""
   HELM_REPO_NAME: ""
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "helm version --short && kubectl version --client"

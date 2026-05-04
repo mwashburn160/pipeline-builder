@@ -14,16 +14,6 @@ FROM pipeline-plugin-base:24.04
 ARG KUBECTL_VERSION
 ARG HELM_VERSION
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    zip \
-    unzip \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── AWS CLI v2 (for EKS authentication) ───
 RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \
