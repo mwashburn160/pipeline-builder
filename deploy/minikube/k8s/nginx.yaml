@@ -53,18 +53,40 @@ spec:
         prometheus.io/scheme: "https"
     spec:
       initContainers:
+        # Wait for upstream Service DNS to resolve before starting nginx.
+        # Bounded by WAIT_TIMEOUT_SEC (default 180s) per upstream so a
+        # missing/typo'd service surfaces as a CrashLoopBackOff instead of
+        # an infinite Init:0/1 hang. To diagnose:
+        #   kubectl logs <nginx-pod> -c wait-for-upstreams
         - name: wait-for-upstreams
           image: busybox:1.36
+          env:
+            - name: WAIT_TIMEOUT_SEC
+              value: "180"
           command:
             - sh
             - -c
             - |
-              for s in billing compliance frontend grafana message pipeline platform plugin quota reporting; do
-                until nslookup "$s" >/dev/null 2>&1; do
+              UPSTREAMS="billing compliance frontend grafana message pipeline platform plugin quota reporting"
+              FAILED=""
+              for s in $UPSTREAMS; do
+                deadline=$(( $(date +%s) + WAIT_TIMEOUT_SEC ))
+                while ! nslookup "$s" >/dev/null 2>&1; do
+                  if [ "$(date +%s)" -ge "$deadline" ]; then
+                    echo "TIMEOUT waiting for $s (no Service after ${WAIT_TIMEOUT_SEC}s)"
+                    FAILED="$FAILED $s"
+                    break
+                  fi
                   echo "waiting for $s..."
                   sleep 2
                 done
+                [ -z "$FAILED" ] || [ "${FAILED##* }" != "$s" ] && echo "resolved: $s" || true
               done
+              if [ -n "$FAILED" ]; then
+                echo "FAILED upstreams:$FAILED"
+                echo "Hint: check 'kubectl get svc' — these Service objects are missing."
+                exit 1
+              fi
               echo "all upstreams resolvable"
       containers:
         - name: nginx
