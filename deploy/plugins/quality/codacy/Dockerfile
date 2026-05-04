@@ -6,24 +6,22 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG CODACY_VERSION=14.1.2
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG CODACY_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 # ─── Codacy Coverage Reporter ───
-RUN curl -fsSL https://github.com/codacy/codacy-coverage-reporter/releases/download/${CODACY_VERSION}/codacy-coverage-reporter-linux \
-    -o /usr/local/bin/codacy-coverage-reporter \
+# Multi-arch: codacy ships codacy-coverage-reporter-linux (x64) and
+# codacy-coverage-reporter-linux-arm64. The reporter is a self-contained
+# native binary; no extra deps needed.
+RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) CODACY_BIN=codacy-coverage-reporter-linux ;; \
+         arm64) CODACY_BIN=codacy-coverage-reporter-linux-arm64 ;; \
+         *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/codacy/codacy-coverage-reporter/releases/download/${CODACY_VERSION}/${CODACY_BIN}" \
+       -o /usr/local/bin/codacy-coverage-reporter \
     && chmod +x /usr/local/bin/codacy-coverage-reporter
 
 # ─── Runtime configuration defaults ───

@@ -3,12 +3,8 @@
 # Publishes Python packages to PyPI or custom repository using twine
 # Requires TWINE_USERNAME + TWINE_PASSWORD injected at runtime via CodeBuild secrets
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

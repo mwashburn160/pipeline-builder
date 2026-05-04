@@ -18,6 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
+require_yq
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 FORCE=false
@@ -57,31 +58,64 @@ if [ "${DOCKER_BUILD_STRATEGY:-}" = "kaniko" ]; then
   exit 1
 fi
 
+# ---- Build base images FIRST (dependency order) ----
+#
+# All base images live under `_base/`:
+#   _base/_default/        → pipeline-plugin-base:24.04 (root, built first)
+#   _base/_snyk-base/      → pipeline-snyk-base:1.0     (extends root)
+#   _base/_sonarcloud-base/ → pipeline-sonarcloud-base:1.0
+#   _base/_trivy-base/     → pipeline-trivy-base:1.0
+#
+# `_default` is built before any family base (family bases inherit FROM the
+# root). Family bases are built alphabetically — they don't depend on each
+# other.
+#
+# All `_*` directories at any depth are infrastructure, not plugins —
+# excluded from the upload/load flow by the `! -name '_*'` filter on
+# category list at the top level.
+build_base_images() {
+  local _base_root="$PLUGINS_DIR/_base"
+  [ ! -d "$_base_root" ] && return 0
+
+  echo "=== Building base images ==="
+  if [ "$DRY_RUN" = true ]; then
+    echo "  (dry-run) skipping base builds"
+    return 0
+  fi
+
+  # Root base must build first.
+  if [ -f "$_base_root/_default/Dockerfile" ]; then
+    docker build --progress plain -t pipeline-plugin-base:24.04 "$_base_root/_default"
+  fi
+
+  # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
+  # Tagged as `pipeline-${name}:1.0` where `${name}` is the dir name with
+  # the leading underscore stripped (e.g. `_snyk-base` → `pipeline-snyk-base:1.0`).
+  for _fam_dir in "$_base_root"/_*-base; do
+    [ -d "$_fam_dir" ] || continue
+    local _name
+    _name=$(basename "$_fam_dir" | sed 's/^_//')
+    echo "  Building pipeline-${_name}:1.0..."
+    docker build --progress plain -t "pipeline-${_name}:1.0" "$_fam_dir"
+  done
+  echo ""
+}
+build_base_images
+
 # ---- Build category list ----
+#
+# Skip directories whose name starts with `_` — these are infrastructure
+# (currently `_base`), not plugins. Excluded from build, upload, and load.
 
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
-  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | xargs -I{} basename {})
 fi
 
-# ---- Parse buildArgs from plugin-spec.yaml ----
-
+# ---- Parse buildArgs from plugin-spec.yaml (delegates to yq) ----
 parse_build_arg_flags() {
-  local specfile="$1"
-  if grep -q "^buildArgs:" "$specfile" 2>/dev/null; then
-    awk '
-      /^buildArgs:/ { capture=1; next }
-      capture && /^  [A-Za-z_]/ {
-        gsub(/^  /, "")
-        split($0, a, ": *")
-        gsub(/"/, "", a[2])
-        gsub(/'\''/, "", a[2])
-        printf "--build-arg %s=%s ", a[1], a[2]
-      }
-      capture && /^[^ ]/ { exit }
-    ' "$specfile"
-  fi
+  yq_buildargs "$1" | tr '\n' ' '
 }
 
 # ---- Reset mode ----

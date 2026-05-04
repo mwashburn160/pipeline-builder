@@ -3,12 +3,8 @@
 # Publishes Node.js packages to npm, supports scoped packages and custom tags
 # Requires NPM_TOKEN injected at runtime via CodeBuild secrets
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \
@@ -22,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── Node.js 24 via NodeSource ───
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — NPM_TOKEN injected at runtime via CodeBuild secrets

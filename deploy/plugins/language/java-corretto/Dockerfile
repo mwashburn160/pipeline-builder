@@ -4,10 +4,7 @@
 # Java version is selected at runtime via JAVA_VERSION env var
 # Kotlin compiler pre-installed for Kotlin projects (JVM target)
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -2,10 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Ruby version is selected at runtime via RUBY_VERSION env var
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + rbenv compilation prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \

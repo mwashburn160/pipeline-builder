@@ -9,19 +9,24 @@ ARG KICS_VERSION=2.1.3
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG CX_CLI_VERSION
-
-ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Checkmarx One CLI ───
-RUN curl -fsSL https://github.com/Checkmarx/ast-cli/releases/download/${CX_CLI_VERSION}/ast-cli_linux_x64.tar.gz \
-    | tar -xz -C /usr/local/bin
+# Multi-arch: ast-cli releases ship both _linux_x64 and _linux_arm64 tarballs.
+RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+         amd64) CX_ARCH=x64 ;; \
+         arm64) CX_ARCH=arm64 ;; \
+         *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/Checkmarx/ast-cli/releases/download/${CX_CLI_VERSION}/ast-cli_linux_${CX_ARCH}.tar.gz" \
+       | tar -xz -C /usr/local/bin
 
 # ─── KICS (IaC Scanner by Checkmarx — copied from official image) ───
 COPY --from=kics-src /app/bin/kics /usr/local/bin/kics

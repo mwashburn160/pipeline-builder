@@ -4,10 +4,7 @@
 # Kotlin compiler pre-installed for Kotlin projects (JVM target)
 # Build tool auto-detected (Maven/Gradle) or set via BUILD_TOOL env var
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + SDKMAN prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \

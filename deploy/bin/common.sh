@@ -22,6 +22,7 @@ NC='\033[0m'
 log_pass() { echo -e "  ${GREEN}PASS${NC} $1"; PASSED=$((PASSED + 1)); }
 log_fail() { echo -e "  ${RED}FAIL${NC} $1"; FAILED=$((FAILED + 1)); ERRORS+=("$2: $1"); }
 log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
+log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,47 @@ sha256_hash() {
 }
 
 # ---------------------------------------------------------------------------
-# compute_image_tag — deterministic image tag from plugin name + Dockerfile + buildArgs
+# require_yq — ensure `yq` (mikefarah's Go YAML parser) is on PATH.
+#
+# Replaced ~150 lines of brittle awk YAML state-machine code in
+# build-plugin-images.sh and generate-plugins.sh — those parsers broke on
+# multi-line values, comments after value, single-quoted strings with
+# embedded commas, etc. Call this once at the top of any script that uses
+# the `yq_*` helpers below.
+# ---------------------------------------------------------------------------
+require_yq() {
+  if ! command -v yq >/dev/null 2>&1; then
+    echo "ERROR: yq is required but not installed." >&2
+    echo "  macOS:  brew install yq" >&2
+    echo "  Linux:  https://github.com/mikefarah/yq#install" >&2
+    exit 1
+  fi
+}
+
+# yq_buildargs — emit `--build-arg KEY=VALUE` flags for plugin-spec.yaml
+# Outputs nothing if `buildArgs` is absent. Quoting is yq's responsibility.
+yq_buildargs() {
+  local _spec="$1"
+  yq eval '
+    .buildArgs // {}
+    | to_entries
+    | map("--build-arg " + .key + "=" + (.value | tostring))
+    | .[]
+  ' "$_spec"
+}
+
+# ---------------------------------------------------------------------------
+# compute_image_tag — deterministic image tag from plugin directory contents
+#
+# Hashes the SHA256 of every file in the plugin directory (except the build
+# outputs `image.tar` and `plugin.zip`), plus the plugin-spec.yaml buildArgs.
+# Files are listed in sorted order so the hash is stable across runs.
+#
+# Why hash the whole directory: previously this hashed only the Dockerfile +
+# buildArgs, which silently shipped stale `image.tar`s when COPY'd files
+# (entrypoint scripts, configs, sibling sources) changed. Anything visible
+# to the build context now bumps the tag.
+#
 #   $1 plugin directory
 #   Outputs: p-{name}-{sha256-first-12}
 # ---------------------------------------------------------------------------
@@ -69,20 +110,38 @@ compute_image_tag() {
   local _name_clean
   _name_clean=$(echo "$_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
 
-  local _dockerfile_content=""
-  [ -f "$_plugin_dir/Dockerfile" ] && _dockerfile_content=$(cat "$_plugin_dir/Dockerfile")
+  # Hash every file in the plugin directory in sorted order, excluding build
+  # outputs that aren't part of the source. We hash filename+content so a
+  # rename also invalidates the tag.
+  local _content_hash
+  _content_hash=$(
+    find "$_plugin_dir" -type f \
+      -not -name 'image.tar' \
+      -not -name 'plugin.zip' \
+      -not -name '.DS_Store' \
+      | LC_ALL=C sort \
+      | while read -r _f; do
+          printf '%s\n' "${_f#"$_plugin_dir"/}"
+          cat "$_f"
+        done \
+      | sha256_hash
+  )
 
+  # buildArgs hashed via yq for the same reason `parse_build_arg_flags`
+  # delegates to it: awk-based YAML parsing was fragile across quoting.
   local _build_args=""
-  if grep -q "^buildArgs:" "$_plugin_dir/plugin-spec.yaml" 2>/dev/null; then
-    _build_args=$(awk '
-      /^buildArgs:/ { capture=1; next }
-      capture && /^  [A-Za-z_]/ { gsub(/^  /,""); gsub(/: */,"="); gsub(/"/,""); print; next }
-      capture && /^[^ ]/ { exit }
-    ' "$_plugin_dir/plugin-spec.yaml" | sort)
+  if command -v yq >/dev/null 2>&1; then
+    _build_args=$(yq eval '
+      .buildArgs // {}
+      | to_entries
+      | map(.key + "=" + (.value | tostring))
+      | sort
+      | .[]
+    ' "$_plugin_dir/plugin-spec.yaml" 2>/dev/null || true)
   fi
 
   local _hash
-  _hash=$(printf '%s\n%s' "$_dockerfile_content" "$_build_args" | sha256_hash)
+  _hash=$(printf '%s\n%s' "$_content_hash" "$_build_args" | sha256_hash)
   echo "p-${_name_clean}-${_hash:0:12}"
 }
 

@@ -1,39 +1,13 @@
-# Snyk Security Plugin — Node.js / C++ scanning
+# Snyk Security Plugin — Node.js scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# For other languages, use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, or snyk-rust
+#
+# Inherits from the snyk family base image (pipeline-snyk-base:1.0)
+# which provides snyk CLI + (where applicable) Node.js. This file
+# only adds the Node.js toolchain.
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-snyk-base:1.0
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_VERSION=24
 
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    build-essential \
-    gnupg \
-    cmake \
-    clang \
-    ninja-build \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
-# ─── Node.js (required by Snyk CLI) ───
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# ─── Snyk CLI ───
-RUN npm install -g snyk
-
-# ─── Runtime configuration defaults ───
-ENV SNYK_SEVERITY_THRESHOLD=high
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

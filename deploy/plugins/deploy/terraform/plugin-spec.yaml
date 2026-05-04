@@ -6,13 +6,22 @@ keywords:
   - hcl
   - provision
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
 failureBehavior: fail
 secrets: []
 primaryOutputDirectory: tf-output
+# Typed pipeline contracts — declare env-interpolated keys for upload-time
+# validation. See notification/slack-notify and deploy/ecs-deploy for pattern.
+metadataTypes:
+  tfVersion: string
+  tfWorkingDir: string
+  tfAction: string  # plan | apply | destroy
+  tfVarFile: string
+  tfBackendConfig: string
+  tfAutoApprove: boolean
 dockerfile: Dockerfile
 installCommands:
   # Terraform version selection
@@ -85,3 +94,7 @@ env:
   TF_VAR_FILE: ""
   TF_BACKEND_CONFIG: ""
   TF_AUTO_APPROVE: "false"
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and reports a version. Exit non-zero = test fail.
+smokeTest: "terraform --version"

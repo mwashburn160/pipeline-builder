@@ -12,16 +12,12 @@ FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default
 FROM zricethezav/gitleaks:v${GITLEAKS_PREV_VERSION} AS gitleaks-prev
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG GITLEAKS_VERSION
 ARG GITLEAKS_PREV_VERSION
 ARG TRUFFLEHOG_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

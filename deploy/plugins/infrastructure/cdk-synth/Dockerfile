@@ -36,7 +36,10 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -
 
 # Install AWS CDK and pipeline-manager globally
 RUN npm config set @pipeline-builder:registry=https://registry.npmjs.org/
-RUN npm install -g aws-cdk@2.177.0 typescript@5.7.3 ts-node@10.9.2 @pipeline-builder/pipeline-manager
+# Pinned: leaving pipeline-manager floating means each rebuild may pull a
+# different version and produce a different image hash, breaking cache
+# determinism downstream.
+RUN npm install -g aws-cdk@2.177.0 typescript@5.7.3 ts-node@10.9.2 @pipeline-builder/pipeline-manager@1.6.6
 
 # Working directory for pipeline source
 WORKDIR /app

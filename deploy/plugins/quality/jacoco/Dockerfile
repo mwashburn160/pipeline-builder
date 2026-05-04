@@ -1,9 +1,7 @@
 # JaCoCo Plugin — Java Code Coverage
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates build-essential gnupg \
@@ -27,7 +25,7 @@ ENV PATH="${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gr
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
-ENV JAVA_VERSION=17
+ENV JAVA_VERSION=21
 
 WORKDIR /app
 CMD ["bash"]

@@ -3,12 +3,8 @@
 # Enforces coding standards for Java projects (Google, Sun, custom)
 # Multi-version support via SDKMAN
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \
@@ -40,11 +36,14 @@ RUN curl -fsSL https://github.com/checkstyle/checkstyle/releases/download/checks
 
 RUN ln -sf /opt/checkstyle/versions/checkstyle-10.21.1.jar /opt/checkstyle/checkstyle.jar
 
-# Download standard configs
+# Download standard configs.
+# Pin to the matching checkstyle release tag — fetching from `master` would
+# silently break the build on upstream rename or restructure. Bump in
+# lockstep with CHECKSTYLE_VERSION below.
 RUN mkdir -p /opt/checkstyle/configs
-RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/master/src/main/resources/google_checks.xml \
+RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/checkstyle-10.21.1/src/main/resources/google_checks.xml \
     -o /opt/checkstyle/configs/google_checks.xml
-RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/master/src/main/resources/sun_checks.xml \
+RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/checkstyle-10.21.1/src/main/resources/sun_checks.xml \
     -o /opt/checkstyle/configs/sun_checks.xml
 
 # ─── Runtime configuration defaults ───

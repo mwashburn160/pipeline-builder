@@ -3,12 +3,8 @@
 # Builds Docker images and pushes to Artifact Registry using gcloud authentication
 # Requires GOOGLE_APPLICATION_CREDENTIALS (service account JSON file path) at runtime
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

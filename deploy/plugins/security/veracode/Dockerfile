@@ -3,9 +3,7 @@
 # Uploads application artifacts for Veracode static/dynamic analysis
 # Requires VERACODE_API_ID and VERACODE_API_KEY at runtime
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl wget jq ca-certificates \

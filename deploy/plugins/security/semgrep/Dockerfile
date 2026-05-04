@@ -2,12 +2,8 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Fast, lightweight static analysis across 30+ languages
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \
@@ -21,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Semgrep CLI ───
-RUN pip3 install --break-system-packages semgrep
+# Pinned for reproducible builds — matches the version-pinning policy used
+# elsewhere (cfn-lint, checkov, ggshield, twine all pinned).
+RUN pip3 install --break-system-packages --no-cache-dir semgrep==1.119.0
 
 # ─── Runtime configuration defaults ───
 ENV SEMGREP_RULES=auto

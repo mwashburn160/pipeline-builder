@@ -3,17 +3,7 @@
 # Sends pipeline status messages to Microsoft Teams channels via webhook
 # Supports adaptive card format with color-coded status indicators
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM pipeline-plugin-base:24.04
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — TEAMS_WEBHOOK_URL injected at runtime via CodeBuild secrets

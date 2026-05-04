@@ -2,12 +2,8 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Supports OCI registries, ChartMuseum, and S3
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

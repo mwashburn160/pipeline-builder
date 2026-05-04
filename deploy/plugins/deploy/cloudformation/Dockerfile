@@ -6,14 +6,10 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG RAIN_VERSION=1.18.0
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG RAIN_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

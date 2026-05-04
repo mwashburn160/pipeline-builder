@@ -2,10 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Cypress E2E tests with video recording and screenshot capture
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies + Cypress browser prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,8 +32,8 @@ RUN mkdir -p ${NVM_DIR} \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
     nvm install 24 && \
-    nvm alias default 24" \
-    && ln -s ${NVM_DIR}/versions/node/$(ls ${NVM_DIR}/versions/node/ | grep '^v24') ${NVM_DIR}/versions/node/v24
+    nvm alias default 24 && \
+    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # Default Node.js version

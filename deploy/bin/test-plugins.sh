@@ -227,9 +227,45 @@ validate_dockerfile() {
     log_info "Building Docker image: ${tag}"
     if docker build -t "$tag" "$plugin_dir" > /dev/null 2>&1; then
       log_pass "Docker build successful"
+
+      # Smoke test: actually run the image. Without this, a Dockerfile that
+      # builds but produces an unrunnable image (broken ENTRYPOINT, missing
+      # CMD shell, fs that 'cd /app' can't enter) reports PASS but blows up
+      # at the first real CodeBuild execution.
+      #
+      # Default smoke test: launch bash, print OK. If plugin-spec.yaml has
+      # a `smokeTest:` field, run that command too — gives plugin authors a
+      # way to assert tool-specific invariants like `which snyk && snyk --version`.
+      if docker run --rm --entrypoint=/bin/bash "$tag" -c 'echo OK' > /dev/null 2>&1; then
+        log_pass "Image launches"
+      else
+        log_fail "Image fails to launch (broken CMD/ENTRYPOINT or shell)" "$fqn"
+      fi
+
+      local smoke
+      smoke=$(yq eval '.smokeTest // ""' "$specfile" 2>/dev/null)
+      if [ -n "$smoke" ] && [ "$smoke" != "null" ]; then
+        if docker run --rm --entrypoint=/bin/bash "$tag" -c "$smoke" > /dev/null 2>&1; then
+          log_pass "Smoke test passed: ${smoke}"
+        else
+          log_fail "Smoke test failed: ${smoke}" "$fqn"
+        fi
+      fi
+
       docker rmi "$tag" > /dev/null 2>&1 || true
     else
       log_fail "Docker build failed" "$fqn"
+    fi
+  fi
+
+  # Heredoc commands without `set -e` are a foot-gun: an intermediate
+  # failing command silently passes and the script keeps running with
+  # bad state. Warn (not fail) — fixing requires per-spec review since
+  # some commands deliberately swallow failures with `|| true` or case
+  # fallthrough.
+  if grep -q "^[[:space:]]*- |" "$specfile" 2>/dev/null; then
+    if ! grep -q "set -e" "$specfile" 2>/dev/null; then
+      log_warn "Has multi-line heredoc command(s) but no \`set -e\` — intermediate failures will silently pass"
     fi
   fi
 }
@@ -304,6 +340,8 @@ if [ -n "$SPECIFIC_PLUGIN" ]; then
 else
   for category_dir in "${PLUGINS_DIR}"/*/; do
     [ -d "$category_dir" ] || continue
+    # Skip `_`-prefixed dirs (e.g. _base — shared base image, not a plugin).
+    case "$(basename "$category_dir")" in _*) continue ;; esac
     for plugin_dir in "${category_dir}"/*/; do
       [ -d "$plugin_dir" ] || continue
       test_plugin "$plugin_dir"

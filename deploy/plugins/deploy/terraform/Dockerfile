@@ -10,12 +10,8 @@ ARG TFSEC_VERSION=1.28.11
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
 FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

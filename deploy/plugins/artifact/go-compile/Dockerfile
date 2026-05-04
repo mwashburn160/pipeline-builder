@@ -1,9 +1,7 @@
 # Go Build Plugin — Binary Compilation
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates build-essential \

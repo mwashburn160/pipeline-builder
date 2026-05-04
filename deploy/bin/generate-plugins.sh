@@ -16,6 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
+require_yq
 
 VERSIONS_FILE="$DEPLOY_DIR/plugins/plugin-versions.yaml"
 MODE="${1:---verify}"
@@ -26,101 +27,37 @@ FAILED=0
 SKIPPED=0
 ERRORS=()
 
-# ── YAML parser (lightweight, no python dependency) ──
-# Reads plugin-versions.yaml and extracts tool entries.
-# We use a simple state machine since the YAML structure is flat.
-
+# ── YAML traversal via yq ──
+#
+# Replaced ~90 lines of awk/regex YAML state machine. Iterates each
+# top-level tool entry, pulls structured fields, then dispatches to
+# verify_tool. Skips tools whose `versions` list is empty (e.g.
+# install_type: apt/none/sdkman entries that don't pin a version).
 verify_versions() {
-  local current_tool=""
-  local install_type="" image="" tag_prefix="" url_template="" url="" package=""
-  local in_versions=false
-  local in_nested_tools=false
-  local versions=()
+  local tools
+  tools=$(yq eval 'keys | .[]' "$VERSIONS_FILE")
 
-  while IFS= read -r line; do
-    # Skip comments and blank lines
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+  while IFS= read -r tool; do
+    [ -z "$tool" ] && continue
 
-    # Top-level key (tool name) — no leading whitespace
-    if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*): ]]; then
-      # Process previous tool
-      if [ -n "$current_tool" ] && [ ${#versions[@]} -gt 0 ]; then
-        verify_tool "$current_tool" "$install_type" "$image" "$tag_prefix" "$url_template" "$url" "$package" "${versions[@]}"
-      fi
-      current_tool="${BASH_REMATCH[1]}"
-      install_type="" image="" tag_prefix="" url_template="" url="" package=""
-      versions=()
-      in_versions=false
-      in_nested_tools=false
-      continue
-    fi
+    # Pull each field once; `// ""` keeps yq from emitting the literal
+    # string `null` for absent keys.
+    local install_type image tag_prefix url_template url package
+    install_type=$(yq eval ".${tool}.install_type // \"\"" "$VERSIONS_FILE")
+    image=$(yq eval ".${tool}.image // \"\"" "$VERSIONS_FILE")
+    tag_prefix=$(yq eval ".${tool}.tag_prefix // \"\"" "$VERSIONS_FILE")
+    url_template=$(yq eval ".${tool}.url_template // \"\"" "$VERSIONS_FILE")
+    url=$(yq eval ".${tool}.url // \"\"" "$VERSIONS_FILE")
+    package=$(yq eval ".${tool}.package // \"\"" "$VERSIONS_FILE")
 
-    # Detect nested tools: block — skip everything inside it
-    if [[ "$line" =~ ^[[:space:]]+tools:[[:space:]]*$ ]]; then
-      in_nested_tools=true
-      in_versions=false
-      continue
-    fi
+    local versions=()
+    while IFS= read -r v; do
+      [ -n "$v" ] && versions+=("$v")
+    done < <(yq eval ".${tool}.versions[]? // empty" "$VERSIONS_FILE")
 
-    # Inside nested tools block: only exit when we hit a non-deeply-indented key
-    # Nested tool content is indented 4+ spaces; top-level tool properties use 2 spaces
-    if $in_nested_tools; then
-      # A 2-space indented key means we're back to top-level tool properties
-      if [[ "$line" =~ ^[[:space:]]{2}[a-zA-Z] ]] && ! [[ "$line" =~ ^[[:space:]]{4} ]]; then
-        in_nested_tools=false
-      else
-        continue
-      fi
-    fi
-
-    # Nested keys (top-level tool properties, 2-space indent)
-    if [[ "$line" =~ ^[[:space:]]+install_type:[[:space:]]*(.+) ]]; then
-      install_type="${BASH_REMATCH[1]}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+image:[[:space:]]*(.+) ]]; then
-      image="${BASH_REMATCH[1]}"
-      image="${image%\"}"
-      image="${image#\"}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+tag_prefix:[[:space:]]*\"(.*)\" ]]; then
-      tag_prefix="${BASH_REMATCH[1]}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+url_template:[[:space:]]*\"(.+)\" ]]; then
-      url_template="${BASH_REMATCH[1]}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+url:[[:space:]]*\"(.+)\" ]]; then
-      url="${BASH_REMATCH[1]}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+package:[[:space:]]*(.+) ]]; then
-      package="${BASH_REMATCH[1]}"
-      package="${package%\"}"
-      package="${package#\"}"
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+versions:[[:space:]]*\[(.+)\] ]]; then
-      # Inline array: ["1.0", "2.0"]
-      local raw="${BASH_REMATCH[1]}"
-      IFS=',' read -ra parts <<< "$raw"
-      for part in "${parts[@]}"; do
-        part="${part// /}"
-        part="${part%\"}"
-        part="${part#\"}"
-        [ -n "$part" ] && versions+=("$part")
-      done
-      in_versions=false
-    elif [[ "$line" =~ ^[[:space:]]+versions: ]]; then
-      in_versions=true
-    elif $in_versions && [[ "$line" =~ ^[[:space:]]+-[[:space:]]*\"?([^\"]+)\"? ]]; then
-      versions+=("${BASH_REMATCH[1]}")
-    else
-      in_versions=false
-    fi
-  done < "$VERSIONS_FILE"
-
-  # Process last tool
-  if [ -n "$current_tool" ] && [ ${#versions[@]} -gt 0 ]; then
-    verify_tool "$current_tool" "$install_type" "$image" "$tag_prefix" "$url_template" "$url" "$package" "${versions[@]}"
-  fi
+    [ ${#versions[@]} -eq 0 ] && continue
+    verify_tool "$tool" "$install_type" "$image" "$tag_prefix" "$url_template" "$url" "$package" "${versions[@]}"
+  done <<< "$tools"
 }
 
 verify_tool() {

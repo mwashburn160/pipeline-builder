@@ -6,13 +6,23 @@ keywords:
   - cloudformation
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
 failureBehavior: fail
 secrets: []
 primaryOutputDirectory: cdk-output
+# Typed pipeline contracts — declare what env-interpolated keys this plugin
+# expects so the synthesizer can validate at upload time. See
+# notification/slack-notify and deploy/ecs-deploy for the pattern.
+metadataTypes:
+  cdkStack: string
+  cdkContext: string
+  cdkDeployAction: string  # deploy | destroy | diff
+  cdkHotswap: boolean
+  cdkRequireApproval: string  # never | broadening | any-change
+  cdkOutputsFile: string
 metadata:
   aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation: true
   aws:cdk:codebuild:buildenvironment:privileged: true

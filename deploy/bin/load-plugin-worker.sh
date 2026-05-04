@@ -73,6 +73,13 @@ case "$build_type" in
   prebuilt)
     if [ -f "$image_tar" ]; then
       zip_files="$zip_files image.tar"
+    elif [ "${SKIP_MISSING_IMAGE_TAR:-}" = "true" ]; then
+      # Set by init-platform.sh --continue-on-build-failure: plugins whose
+      # build failed upstream get skipped here so the rest of the bootstrap
+      # can proceed. Operator sees the count in the summary.
+      echo "  SKIP $label (buildType=prebuilt but image.tar missing — build failed upstream)"
+      _count skipped
+      exit 2
     else
       echo "  FAIL $label (buildType=prebuilt but image.tar missing — run build-plugin-images.sh)"
       _count failed

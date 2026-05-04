@@ -3,12 +3,8 @@
 # Builds Docker images and pushes to JFrog Artifactory using JFrog CLI authentication
 # Requires JFROG_TOKEN at runtime (never baked into images)
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

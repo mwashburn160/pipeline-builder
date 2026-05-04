@@ -14,7 +14,7 @@ FROM hadolint/hadolint:v${HADOLINT_PREV_VERSION} AS hadolint-prev
 FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-default
 FROM goodwithtech/dockle:v${DOCKLE_PREV_VERSION} AS dockle-prev
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG HADOLINT_VERSION
@@ -22,10 +22,6 @@ ARG HADOLINT_PREV_VERSION
 ARG DOCKLE_VERSION
 ARG DOCKLE_PREV_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

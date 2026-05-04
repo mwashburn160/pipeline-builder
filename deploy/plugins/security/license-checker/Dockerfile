@@ -3,12 +3,8 @@
 # Scans project dependencies for license compatibility issues
 # Supports Node.js, Python, Java, Go, Ruby, .NET, Rust
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \
@@ -24,7 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─── Node.js (for license-checker npm package) ───
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable
 
 # ─── License scanning tools ───
 # Node.js: license-checker

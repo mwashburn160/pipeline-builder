@@ -140,6 +140,22 @@ echo "  minikube installed"
 # conntrack + socat (required by minikube)
 dnf install -y conntrack-tools socat
 
+# yq — required by build-plugin-images.sh and generate-plugins.sh.
+# Distro repos may have an old python-yq; install mikefarah's Go binary
+# directly to /usr/local/bin so the version matches what plugin scripts expect.
+echo "  Installing yq..."
+YQ_VERSION="v4.45.1"
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  YQ_ARCH=amd64 ;;
+  aarch64) YQ_ARCH=arm64 ;;
+  *) echo "  WARNING: unknown arch $ARCH, defaulting to amd64"; YQ_ARCH=amd64 ;;
+esac
+curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" \
+  -o /usr/local/bin/yq
+chmod +x /usr/local/bin/yq
+echo "  yq $(/usr/local/bin/yq --version)"
+
 # =============================================================================
 # Phase 5: TLS Certificate
 # =============================================================================

@@ -10,15 +10,11 @@ ARG SHELLCHECK_PREV_VERSION=0.9.0
 FROM koalaman/shellcheck:v${SHELLCHECK_VERSION} AS shellcheck-default
 FROM koalaman/shellcheck:v${SHELLCHECK_PREV_VERSION} AS shellcheck-prev
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_PREV_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

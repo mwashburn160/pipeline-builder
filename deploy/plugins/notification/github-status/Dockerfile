@@ -2,19 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Posts build results back to pull requests and commits
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
+FROM pipeline-plugin-base:24.04
 
 # ─── GitHub CLI (gh) ───
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

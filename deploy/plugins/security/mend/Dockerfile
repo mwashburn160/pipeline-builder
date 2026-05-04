@@ -3,9 +3,7 @@
 # Scans dependencies for known CVEs and license compliance issues
 # Requires MEND_API_KEY and MEND_ORG_TOKEN at runtime
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl jq ca-certificates \

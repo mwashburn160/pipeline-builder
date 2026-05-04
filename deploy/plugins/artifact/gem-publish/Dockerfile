@@ -3,12 +3,8 @@
 # Publishes Ruby gems to RubyGems.org with dry-run support
 # Requires GEM_HOST_API_KEY injected at runtime via CodeBuild secrets
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

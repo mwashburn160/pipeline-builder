@@ -3,10 +3,7 @@
 # Python version is selected at runtime via PYTHON_VERSION env var
 # Package manager auto-detected (pip/poetry/pipenv) or set via PACKAGE_MANAGER env var
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies for builds + pyenv compilation prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \

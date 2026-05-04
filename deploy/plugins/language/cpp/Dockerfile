@@ -2,10 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Build system auto-detected (cmake/make/meson) or set via BUILD_SYSTEM env var
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # System dependencies for C++ builds + Python for Conan/Meson
 RUN apt-get update && apt-get install -y --no-install-recommends \

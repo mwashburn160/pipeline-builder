@@ -10,15 +10,11 @@ ARG K6_PREV_VERSION=0.55.0
 FROM grafana/k6:${K6_VERSION} AS k6-default
 FROM grafana/k6:${K6_PREV_VERSION} AS k6-prev
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 ARG K6_VERSION
 ARG K6_PREV_VERSION
 
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     zip \

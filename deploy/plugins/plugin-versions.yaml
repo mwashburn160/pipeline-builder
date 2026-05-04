@@ -726,15 +726,15 @@ govulncheck:
   default: "1.24.13"
   note: "Go via goenv. govulncheck installed per-project."
 
-trivy:
-  plugin: security/trivy
+trivy_nodejs:
+  plugin: security/trivy-nodejs
   install_type: copy_from
   image: aquasec/trivy
   tag_prefix: ""
   binary_path: /usr/local/bin/trivy
   versions: ["0.68.2", "0.69.3"]
   default: "0.69.3"
-  note: "Node.js + C++ + IaC scanning. For other languages use trivy-python, trivy-java, trivy-go, trivy-dotnet, trivy-ruby, trivy-rust."
+  note: "Node.js + IaC scanning. For other languages use trivy-python, trivy-java, trivy-go, trivy-dotnet, trivy-ruby, trivy-rust."
 
 trivy_python:
   plugin: security/trivy-python
@@ -810,13 +810,13 @@ trivy_rust:
       default: "stable"
   note: "Trivy + Rust via rustup."
 
-snyk:
-  plugin: security/snyk
+snyk_nodejs:
+  plugin: security/snyk-nodejs
   install_type: npm
   package: snyk
   versions: ["latest"]
   default: "latest"
-  note: "Node.js + C++ scanning. For other languages use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, snyk-rust."
+  note: "Node.js scanning. For other languages use snyk-python, snyk-java, snyk-go, snyk-dotnet, snyk-ruby, snyk-rust."
 
 snyk_python:
   plugin: security/snyk-python
@@ -924,13 +924,13 @@ veracode_cli:
   url: "https://tools.veracode.com/veracode-cli/install"
   note: "Vendor install script — no versioning available. Monitor for breakage."
 
-sonar_scanner:
-  plugin: security/sonarcloud
+sonarcloud_nodejs:
+  plugin: security/sonarcloud-nodejs
   install_type: docker_multistage
   image: "sonarsource/sonar-scanner-cli:{version}"
   versions: ["11.5", "12.0"]
   default: "12.0"
-  note: "Node.js + C++ scanning. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, sonarcloud-rust."
+  note: "Node.js scanning. For other languages use sonarcloud-python, sonarcloud-java, sonarcloud-go, sonarcloud-dotnet, sonarcloud-ruby, sonarcloud-rust."
 
 sonarcloud_python:
   plugin: security/sonarcloud-python

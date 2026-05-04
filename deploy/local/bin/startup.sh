@@ -20,6 +20,15 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+# yq — required by build-plugin-images.sh and generate-plugins.sh. Check
+# only (don't auto-install) so we don't silently mutate the user's brew state.
+if ! command -v yq >/dev/null 2>&1; then
+  echo "ERROR: yq is not installed (required for plugin builds)" >&2
+  echo "  macOS: brew install yq" >&2
+  echo "  Linux: https://github.com/mikefarah/yq#install" >&2
+  exit 1
+fi
+
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
   echo "ERROR: .env file not found at $DEPLOY_DIR/.env" >&2
   echo "  Copy .env.example to .env and update with your values" >&2

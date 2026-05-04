@@ -3,18 +3,7 @@
 # Publishes SNS notification and polls for manual approval response
 # Supports configurable timeout and approval dashboard URL
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+FROM pipeline-plugin-base:24.04
 
 # ─── AWS CLI v2 ───
 RUN ARCH=$(uname -m) && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscli.zip \

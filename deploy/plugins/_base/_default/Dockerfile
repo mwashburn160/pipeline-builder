@@ -1,0 +1,48 @@
+# Pipeline Builder — Shared Plugin Base Image
+#
+# Used as the FROM by every plugin Dockerfile. Centralizes the system deps
+# that ~95% of plugins were redundantly installing in their own RUN blocks
+# (git, curl, jq, ca-certificates, gnupg, etc.).
+#
+# Build target tag: pipeline-plugin-base:24.04
+#
+# Why this base exists:
+#   - 80MB layer × 123 plugins = ~10GB redundancy on disk + transfer + S3
+#   - One place to patch a CVE in a base dep (vs. 123 PRs)
+#   - Eliminates ~10 lines of boilerplate per plugin Dockerfile
+#   - Faster cold builds — apt-get update + install runs once, not 123 times
+#
+# Build orchestration:
+#   build-plugin-images.sh detects this directory (prefixed with `_`),
+#   builds it FIRST, tags it locally, then iterates over the real plugins.
+#   The `_` prefix excludes it from the upload/load flow — operators don't
+#   see it as a plugin in the dashboard.
+#
+# Stability rules:
+#   - Pin the Ubuntu tag (24.04 — Noble Numbat LTS, supported until 2029)
+#   - Keep the dep list MINIMAL — anything plugin-specific belongs in that
+#     plugin's Dockerfile, not here. Adding to this list bloats every image.
+
+FROM public.ecr.aws/docker/library/ubuntu:24.04
+
+# Avoid interactive prompts during apt-get install in any consumer.
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Common deps used by ~all plugins. Order chosen to maximize layer caching
+# in consumer images (this layer is the same hash everywhere).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    jq \
+    ca-certificates \
+    gnupg \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+
+# Working directory for pipeline source — every plugin overrides commands
+# relative to this path.
+WORKDIR /app
+
+# Default entrypoint — overridden by CodeBuildStep commands.
+CMD ["bash"]

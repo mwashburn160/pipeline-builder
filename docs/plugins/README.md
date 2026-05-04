@@ -315,6 +315,8 @@ Replace `{orgId}` with your actual organization ID or use a wildcard for multi-o
 
 ## Plugin Structure
 
+> **Adding a plugin?** See [`deploy/plugins/README.md`](../../deploy/plugins/README.md) for the contributor guide — directory layout, build/test/load workflow, multistage patterns, and conventions.
+
 Every plugin follows this layout:
 
 ```mermaid
@@ -327,6 +329,12 @@ graph LR
 
     style ROOT fill:#4A90D9,color:#fff
 ```
+
+### Shared base image
+
+Every plugin Dockerfile starts with `FROM pipeline-plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/Dockerfile`](../../deploy/plugins/_base/Dockerfile) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`). Saves ~80 MB per image via Docker layer dedup.
+
+7 plugins use multistage builds to drop heavy build-time dependencies that aren't needed at runtime — see the [multistage patterns](../../deploy/plugins/README.md#multistage-patterns) section in the contributor README.
 
 ### Build Types
 

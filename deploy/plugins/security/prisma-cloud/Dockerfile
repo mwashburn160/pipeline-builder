@@ -3,9 +3,7 @@
 # Scans container images and IaC templates for vulnerabilities and compliance
 # Requires PRISMA_ACCESS_KEY and PRISMA_SECRET_KEY at runtime
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git zip unzip curl wget jq ca-certificates \

@@ -33,3 +33,7 @@ commands:
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
   SNYK_SEVERITY_THRESHOLD: high
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and reports a version. Exit non-zero = test fail.
+smokeTest: "which snyk && node --version"

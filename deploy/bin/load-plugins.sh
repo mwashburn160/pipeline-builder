@@ -88,7 +88,8 @@ elif [ -t 0 ]; then
   select_categories "$PLUGINS_DIR" || exit 0
   CATEGORIES=$(echo "$SELECTED_CATEGORIES" | tr ',' ' ')
 else
-  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+  # Skip `_`-prefixed dirs (e.g. _base — shared base image, not a plugin).
+  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | xargs -I{} basename {})
 fi
 
 # ---- Build plugin list + count ----

@@ -3,17 +3,7 @@
 # Sends deployment events and markers to Datadog for APM tracking
 # Supports event creation and metric submission via Datadog API
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM pipeline-plugin-base:24.04
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — DD_API_KEY injected at runtime via CodeBuild secrets

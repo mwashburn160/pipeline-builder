@@ -10,14 +10,11 @@ ARG DC_PREV_VERSION=11.1.1
 FROM owasp/dependency-check:${DC_DEFAULT_VERSION} AS dc-default
 FROM owasp/dependency-check:${DC_PREV_VERSION} AS dc-prev
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG DC_DEFAULT_VERSION
 ARG DC_PREV_VERSION
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
 
 # System dependencies + Python + Node.js for multi-language dependency resolution
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable
 
 # ─── Go (for go.mod dependency resolution) ───
 ENV GOENV_ROOT=/opt/goenv

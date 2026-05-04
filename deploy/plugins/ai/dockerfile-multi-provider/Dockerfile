@@ -4,21 +4,10 @@
 # Supports: Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok)
 # Set AI_PROVIDER and AI_MODEL to select provider/model
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM pipeline-plugin-base:24.04
 
 # Accept default config for any package prompts
 RUN echo 'Dpkg::Options { "--force-confnew"; }' > /etc/apt/apt.conf.d/99force-confnew
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Runtime configuration defaults
 # Non-sensitive config only — API keys must be injected at runtime

@@ -14,11 +14,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 CLEANUP_AFTER_UPLOAD=false
+# Default: keep current strict behavior — abort on the first plugin build failure.
+# Pass --continue-on-build-failure to let init proceed when some plugins fail
+# (e.g., transient apt mirror flap on 1 of 124 plugins). The successful tars
+# still get loaded; the failed ones are skipped by load-plugins (no image.tar
+# = no upload, no spurious 500).
+CONTINUE_ON_BUILD_FAILURE=false
 
 # Parse flags before the target argument
 while [ $# -gt 0 ]; do
   case "$1" in
     --cleanup) CLEANUP_AFTER_UPLOAD=true; shift ;;
+    --continue-on-build-failure) CONTINUE_ON_BUILD_FAILURE=true; shift ;;
     -*) echo "Unknown flag: $1" >&2; exit 1 ;;
     *) break ;;
   esac
@@ -156,8 +163,21 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     echo ""
     BUILD_ARGS=""
     [ "${FORCE_REBUILD:-}" != "true" ] || BUILD_ARGS="$BUILD_ARGS --force"
+    # The build script returns non-zero if any plugin failed to build. Under
+    # `set -e` that aborts init entirely — typical case is one bad apt mirror
+    # killing the whole bootstrap. With --continue-on-build-failure we log
+    # and proceed; load-plugins will skip plugins lacking an image.tar.
+    BUILD_RC=0
     # shellcheck disable=SC2086
-    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG
+    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG || BUILD_RC=$?
+    if [ "$BUILD_RC" -ne 0 ]; then
+      if [ "$CONTINUE_ON_BUILD_FAILURE" = "true" ]; then
+        echo "  WARNING: build-plugin-images exited $BUILD_RC — continuing per --continue-on-build-failure" >&2
+      else
+        echo "  ERROR: build-plugin-images exited $BUILD_RC. Re-run with --continue-on-build-failure to proceed with the plugins that did build." >&2
+        exit "$BUILD_RC"
+      fi
+    fi
     echo ""
   fi
 
@@ -170,7 +190,10 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"
 
   # shellcheck disable=SC2086
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
+  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
+    PLATFORM_TOKEN="$JWT_TOKEN" \
+    SKIP_MISSING_IMAGE_TAR="$CONTINUE_ON_BUILD_FAILURE" \
+    "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
 else
   echo "  Skipping plugin loading."
 fi

@@ -6,13 +6,23 @@ keywords:
   - serverless
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
 failureBehavior: fail
 secrets: []
 primaryOutputDirectory: lambda-output
+# Typed pipeline contracts — see deploy/ecs-deploy for the canonical pattern.
+metadataTypes:
+  lambdaFunction: string
+  lambdaPackageType: string  # zip | image
+  lambdaSourceDir: string
+  lambdaImageUri: string
+  lambdaPublishVersion: boolean
+  lambdaAlias: string
+requiredMetadata:
+  - lambdaFunction
 dockerfile: Dockerfile
 installCommands:
   - test -d lambda-output || mkdir -p lambda-output

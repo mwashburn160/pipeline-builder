@@ -3,23 +3,13 @@
 # Creates Sentry releases, associates commits, and uploads source maps
 # Requires @sentry/cli for release management
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
-
-# Avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
+FROM pipeline-plugin-base:24.04
 
 # ─── Node.js 24 for sentry-cli ───
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable
 
 # ─── Sentry CLI ───
 RUN npm install -g @sentry/cli
