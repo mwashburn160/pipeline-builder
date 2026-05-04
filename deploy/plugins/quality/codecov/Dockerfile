@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # `npm install -g codecov` was deprecated by Codecov in 2023; the maintained
 # replacement is `codecov-cli` from PyPI (smaller image, fewer transitive
 # deps, no Node toolchain required). Pin for reproducibility.
-RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==9.0.5
+RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==11.2.8
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — CODECOV_TOKEN must be injected at runtime
