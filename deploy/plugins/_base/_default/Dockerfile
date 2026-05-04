@@ -30,15 +30,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Common deps used by ~all plugins. Order chosen to maximize layer caching
 # in consumer images (this layer is the same hash everywhere).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    jq \
-    ca-certificates \
-    gnupg \
-    wget \
-    unzip \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+#
+# Retries archive.ubuntu.com transient failures: the mirror network
+# intermittently drops mid-fetch under load (we've hit this with PHP and
+# the base build). The retry loop + `--fix-missing` re-attempts only the
+# debs that didn't land, giving us self-healing build behavior without
+# blowing up the whole pipeline on a single mirror flap.
+RUN set -eux; \
+    PKGS="git curl jq ca-certificates gnupg wget unzip"; \
+    for i in 1 2 3 4 5; do \
+      apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    for i in 1 2 3 4 5; do \
+      apt-get install -y --no-install-recommends --fix-missing $PKGS && break \
+        || { echo "apt-get install attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    # Sanity check — fail fast if any required pkg is still missing after retries.
+    for p in $PKGS; do dpkg -s "$p" >/dev/null 2>&1 || { echo "ERROR: $p not installed after retries"; exit 1; }; done; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 
 # Working directory for pipeline source — every plugin overrides commands
 # relative to this path.

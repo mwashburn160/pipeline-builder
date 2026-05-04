@@ -310,15 +310,30 @@ check_docker_image() {
 select_categories() {
   local _plugins_dir="$1"
   local _available
-  _available=$(find -L "$_plugins_dir" -mindepth 1 -maxdepth 1 -type d | sort | xargs -I{} basename {})
+  # cd into plugins dir first so `find` doesn't try (and fail) to restore
+  # cwd when called as sudo -u from a directory the new user can't read.
+  # `_base` IS shown — it's infrastructure but operators want visibility
+  # into what's there (and may want to build it explicitly).
+  _available=$(cd "$_plugins_dir" && find -L . -mindepth 1 -maxdepth 1 -type d | sort | sed 's|^\./||')
 
   echo ""
+  # Show running user + the plugins-dir owner. If they differ, find/sed/etc.
+  # may hit permission errors — the most common cause of the "Failed to
+  # restore initial working directory" error operators see when running
+  # this script via `sudo -u minikube ...`.
+  local _running_user _dir_owner _dir_perms
+  _running_user=$(id -un 2>/dev/null || echo "?")
+  _dir_owner=$(stat -c '%U:%G' "$_plugins_dir" 2>/dev/null || stat -f '%Su:%Sg' "$_plugins_dir" 2>/dev/null || echo "?")
+  _dir_perms=$(stat -c '%a' "$_plugins_dir" 2>/dev/null || stat -f '%Lp' "$_plugins_dir" 2>/dev/null || echo "?")
+  echo "  Running as: ${_running_user}    Plugins dir: ${_dir_owner} (${_dir_perms})"
+  echo ""
   echo "  Available categories:"
-  local _i=0 _cat _count
+  local _i=0 _cat _count _cat_owner
   for _cat in $_available; do
     _i=$((_i + 1))
-    _count=$(find -L "$_plugins_dir/$_cat" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-    echo "    ${_i}) ${_cat} (${_count} plugins)"
+    _count=$(cd "$_plugins_dir/$_cat" 2>/dev/null && find -L . -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    _cat_owner=$(stat -c '%U:%G' "$_plugins_dir/$_cat" 2>/dev/null || stat -f '%Su:%Sg' "$_plugins_dir/$_cat" 2>/dev/null || echo "?")
+    printf "    %2d) %-20s %3d plugins   [%s]\n" "${_i}" "${_cat}" "${_count}" "${_cat_owner}"
   done
 
   echo ""

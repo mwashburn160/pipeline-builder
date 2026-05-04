@@ -14,10 +14,18 @@ FROM pipeline-plugin-base:24.04
 # Snyk's CLI is JavaScript — needs Node + npm. corepack ships with
 # NodeSource's nodejs and provides the npm/pnpm/yarn shims at /usr/local/bin
 # without conflicting with Ubuntu's `npm` deb (which would shadow nodejs).
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && corepack enable
+# Retries on apt mirror flaps — see _base/_default/Dockerfile for rationale.
+RUN set -eux; \
+    for i in 1 2 3 4 5; do \
+      curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && break \
+        || { echo "NodeSource setup attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    for i in 1 2 3 4 5; do \
+      apt-get install -y --no-install-recommends --fix-missing nodejs && break \
+        || { echo "apt install nodejs attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb; \
+    corepack enable
 
 # Snyk CLI itself.
 RUN npm install -g snyk

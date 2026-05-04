@@ -73,6 +73,29 @@ fi
 # All `_*` directories at any depth are infrastructure, not plugins —
 # excluded from the upload/load flow by the `! -name '_*'` filter on
 # category list at the top level.
+# Build a single base image with output captured. Silent on success
+# (just prints "  ✓ tag (Ns)"); dumps last 30 lines on failure. Set
+# VERBOSE_BUILD=1 to stream output the old way (debugging).
+_build_base_quiet() {
+  local _tag="$1" _ctx="$2"
+  local _start _elapsed _log _rc=0
+  _start=$(date +%s)
+  if [ "${VERBOSE_BUILD:-0}" = "1" ]; then
+    docker build --progress plain -t "$_tag" "$_ctx" || _rc=$?
+  else
+    _log=$(mktemp)
+    docker build --progress plain -t "$_tag" "$_ctx" > "$_log" 2>&1 || _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+      echo "  ✗ $_tag — build failed (last 30 lines):" >&2
+      tail -30 "$_log" | sed 's/^/    /' >&2
+    fi
+    rm -f "$_log"
+  fi
+  _elapsed=$(($(date +%s) - _start))
+  [ "$_rc" -eq 0 ] && echo "  ✓ $_tag (${_elapsed}s)"
+  return "$_rc"
+}
+
 build_base_images() {
   local _base_root="$PLUGINS_DIR/_base"
   [ ! -d "$_base_root" ] && return 0
@@ -85,18 +108,15 @@ build_base_images() {
 
   # Root base must build first.
   if [ -f "$_base_root/_default/Dockerfile" ]; then
-    docker build --progress plain -t pipeline-plugin-base:24.04 "$_base_root/_default"
+    _build_base_quiet "pipeline-plugin-base:24.04" "$_base_root/_default" || return 1
   fi
 
   # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
-  # Tagged as `pipeline-${name}:1.0` where `${name}` is the dir name with
-  # the leading underscore stripped (e.g. `_snyk-base` → `pipeline-snyk-base:1.0`).
   for _fam_dir in "$_base_root"/_*-base; do
     [ -d "$_fam_dir" ] || continue
     local _name
     _name=$(basename "$_fam_dir" | sed 's/^_//')
-    echo "  Building pipeline-${_name}:1.0..."
-    docker build --progress plain -t "pipeline-${_name}:1.0" "$_fam_dir"
+    _build_base_quiet "pipeline-${_name}:1.0" "$_fam_dir" || return 1
   done
   echo ""
 }
