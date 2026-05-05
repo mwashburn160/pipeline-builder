@@ -21,6 +21,13 @@ metadata:
 dockerfile: Dockerfile
 installCommands:
   - test -d cdk.out || mkdir -p cdk.out
+  # Self-heal: ensure pipeline-manager is on PATH. The plugin's Dockerfile
+  # bakes it in, BUT pipeline-core currently doesn't always wire the
+  # CodeBuild step to use the plugin's image — when CodeBuild falls back
+  # to aws/codebuild/standard:7.0, pipeline-manager isn't there.
+  # This idempotent install is a no-op when the plugin image IS used,
+  # and rescues the build when the standard image is used instead.
+  - command -v pipeline-manager >/dev/null 2>&1 || npm install -g @pipeline-builder/pipeline-manager
 commands:
   - 'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'
   - pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --output cdk.out

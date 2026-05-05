@@ -72,22 +72,22 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.3.31",
-      "type": "runtime"
-    },
-    {
-      "name": "@pipeline-builder/api-server",
-      "version": "3.3.30",
-      "type": "runtime"
-    },
-    {
-      "name": "@pipeline-builder/pipeline-core",
       "version": "3.3.33",
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/api-server",
+      "version": "3.3.32",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "3.3.34",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/pipeline-data",
-      "version": "3.3.30",
+      "version": "3.3.32",
       "type": "runtime"
     },
     {

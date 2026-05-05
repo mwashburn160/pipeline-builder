@@ -40,6 +40,8 @@ export function loadRegistryConfig(): RegistryConfig {
     network: process.env.DOCKER_NETWORK || '',
     http: process.env.DOCKER_REGISTRY_HTTP !== 'false',
     insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
+    credentialsSecret: process.env.IMAGE_REGISTRY_CREDS_SECRET
+      || 'pipeline-builder/system/registry',
   };
 }
 

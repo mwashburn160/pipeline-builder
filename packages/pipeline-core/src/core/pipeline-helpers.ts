@@ -3,14 +3,16 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { Duration, SecretValue } from 'aws-cdk-lib';
-import { BuildEnvironmentVariableType, ComputeType as CDKComputeType } from 'aws-cdk-lib/aws-codebuild';
+import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
+import { BuildEnvironmentVariableType, ComputeType as CDKComputeType, LinuxBuildImage, IBuildImage } from 'aws-cdk-lib/aws-codebuild';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
+import type { Construct } from 'constructs';
 import type { ArtifactKey } from './artifact-manager';
 import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
-import { CoreConstants } from '../config/app-config';
+import { Config, CoreConstants } from '../config/app-config';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 import { resolvePluginTemplates } from '../template/plugin-resolver';
 
@@ -162,6 +164,102 @@ function toSecretEnvVars(
  * This means metadata keys like `aws:cdk:pipelines:codebuildstep:commands`
  * will override the plugin-derived commands when explicitly set.
  */
+/**
+ * Resolve the CodeBuild image to use for a plugin.
+ *
+ * Strategy:
+ *   1. If the plugin sets `aws:cdk:codebuild:buildenvironment:buildImage`
+ *      explicitly in metadata, the metadata-builder passthrough handles it
+ *      (via `metadataForBuildEnvironment`). This function returns
+ *      `undefined` and the metadata wins.
+ *   2. Otherwise, if the plugin has an `imageTag` AND the registry config
+ *      is populated, build a `LinuxBuildImage.fromDockerRegistry()` image
+ *      pointing at `<registry-host>:<port>/<imageTag>:latest`. CodeBuild
+ *      pulls from our private registry — credentials come from the
+ *      `pipeline-builder/system/registry` Secrets Manager secret.
+ *   3. If neither (e.g., a `metadata_only` plugin or one with no image),
+ *      return `undefined` so CodeBuild uses its default (`standard:7.0`).
+ *
+ * `scope` is required because `Secret.fromSecretNameV2()` needs a parent
+ * Construct to anchor the imported secret to. Pass the stack/construct
+ * that owns the CodeBuild step.
+ */
+export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin): IBuildImage | undefined {
+  const imageTag = plugin.imageTag;
+
+  // `metadata_only` plugins legitimately have no image — their work runs
+  // in the default CodeBuild image. Quiet skip.
+  if (plugin.buildType === 'metadata_only') return undefined;
+
+  // No image tag means there's nothing to pull. This SHOULDN'T happen for
+  // build_image / prebuilt plugins (the platform writes imageTag at upload
+  // time); if it does, the plugin record is malformed.
+  if (!imageTag || imageTag === '') {
+    log.warn(
+      `Plugin "${plugin.name}" has buildType=${plugin.buildType} but no imageTag — ` +
+      `CodeBuild will run on aws/codebuild/standard:7.0 and won't have the plugin's baked tools. ` +
+      `Verify the plugin was uploaded correctly via load-plugins.sh.`,
+    );
+    return undefined;
+  }
+
+  let registry;
+  try {
+    registry = Config.get('registry');
+  } catch {
+    // Config namespace not loaded (e.g., unit tests without full config).
+    log.warn(
+      `Plugin "${plugin.name}" has imageTag="${imageTag}" but registry config not loaded — ` +
+      `CodeBuild will fall back to aws/codebuild/standard:7.0. ` +
+      `Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager's environment.`,
+    );
+    return undefined;
+  }
+
+  if (!registry?.host) {
+    log.warn(
+      `Plugin "${plugin.name}" has imageTag="${imageTag}" but IMAGE_REGISTRY_HOST is empty — ` +
+      `CodeBuild will fall back to aws/codebuild/standard:7.0. ` +
+      `Set IMAGE_REGISTRY_HOST in pipeline-manager's environment to use the plugin image.`,
+    );
+    return undefined;
+  }
+  if (!scope) {
+    log.warn(`Plugin "${plugin.name}" image resolution skipped: no construct scope provided`);
+    return undefined;
+  }
+
+  // Compose the image URI: `<host>:<port>/<imageTag>:latest`.
+  // The trailing `:latest` is required — Docker assumes `latest` only when
+  // pulling without a tag, and we want explicit pull semantics.
+  const portPart = registry.port && registry.port !== 80 && registry.port !== 443
+    ? `:${registry.port}`
+    : '';
+  const imageUri = `${registry.host}${portPart}/${imageTag}:latest`;
+
+  // Credentials live in a Secrets Manager secret as
+  // `{ "username": "...", "password": "..." }` JSON. The secret name is
+  // configurable via `IMAGE_REGISTRY_CREDS_SECRET` env var (default:
+  // `pipeline-builder/system/registry`). The CodeBuild role needs
+  // `secretsmanager:GetSecretValue` for that ARN — CDK adds this
+  // automatically when the secret reference flows through
+  // `secretsManagerCredentials`.
+  //
+  // Use a deterministic construct ID so multiple steps that share the same
+  // registry secret reuse the same imported construct (avoids "construct
+  // already exists" errors when many steps resolve the same image).
+  const stack = Stack.of(scope);
+  const secretName = registry.credentialsSecret || 'pipeline-builder/system/registry';
+  // CDK construct IDs allow only [A-Za-z0-9_-]; sanitize the secret name.
+  const secretConstructId = `RegistryCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
+    ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
+
+  return LinuxBuildImage.fromDockerRegistry(imageUri, {
+    secretsManagerCredentials: credentialsSecret,
+  });
+}
+
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
   const {
     id, input, metadata, network, scope,
@@ -222,13 +320,37 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   const programmatic = { input, installCommands, commands };
 
-  // Return ShellStep if plugin type is SHELL_STEP
+  // Resolve the plugin's runtime image. CodeBuild defaults to
+  // `aws/codebuild/standard:7.0` when no `buildImage` is set — that's the
+  // AWS-managed Ubuntu image and DOES NOT have any plugin-baked tools
+  // (pipeline-manager, snyk, terraform, etc.). Wiring the plugin's image
+  // here means CodeBuild pulls from our private registry and the tools
+  // installed in the plugin's Dockerfile are actually available.
+  const pluginBuildImage = resolvePluginImage(scope, plugin);
+
+  // ShellStep branch.
+  // ShellStep itself doesn't accept `buildEnvironment`/`buildImage`. CDK
+  // pipelines wraps ShellSteps in a default CodeBuild action that runs on
+  // `aws/codebuild/standard:7.0` — which won't have the plugin's tools.
+  //
+  // So when a SHELL_STEP plugin DOES have an image (because its author
+  // baked tools into a Dockerfile), we PROMOTE it to a CodeBuildStep with
+  // the resolved image. The plugin author's intent ("use my baked tools")
+  // is preserved without forcing them to change pluginType.
+  //
+  // When the plugin has no image (or registry isn't configured), we keep
+  // the original ShellStep — it's lighter weight and the default
+  // CodeBuild image is fine.
   if (plugin.pluginType === PluginType.SHELL_STEP) {
-    return new ShellStep(id, {
-      ...programmatic,
-      env: { ...env, ...actionEnv },
-      ...metadataForShellStep(merged),
-    });
+    if (!pluginBuildImage) {
+      return new ShellStep(id, {
+        ...programmatic,
+        env: { ...env, ...actionEnv },
+        ...metadataForShellStep(merged),
+      });
+    }
+    log.debug(`[CreateCodeBuildStep] SHELL_STEP plugin "${plugin.name}" has imageTag — promoting to CodeBuildStep so the plugin image is actually used`);
+    // Fall through to the CodeBuildStep path below.
   }
 
   const computeType = getComputeType(
@@ -255,6 +377,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
+      ...(pluginBuildImage && { buildImage: pluginBuildImage }),
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
