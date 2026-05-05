@@ -101,11 +101,22 @@ for i in 1 2 3 4 5; do
   apt-get install -y --no-install-recommends "$@" && break \
     || { echo "apt-get install attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }
 done
-# Verify every requested package was actually installed (apt sometimes
-# returns 0 with --fix-missing even when fetches failed).
+# Verify every requested package was actually installed. Three checks in
+# order, success on any:
+#   1. dpkg -s        — works for real packages
+#   2. apt-cache policy "<pkg> Installed:" — catches virtual packages
+#      (e.g. libz-dev provided by zlib1g-dev) where apt installed the
+#      "real" provider but dpkg -s for the alias fails
+#   3. report failure
+#
+# Without the apt-cache fallback the strict dpkg check rejects valid
+# installs of virtual/transitional package names.
 for p in "$@"; do
   case "$p" in -*) continue ;; esac  # skip flags
-  dpkg -s "$p" >/dev/null 2>&1 || { echo "ERROR: $p not installed after retries"; exit 1; }
+  if dpkg -s "$p" >/dev/null 2>&1; then continue; fi
+  if apt-cache policy "$p" 2>/dev/null | grep -qE '^\s+Installed:\s+[^(]'; then continue; fi
+  echo "ERROR: $p not installed after retries"
+  exit 1
 done
 rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 SCRIPT

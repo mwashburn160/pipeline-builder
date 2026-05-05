@@ -6,8 +6,11 @@
 
 FROM pipeline-plugin-base:24.04
 
-# System dependencies for builds + native-image prerequisites
-RUN apt-retry-install build-essential libz-dev zlib1g-dev
+# System dependencies for builds + GraalVM native-image prerequisites.
+# `libz-dev` was previously listed but it's a virtual package on Ubuntu —
+# zlib1g-dev provides it, and the apt-retry-install dpkg sanity check
+# can't see virtual package names. Real package only.
+RUN apt-retry-install build-essential zlib1g-dev
 
 # Install SDKMAN for JDK + build tool management
 ENV SDKMAN_DIR=/opt/sdkman

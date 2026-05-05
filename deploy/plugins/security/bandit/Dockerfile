@@ -24,7 +24,7 @@ FROM pipeline-plugin-base:24.04 AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
-    libncursesw5-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    libncurses-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYENV_ROOT=/opt/pyenv
