@@ -4,7 +4,6 @@
 import {
   getParam,
   ErrorCode,
-  applyAccessControl,
   requirePublicAccess,
   sendBadRequest,
   sendSuccess,
@@ -32,8 +31,6 @@ export function createReadPipelineRoutes(
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
-    const effectiveFilter = applyAccessControl(filter.value, req);
-
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(
       req.query as Record<string, unknown>,
     );
@@ -43,7 +40,7 @@ export function createReadPipelineRoutes(
     const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
 
     const result = await pipelineService.findPaginated(
-      effectiveFilter,
+      filter.value,
       orgId,
       { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
     );
@@ -63,9 +60,7 @@ export function createReadPipelineRoutes(
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
-    const effectiveFilter = applyAccessControl(filter.value, req);
-
-    const pipelines = await pipelineService.find(effectiveFilter, orgId);
+    const pipelines = await pipelineService.find(filter.value, orgId);
     const result = pipelines[0];
 
     if (!result) return sendEntityNotFound(res, 'Pipeline');

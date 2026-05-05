@@ -3,7 +3,7 @@
 
 /**
  * Generic hook for CRUD resource management — fetch, create, update, delete
- * with loading/error state. Used by useComplianceRules and useCompliancePolicies.
+ * with loading/error state. Used by RuleList and PolicyManager.
  */
 import { useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';

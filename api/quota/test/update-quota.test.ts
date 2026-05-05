@@ -141,7 +141,8 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-import updateQuotaRouter from '../src/routes/update-quota';
+import { createUpdateQuotaRoutes } from '../src/routes/update-quota';
+const updateQuotaRouter = createUpdateQuotaRoutes();
 
 // Helpers
 

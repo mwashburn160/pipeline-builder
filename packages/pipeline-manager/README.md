@@ -82,7 +82,6 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `PLATFORM_TOKEN` | Yes (for API ops) | Auth token for the Pipeline Builder platform |
 | `PLATFORM_URL` | Yes (for API ops) | Base URL of your platform deployment |
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `synth` / `deploy` |
-| `RESOLVED_SYNTH_PLUGIN` | No | `true` inside CodePipeline so the synth step resolves plugins via the platform; defaults to `false` for local CLI runs |
 
 Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-builder/docs/environment-variables).
 

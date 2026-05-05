@@ -21,7 +21,8 @@ import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService, OrgNotFoundError } from '../services/quota-service';
 import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
 
-const router: Router = Router();
+export function createUpdateQuotaRoutes(): Router {
+  const router: Router = Router();
 
 // PUT /quotas/:orgId — update org name, slug, and/or quota limits (system admin only)
 
@@ -118,5 +119,5 @@ router.post(
   }),
 );
 
-/** Write-side quota router (mounted at /quotas). */
-export default router;
+  return router;
+}

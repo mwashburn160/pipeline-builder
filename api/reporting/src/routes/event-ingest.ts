@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, hashAccountInArn, errorMessage } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { CoreConstants, db, schema } from '@pipeline-builder/pipeline-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
-import { inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 
@@ -46,75 +45,20 @@ export function createEventIngestRoutes(): Router {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
 
-    // Batch-resolve all unique ARNs in one query
-    const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
-    const registryRows = await db
-      .select({
-        pipelineId: schema.pipelineRegistry.pipelineId,
-        orgId: schema.pipelineRegistry.orgId,
-        pipelineArn: schema.pipelineRegistry.pipelineArn,
-      })
-      .from(schema.pipelineRegistry)
-      .where(inArray(schema.pipelineRegistry.pipelineArn, uniqueArns));
-
-    const arnMap = new Map(registryRows.map(r => [r.pipelineArn, r]));
-
-    // Build insert batch (skip unregistered ARNs)
-    const rows = [];
-    let skipped = 0;
-
-    for (const event of events) {
-      const registry = arnMap.get(event.pipelineArn);
-      if (!registry) { skipped++; continue; }
-
-      rows.push({
-        pipelineId: registry.pipelineId,
-        orgId: registry.orgId,
-        eventSource: event.eventSource,
-        eventType: event.eventType,
-        status: event.status,
-        pipelineArn: hashAccountInArn(event.pipelineArn),
-        executionId: event.executionId,
-        stageName: event.stageName,
-        actionName: event.actionName,
-        startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
-        completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
-        durationMs: event.durationMs,
-        detail: event.detail,
-      });
-    }
-
-    // Single batch insert
-    if (rows.length > 0) {
-      await db.insert(schema.pipelineEvent).values(rows);
-
-      // Invalidate reporting caches for affected orgs.
-      // `await Promise.all` so the response doesn't return before invalidation
-      // — otherwise dashboards can serve stale data right after the event
-      // succeeds. Per-org failures are logged but don't fail the batch.
-      const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
-      await Promise.all(affectedOrgs.map((org) =>
-        reportingService.invalidateOrg(org).catch((err) => {
-          logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
-        }),
-      ));
-    }
+    const { inserted, skipped, unregisteredArns } = await reportingService.ingestEvents(events);
 
     // Surface unregistered-ARN drops at WARN with the actual ARNs so an
     // operator can see when EventBridge is delivering events for pipelines
-    // that haven't called POST /pipelines/registry yet (debug was invisible).
+    // that haven't called POST /pipelines/registry yet.
     if (skipped > 0) {
-      const unregisteredArns = events
-        .filter((e) => !arnMap.has(e.pipelineArn))
-        .map((e) => e.pipelineArn);
       logger.warn('Skipped events for unregistered ARNs', {
         skipped,
         sampleArns: unregisteredArns.slice(0, 5),
       });
     }
 
-    ctx.log('COMPLETED', `Ingested ${rows.length} events, skipped ${skipped}`);
-    sendSuccess(res, 200, { inserted: rows.length, skipped, total: events.length });
+    ctx.log('COMPLETED', `Ingested ${inserted} events, skipped ${skipped}`);
+    sendSuccess(res, 200, { inserted, skipped, total: events.length });
   }, { requireOrgId: false }));
 
   return router;

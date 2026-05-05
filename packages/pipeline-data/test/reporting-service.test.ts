@@ -19,6 +19,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),
   }),
+  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  hashAccountInArn: (arn: string) => arn,
 }));
 
 import { ReportingService } from '../src/api/reporting-service';

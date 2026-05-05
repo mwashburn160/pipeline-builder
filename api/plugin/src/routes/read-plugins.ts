@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, applyAccessControl, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants, db } from '@pipeline-builder/pipeline-core';
@@ -49,8 +49,6 @@ export function createReadPluginRoutes(
     const filter = validateQuery(req, PluginFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
-    const effectiveFilter = applyAccessControl(filter.value, req);
-
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(
       req.query as Record<string, unknown>,
     );
@@ -60,7 +58,7 @@ export function createReadPluginRoutes(
     const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
 
     const result = await pluginService.findPaginated(
-      effectiveFilter,
+      filter.value,
       orgId,
       { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
     );
@@ -88,8 +86,7 @@ export function createReadPluginRoutes(
       return sendBadRequest(res, `Invalid filter: ${filterValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
     }
 
-    const effectiveFilter = applyAccessControl(filterValidation.data, req);
-    const plugins = await pluginService.find(effectiveFilter, orgId);
+    const plugins = await pluginService.find(filterValidation.data, orgId);
     const result = plugins[0];
 
     if (!result) return sendEntityNotFound(res, 'Plugin');
@@ -105,9 +102,7 @@ export function createReadPluginRoutes(
     const filter = validateQuery(req, PluginFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
-    const effectiveFilter = applyAccessControl(filter.value, req);
-
-    const plugins = await pluginService.find(effectiveFilter, orgId);
+    const plugins = await pluginService.find(filter.value, orgId);
     const result = plugins[0];
 
     if (!result) return sendEntityNotFound(res, 'Plugin');

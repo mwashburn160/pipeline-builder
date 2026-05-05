@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
-import type { ComplianceRule, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
-import { useComplianceRules } from '@/hooks/useComplianceRules';
+import api from '@/lib/api';
+import { useCrudResource } from '@/hooks/useCrudResource';
+import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
 
 interface RuleListProps {
@@ -12,8 +13,25 @@ interface RuleListProps {
   onViewHistory?: (rule: ComplianceRule) => void;
 }
 
+type RuleParams = { target?: RuleTarget; severity?: RuleSeverity; policyId?: string; limit?: number; offset?: number };
+
 export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleListProps) {
-  const { rules, loading, error, total, deleteRule, updateRule } = useComplianceRules();
+  const crudApi = useMemo(() => ({
+    list: async (params?: RuleParams) => {
+      const res = await api.getComplianceRules(params);
+      return { success: res.success, data: res.data ? { items: res.data.rules, pagination: res.data.pagination } : undefined };
+    },
+    create: async (data: ComplianceRuleCreate) => {
+      const res = await api.createComplianceRule(data);
+      return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
+    },
+    update: async (id: string, data: ComplianceRuleUpdate) => {
+      const res = await api.updateComplianceRule(id, data);
+      return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
+    },
+    delete: (id: string) => api.deleteComplianceRule(id),
+  }), []);
+  const { items: rules, loading, error, total, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
   const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
   const [scopeFilter, setScopeFilter] = useState<RuleScope | ''>('');

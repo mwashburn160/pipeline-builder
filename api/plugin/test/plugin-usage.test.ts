@@ -32,7 +32,6 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   sendPaginatedNested: jest.fn(),
   sendEntityNotFound: jest.fn(),
-  applyAccessControl: (f: any) => f,
   normalizeArrayFields: (x: any) => x,
   validateQuery: () => ({ ok: true, value: {} }),
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),

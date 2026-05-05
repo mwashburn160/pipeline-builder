@@ -169,9 +169,20 @@ export class PipelineBuilder extends Construct {
     const sourceBuilder = new SourceBuilder(this, this.config);
     const source = sourceBuilder.create(uniqueId);
 
-    // RESOLVED_SYNTH_PLUGIN=true (CodePipeline): resolve plugin via custom resource Lambda
-    // RESOLVED_SYNTH_PLUGIN=false (default/CLI): use fallback with pipeline-manager synth commands
-    const plugin = awsConfig.resolvedSynthPlugin
+    // Synth-plugin resolution:
+    //   1. Pre-resolved by `pipeline-manager synth/deploy` from the platform
+    //      API → use it. Synth step runs on the real `cdk-synth` image with
+    //      real commands baked into the template.
+    //   2. Otherwise → `fallbackSynth()`: hardcoded `pipeline-manager synth`
+    //      on standard:7.0. Cold-start path used when the platform isn't
+    //      reachable at synth time (CLI logs a warning per missed plugin).
+    //
+    // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
+    // the cached entry when present — so calling it always wins over
+    // fallbackSynth() when pre-resolution succeeded.
+    const synthCacheKey =
+      this.config.plugin.alias || `${this.config.plugin.name}-alias`;
+    const plugin = props.resolvedPlugins?.[synthCacheKey]
       ? pluginLookup.plugin(this.config.plugin)
       : pluginLookup.fallbackSynth();
     const defaultComputeType = awsConfig.codeBuild.computeType;
@@ -367,8 +378,6 @@ export class PipelineBuilder extends Construct {
       PLATFORM_BASE_URL: { value: platformUrl },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
       ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
-      // Enable plugin resolution via custom resource Lambda inside CodePipeline
-      RESOLVED_SYNTH_PLUGIN: { value: 'true' },
       // Propagate TLS verification setting so all CodeBuild steps can reach
       // the platform API when using self-signed certificates
       ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {

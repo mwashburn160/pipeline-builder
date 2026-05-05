@@ -39,7 +39,8 @@ jest.mock('../src/helpers/quota-helpers', () => ({
 }));
 
 import { isSystemAdmin } from '@pipeline-builder/api-core';
-import router from '../src/routes/read-quotas';
+import { createReadQuotaRoutes } from '../src/routes/read-quotas';
+const router = createReadQuotaRoutes();
 
 function getHandler(path: string) {
   const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.get);

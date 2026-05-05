@@ -16,7 +16,21 @@ import {
 import { SQL, eq, and, desc, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { validateRuleRegexPatterns } from '../engine/rule-operators';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
+
+/**
+ * Thrown by `create`/`update` when one of the rule's regex operators fails
+ * to compile. Routes catch this and surface a 400. Domain-typed via a class
+ * (rather than a string code) because the user-facing message comes from
+ * the `RegExp` engine and is per-rule.
+ */
+export class InvalidRuleRegexError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRuleRegexError';
+  }
+}
 
 const logger = createLogger('compliance-rule-service');
 
@@ -259,6 +273,11 @@ export class ComplianceRuleService extends CrudService<
   // Override mutations to record history
 
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
+    // validateRuleRegexPatterns is structural over `operator?: string` etc.;
+    // the schema's `RuleOperator | null` is compatible at runtime but TS
+    // can't narrow the union, so cast to the validator's input shape.
+    const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
+    if (regexError) throw new InvalidRuleRegexError(regexError);
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
@@ -275,6 +294,8 @@ export class ComplianceRuleService extends CrudService<
     orgId: string,
     userId: string,
   ): Promise<ComplianceRule | null> {
+    const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
+    if (regexError) throw new InvalidRuleRegexError(regexError);
     const existing = await this.findById(id, orgId);
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {

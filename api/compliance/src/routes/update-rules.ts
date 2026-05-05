@@ -5,8 +5,7 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas';
-import { validateRuleRegexPatterns } from '../engine/rule-operators';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service';
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();
@@ -21,10 +20,6 @@ export function createUpdateRuleRoutes(): Router {
     }
 
     const body = validation.value;
-
-    const regexError = validateRuleRegexPatterns(body);
-    if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
-
     const updateData: Record<string, unknown> = { ...body };
 
     if (body.effectiveFrom !== undefined) {
@@ -34,11 +29,18 @@ export function createUpdateRuleRoutes(): Router {
       updateData.effectiveUntil = body.effectiveUntil ? new Date(body.effectiveUntil) : null;
     }
 
-    const updated = await complianceRuleService.update(id, updateData, orgId, userId);
-    if (!updated) return sendEntityNotFound(res, 'Rule');
+    try {
+      const updated = await complianceRuleService.update(id, updateData, orgId, userId);
+      if (!updated) return sendEntityNotFound(res, 'Rule');
 
-    ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });
-    return sendSuccess(res, 200, { rule: updated });
+      ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });
+      return sendSuccess(res, 200, { rule: updated });
+    } catch (err) {
+      if (err instanceof InvalidRuleRegexError) {
+        return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
   }));
 
   return router;

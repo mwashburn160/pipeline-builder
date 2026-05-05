@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Request, Response } from 'express';
-import { applyAccessControl, requirePublicAccess } from '../src/helpers/access-helpers';
+import { requirePublicAccess } from '../src/helpers/access-helpers';
 
 function createMockReq(user?: Partial<Request['user']>): Request {
   return { user: user as Request['user'] } as unknown as Request;
@@ -26,46 +26,6 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
 
 const NON_ADMIN = createMockReq({ role: 'member', organizationId: 'org-1', organizationName: 'acme' });
 const ADMIN = createMockReq({ role: 'admin', organizationId: 'system', organizationName: 'system' });
-
-describe('applyAccessControl', () => {
-  // Regression: previously forced accessModifier='private' for non-admins,
-  // which made list queries exclude all system-public catalog rows.
-  it('does not inject accessModifier for non-admins', () => {
-    const filter: { name: string; accessModifier?: string } = { name: 'foo' };
-    const out = applyAccessControl(filter, NON_ADMIN);
-    expect(out).toEqual({ name: 'foo' });
-    expect(out.accessModifier).toBeUndefined();
-  });
-
-  it('does not inject accessModifier for admins', () => {
-    const filter: { name: string; accessModifier?: string } = { name: 'foo' };
-    const out = applyAccessControl(filter, ADMIN);
-    expect(out).toEqual({ name: 'foo' });
-    expect(out.accessModifier).toBeUndefined();
-  });
-
-  it('preserves a caller-supplied accessModifier', () => {
-    const filter = { accessModifier: 'public', name: 'foo' };
-    const out = applyAccessControl(filter, NON_ADMIN);
-    expect(out.accessModifier).toBe('public');
-    expect(out.name).toBe('foo');
-  });
-
-  it('returns the same filter shape for admin and non-admin', () => {
-    const filter: { name: string; isActive: boolean; accessModifier?: string } = {
-      name: 'plugin',
-      isActive: true,
-    };
-    expect(applyAccessControl(filter, NON_ADMIN)).toEqual(filter);
-    expect(applyAccessControl(filter, ADMIN)).toEqual(filter);
-  });
-
-  it('returns empty filter unchanged', () => {
-    const empty: { accessModifier?: string } = {};
-    expect(applyAccessControl(empty, NON_ADMIN)).toEqual({});
-    expect(applyAccessControl(empty, ADMIN)).toEqual({});
-  });
-});
 
 describe('requirePublicAccess', () => {
   it('allows admins to modify a public resource', () => {

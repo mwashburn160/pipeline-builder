@@ -12,10 +12,19 @@ interface PluginRef {
 }
 
 /**
+ * Cache key matching `PluginLookup.normalize()`: explicit alias when set,
+ * otherwise `${name}-alias`. Must stay in sync with the consumers in
+ * pipeline-core/plugin-lookup.ts and pipeline-builder.ts that read this map.
+ */
+function cacheKey(ref: PluginRef): string {
+  return ref.alias || `${ref.name}-alias`;
+}
+
+/**
  * Walk the pipeline props tree to collect every plugin reference. Plugins
  * appear at `synth.plugin` and at `stages[].steps[].plugin`. Entries are
- * de-duplicated by `alias || name` — the same key `PluginLookup.plugin()`
- * uses, so the resolved-plugins map lookups match downstream.
+ * de-duplicated by `cacheKey()` — the same key `PluginLookup.plugin()` uses,
+ * so the resolved-plugins map lookups match downstream.
  */
 function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
   const refs: PluginRef[] = [];
@@ -25,7 +34,7 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
     if (!raw || typeof raw !== 'object') return;
     const r = raw as PluginRef;
     if (!r.name) return;
-    const key = r.alias || r.name;
+    const key = cacheKey(r);
     if (seen.has(key)) return;
     seen.add(key);
     refs.push(r);
@@ -69,7 +78,7 @@ export async function resolvePluginsForProps(
   const resolved: Record<string, unknown> = {};
 
   await Promise.all(refs.map(async (ref) => {
-    const key = ref.alias || ref.name;
+    const key = cacheKey(ref);
     const filter = ref.filter ?? defaultFilter(ref.name);
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', { filter });

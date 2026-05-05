@@ -317,9 +317,11 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Synth plugin with pipeline-manager commands.
-   * Used when RESOLVED_SYNTH_PLUGIN is not set (default/CLI) — CDK needs real
-   * commands at synthesis time, but the custom resource resolves at deploy time.
+   * Synth plugin with pipeline-manager commands. Cold-start fallback for the
+   * synth step when pre-resolution by `pipeline-manager synth/deploy` didn't
+   * populate `resolvedPlugins` for the synth plugin. Runs on `standard:7.0`
+   * via the default CodeBuild image and self-bootstraps the real synth via
+   * `pipeline-manager synth --id ${PIPELINE_ID}`.
    */
   public fallbackSynth(): Plugin {
     return {

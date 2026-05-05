@@ -111,7 +111,8 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-import getQuotaRouter from '../src/routes/read-quotas';
+import { createReadQuotaRoutes } from '../src/routes/read-quotas';
+const getQuotaRouter = createReadQuotaRoutes();
 
 // Helpers
 

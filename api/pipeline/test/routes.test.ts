@@ -62,12 +62,6 @@ jest.mock('@pipeline-builder/api-core', () => {
       sortBy: 'createdAt',
       sortOrder: 'desc',
     })),
-    applyAccessControl: jest.fn((filter: any, req: any) => {
-      if (!mockIsSystemAdmin(req)) {
-        return { ...filter, accessModifier: 'private' };
-      }
-      return filter;
-    }),
     requirePublicAccess: jest.fn((req: any, res: any, resource: any) => {
       if (!mockIsSystemAdmin(req) && resource.accessModifier !== 'private') {
         res.status(404).json({ success: false, statusCode: 404, message: 'Pipeline not found.' });
@@ -197,14 +191,16 @@ describe('GET /pipelines (list)', () => {
     }));
   });
 
-  it('forces accessModifier=private for non-system-admins', async () => {
+  it('does not inject accessModifier — service layer handles access scoping', async () => {
+    // Access control is enforced by AccessControlQueryBuilder in pipelineService,
+    // not by the route. The route forwards the caller's filter unchanged.
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
 
     await handler(mockReq(), mockRes());
 
     expect(mockFindPaginated).toHaveBeenCalledWith(
-      expect.objectContaining({ accessModifier: 'private' }),
+      expect.not.objectContaining({ accessModifier: 'private' }),
       'org-1',
       expect.any(Object),
     );

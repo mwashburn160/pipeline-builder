@@ -202,9 +202,6 @@ export interface AWSConfig {
   readonly codeBuild: {
     readonly computeType: ComputeType;
   };
-  /** When true, resolve synth plugin via custom resource Lambda at deploy time.
-   *  When false (default), use fallback synth commands (pipeline-manager synth). */
-  readonly resolvedSynthPlugin: boolean;
 }
 
 /** Express rate limiting configuration. */

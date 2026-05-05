@@ -8,24 +8,6 @@ import { AccessModifier } from '../types/pipeline';
 import { sendError } from '../utils/response';
 
 /**
- * Apply access control to a read-filter.
- *
- * Pass-through: forwards the caller's filter unchanged. Multi-tenant access
- * scoping is handled in the query builder (`AccessControlQueryBuilder`),
- * which combines the caller's `orgId` with `accessModifier` to return:
- * caller's org rows + system-org public rows by default.
- *
- * Kept as a stable wrapper so route handlers retain a single, named hook
- * for future per-route policy adjustments.
- */
-export function applyAccessControl<T extends { accessModifier?: string }>(
-  filter: T,
-  _req: Request,
-): T {
-  return filter;
-}
-
-/**
  * Check whether a non-admin user may modify a public resource.
  *
  * Returns `true` if the request may proceed. Returns `false` and sends

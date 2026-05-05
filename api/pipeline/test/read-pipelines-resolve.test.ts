@@ -34,7 +34,6 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendEntityNotFound: jest.fn((res: any, entity: string) => {
     res.status(404).json({ success: false, message: `${entity} not found` });
   }),
-  applyAccessControl: (f: any) => f,
   normalizeArrayFields: (x: any) => x,
   validateQuery: () => ({ ok: true, value: {} }),
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),

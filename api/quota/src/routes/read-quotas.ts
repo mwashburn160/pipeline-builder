@@ -20,7 +20,8 @@ import {
 import { authorizeOrg } from '../middleware/authorize-org';
 import { quotaService } from '../services/quota-service';
 
-const router: Router = Router();
+export function createReadQuotaRoutes(): Router {
+  const router: Router = Router();
 
 // GET /quotas — own org quotas (orgId from JWT / header)
 
@@ -160,5 +161,5 @@ router.get(
   }),
 );
 
-/** Read-side quota router (mounted at /quotas). */
-export default router;
+  return router;
+}

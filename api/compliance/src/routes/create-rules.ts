@@ -5,8 +5,7 @@ import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemOrg, validat
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas';
-import { validateRuleRegexPatterns } from '../engine/rule-operators';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service';
 
 export function createCreateRuleRoutes(): Router {
   const router = Router();
@@ -24,20 +23,24 @@ export function createCreateRuleRoutes(): Router {
       return sendError(res, 403, 'Only system org can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const regexError = validateRuleRegexPatterns(body);
-    if (regexError) return sendBadRequest(res, regexError, ErrorCode.VALIDATION_ERROR);
+    try {
+      const rule = await complianceRuleService.create({
+        ...body,
+        orgId,
+        effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : undefined,
+        effectiveUntil: body.effectiveUntil ? new Date(body.effectiveUntil) : undefined,
+        createdBy: userId,
+        updatedBy: userId,
+      } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
 
-    const rule = await complianceRuleService.create({
-      ...body,
-      orgId,
-      effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : undefined,
-      effectiveUntil: body.effectiveUntil ? new Date(body.effectiveUntil) : undefined,
-      createdBy: userId,
-      updatedBy: userId,
-    } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
-
-    ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
-    return sendSuccess(res, 201, { rule });
+      ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
+      return sendSuccess(res, 201, { rule });
+    } catch (err) {
+      if (err instanceof InvalidRuleRegexError) {
+        return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
+      }
+      throw err;
+    }
   }));
 
   return router;

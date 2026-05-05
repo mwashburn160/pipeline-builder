@@ -1,16 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import api from '@/lib/api';
+import { useCrudResource } from '@/hooks/useCrudResource';
 import type { CompliancePolicy } from '@/types/compliance';
-import { useCompliancePolicies } from '@/hooks/useCompliancePolicies';
 
 interface PolicyManagerProps {
   readOnly?: boolean;
 }
 
+type PolicyCreate = { name: string; description?: string; version?: string; ruleNames?: string[] };
+type PolicyUpdate = { name?: string; description?: string; version?: string; isActive?: boolean };
+type PolicyParams = { name?: string; limit?: number; offset?: number };
+
 export default function PolicyManager({ readOnly = false }: PolicyManagerProps) {
-  const { policies, loading, error, total, createPolicy, updatePolicy, deletePolicy } = useCompliancePolicies();
+  const crudApi = useMemo(() => ({
+    list: async (params?: PolicyParams) => {
+      const res = await api.getCompliancePolicies(params);
+      return { success: res.success, data: res.data ? { items: res.data.policies, pagination: res.data.pagination } : undefined };
+    },
+    create: async (data: PolicyCreate) => {
+      const res = await api.createCompliancePolicy(data);
+      return { success: res.success, data: res.data ? { item: res.data.policy } : undefined };
+    },
+    update: async (id: string, data: PolicyUpdate) => {
+      const res = await api.updateCompliancePolicy(id, data);
+      return { success: res.success, data: res.data ? { item: res.data.policy } : undefined };
+    },
+    delete: (id: string) => api.deleteCompliancePolicy(id),
+  }), []);
+  const { items: policies, loading, error, total, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', version: '1.0.0' });

@@ -6,13 +6,12 @@
  *
  * Without `PluginFilterSchema` validation, callers could inject internal
  * fields (e.g. `deletedAt`, `orgId`) to peek at soft-deleted plugins or
- * bypass tenant scoping. The route must validate before forwarding to
- * `applyAccessControl`.
+ * bypass tenant scoping. The route must validate before forwarding the
+ * filter to the service layer.
  */
 
 const mockFind = jest.fn();
 const mockIncrementQuotaFromCtx = jest.fn();
-const mockApplyAccessControl = jest.fn((f: unknown) => f);
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
 const mockSendBadRequest = jest.fn((res: any, msg: string, code?: string) =>
   res.status(400).json({ message: msg, code }));
@@ -32,7 +31,6 @@ jest.mock('@pipeline-builder/api-core', () => {
     sendEntityNotFound: mockSendEntityNotFound,
     sendPaginatedNested: jest.fn((res: any, _k: string, items: any) => res.json({ items })),
     ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
-    applyAccessControl: mockApplyAccessControl,
     normalizeArrayFields: mockNormalizeArrayFields,
     parsePaginationParams: () => ({ limit: 25, offset: 0 }),
     validateQuery: () => ({ ok: true, value: {} }),

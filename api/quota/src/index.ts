@@ -7,8 +7,8 @@ import mongoose from 'mongoose';
 
 import { config } from './config';
 import { connectDatabase } from './helpers/database';
-import getQuotaRoutes from './routes/read-quotas';
-import updateQuotaRoutes from './routes/update-quota';
+import { createReadQuotaRoutes } from './routes/read-quotas';
+import { createUpdateQuotaRoutes } from './routes/update-quota';
 
 // -- Express app ---------------------------------------------------------------
 
@@ -23,8 +23,8 @@ app.use(attachRequestContext(sseManager));
 // Mongo operator-injection guard — Quota is Mongo-backed.
 app.use(mongoSanitize());
 
-app.use('/quotas', getQuotaRoutes);
-app.use('/quotas', updateQuotaRoutes);
+app.use('/quotas', createReadQuotaRoutes());
+app.use('/quotas', createUpdateQuotaRoutes());
 
 // -- Startup -------------------------------------------------------------------
 

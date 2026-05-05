@@ -1,14 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService } from '@pipeline-builder/api-core';
-import { sql } from 'drizzle-orm';
+import { createCacheService, createLogger, errorMessage, hashAccountInArn } from '@pipeline-builder/api-core';
+import { inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
 import { db } from '../database/postgres-connection';
 
-/** Cast raw SQL result rows to a typed array. Alias for drizzleRows. */
-const sqlRows = <T>(result: { rows: unknown[] }): T[] => drizzleRows<T>(result.rows);
+const logger = createLogger('reporting-service');
 
 /**
  * Cache for reporting aggregations. Two tiers:
@@ -124,6 +123,28 @@ interface BuildFailure {
   lastSeen: string;
 }
 
+/** Event payload accepted by `ReportingService.ingestEvents`. Mirrors the route's Zod shape. */
+export interface IngestEvent {
+  pipelineArn: string;
+  eventSource: 'codepipeline' | 'codebuild' | 'plugin-build';
+  eventType: 'PIPELINE' | 'STAGE' | 'ACTION' | 'BUILD';
+  status: string;
+  executionId?: string;
+  stageName?: string;
+  actionName?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  detail?: Record<string, unknown>;
+}
+
+/** Counts + the (possibly truncated) list of unregistered ARNs the caller can log. */
+export interface IngestResult {
+  inserted: number;
+  skipped: number;
+  unregisteredArns: string[];
+}
+
 // ─── Service ────────────────────────────────────────────
 
 /**
@@ -142,6 +163,76 @@ export class ReportingService {
       inventoryCache.invalidatePattern(`${orgId}:*`),
       timeseriesCache.invalidatePattern(`${orgId}:*`),
     ]);
+  }
+
+  /**
+   * Resolve incoming events against the pipeline registry, batch-insert the
+   * matched ones, and invalidate reporting caches for affected orgs.
+   * Events for unregistered pipeline ARNs are dropped (and logged at WARN
+   * with sample ARNs so an operator can see when EventBridge is delivering
+   * events for pipelines that haven't called POST /pipelines/registry yet).
+   *
+   * Returns counts + a sample of unregistered ARNs for observability.
+   */
+  async ingestEvents(events: IngestEvent[]): Promise<IngestResult> {
+    // Batch-resolve all unique ARNs in one query
+    const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
+    const registryRows = await db
+      .select({
+        pipelineId: schema.pipelineRegistry.pipelineId,
+        orgId: schema.pipelineRegistry.orgId,
+        pipelineArn: schema.pipelineRegistry.pipelineArn,
+      })
+      .from(schema.pipelineRegistry)
+      .where(inArray(schema.pipelineRegistry.pipelineArn, uniqueArns));
+
+    const arnMap = new Map(registryRows.map(r => [r.pipelineArn, r]));
+
+    // Build insert batch (skip unregistered ARNs)
+    const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
+    let skipped = 0;
+    const unregisteredArns: string[] = [];
+
+    for (const event of events) {
+      const registry = arnMap.get(event.pipelineArn);
+      if (!registry) {
+        skipped++;
+        unregisteredArns.push(event.pipelineArn);
+        continue;
+      }
+
+      rows.push({
+        pipelineId: registry.pipelineId,
+        orgId: registry.orgId,
+        eventSource: event.eventSource,
+        eventType: event.eventType,
+        status: event.status,
+        pipelineArn: hashAccountInArn(event.pipelineArn),
+        executionId: event.executionId,
+        stageName: event.stageName,
+        actionName: event.actionName,
+        startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
+        completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
+        durationMs: event.durationMs,
+        detail: event.detail,
+      });
+    }
+
+    if (rows.length > 0) {
+      await db.insert(schema.pipelineEvent).values(rows);
+
+      // Per-org failures are logged but don't fail the batch — `Promise.all`
+      // so the caller doesn't return before invalidation completes,
+      // otherwise dashboards can serve stale data right after ingest.
+      const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
+      await Promise.all(affectedOrgs.map((org) =>
+        this.invalidateOrg(org).catch((err) => {
+          logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
+        }),
+      ));
+    }
+
+    return { inserted: rows.length, skipped, unregisteredArns };
   }
 
   // ── Category 1: Pipeline Execution & Performance ──
@@ -164,7 +255,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND p.is_active = true
         GROUP BY p.id
         ORDER BY total DESC
-      `).then(r => sqlRows<ExecutionCount>(r)),
+      `).then(r => drizzleRows<ExecutionCount>(r.rows)),
     );
   }
 
@@ -185,7 +276,7 @@ export class ReportingService {
           AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => sqlRows<TimeSeriesEntry>(r)),
+      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows)),
     );
   }
 
@@ -205,7 +296,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id ORDER BY avg_ms DESC
-      `).then(r => sqlRows<DurationStats>(r)),
+      `).then(r => drizzleRows<DurationStats>(r.rows)),
     );
   }
 
@@ -224,7 +315,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.stage_name ORDER BY failures DESC
-      `).then(r => sqlRows<StageFailure>(r)),
+      `).then(r => drizzleRows<StageFailure>(r.rows)),
     );
   }
 
@@ -241,7 +332,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id, e.stage_name ORDER BY avg_ms DESC
-      `).then(r => sqlRows<StageBottleneck>(r)),
+      `).then(r => drizzleRows<StageBottleneck>(r.rows)),
     );
   }
 
@@ -260,7 +351,7 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.action_name ORDER BY failures DESC
-      `).then(r => sqlRows<ActionFailure>(r)),
+      `).then(r => drizzleRows<ActionFailure>(r.rows)),
     );
   }
 
@@ -279,7 +370,7 @@ export class ReportingService {
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY error_pattern ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => sqlRows<ErrorEntry>(r)),
+      `).then(r => drizzleRows<ErrorEntry>(r.rows)),
     );
   }
 
@@ -299,7 +390,7 @@ export class ReportingService {
         FROM ${schema.plugin}
         WHERE ${schema.plugin.orgId} = ${orgId}
       `);
-      return (sqlRows<PluginSummary>(rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, private: 0, uniqueNames: 0 });
+      return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, private: 0, uniqueNames: 0 });
     });
   }
 
@@ -315,7 +406,7 @@ export class ReportingService {
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
         GROUP BY ${schema.plugin.pluginType}, ${schema.plugin.computeType}
         ORDER BY count DESC
-      `).then(r => sqlRows<TypeComputeDistribution>(r)),
+      `).then(r => drizzleRows<TypeComputeDistribution>(r.rows)),
     );
   }
 
@@ -332,7 +423,7 @@ export class ReportingService {
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
         GROUP BY ${schema.plugin.name}
         ORDER BY version_count DESC
-      `).then(r => sqlRows<VersionCount>(r)),
+      `).then(r => drizzleRows<VersionCount>(r.rows)),
     );
   }
 
@@ -351,7 +442,7 @@ export class ReportingService {
           AND e.status IN ('completed', 'failed')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => sqlRows<BuildTimeSeriesEntry>(r)),
+      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows)),
     );
   }
 
@@ -368,7 +459,7 @@ export class ReportingService {
         WHERE e.org_id = ${orgId} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY plugin_name ORDER BY avg_ms DESC
-      `).then(r => sqlRows<BuildDuration>(r)),
+      `).then(r => drizzleRows<BuildDuration>(r.rows)),
     );
   }
 
@@ -387,7 +478,7 @@ export class ReportingService {
         GROUP BY plugin_name, e.error_message
         ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => sqlRows<BuildFailure>(r)),
+      `).then(r => drizzleRows<BuildFailure>(r.rows)),
     );
   }
 }
