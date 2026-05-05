@@ -16,28 +16,45 @@ secrets: []
 primaryOutputDirectory: shell-output
 dockerfile: Dockerfile
 
-# Typed pipeline contracts — declare the keys this plugin reads at synth time.
-# `shellInstall` and `shellCommand` are the user's scripts; both can be
-# multi-line shell with `&&`/`||`/`|` etc.
+# Typed pipeline contracts.
+#
+# Both `shellInstall` and `shellCommand` accept EITHER:
+#   - A single shell string: "npm install && npm test"
+#   - A newline-separated multi-line string (YAML `|` block scalar):
+#       shellCommand: |
+#         npm install
+#         npm test
+#         npm run build
+#
+# At runtime the plugin splits on newlines and runs EACH non-empty line as a
+# separate `bash -c` invocation under `set -e`. So a failure on any line
+# stops the step. If a user needs a multi-line shell construct (if/case/loop)
+# as a single command, they can wrap it on one line with `;`s or pass it as
+# a single-string command.
 metadataTypes:
-  shellInstall: string         # install / setup commands (run during the install phase)
-  shellCommand: string         # main commands (run during the build phase)
+  shellInstall: string         # install / setup commands (run during install phase)
+  shellCommand: string         # main commands (run during build phase) — required
   shellOutputDir: string       # optional output dir override (default: shell-output)
 requiredMetadata:
-  - shellCommand               # install is optional; main command is required
+  - shellCommand
 
 installCommands:
   - test -d "${SHELL_OUTPUT_DIR:-shell-output}" || mkdir -p "${SHELL_OUTPUT_DIR:-shell-output}"
-  # Run the user's install script when provided.
   - |
     set -e
-    if [ -n "${SHELL_INSTALL}" ]; then
-      echo "==> Running shellInstall:"
-      echo "${SHELL_INSTALL}"
-      echo "------"
-      bash -c "${SHELL_INSTALL}"
-    else
+    if [ -z "${SHELL_INSTALL}" ]; then
       echo "No shellInstall provided — skipping install phase."
+    else
+      echo "==> shellInstall:"
+      # Split on newlines; run each non-empty line as a separate bash -c.
+      # Empty lines and `#`-prefixed comment lines are skipped.
+      printf '%s\n' "${SHELL_INSTALL}" | while IFS= read -r _line; do
+        case "$_line" in
+          ''|'#'*) continue ;;
+        esac
+        echo "  $ ${_line}"
+        bash -c "${_line}"
+      done
     fi
 
 commands:
@@ -47,10 +64,16 @@ commands:
       echo "ERROR: shellCommand is required (set pipeline metadata.shellCommand)" >&2
       exit 2
     fi
-    echo "==> Running shellCommand:"
-    echo "${SHELL_COMMAND}"
-    echo "------"
-    bash -c "${SHELL_COMMAND}"
+    echo "==> shellCommand:"
+    # Same split pattern as installCommands above. Each non-empty line
+    # runs as its own bash -c so an early failure stops the step.
+    printf '%s\n' "${SHELL_COMMAND}" | while IFS= read -r _line; do
+      case "$_line" in
+        ''|'#'*) continue ;;
+      esac
+      echo "  $ ${_line}"
+      bash -c "${_line}"
+    done
 
 env:
   SHELL_INSTALL: "${shellInstall}"
