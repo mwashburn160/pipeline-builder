@@ -323,6 +323,11 @@ s3_cache:
   install_type: none
   note: "AWS CLI v2 via curl + zstd from apt. No other versioned tools."
 
+shell:
+  plugin: infrastructure/shell
+  install_type: none
+  note: "Pure-OS plugin — only inherits from pipeline-plugin-base:24.04. Users supply install/command via pipeline metadata; runtime tools come from base (git/curl/jq/wget/tar/zip + apt-retry-install)."
+
 # ═══════════════════════════════════════════════════════════════
 # LANGUAGE PLUGINS
 # ═══════════════════════════════════════════════════════════════

@@ -1,0 +1,62 @@
+name: shell
+description: Pure-OS pipeline step that runs user-supplied install and build commands. Use when no language/tool-specific plugin fits — sets up a clean Ubuntu 24.04 environment with git/curl/jq/wget/tar/zip/apt and lets you install whatever you need at runtime.
+keywords:
+  - shell
+  - bash
+  - custom
+  - generic
+  - script
+category: infrastructure
+version: 1.1.0
+pluginType: CodeBuildStep
+computeType: SMALL
+timeout: 30
+failureBehavior: fail
+secrets: []
+primaryOutputDirectory: shell-output
+dockerfile: Dockerfile
+
+# Typed pipeline contracts — declare the keys this plugin reads at synth time.
+# `shellInstall` and `shellCommand` are the user's scripts; both can be
+# multi-line shell with `&&`/`||`/`|` etc.
+metadataTypes:
+  shellInstall: string         # install / setup commands (run during the install phase)
+  shellCommand: string         # main commands (run during the build phase)
+  shellOutputDir: string       # optional output dir override (default: shell-output)
+requiredMetadata:
+  - shellCommand               # install is optional; main command is required
+
+installCommands:
+  - test -d "${SHELL_OUTPUT_DIR:-shell-output}" || mkdir -p "${SHELL_OUTPUT_DIR:-shell-output}"
+  # Run the user's install script when provided.
+  - |
+    set -e
+    if [ -n "${SHELL_INSTALL}" ]; then
+      echo "==> Running shellInstall:"
+      echo "${SHELL_INSTALL}"
+      echo "------"
+      bash -c "${SHELL_INSTALL}"
+    else
+      echo "No shellInstall provided — skipping install phase."
+    fi
+
+commands:
+  - |
+    set -e
+    if [ -z "${SHELL_COMMAND}" ]; then
+      echo "ERROR: shellCommand is required (set pipeline metadata.shellCommand)" >&2
+      exit 2
+    fi
+    echo "==> Running shellCommand:"
+    echo "${SHELL_COMMAND}"
+    echo "------"
+    bash -c "${SHELL_COMMAND}"
+
+env:
+  SHELL_INSTALL: "${shellInstall}"
+  SHELL_COMMAND: "${shellCommand}"
+  SHELL_OUTPUT_DIR: "${shellOutputDir}"
+
+# Smoke test — verifies the base image is usable; the plugin itself only
+# runs user-supplied commands so there's no plugin-specific binary to check.
+smokeTest: "bash --version && which git && which curl && which apt-retry-install"
