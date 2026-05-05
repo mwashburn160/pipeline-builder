@@ -9,6 +9,7 @@ import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } fr
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { resolvePluginsForProps } from '../utils/plugin-resolver';
 
 /**
  * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.
@@ -37,6 +38,16 @@ async function fetchPipelineConfig(
     pipelineId: pipeline.id || pipelineId,
   };
   if (pipeline.orgId) propsWithIds.orgId = pipeline.orgId;
+
+  // Pre-resolve plugins from the platform API so the synthesized template
+  // ships with real CodeBuild image URIs baked in. Without this, CDK falls
+  // back to standard:7.0 because the deploy-time custom resource attribute
+  // is unresolvable at synth time.
+  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds);
+  if (Object.keys(resolvedPlugins).length > 0) {
+    propsWithIds.resolvedPlugins = resolvedPlugins;
+    printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
+  }
 
   process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
   printSuccess('Pipeline configuration loaded');

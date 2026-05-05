@@ -41,6 +41,15 @@ export interface PluginLookupProps {
   readonly logRetention?: RetentionDays;
   /** Reserved concurrent executions for the lookup Lambda (default: 30) */
   readonly reservedConcurrentExecutions?: number;
+  /**
+   * Plugins pre-resolved by `pipeline-manager synth` from the platform API.
+   * Keyed by `alias || name` (matches the construct's normalize() output).
+   * When a lookup hits this map, `plugin()` returns the resolved Plugin
+   * directly — no custom resource is created. This is what makes the
+   * imageTag, commands, env, etc. available at synth time so the resulting
+   * CFN template ships with the real values baked in.
+   */
+  readonly resolvedPlugins?: Record<string, Plugin>;
 }
 
 /**
@@ -74,6 +83,7 @@ export class PluginLookup extends Construct {
   private readonly _memorySize: number;
   private readonly _reservedConcurrentExecutions?: number;
   private readonly _orgId?: string;
+  private readonly _resolvedPlugins?: Record<string, Plugin>;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
@@ -89,6 +99,7 @@ export class PluginLookup extends Construct {
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
     this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
+    this._resolvedPlugins = props.resolvedPlugins;
 
     const onEventHandler = this.createLambdaFunction();
 
@@ -129,6 +140,18 @@ export class PluginLookup extends Construct {
    */
   public plugin(plugin: string | PluginOptions): Plugin {
     const props = this.normalize(plugin);
+
+    // Pre-resolved by `pipeline-manager synth` from the platform API.
+    // Skip the custom resource entirely — we already know the plugin's
+    // imageTag, commands, env, etc. at synth time, so the resulting CFN
+    // template can ship with the real CodeBuild image baked in.
+    const cacheKey = props.alias || props.name;
+    const preResolved = this._resolvedPlugins?.[cacheKey];
+    if (preResolved) {
+      log.debug(`Plugin "${props.name}" pre-resolved (alias=${cacheKey}) — skipping custom resource`);
+      return preResolved;
+    }
+
     const custom = this.createCustomResource(props);
     const encoded = custom.getAttString('ResultValue');
 

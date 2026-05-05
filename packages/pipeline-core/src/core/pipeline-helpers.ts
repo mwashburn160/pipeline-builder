@@ -197,8 +197,8 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin)
   if (!imageTag || imageTag === '') {
     log.warn(
       `Plugin "${plugin.name}" has buildType=${plugin.buildType} but no imageTag — ` +
-      `CodeBuild will run on aws/codebuild/standard:7.0 and won't have the plugin's baked tools. ` +
-      `Verify the plugin was uploaded correctly via load-plugins.sh.`,
+      'CodeBuild will run on aws/codebuild/standard:7.0 and won\'t have the plugin\'s baked tools. ' +
+      'Verify the plugin was uploaded correctly via load-plugins.sh.',
     );
     return undefined;
   }
@@ -210,8 +210,8 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin)
     // Config namespace not loaded (e.g., unit tests without full config).
     log.warn(
       `Plugin "${plugin.name}" has imageTag="${imageTag}" but registry config not loaded — ` +
-      `CodeBuild will fall back to aws/codebuild/standard:7.0. ` +
-      `Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager's environment.`,
+      'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
+      'Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager\'s environment.',
     );
     return undefined;
   }
@@ -219,8 +219,8 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin)
   if (!registry?.host) {
     log.warn(
       `Plugin "${plugin.name}" has imageTag="${imageTag}" but IMAGE_REGISTRY_HOST is empty — ` +
-      `CodeBuild will fall back to aws/codebuild/standard:7.0. ` +
-      `Set IMAGE_REGISTRY_HOST in pipeline-manager's environment to use the plugin image.`,
+      'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
+      'Set IMAGE_REGISTRY_HOST in pipeline-manager\'s environment to use the plugin image.',
     );
     return undefined;
   }

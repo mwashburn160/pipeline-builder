@@ -10,6 +10,7 @@ import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } fr
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
 import { ERROR_CODES, handleError } from '../utils/error-handler';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { resolvePluginsForProps } from '../utils/plugin-resolver';
 import { buildRegistryPayload, writePendingIntent } from '../utils/registry';
 
 const { bold, cyan, dim } = pico;
@@ -153,6 +154,17 @@ export function deploy(program: Command): void {
             ...(pipeline.orgId && { orgId: pipeline.orgId }),
             pipelineId: pipeline.id,
           };
+
+          // Pre-resolve plugins from the platform API so the synthesized
+          // template ships with real CodeBuild image URIs baked in. Without
+          // this, CDK falls back to standard:7.0 (the deploy-time custom
+          // resource attribute is unresolvable at synth time). Skipped in
+          // --local-spec mode where there's no platform client.
+          const resolvedPlugins = await resolvePluginsForProps(platformClient, propsWithIds);
+          if (Object.keys(resolvedPlugins).length > 0) {
+            propsWithIds.resolvedPlugins = resolvedPlugins;
+            printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
+          }
         }
 
         // --show-resolved: print resolved config and exit (no CDK deploy)

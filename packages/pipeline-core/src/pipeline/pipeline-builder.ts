@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { PipelineNotificationEvents, PipelineType } from 'aws-cdk-lib/aws-codepipeline';
@@ -92,6 +93,16 @@ export interface BuilderProps {
 
   /** Custom tags applied to all pipeline resources. */
   readonly tags?: Record<string, string>;
+
+  /**
+   * Plugins pre-resolved by `pipeline-manager synth` from the platform API,
+   * keyed by `alias || name`. When present, `PluginLookup.plugin()` returns
+   * the matching entry directly and skips the custom resource — so the
+   * synthesized CFN template ships with the real CodeBuild image baked in.
+   * Populated by the CLI before invoking the boilerplate app; CDK consumers
+   * who construct PipelineBuilder directly normally leave this unset.
+   */
+  readonly resolvedPlugins?: Record<string, Plugin>;
 }
 
 /**
@@ -150,6 +161,7 @@ export class PipelineBuilder extends Construct {
         runtime: awsConfig.lambda.runtime,
         timeout: awsConfig.lambda.timeout,
         reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
+        resolvedPlugins: props.resolvedPlugins,
       },
     );
 

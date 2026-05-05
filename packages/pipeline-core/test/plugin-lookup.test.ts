@@ -262,6 +262,72 @@ describe('PluginLookup', () => {
       );
     });
 
+    it('should return pre-resolved plugin and skip custom resource', () => {
+      const preResolved = {
+        id: 'plugin-id',
+        name: 'nodejs-build',
+        version: '1.2.3',
+        imageTag: 'nodejs-build',
+        commands: ['npm ci', 'npm test'],
+        installCommands: [],
+        buildType: 'build_image',
+      };
+
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        resolvedPlugins: { 'nodejs-build-alias': preResolved as never },
+      });
+
+      mockCustomResource.mockClear();
+      const result = lookup.plugin('nodejs-build');
+
+      // Returns the pre-resolved plugin verbatim — imageTag, commands, etc. intact.
+      expect(result).toBe(preResolved);
+      expect(result.imageTag).toBe('nodejs-build');
+      // Skips the custom resource entirely.
+      expect(mockCustomResource).not.toHaveBeenCalled();
+    });
+
+    it('should match pre-resolved plugin by explicit alias', () => {
+      const preResolved = { name: 'snyk-scan', imageTag: 'snyk-scan', commands: [] };
+
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        resolvedPlugins: { 'snyk-prod': preResolved as never },
+      });
+
+      mockCustomResource.mockClear();
+      const result = lookup.plugin({ name: 'snyk-scan', alias: 'snyk-prod' });
+
+      expect(result).toBe(preResolved);
+      expect(mockCustomResource).not.toHaveBeenCalled();
+    });
+
+    it('should fall through to custom resource when pre-resolved cache misses', () => {
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        resolvedPlugins: { 'something-else-alias': { name: 'something-else' } as never },
+      });
+
+      mockCustomResource.mockClear();
+      const result = lookup.plugin('not-cached');
+
+      expect(mockCustomResource).toHaveBeenCalled();
+      expect(result.name).toBe('fallback');
+    });
+
     it('should parse base64-encoded resolved plugin data', () => {
       const pluginData = {
         name: 'nodejs-build',
