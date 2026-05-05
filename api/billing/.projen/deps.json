@@ -97,7 +97,7 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.3.31",
+      "version": "3.3.33",
       "type": "runtime"
     },
     {

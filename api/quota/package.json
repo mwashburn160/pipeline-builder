@@ -38,7 +38,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "3.3.31",
     "@pipeline-builder/api-server": "3.3.30",
-    "@pipeline-builder/pipeline-core": "3.3.31",
+    "@pipeline-builder/pipeline-core": "3.3.33",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",
@@ -62,7 +62,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.3.31",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
