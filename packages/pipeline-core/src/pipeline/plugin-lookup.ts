@@ -4,7 +4,7 @@
 import { join } from 'path';
 import { createLogger } from '@pipeline-builder/api-core';
 import { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
-import { CustomResource, Token, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -92,11 +92,25 @@ export class PluginLookup extends Construct {
 
     const onEventHandler = this.createLambdaFunction();
 
-    const logGroup = new LogGroup(this, this._uniqueId.generate('log:group'), {
-      logGroupName: `/aws/lambda/${this._uniqueId.generate('plugin:lookup').replace(/:/g, '-')}`,
-      retention: props.logRetention ?? RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+    // Log-group strategy:
+    //   Previous code created an `AWS::Logs::LogGroup` resource with an
+    //   EXPLICIT name (`/aws/lambda/plugin-lookup-N`). That breaks every
+    //   re-deploy after a rolled-back stack: AWS auto-creates the group on
+    //   first Lambda invocation, the rollback leaves it as an orphan, and
+    //   the next CDK run fails with "Resource ... already exists" because
+    //   the explicit name collides with the orphan.
+    //
+    //   Fix: use `LogGroup.fromLogGroupName()` to adopt-or-pass-through.
+    //   If the group exists, CDK references it without trying to recreate.
+    //   If it doesn't, AWS Lambda auto-creates it on first invocation.
+    //   Retention is then set via a separate retention-policy custom
+    //   resource which is idempotent (safe to apply to existing groups).
+    const logGroupName = `/aws/lambda/${this._uniqueId.generate('plugin:lookup').replace(/:/g, '-')}`;
+    const logGroup = LogGroup.fromLogGroupName(
+      this,
+      this._uniqueId.generate('log:group'),
+      logGroupName,
+    );
 
     this._provider = new Provider(this, this._uniqueId.generate('resource:provider'), {
       onEventHandler,

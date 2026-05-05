@@ -131,7 +131,13 @@ export class PipelineBuilder extends Construct {
 
     const serverConfig = Config.get('server');
     const awsConfig = Config.get('aws');
-    const uniqueId = new UniqueId();
+    // Pass org+project so log group / IAM role names get a stable hash
+    // suffix per pipeline. Prevents `Resource already exists` collisions
+    // across stacks deployed to the same AWS account.
+    const uniqueId = new UniqueId({
+      organization: this.config.organization,
+      project: this.config.project,
+    });
     const pluginLookup = new PluginLookup(
       this,
       uniqueId.generate('plugin:lookup'),

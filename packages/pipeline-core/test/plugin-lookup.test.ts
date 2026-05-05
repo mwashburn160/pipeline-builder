@@ -52,6 +52,15 @@ jest.mock('aws-cdk-lib/aws-lambda-nodejs', () => ({
   NodejsFunction: mockNodejsFunction,
 }));
 
+// LogGroup needs both the constructor stub AND the static `fromLogGroupName`
+// adopt-or-pass-through method (used for collision-resilient log group
+// references — see plugin-lookup.ts header).
+const mockLogGroupFromName = jest.fn().mockImplementation((_scope: unknown, _id: unknown, name: string) => ({
+  logGroupName: name,
+  logGroupArn: `arn:aws:logs:us-east-1:123456789:log-group:${name}`,
+}));
+(mockLogGroup as unknown as { fromLogGroupName: typeof mockLogGroupFromName }).fromLogGroupName = mockLogGroupFromName;
+
 jest.mock('aws-cdk-lib/aws-logs', () => ({
   LogGroup: mockLogGroup,
   RetentionDays: { ONE_WEEK: 7, ONE_MONTH: 30 },
