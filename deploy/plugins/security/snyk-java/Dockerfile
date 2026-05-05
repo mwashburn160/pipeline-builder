@@ -7,6 +7,11 @@
 
 FROM pipeline-snyk-base:1.0
 
+# Build deps required by the language toolchain. Without these, the
+# scanner fails when it needs to build user code with native deps
+# (cgo, JNI, native crates, native NuGet packages, etc.).
+RUN apt-retry-install build-essential
+
 # ─── Java via SDKMAN ───
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL https://get.sdkman.io | bash

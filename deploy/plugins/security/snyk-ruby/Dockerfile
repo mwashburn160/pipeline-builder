@@ -8,6 +8,11 @@
 FROM pipeline-snyk-base:1.0
 
 # ─── Ruby via rbenv ───
+# rbenv compiles Ruby (and its bundled openssl) from source — needs the
+# C build chain. Without these the install fails with "openssl-3.0.18
+# config" errors. Same dep list as language/ruby/Dockerfile.
+RUN apt-retry-install build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev
+
 ENV RBENV_ROOT=/opt/rbenv
 RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} && \
     git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build

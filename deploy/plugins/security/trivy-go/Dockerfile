@@ -7,6 +7,11 @@
 
 FROM pipeline-trivy-base:1.0
 
+# Build deps required by the language toolchain. Without these, the
+# scanner fails when it needs to build user code with native deps
+# (cgo, JNI, native crates, native NuGet packages, etc.).
+RUN apt-retry-install build-essential
+
 # ─── Go via goenv ───
 ENV GOENV_ROOT=/opt/goenv
 RUN git clone --depth 1 https://github.com/go-nv/goenv.git ${GOENV_ROOT}

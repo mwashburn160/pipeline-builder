@@ -7,6 +7,11 @@
 
 FROM pipeline-sonarcloud-base:1.0
 
+# Build deps required by the language toolchain. Without these, the
+# scanner fails when it needs to build user code with native deps
+# (cgo, JNI, native crates, native NuGet packages, etc.).
+RUN apt-retry-install build-essential libssl-dev pkg-config
+
 # ─── Rust via rustup ───
 ENV RUSTUP_HOME=/opt/rustup
 ENV CARGO_HOME=/opt/cargo

@@ -7,6 +7,11 @@
 
 FROM pipeline-sonarcloud-base:1.0
 
+# Build deps required by the language toolchain. Without these, the
+# scanner fails when it needs to build user code with native deps
+# (cgo, JNI, native crates, native NuGet packages, etc.).
+RUN apt-retry-install build-essential libssl-dev libicu-dev
+
 # ─── .NET SDK ───
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \
