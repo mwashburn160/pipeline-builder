@@ -323,6 +323,10 @@ services:
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
+      # Credentials api/plugin uses to authenticate with image-registry's
+      # /token endpoint when pushing built plugin images.
+      PLATFORM_BUILD_USERNAME: ${PLATFORM_BUILD_USERNAME:-build-service}
+      PLATFORM_BUILD_PASSWORD: ${PLATFORM_BUILD_PASSWORD:-build-service-password}
       DOCKER_REGISTRY_HTTP: ${DOCKER_REGISTRY_HTTP:-false}
       DOCKER_REGISTRY_INSECURE: ${DOCKER_REGISTRY_INSECURE:-true}
       REDIS_HOST: ${REDIS_HOST:-redis}
