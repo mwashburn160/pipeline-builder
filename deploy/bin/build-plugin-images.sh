@@ -332,8 +332,12 @@ while IFS= read -r plugin_dir; do
       continue
     fi
 
-    # Update config.yaml
+    # Update config.yaml. Synthesize a minimal one if the plugin lacks it
+    # (rare — but one outlier plugin shouldn't abort an otherwise-clean run).
     config="$plugin_dir/config.yaml"
+    if [ ! -f "$config" ]; then
+      printf 'pluginSpec: plugin-spec.yaml\ndockerfile: Dockerfile\nbuildType: build_image\n' > "$config"
+    fi
     sed_inplace 's/^buildType: build_image$/buildType: prebuilt/' "$config"
     sed_inplace '/^dockerfile:/d' "$config"
     sed_inplace '/^imageTag:/d' "$config"
