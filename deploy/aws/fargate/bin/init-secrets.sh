@@ -53,6 +53,19 @@ ME_BASICAUTH_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
 
+# RSA keypair for the Docker registry token-auth flow. Both halves go into
+# the same secret JSON so the image-registry task signs with the private key
+# and the registry verifies with the certificate. Newlines are JSON-escaped
+# so the multi-line PEM survives a `cat <<EOF` heredoc → JSON round-trip.
+REGISTRY_KEY_DIR=$(mktemp -d)
+trap 'rm -rf "$REGISTRY_KEY_DIR"' EXIT
+openssl genrsa -out "$REGISTRY_KEY_DIR/jwt-private.pem" 4096 2>/dev/null
+openssl req -x509 -new -nodes -key "$REGISTRY_KEY_DIR/jwt-private.pem" -sha256 -days 3650 \
+  -subj "/CN=pipeline-image-registry-token-issuer" \
+  -out "$REGISTRY_KEY_DIR/jwt-public.pem" 2>/dev/null
+REGISTRY_TOKEN_PRIVATE_KEY=$(awk 'BEGIN{ORS="\\n"} {print}' "$REGISTRY_KEY_DIR/jwt-private.pem")
+REGISTRY_TOKEN_CERTIFICATE=$(awk 'BEGIN{ORS="\\n"} {print}' "$REGISTRY_KEY_DIR/jwt-public.pem")
+
 # Build the secrets JSON
 SECRETS_JSON=$(cat <<EOF
 {
@@ -74,6 +87,8 @@ SECRETS_JSON=$(cat <<EOF
   "PGADMIN_DEFAULT_PASSWORD": "${PGADMIN_PASSWORD}",
   "IMAGE_REGISTRY_USER": "admin",
   "IMAGE_REGISTRY_TOKEN": "${REGISTRY_TOKEN}",
+  "REGISTRY_TOKEN_PRIVATE_KEY": "${REGISTRY_TOKEN_PRIVATE_KEY}",
+  "REGISTRY_TOKEN_CERTIFICATE": "${REGISTRY_TOKEN_CERTIFICATE}",
   "ANTHROPIC_API_KEY": "",
   "OPENAI_API_KEY": "",
   "GOOGLE_GENERATIVE_AI_API_KEY": "",

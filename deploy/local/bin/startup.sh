@@ -59,6 +59,11 @@ if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
   chmod 644 "$CERT_DIR/registry.key"
 fi
 
+if [ ! -f "$CERT_DIR/registry-token.key" ] || [ ! -f "$CERT_DIR/registry-token.crt" ]; then
+  echo "=== Generating registry token-auth keypair ==="
+  "$SCRIPT_DIR/gen-registry-token-keys.sh"
+fi
+
 if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
   echo "=== Generating registry htpasswd ==="
   mkdir -p "$AUTH_DIR"

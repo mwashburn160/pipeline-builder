@@ -195,6 +195,17 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.
 chmod 644 "$CERT_DIR/registry.key" "$CERT_DIR/registry.crt"
 kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
 
+# JWT signing keypair for image-registry's token-auth endpoint. Mounted by
+# both the underlying registry (as the trusted public cert) and the
+# image-registry proxy (which signs tokens with the private key).
+openssl genrsa -out "$CERT_DIR/jwt-private.pem" 2048 2>&1
+openssl req -x509 -new -key "$CERT_DIR/jwt-private.pem" -days 3650 \
+  -subj "/CN=registry-token" -out "$CERT_DIR/jwt-public.pem" 2>&1
+chmod 644 "$CERT_DIR/jwt-private.pem" "$CERT_DIR/jwt-public.pem"
+secret registry-token-secret \
+  --from-file=jwt-private.pem="$CERT_DIR/jwt-private.pem" \
+  --from-file=jwt-public.pem="$CERT_DIR/jwt-public.pem"
+
 if command -v htpasswd >/dev/null 2>&1; then
   htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 else

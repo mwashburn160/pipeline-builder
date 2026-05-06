@@ -41,7 +41,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-mongodb
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"

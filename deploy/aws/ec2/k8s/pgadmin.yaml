@@ -81,7 +81,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-postgres
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"
@@ -97,7 +97,7 @@ spec:
               until nc -z postgres 5432; do sleep 3; done
               echo "Postgres ready"
         - name: fix-permissions
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"

@@ -70,7 +70,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-dependencies
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"

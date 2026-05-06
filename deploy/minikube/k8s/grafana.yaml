@@ -88,7 +88,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: wait-for-loki
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"
@@ -104,7 +104,7 @@ spec:
               until wget -qO- http://loki:3100/ready > /dev/null 2>&1; do sleep 3; done
               echo "Loki ready"
         - name: fix-permissions
-          image: busybox
+          image: busybox:1.36
           resources:
             limits:
               cpu: "100m"
