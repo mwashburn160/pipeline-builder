@@ -174,17 +174,19 @@ function toSecretEnvVars(
  *      `undefined` and the metadata wins.
  *   2. Otherwise, if the plugin has an `imageTag` AND the registry config
  *      is populated, build a `LinuxBuildImage.fromDockerRegistry()` image
- *      pointing at `<registry-host>:<port>/<imageTag>:latest`. CodeBuild
- *      pulls from our private registry — credentials come from the
- *      `pipeline-builder/system/registry` Secrets Manager secret.
+ *      pointing at `<registry-host>:<port>/system/<imageTag>:latest`. CodeBuild
+ *      authenticates by sending the per-org platform Secret as Basic auth to
+ *      `pipeline-image-registry`'s `/token` endpoint, which the registry's
+ *      bearer challenge points at; the JWT in `password` resolves to a
+ *      registry token scoped to the org.
  *   3. If neither (e.g., a `metadata_only` plugin or one with no image),
  *      return `undefined` so CodeBuild uses its default (`standard:7.0`).
  *
- * `scope` is required because `Secret.fromSecretNameV2()` needs a parent
- * Construct to anchor the imported secret to. Pass the stack/construct
- * that owns the CodeBuild step.
+ * `scope` and `orgId` are required: the per-org platform Secret is named
+ * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
+ * needs a Construct to anchor the imported secret to.
  */
-export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin): IBuildImage | undefined {
+export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin, orgId?: string): IBuildImage | undefined {
   const imageTag = plugin.imageTag;
 
   // `metadata_only` plugins legitimately have no image — their work runs
@@ -229,29 +231,46 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin)
     return undefined;
   }
 
-  // Compose the image URI: `<host>:<port>/<imageTag>:latest`.
-  // The trailing `:latest` is required — Docker assumes `latest` only when
-  // pulling without a tag, and we want explicit pull semantics.
+  // Per-org auth requires orgId — the Secret is named per org.
+  if (!orgId) {
+    log.warn(
+      `Plugin "${plugin.name}" image resolution skipped: orgId is required to ` +
+      'resolve the per-org platform Secret used for CodeBuild Basic auth.',
+    );
+    return undefined;
+  }
+
+  // Compose the image URI. Namespace by ownership:
+  //   - Plugins owned by the system org → `system/<imageTag>:latest`.
+  //     pipeline-image-registry's token service grants pull on `system/*`
+  //     to any authenticated org user (read-only catalog of shared plugins).
+  //   - Plugins owned by a tenant org → `org-<orgId>/<imageTag>:latest`.
+  //     The token service grants pull,push only to members of that org.
+  // The plugin's own `orgId` (not the caller's) decides the namespace —
+  // tenant pipelines pulling shared system plugins still get the `system/`
+  // path because that's where the image actually lives.
   const portPart = registry.port && registry.port !== 80 && registry.port !== 443
     ? `:${registry.port}`
     : '';
-  const imageUri = `${registry.host}${portPart}/${imageTag}:latest`;
+  const SYSTEM_ORG_ID = 'system';
+  const namespace = plugin.orgId === SYSTEM_ORG_ID
+    ? 'system'
+    : `org-${plugin.orgId}`;
+  const imageUri = `${registry.host}${portPart}/${namespace}/${imageTag}:latest`;
 
-  // Credentials live in a Secrets Manager secret as
-  // `{ "username": "...", "password": "..." }` JSON. The secret name is
-  // configurable via `IMAGE_REGISTRY_CREDS_SECRET` env var (default:
-  // `pipeline-builder/system/registry`). The CodeBuild role needs
-  // `secretsmanager:GetSecretValue` for that ARN — CDK adds this
-  // automatically when the secret reference flows through
-  // `secretsManagerCredentials`.
+  // CodeBuild reads `pipeline-builder/<orgId>/platform` and sends its
+  // `username`/`password` fields as HTTP Basic to the registry. The
+  // registry challenges with a Bearer realm pointing at
+  // pipeline-image-registry's `/token` endpoint; the Docker client forwards
+  // those creds, the password is verified as a platform JWT, and a registry
+  // token scoped to the org is issued.
   //
-  // Use a deterministic construct ID so multiple steps that share the same
-  // registry secret reuse the same imported construct (avoids "construct
-  // already exists" errors when many steps resolve the same image).
+  // Same Secret is read by the plugin-lookup Lambda (via the `password`
+  // field) — one Secret serves both flows.
   const stack = Stack.of(scope);
-  const secretName = registry.credentialsSecret || 'pipeline-builder/system/registry';
+  const secretName = CoreConstants.secretPath(orgId, 'platform');
   // CDK construct IDs allow only [A-Za-z0-9_-]; sanitize the secret name.
-  const secretConstructId = `RegistryCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const secretConstructId = `PlatformCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
     ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
 
@@ -326,7 +345,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // (pipeline-manager, snyk, terraform, etc.). Wiring the plugin's image
   // here means CodeBuild pulls from our private registry and the tools
   // installed in the plugin's Dockerfile are actually available.
-  const pluginBuildImage = resolvePluginImage(scope, plugin);
+  const pluginBuildImage = resolvePluginImage(scope, plugin, orgId);
 
   // ShellStep branch.
   // ShellStep itself doesn't accept `buildEnvironment`/`buildImage`. CDK

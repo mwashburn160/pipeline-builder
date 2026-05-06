@@ -8,23 +8,12 @@ import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
 import { getComputeType } from '../core/pipeline-helpers';
 
-function requireInProduction(envVar: string, devDefault: string): string {
-  const value = process.env[envVar];
-  if (value) return value;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(`${envVar} is required in production`);
-  }
-  return devDefault;
-}
-
 /**
  * Load Docker registry configuration from environment variables.
  *
  * Environment variables:
  * - `IMAGE_REGISTRY_HOST` — Registry hostname (default: `'registry'`)
  * - `IMAGE_REGISTRY_PORT` — Registry port (default: `5000`)
- * - `IMAGE_REGISTRY_USER` — Registry username (default: `'admin'`)
- * - `IMAGE_REGISTRY_TOKEN` — Registry auth token (default: `'password'`)
  * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
  * - `DOCKER_REGISTRY_HTTP` — Use plain HTTP (default: `true`). Set `false` for HTTPS.
  * - `DOCKER_REGISTRY_INSECURE` — Skip TLS verification (default: `true`). Set `false` for production.
@@ -35,13 +24,9 @@ export function loadRegistryConfig(): RegistryConfig {
   return {
     host: process.env.IMAGE_REGISTRY_HOST || 'registry',
     port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
-    user: requireInProduction('IMAGE_REGISTRY_USER', 'admin'),
-    token: requireInProduction('IMAGE_REGISTRY_TOKEN', 'password'),
     network: process.env.DOCKER_NETWORK || '',
     http: process.env.DOCKER_REGISTRY_HTTP !== 'false',
     insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
-    credentialsSecret: process.env.IMAGE_REGISTRY_CREDS_SECRET
-      || 'pipeline-builder/system/registry',
   };
 }
 

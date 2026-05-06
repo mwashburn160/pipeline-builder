@@ -135,8 +135,9 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       contextDir: '/tmp/build-ctx',
       dockerfile: 'Dockerfile',
       imageTag: 'p-test-abc123',
+      orgId: 'org-1',
       buildType: 'build_image',
-      registry: { host: 'registry', port: 5000, user: 'admin', token: 'secret', network: '', http: true, insecure: true },
+      registry: { host: 'registry', port: 5000, network: '', http: true, insecure: true },
     },
     pluginRecord: {
       orgId: 'org-1',

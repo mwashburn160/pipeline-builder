@@ -118,25 +118,12 @@ export interface DatabaseConfig {
 export interface RegistryConfig {
   readonly host: string;
   readonly port: number;
-  readonly user: string;
-  readonly token: string;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
   /** Use plain HTTP instead of HTTPS (env: `DOCKER_REGISTRY_HTTP`). Defaults to true. */
   readonly http: boolean;
   /** Skip TLS certificate verification for self-signed certs (env: `DOCKER_REGISTRY_INSECURE`). Defaults to true. */
   readonly insecure: boolean;
-  /**
-   * AWS Secrets Manager secret name containing CodeBuild image-pull
-   * credentials in the standard `{ "username": "...", "password": "..." }`
-   * JSON shape. Defaults to `pipeline-builder/system/registry`.
-   *
-   * Override via `IMAGE_REGISTRY_CREDS_SECRET` if you store the creds
-   * under a different name. Cannot share with `pipeline-builder/system/platform`
-   * — that secret stores a JWT, which has a different schema; CodeBuild's
-   * docker-pull credentials API requires `username`/`password` keys.
-   */
-  readonly credentialsSecret: string;
 }
 
 export interface RedisConfig {

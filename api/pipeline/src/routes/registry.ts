@@ -1,12 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, sendPaginatedNested, ErrorCode, getParam, hashAccountInArn, hashId, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import {
+  sendSuccess,
+  sendBadRequest,
+  sendError,
+  sendPaginatedNested,
+  ErrorCode,
+  errorMessage,
+  getParam,
+  hashAccountInArn,
+  hashId,
+  parsePaginationParams,
+  validateBody,
+} from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { db, schema } from '@pipeline-builder/pipeline-core';
-import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
+import {
+  pipelineRegistryService,
+  PR_PIPELINE_NOT_OWNED,
+  PR_ARN_OWNED_BY_OTHER_ORG,
+} from '../services/pipeline-registry-service';
 
 const PipelineRegistrySchema = z.object({
   pipelineId: z.string().min(1, 'pipelineId is required'),
@@ -32,21 +47,7 @@ export function createRegistryRoutes(): Router {
 
   router.get('/registry', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
-
-    const [countRow] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.pipelineRegistry)
-      .where(eq(schema.pipelineRegistry.orgId, orgId));
-
-    const rows = await db
-      .select()
-      .from(schema.pipelineRegistry)
-      .where(eq(schema.pipelineRegistry.orgId, orgId))
-      .orderBy(desc(schema.pipelineRegistry.lastDeployed))
-      .limit(limit)
-      .offset(offset);
-
-    const total = countRow?.count ?? 0;
+    const { rows, total } = await pipelineRegistryService.list(orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length });
     return sendPaginatedNested(res, 'registry', rows, {
       total, limit, offset, hasMore: offset + rows.length < total,
@@ -59,77 +60,38 @@ export function createRegistryRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { pipelineId, pipelineArn, pipelineName, accountId, region, project, organization, stackName } = validation.value;
-
+    const v = validation.value;
     // Ensure account is hashed before storing (defense in depth)
-    const safeArn = hashAccountInArn(pipelineArn);
-    const safeAccountId = accountId ? hashId(accountId) : undefined;
-
-    // Tenancy guard #1: caller must own the pipelineId they're registering.
-    // Without this an org could claim another org's pipelineId by guessing
-    // the UUID and pointing it at their own ARN. Inlined query so this route
-    // doesn't pull in the cached pipelineService construct.
-    const [pipeline] = await db
-      .select({ id: schema.pipeline.id })
-      .from(schema.pipeline)
-      .where(and(
-        eq(schema.pipeline.id, pipelineId),
-        eq(schema.pipeline.orgId, orgId),
-      ));
-    if (!pipeline) {
-      return sendError(res, 404, 'Pipeline not found in your organization', ErrorCode.NOT_FOUND);
-    }
-
-    // Tenancy guard #2: if the ARN is already registered to a DIFFERENT org,
-    // refuse the upsert. The unique constraint on pipelineArn would otherwise
-    // let an attacker overwrite the existing org binding by replaying the ARN.
-    const [existing] = await db
-      .select({ orgId: schema.pipelineRegistry.orgId })
-      .from(schema.pipelineRegistry)
-      .where(eq(schema.pipelineRegistry.pipelineArn, safeArn));
-    if (existing && existing.orgId !== orgId) {
-      ctx.log('WARN', 'Rejected registry claim for ARN owned by another org', { pipelineArn: safeArn });
-      return sendError(res, 409, 'Pipeline ARN is registered to a different organization', ErrorCode.CONFLICT);
-    }
+    const safeArn = hashAccountInArn(v.pipelineArn);
+    const safeAccountId = v.accountId ? hashId(v.accountId) : undefined;
 
     ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineArn: safeArn });
 
-    // Upsert by pipeline_arn (unique constraint).
-    // orgId is intentionally NOT in the conflict update set — once an ARN is
-    // bound to an org, the binding cannot change without explicit re-registration.
-    const [result] = await db
-      .insert(schema.pipelineRegistry)
-      .values({
-        pipelineId,
+    try {
+      const result = await pipelineRegistryService.upsert({
+        pipelineId: v.pipelineId,
         orgId,
         pipelineArn: safeArn,
-        pipelineName,
+        pipelineName: v.pipelineName,
         accountId: safeAccountId,
-        region,
-        project,
-        organization,
-        stackName,
-        lastDeployed: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: schema.pipelineRegistry.pipelineArn,
-        set: {
-          pipelineId,
-          pipelineName,
-          accountId: safeAccountId,
-          region,
-          project,
-          organization,
-          stackName,
-          lastDeployed: new Date(),
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-
-    ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: safeArn });
-
-    sendSuccess(res, 200, { registry: result });
+        region: v.region,
+        project: v.project,
+        organization: v.organization,
+        stackName: v.stackName,
+      });
+      ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: safeArn });
+      sendSuccess(res, 200, { registry: result });
+    } catch (err) {
+      const code = errorMessage(err);
+      if (code === PR_PIPELINE_NOT_OWNED) {
+        return sendError(res, 404, 'Pipeline not found in your organization', ErrorCode.NOT_FOUND);
+      }
+      if (code === PR_ARN_OWNED_BY_OTHER_ORG) {
+        ctx.log('WARN', 'Rejected registry claim for ARN owned by another org', { pipelineArn: safeArn });
+        return sendError(res, 409, 'Pipeline ARN is registered to a different organization', ErrorCode.CONFLICT);
+      }
+      throw err;
+    }
   }));
 
   /**
@@ -150,27 +112,12 @@ export function createRegistryRoutes(): Router {
    */
   router.delete('/registry/:id', withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
-    if (!id) {
-      return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
-    }
+    if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const [deleted] = await db
-      .delete(schema.pipelineRegistry)
-      .where(and(
-        eq(schema.pipelineRegistry.id, id),
-        eq(schema.pipelineRegistry.orgId, orgId),
-      ))
-      .returning({
-        id: schema.pipelineRegistry.id,
-        pipelineArn: schema.pipelineRegistry.pipelineArn,
-      });
-
-    if (!deleted) {
-      return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
-    }
+    const deleted = await pipelineRegistryService.delete(id, orgId);
+    if (!deleted) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, arn: deleted.pipelineArn });
-
     sendSuccess(res, 200, { id: deleted.id });
   }));
 

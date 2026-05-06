@@ -84,6 +84,7 @@ export function createDeployGeneratedPluginRoutes(
           contextDir: tempDir,
           dockerfile: 'Dockerfile',
           imageTag,
+          orgId,
           registry,
           buildArgs: buildArgs || {},
           buildType: 'build_image',

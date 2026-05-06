@@ -215,6 +215,91 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  api/image-registry:
+    dependencies:
+      '@pipeline-builder/api-core':
+        specifier: workspace:*
+        version: link:../../packages/api-core
+      '@pipeline-builder/api-server':
+        specifier: workspace:*
+        version: link:../../packages/api-server
+      '@pipeline-builder/pipeline-core':
+        specifier: workspace:*
+        version: link:../../packages/pipeline-core
+      axios:
+        specifier: 1.13.5
+        version: 1.13.5
+      cors:
+        specifier: 2.8.6
+        version: 2.8.6
+      express:
+        specifier: 5.2.1
+        version: 5.2.1
+      express-rate-limit:
+        specifier: 8.2.1
+        version: 8.2.1(express@5.2.1)
+      helmet:
+        specifier: 8.1.0
+        version: 8.1.0
+      jsonwebtoken:
+        specifier: 9.0.3
+        version: 9.0.3
+      winston:
+        specifier: 3.19.0
+        version: 3.19.0
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@jest/globals':
+        specifier: 30.2.0
+        version: 30.2.0
+      '@stylistic/eslint-plugin':
+        specifier: ^2
+        version: 2.13.0(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      '@types/cors':
+        specifier: 2.8.19
+        version: 2.8.19
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/jsonwebtoken':
+        specifier: 9.0.10
+        version: 9.0.10
+      '@types/node':
+        specifier: 25.3.0
+        version: 25.3.0
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8
+        version: 8.58.2(@typescript-eslint/parser@8.58.2(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^8
+        version: 8.58.2(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.6.1)
+      eslint-import-resolver-typescript:
+        specifier: ^4.4.4
+        version: 4.4.4(eslint-plugin-import@2.32.0)(eslint@9.39.4(jiti@2.6.1))
+      eslint-plugin-import:
+        specifier: ^2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.58.2(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint-import-resolver-typescript@4.4.4)(eslint@9.39.4(jiti@2.6.1))
+      jest:
+        specifier: ^30.2.0
+        version: 30.3.0(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.12))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@25.3.0)(typescript@5.9.3))
+      jest-junit:
+        specifier: ^16
+        version: 16.0.0
+      ts-jest:
+        specifier: ^29.4.6
+        version: 29.4.9(@babel/core@7.29.0)(@jest/transform@30.3.0)(@jest/types@30.3.0)(babel-jest@30.3.0(@babel/core@7.29.0))(esbuild@0.25.12)(jest-util@30.3.0)(jest@30.3.0(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.12))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@25.3.0)(typescript@5.9.3)))(typescript@5.9.3)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   api/message:
     dependencies:
       '@pipeline-builder/api-core':
@@ -12155,7 +12240,7 @@ snapshots:
 
   '@types/adm-zip@0.5.7':
     dependencies:
-      '@types/node': 25.3.0
+      '@types/node': 24.12.2
 
   '@types/aws-lambda@8.10.160': {}
 
@@ -12340,7 +12425,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.3.0
+      '@types/node': 24.12.2
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -12350,7 +12435,7 @@ snapshots:
 
   '@types/yauzl@2.10.3':
     dependencies:
-      '@types/node': 25.3.0
+      '@types/node': 24.12.2
 
   '@typescript-eslint/eslint-plugin@8.58.2(@typescript-eslint/parser@8.58.2(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)':
     dependencies:

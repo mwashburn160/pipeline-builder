@@ -26,7 +26,7 @@ export function generateImageTag(name: string): string {
 // Build job types & factory
 
 /** Plugin record data stored in the BullMQ job for DB insertion. */
-export interface PluginRecordData {
+interface PluginRecordData {
   orgId: string;
   name: string;
   description: string | null;
@@ -67,7 +67,7 @@ export interface PluginBuildJobData {
 }
 
 /** Parameters for creating a plugin build job. */
-export interface CreateBuildJobParams {
+interface CreateBuildJobParams {
   requestId: string;
   orgId: string;
   userId: string;

@@ -65,11 +65,16 @@ async function getToken(): Promise<string> {
   }
 
   const parsed = JSON.parse(response.SecretString) as Record<string, string>;
-  if (!parsed.accessToken) {
-    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing accessToken — run "pipeline-manager store-token" to generate`);
+  // Schema is `{ username, password, ... }` — the `password` field is the
+  // platform JWT. Same secret is read by CodeBuild's `secretsManagerCredentials`
+  // for registry pulls (Basic auth: username:password = orgId:JWT). The
+  // pipeline-image-registry token endpoint validates the password as a JWT
+  // and issues a registry token scoped to the JWT's org.
+  if (!parsed.password) {
+    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing password — run "pipeline-manager store-token" to generate`);
   }
 
-  cachedToken = parsed.accessToken;
+  cachedToken = parsed.password;
   lambdaLog.info('AUTH', 'Token retrieved from Secrets Manager');
   return cachedToken;
 }

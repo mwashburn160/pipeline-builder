@@ -81,7 +81,7 @@ spec:
                 echo "Could not derive FQDN suffix — falling back to bare hostnames"
               fi
 
-              UPSTREAMS="billing compliance frontend grafana message pipeline platform plugin quota reporting"
+              UPSTREAMS="billing compliance frontend grafana image-registry message pipeline platform plugin quota reporting"
               FAILED=""
               for s in $UPSTREAMS; do
                 deadline=$(( $(date +%s) + WAIT_TIMEOUT_SEC ))

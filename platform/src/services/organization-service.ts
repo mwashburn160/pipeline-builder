@@ -20,8 +20,7 @@ export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
 export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
 
 /** Supported AI provider identifiers. */
-export const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
-export type AIProvider = (typeof AI_PROVIDERS)[number];
+const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
 
 const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
 type QuotaTypeKey = (typeof QUOTA_TYPES)[number];

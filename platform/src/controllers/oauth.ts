@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { withController } from '../helpers/controller-helper';
-import { User, Organization, UserOrganization } from '../models';
+import { authService } from '../services';
 import { issueTokens } from '../utils/token';
 import { validateBody, oauthCallbackSchema } from '../utils/validation';
 
@@ -154,42 +154,6 @@ function getProvider(name: string): OAuthProvider | null {
   return providers[name as ProviderName] ?? null;
 }
 
-// User resolution
-
-async function findOrCreateUser(providerName: ProviderName, userInfo: OAuthUserInfo) {
-  const byOAuth = await User.findOne({ [`oauth.${providerName}.id`]: userInfo.id }).select('+tokenVersion');
-  if (byOAuth) return byOAuth;
-
-  const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion');
-  if (byEmail) {
-    await User.updateOne({ _id: byEmail._id }, {
-      $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
-    });
-    return byEmail;
-  }
-
-  const baseUsername = (userInfo.name || userInfo.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
-  let username = baseUsername;
-  let suffix = 1;
-  while (await User.exists({ username })) { username = `${baseUsername}${suffix++}`; }
-
-  const newUser = new User({
-    username,
-    email: userInfo.email.toLowerCase(),
-    isEmailVerified: true,
-    tokenVersion: 0,
-    oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
-  });
-
-  // Auto-create personal org + owner membership (same as email registration)
-  const org = await Organization.create({ name: username, owner: newUser._id });
-  await UserOrganization.create({ userId: newUser._id, organizationId: org._id, role: 'owner' });
-  newUser.lastActiveOrgId = org._id;
-
-  await newUser.save();
-  return newUser;
-}
-
 // Route handlers
 
 export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
@@ -232,7 +196,7 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
 
   if (!userInfo.email) return sendError(res, 400, `${providerName} did not return an email address`);
 
-  const user = await findOrCreateUser(providerName as ProviderName, userInfo);
+  const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
   logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });

@@ -14,7 +14,7 @@ const TARGET_MAP: Record<string, RuleTarget | undefined> = {
   pipeline: 'pipeline',
 };
 
-export interface EntityEventInput {
+interface EntityEventInput {
   entityId: string;
   orgId: string;
   target: string;
@@ -23,7 +23,7 @@ export interface EntityEventInput {
   attributes?: Record<string, unknown>;
 }
 
-export interface EvaluationResult {
+interface EvaluationResult {
   evaluated: boolean;
   blocked?: boolean;
   violations?: number;

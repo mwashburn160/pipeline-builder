@@ -5,7 +5,7 @@ import { createQuotaService } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult } from '@pipeline-builder/api-core';
 import { config } from '../config';
 
-export type { QuotaType, QuotaCheckResult };
+export type { QuotaType };
 
 /** Singleton quota service client configured from platform config. */
 const quotaService = createQuotaService({

@@ -8,7 +8,7 @@ const logger = createLogger('log-service');
 
 // Types
 
-export interface LogQueryParams {
+interface LogQueryParams {
   /** Service name filter (e.g., 'pipeline', 'plugin') */
   service?: string;
   /** Log level filter (e.g., 'error', 'warn', 'info', 'debug') */
@@ -27,14 +27,14 @@ export interface LogQueryParams {
   direction?: 'forward' | 'backward';
 }
 
-export interface LogEntry {
+interface LogEntry {
   timestamp: string;
   line: string;
   labels: Record<string, string>;
   parsed: Record<string, unknown>;
 }
 
-export interface LogQueryResult {
+interface LogQueryResult {
   entries: LogEntry[];
   stats: {
     entriesReturned: number;

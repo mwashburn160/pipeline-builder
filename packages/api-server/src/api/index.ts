@@ -15,6 +15,9 @@ export * from './app-factory';
 // Health-check helpers
 export * from './health-checks';
 
+// MongoDB connection helper (dependency-injected mongoose)
+export * from './mongo-connect';
+
 // Quota helpers
 export * from './quota-helpers';
 

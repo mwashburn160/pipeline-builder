@@ -18,7 +18,7 @@ export interface OnboardingSignals {
   executionCount: number;
 }
 
-export interface OnboardingStep {
+interface OnboardingStep {
   id: 'explore-plugins' | 'create-pipeline' | 'run-build';
   title: string;
   description: string;

@@ -4,11 +4,11 @@
 import { base64UrlDecode } from './api';
 import { EPOCH_MS_THRESHOLD } from './constants';
 
-export interface JwtPayload {
+interface JwtPayload {
   [key: string]: unknown;
 }
 
-export interface JwtParts {
+interface JwtParts {
   header: Record<string, unknown>;
   payload: JwtPayload;
   signature: string;

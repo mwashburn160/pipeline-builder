@@ -144,51 +144,6 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
   return ctx;
 }
 
-// Auth Context (for service proxy controllers)
-
-export interface AuthContext {
-  userId: string;
-  orgId: string;
-  token: string;
-}
-
-/**
- * Extract and validate full auth context (user, org, token) from request.
- */
-export function getAuthContext(req: Request, res: Response, action: string): AuthContext | null {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return null;
-  }
-
-  const orgId = req.user.organizationId;
-  if (!orgId) {
-    sendError(res, 400, `You must belong to an organization to ${action}`);
-    return null;
-  }
-
-  const token = extractToken(req);
-  if (!token) {
-    sendError(res, 401, 'Authentication token is required');
-    return null;
-  }
-
-  return { userId: req.user.sub, orgId, token };
-}
-
-// Token Extraction
-
-/**
- * Extract JWT token from Authorization header.
- */
-export function extractToken(req: Request): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return null;
-  const header = Array.isArray(authHeader) ? authHeader[0] : authHeader;
-  if (!header?.startsWith('Bearer ')) return null;
-  return header.slice(7);
-}
-
 // Error Handling
 
 export type ErrorMap = Record<string, { status: number; message: string }>;
@@ -198,10 +153,9 @@ export type ErrorMap = Record<string, { status: number; message: string }>;
 /**
  * Map Mongoose/MongoDB errors to appropriate HTTP responses.
  * Returns null if the error is not a recognized Mongoose error.
- *
- * Exported for unit-test access only — callers should use `handleControllerError`.
+ * Internal — callers should use `handleControllerError`.
  */
-export function mapMongooseError(err: unknown): { status: number; message: string; code: string } | null {
+function mapMongooseError(err: unknown): { status: number; message: string; code: string } | null {
   if (!err || typeof err !== 'object') return null;
 
   const errObj = err as Record<string, unknown>;

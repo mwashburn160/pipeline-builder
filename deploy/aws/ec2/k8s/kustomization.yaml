@@ -26,6 +26,7 @@ resources:
   - pgadmin.yaml
   - registry.yaml
   - registry-express.yaml
+  - image-registry.yaml
   - prometheus.yaml
   - loki.yaml
   - grafana.yaml

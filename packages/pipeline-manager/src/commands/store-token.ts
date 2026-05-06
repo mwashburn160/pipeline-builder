@@ -135,8 +135,20 @@ export function storeToken(program: Command): void {
 
         const expiresAt = new Date(Date.now() + actualExpiresIn * 1000).toISOString();
 
+        // Schema: { username: orgId, password: JWT, ...metadata }
+        // - username/password fields satisfy CodeBuild's `secretsManagerCredentials`
+        //   (HTTP Basic, sent to pipeline-image-registry's /token endpoint)
+        // - The same JWT is consumed by the plugin-lookup Lambda by reading
+        //   the `password` field
+        // - One Secret per customer account replaces the previous two-secret model
+        // Decode JWT for orgId — it's a stable identifier for the username field;
+        // the actual auth uses the password (JWT) which the token service verifies.
+        const payload = decodeTokenPayload(accessToken);
+        const orgId = payload?.organizationId ?? 'unknown-org';
+
         const secretValue = JSON.stringify({
-          accessToken,
+          username: orgId,
+          password: accessToken,
           ...(refreshToken && { refreshToken }),
           platformUrl: client.getBaseUrl(),
           expiresIn: actualExpiresIn,

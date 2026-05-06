@@ -22,6 +22,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
   },
+  errorMessage: (e: unknown) => e instanceof Error ? e.message : String(e),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {

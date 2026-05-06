@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { quotaPercent, pressureLevel, highestPressure } from '../src/lib/quota-pressure';
+import { highestPressure } from '../src/lib/quota-pressure';
 import type { OrgQuotaResponse, QuotaSummary } from '../src/types';
+
+// `quotaPercent` and `pressureLevel` are internal to `quota-pressure.ts` —
+// they're exercised here through the public `highestPressure` wrapper.
 
 const summary = (overrides: Partial<QuotaSummary> = {}): QuotaSummary => ({
   limit: 100,
@@ -11,44 +14,6 @@ const summary = (overrides: Partial<QuotaSummary> = {}): QuotaSummary => ({
   unlimited: false,
   resetAt: '2026-12-31T00:00:00Z',
   ...overrides,
-});
-
-describe('quotaPercent', () => {
-  it('returns 0 for unlimited quotas', () => {
-    expect(quotaPercent(summary({ unlimited: true, limit: -1, used: 999 }))).toBe(0);
-  });
-
-  it('returns 0 when limit is zero or negative', () => {
-    expect(quotaPercent(summary({ limit: 0, used: 5 }))).toBe(0);
-    expect(quotaPercent(summary({ limit: -1, used: 5 }))).toBe(0);
-  });
-
-  it('rounds usage to nearest percent', () => {
-    expect(quotaPercent(summary({ limit: 1000, used: 333 }))).toBe(33);
-    expect(quotaPercent(summary({ limit: 1000, used: 334 }))).toBe(33);
-    expect(quotaPercent(summary({ limit: 1000, used: 335 }))).toBe(34);
-  });
-
-  it('caps at 100 even when used exceeds limit', () => {
-    expect(quotaPercent(summary({ limit: 100, used: 150 }))).toBe(100);
-  });
-});
-
-describe('pressureLevel', () => {
-  it.each([
-    [0, 'none'],
-    [50, 'none'],
-    [79, 'none'],
-    [80, 'info'],
-    [85, 'info'],
-    [94, 'info'],
-    [95, 'warning'],
-    [99, 'warning'],
-    [100, 'critical'],
-    [120, 'critical'],
-  ])('returns %s for %i%%', (pct, expected) => {
-    expect(pressureLevel(pct as number)).toBe(expected);
-  });
 });
 
 describe('highestPressure', () => {

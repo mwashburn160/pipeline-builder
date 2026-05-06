@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, ErrorCode, mongoSanitize } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
 
 import { config } from './config';
-import { connectDatabase } from './helpers/database';
 import { seedPlans } from './helpers/seed-plans';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions';
@@ -52,7 +51,7 @@ if (config.enabled) {
     name: 'Billing Service',
     port: config.port,
     onBeforeStart: async () => {
-      await connectDatabase(config.mongodb.uri);
+      await connectMongo(mongoose, config.mongodb.uri);
       await seedPlans();
       startSubscriptionLifecycleChecker();
     },

@@ -28,8 +28,6 @@ interface DockerBuildCfg {
 export interface RegistryInfo {
   host: string;
   port: number;
-  user: string;
-  token: string;
   network: string;
   http: boolean;
   insecure: boolean;
@@ -41,6 +39,13 @@ export interface BuildRequest {
   contextDir: string;
   dockerfile: string;
   imageTag: string;
+  /**
+   * Owning org of the plugin being built. Used to derive the registry
+   * namespace: `system/<imageTag>` for the system org, `org-<orgId>/<imageTag>`
+   * for tenant orgs. The token service grants pull/push permissions per
+   * namespace based on the caller's identity.
+   */
+  orgId: string;
   registry: RegistryInfo;
   buildArgs?: Record<string, string>;
   buildType: BuildType;
@@ -181,12 +186,23 @@ interface BuildContext {
   bin: string;
 }
 
-function resolveContext(imageTag: string, registry: RegistryInfo): BuildContext {
+/**
+ * Compute the registry-side image reference for a plugin. Namespace by
+ * owning org so the token service's per-org scopes apply correctly:
+ *   - `system` org → `system/<imageTag>:latest`
+ *   - any tenant org → `org-<orgId>/<imageTag>:latest`
+ *
+ * `orgId` is optional only on the prebuilt `loadAndPush` path; new
+ * `buildAndPush` callers always supply it via BuildRequest.
+ */
+function resolveContext(imageTag: string, registry: RegistryInfo, orgId?: string): BuildContext {
   const cfg = getConfig();
   const strategy = strategies[cfg.strategy];
+  const SYSTEM_ORG_ID = 'system';
+  const namespace = !orgId || orgId === SYSTEM_ORG_ID ? 'system' : `org-${orgId}`;
   return {
     cfg,
-    image: `${registry.host}:${registry.port}/plugin:${imageTag}`,
+    image: `${registry.host}:${registry.port}/${namespace}/${imageTag}:latest`,
     strategy,
     bin: strategy.binary(cfg),
   };
@@ -198,7 +214,7 @@ function resolveContext(imageTag: string, registry: RegistryInfo): BuildContext 
 
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   validate(req);
-  const ctx = resolveContext(req.imageTag, req.registry);
+  const ctx = resolveContext(req.imageTag, req.registry, req.orgId);
 
   logger.info('Building image', { strategy: ctx.cfg.strategy, image: ctx.image });
 
@@ -216,10 +232,10 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
  * Used when buildType is 'prebuilt' — the image.tar is already extracted from the ZIP.
  */
 export async function loadAndPush(
-  tarPath: string, imageTag: string, registry: RegistryInfo,
+  tarPath: string, imageTag: string, registry: RegistryInfo, orgId: string,
 ): Promise<BuildResult> {
   validateRegistryAndTag(imageTag, registry);
-  const ctx = resolveContext(imageTag, registry);
+  const ctx = resolveContext(imageTag, registry, orgId);
 
   if (ctx.cfg.strategy === 'kaniko') {
     throw new ValidationError('prebuilt build type is not supported with kaniko strategy');
@@ -271,7 +287,20 @@ async function pushImage(
 
 function writeAuthJson(dir: string, registry: RegistryInfo) {
   const addr = `${registry.host}:${registry.port}`;
-  const auth = Buffer.from(`${registry.user}:${registry.token}`).toString('base64');
+  // Build-service-account creds, sent as HTTP Basic when the registry
+  // challenges with a Bearer realm pointing at pipeline-image-registry's
+  // /token endpoint. The Docker/podman/kaniko client handles the token
+  // exchange transparently — these creds get traded for a bearer token
+  // and the actual push uses the bearer.
+  const username = process.env.PLATFORM_BUILD_USERNAME;
+  const password = process.env.PLATFORM_BUILD_PASSWORD;
+  if (!username || !password) {
+    throw new ValidationError(
+      'PLATFORM_BUILD_USERNAME and PLATFORM_BUILD_PASSWORD must be set for registry push. ' +
+      'These authenticate to pipeline-image-registry, not to the underlying registry directly.',
+    );
+  }
+  const auth = Buffer.from(`${username}:${password}`).toString('base64');
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths: { [addr]: { auth } } }));
 }
 

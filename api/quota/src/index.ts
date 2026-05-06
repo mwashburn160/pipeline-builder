@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { mongoSanitize } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, mongoHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
 import { config } from './config';
-import { connectDatabase } from './helpers/database';
 import { createReadQuotaRoutes } from './routes/read-quotas';
 import { createUpdateQuotaRoutes } from './routes/update-quota';
 
@@ -31,7 +30,7 @@ app.use('/quotas', createUpdateQuotaRoutes());
 runServer(app, {
   name: 'Quota Service',
   port: config.port,
-  onBeforeStart: () => connectDatabase(config.mongodb.uri),
+  onBeforeStart: () => connectMongo(mongoose, config.mongodb.uri),
   testDatabase: async () => mongoose.connection.readyState === 1,
   closeDatabase: async () => { await mongoose.connection.close(false); },
 });

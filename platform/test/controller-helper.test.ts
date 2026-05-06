@@ -45,9 +45,6 @@ import {
   requireOrgMembership,
   getAdminContext,
   requireAdminContext,
-  getAuthContext,
-  extractToken,
-  mapMongooseError,
   handleControllerError,
   toOrgId,
 } from '../src/helpers/controller-helper';
@@ -214,99 +211,6 @@ describe('controller-helper', () => {
       const res = mockRes();
       expect(requireAdminContext(mockReq(), res)).toBeNull();
       expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
-    });
-  });
-
-  describe('getAuthContext', () => {
-    it('should return full auth context', () => {
-      const req = mockReq(
-        { sub: 'u1', organizationId: 'org-1' },
-        { authorization: 'Bearer my-token' },
-      );
-      const ctx = getAuthContext(req, mockRes(), 'list plugins');
-      expect(ctx).toEqual({ userId: 'u1', orgId: 'org-1', token: 'my-token' });
-    });
-
-    it('should return null when no user', () => {
-      const res = mockRes();
-      expect(getAuthContext(mockReq(undefined, {}), res, 'test')).toBeNull();
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
-    });
-
-    it('should return null when no org', () => {
-      const req = mockReq({ sub: 'u1' }, { authorization: 'Bearer tok' });
-      const res = mockRes();
-      expect(getAuthContext(req, res, 'create pipeline')).toBeNull();
-      expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('organization'));
-    });
-
-    it('should return null when no authorization header', () => {
-      const req = mockReq({ sub: 'u1', organizationId: 'org-1' }, {});
-      const res = mockRes();
-      expect(getAuthContext(req, res, 'test')).toBeNull();
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, expect.stringContaining('token'));
-    });
-  });
-
-  describe('extractToken', () => {
-    it('should extract Bearer token', () => {
-      expect(extractToken(mockReq({}, { authorization: 'Bearer abc123' }))).toBe('abc123');
-    });
-
-    it('should return null for missing header', () => {
-      expect(extractToken(mockReq({}, {}))).toBeNull();
-    });
-
-    it('should return null for non-Bearer scheme', () => {
-      expect(extractToken(mockReq({}, { authorization: 'Basic abc123' }))).toBeNull();
-    });
-
-    it('should handle array authorization header', () => {
-      const req = { headers: { authorization: ['Bearer tok1', 'Bearer tok2'] } } as any;
-      expect(extractToken(req)).toBe('tok1');
-    });
-  });
-
-  describe('mapMongooseError', () => {
-    it('should map ValidationError', () => {
-      const err = {
-        name: 'ValidationError',
-        errors: {
-          email: { message: 'Email is required' },
-          name: { message: 'Name is required' },
-        },
-      };
-      const result = mapMongooseError(err);
-      expect(result).not.toBeNull();
-      expect(result!.status).toBe(400);
-      expect(result!.message).toContain('Email is required');
-      expect(result!.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('should map duplicate key error (E11000)', () => {
-      const err = { code: 11000, keyPattern: { email: 1 } };
-      const result = mapMongooseError(err);
-      expect(result).not.toBeNull();
-      expect(result!.status).toBe(409);
-      expect(result!.message).toContain('email');
-      expect(result!.code).toBe('DUPLICATE_KEY');
-    });
-
-    it('should map CastError', () => {
-      const err = { name: 'CastError', path: '_id', value: 'not-valid' };
-      const result = mapMongooseError(err);
-      expect(result).not.toBeNull();
-      expect(result!.status).toBe(400);
-      expect(result!.code).toBe('INVALID_ID');
-    });
-
-    it('should return null for unknown errors', () => {
-      expect(mapMongooseError(new Error('random'))).toBeNull();
-    });
-
-    it('should return null for null/undefined', () => {
-      expect(mapMongooseError(null)).toBeNull();
-      expect(mapMongooseError(undefined)).toBeNull();
     });
   });
 

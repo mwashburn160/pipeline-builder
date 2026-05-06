@@ -441,6 +441,19 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6', 'bullmq@5.34.8'],
     devDeps: ['@types/pg@8.16.0'],
   },
+  {
+    // Docker Registry token-auth issuer + image management API.
+    // Hosts /token (per Distribution token-auth spec) and /api/images/*
+    // for catalog/get/delete/tag-copy ops. Validates inbound Basic auth
+    // against platform JWTs, the build service account, or platform user
+    // creds; signs outgoing registry tokens with RS256.
+    name: 'image-registry',
+    deps: [
+      'cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0',
+      'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.3.6', 'axios@1.13.5',
+    ],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
+  },
 ];
 
 for (const svc of services) {

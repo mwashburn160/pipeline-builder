@@ -356,7 +356,7 @@ export function startWorker(
               if (!fs.existsSync(tarPath)) {
                 throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
               }
-              const result = await loadAndPush(tarPath, buildRequest.imageTag, buildRequest.registry);
+              const result = await loadAndPush(tarPath, buildRequest.imageTag, buildRequest.registry, orgId);
               fullImage = result.fullImage;
               break;
             }

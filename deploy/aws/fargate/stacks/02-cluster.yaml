@@ -451,6 +451,17 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
+  ImageRegistryLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /pipeline-builder/image-registry
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
   FrontendLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
@@ -687,6 +698,12 @@ Outputs:
     Value: !Ref ReportingLogGroup
     Export:
       Name: !Sub "${StackPrefix}-ReportingLogGroupName"
+
+  ImageRegistryLogGroupName:
+    Description: Name of the CloudWatch log group for image-registry service
+    Value: !Ref ImageRegistryLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-ImageRegistryLogGroupName"
 
   ComplianceLogGroupName:
     Description: CloudWatch log group for Compliance service

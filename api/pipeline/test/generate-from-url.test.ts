@@ -96,6 +96,7 @@ jest.mock('drizzle-orm', () => ({
   or: jest.fn((...args: any[]) => ({ type: 'or', args })),
   and: jest.fn((...args: any[]) => ({ type: 'and', args })),
   isNull: jest.fn((_col: any) => ({ type: 'isNull', col: _col })),
+  inArray: jest.fn((_col: any, _vals: any[]) => ({ type: 'inArray', col: _col, vals: _vals })),
 }));
 
 const mockDbChain = {
@@ -575,11 +576,9 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup: both plugins exist
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([{ name: 'nodejs-build' }]) // nodejs-build found
-      .mockResolvedValueOnce([{ name: 'test-runner' }]); // test-runner found
+    // DB lookup: batched single query — both plugins exist
+    mockDbChain.then.mockImplementationOnce((resolve: Function) =>
+      resolve([{ name: 'nodejs-build' }, { name: 'test-runner' }]));
 
     const req = mockReq();
     const res = mockSseRes();
@@ -634,11 +633,9 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup: nodejs-build exists, new-plugin does not
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([{ name: 'nodejs-build' }]) // nodejs-build found
-      .mockResolvedValueOnce([]); // new-plugin not found
+    // DB lookup: batched single query — nodejs-build exists, new-plugin does not
+    mockDbChain.then.mockImplementationOnce((resolve: Function) =>
+      resolve([{ name: 'nodejs-build' }]));
 
     mockPluginClientPost.mockResolvedValue({
       statusCode: 202,

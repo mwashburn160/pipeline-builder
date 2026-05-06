@@ -1,12 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendPaginatedNested, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import {
+  sendSuccess,
+  sendPaginatedNested,
+  sendBadRequest,
+  sendEntityNotFound,
+  ErrorCode,
+  getParam,
+  parsePaginationParams,
+  validateBody,
+} from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, db, buildComplianceScanConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
-import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
+import { complianceScanService } from '../services/compliance-scan-service';
 
 /**
  * Feature #7: Compliance scan implementation.
@@ -31,23 +39,7 @@ export function createScanRoutes(): Router {
       triggeredBy: req.query.triggeredBy as 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run' | undefined,
     };
 
-    const conditions = buildComplianceScanConditions(filter, orgId);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceScan)
-      .where(whereClause).then(r => drizzleCount(r));
-
-    const scans = await db
-      .select()
-      .from(schema.complianceScan)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceScan.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const total = countResult?.count ?? 0;
+    const { scans, total } = await complianceScanService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed compliance scans', { count: scans.length });
     return sendPaginatedNested(res, 'scans', scans, {
       total, limit, offset, hasMore: offset + scans.length < total,
@@ -59,15 +51,9 @@ export function createScanRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan');
 
-    const [scan] = await db
-      .select()
-      .from(schema.complianceScan)
-      .where(and(
-        eq(schema.complianceScan.id, id),
-        eq(schema.complianceScan.orgId, orgId),
-      ));
-
+    const scan = await complianceScanService.findById(id, orgId);
     if (!scan) return sendEntityNotFound(res, 'Scan');
+
     ctx.log('COMPLETED', 'Fetched compliance scan', { scanId: id });
     return sendSuccess(res, 200, { scan });
   }));
@@ -79,27 +65,13 @@ export function createScanRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const triggeredBy = validation.value.dryRun ? 'rule-dry-run' : 'manual';
-
-    // Strip caller-supplied orgId from filter — the executor must always
-    // scope to the caller's org, regardless of what the client requested.
-    // Without this, a member could pass `filter: { orgId: 'other-org' }` and
-    // run a scan against another tenant's entities.
-    const rawFilter = validation.value.filter as Record<string, unknown> | undefined;
-    const filter = rawFilter ? { ...rawFilter, orgId } : null;
-
-    const [scan] = await db
-      .insert(schema.complianceScan)
-      .values({
-        orgId,
-        target: validation.value.target,
-        filter,
-        status: 'pending',
-        triggeredBy,
-        userId,
-      })
-      .returning();
-
+    const scan = await complianceScanService.create(
+      orgId,
+      userId,
+      validation.value.target,
+      validation.value.filter as Record<string, unknown> | undefined,
+      Boolean(validation.value.dryRun),
+    );
     ctx.log('COMPLETED', 'Triggered compliance scan', { scanId: scan.id, target: validation.value.target });
     return sendSuccess(res, 201, { scan });
   }));
@@ -109,16 +81,7 @@ export function createScanRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Scan ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const [updated] = await db
-      .update(schema.complianceScan)
-      .set({ status: 'cancelled', cancelledAt: new Date(), cancelledBy: userId })
-      .where(and(
-        eq(schema.complianceScan.id, id),
-        eq(schema.complianceScan.orgId, orgId),
-        eq(schema.complianceScan.status, 'running'),
-      ))
-      .returning();
-
+    const updated = await complianceScanService.cancel(id, orgId, userId);
     if (!updated) return sendEntityNotFound(res, 'Running scan');
 
     ctx.log('COMPLETED', 'Cancelled compliance scan', { scanId: id });

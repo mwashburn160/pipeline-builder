@@ -3,13 +3,10 @@
 
 import { sendPaginatedNested, parsePaginationParams } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, db, buildComplianceAuditConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
-import { and, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
+import { complianceAuditService } from '../services/compliance-audit-service';
 
-/**
- * Feature #2: Audit log read endpoint.
- */
+/** Feature #2: Audit log read endpoint. */
 export function createAuditRoutes(): Router {
   const router = Router();
 
@@ -25,23 +22,7 @@ export function createAuditRoutes(): Router {
       dateTo: req.query.dateTo as string | undefined,
     };
 
-    const conditions = buildComplianceAuditConditions(filter, orgId);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceAuditLog)
-      .where(whereClause).then(r => drizzleCount(r));
-
-    const entries = await db
-      .select()
-      .from(schema.complianceAuditLog)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceAuditLog.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const total = countResult?.count ?? 0;
+    const { entries, total } = await complianceAuditService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed compliance audit log', { count: entries.length });
     return sendPaginatedNested(res, 'entries', entries, {
       total, limit, offset, hasMore: offset + entries.length < total,

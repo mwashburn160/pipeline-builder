@@ -103,18 +103,26 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
           env:
+            # Token-based auth — registry delegates to pipeline-image-registry's
+            # /token endpoint. Every pull/push requires a bearer JWT signed
+            # with the keypair in registry-token-secret. Anonymous reads are
+            # disabled; htpasswd has been removed.
             - name: REGISTRY_AUTH
-              value: "htpasswd"
+              value: "token"
+            - name: REGISTRY_AUTH_TOKEN_REALM
+              value: "https://platform.local/image-registry/token"
+            - name: REGISTRY_AUTH_TOKEN_SERVICE
+              value: "pipeline-image-registry"
+            - name: REGISTRY_AUTH_TOKEN_ISSUER
+              value: "platform"
+            - name: REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE
+              value: "/etc/registry/jwt-public.pem"
             - name: REGISTRY_HTTP_ADDR
               value: "0.0.0.0:5000"
             - name: REGISTRY_HTTP_TLS_KEY
               value: "/etc/ssl/private/tls.key"
             - name: REGISTRY_HTTP_TLS_CERTIFICATE
               value: "/etc/ssl/certs/tls.crt"
-            - name: REGISTRY_AUTH_HTPASSWD_REALM
-              value: "registry realm"
-            - name: REGISTRY_AUTH_HTPASSWD_PATH
-              value: "/etc/auth/registry.passwd"
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
           resources:
@@ -149,8 +157,9 @@ spec:
               mountPath: /etc/ssl/private/tls.key
               subPath: tls.key
               readOnly: true
-            - name: registry-auth
-              mountPath: /etc/auth
+            - name: registry-token-cert
+              mountPath: /etc/registry/jwt-public.pem
+              subPath: jwt-public.pem
               readOnly: true
       volumes:
         - name: registry-data
@@ -159,6 +168,15 @@ spec:
         - name: registry-tls
           secret:
             secretName: registry-tls-secret
-        - name: registry-auth
+        - name: registry-token-cert
           secret:
-            secretName: registry-auth-secret
+            # Same keypair pipeline-image-registry uses for signing.
+            # Operator creates this secret from openssl-generated cert via:
+            #   kubectl create secret generic registry-token-secret \
+            #     --from-file=jwt-public.pem=registry-token.crt \
+            #     --from-file=jwt-private.pem=registry-token.key \
+            #     -n pipeline-builder
+            secretName: registry-token-secret
+            items:
+              - key: jwt-public.pem
+                path: jwt-public.pem

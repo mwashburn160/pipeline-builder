@@ -18,9 +18,11 @@ jest.mock('../src/config/app-config', () => ({
   },
 }));
 
-// Mock Secrets Manager — return accessToken from the standard secret name
+// Mock Secrets Manager — schema is { username, password, ... } where
+// `password` carries the platform JWT (same field CodeBuild's
+// secretsManagerCredentials reads as Basic auth).
 const mockSend = jest.fn().mockResolvedValue({
-  SecretString: JSON.stringify({ accessToken: 'stored-jwt-token' }),
+  SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
 });
 jest.mock('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -92,7 +94,7 @@ describe('plugin-lookup-handler', () => {
     jest.spyOn(console, 'debug').mockImplementation();
     process.env = { ...originalEnv };
     mockSend.mockResolvedValue({
-      SecretString: JSON.stringify({ accessToken: 'stored-jwt-token' }),
+      SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
     });
   });
 
@@ -244,14 +246,14 @@ describe('plugin-lookup-handler', () => {
       expect(result.Reason).toContain('empty');
     });
 
-    it('should fail if secret is missing accessToken', async () => {
+    it('should fail if secret is missing password field', async () => {
       mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ someOtherField: 'no-token-here' }) });
 
       const event = createEvent();
       const result = await handler(event);
 
       expect(result.Status).toBe('FAILED');
-      expect(result.Reason).toContain('missing accessToken');
+      expect(result.Reason).toContain('missing password');
     });
   });
 

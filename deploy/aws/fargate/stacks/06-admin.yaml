@@ -68,16 +68,74 @@ Resources:
               AccessPointId:
                 Fn::ImportValue: !Sub "${StackPrefix}-RegistryAccessPointArn"
               IAM: ENABLED
+        # Shared in-memory volume for the JWT verification cert. The init
+        # container fetches the cert from Secrets Manager and writes it
+        # here; the registry container mounts the same path read-only.
+        # `host:` with no source = empty volume scoped to the task.
+        - Name: registry-token-cert
+          Host: {}
       ContainerDefinitions:
+        # Init container: fetches the JWT public cert from Secrets Manager
+        # and writes it to the shared volume. Runs to completion before the
+        # registry container starts (`dependsOn: condition: COMPLETE`).
+        - Name: registry-token-cert-init
+          Image: amazon/aws-cli:latest
+          Essential: false
+          Environment:
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref "AWS::Region"
+          EntryPoint:
+            - /bin/sh
+            - -c
+          Command:
+            - !Sub >-
+              aws secretsmanager get-secret-value
+              --secret-id ${AppSecretsName}
+              --query 'SecretString'
+              --output text
+              | python3 -c "import sys, json; print(json.load(sys.stdin)['REGISTRY_TOKEN_CERTIFICATE'])"
+              > /etc/registry/jwt-public.pem
+              && chmod 644 /etc/registry/jwt-public.pem
+              && echo "Wrote JWT cert ($(wc -c < /etc/registry/jwt-public.pem) bytes)"
+          MountPoints:
+            - SourceVolume: registry-token-cert
+              ContainerPath: /etc/registry
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-RegistryLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: cert-init
         - Name: registry
           Image: !Ref RegistryImage
           Essential: true
+          DependsOn:
+            - ContainerName: registry-token-cert-init
+              Condition: SUCCESS
           PortMappings:
             - ContainerPort: 5000
               Protocol: tcp
           Environment:
             - Name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
               Value: /var/lib/registry
+            # Token-based auth — pipeline-image-registry's /token endpoint
+            # issues bearer JWTs the registry verifies with the cert at
+            # REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE. The init container above
+            # populates that file before this container starts.
+            - Name: REGISTRY_AUTH
+              Value: token
+            - Name: REGISTRY_AUTH_TOKEN_REALM
+              Value: !Sub "https://${DomainName}/image-registry/token"
+            - Name: REGISTRY_AUTH_TOKEN_SERVICE
+              Value: pipeline-image-registry
+            - Name: REGISTRY_AUTH_TOKEN_ISSUER
+              Value: platform
+            - Name: REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE
+              Value: /etc/registry/jwt-public.pem
+            - Name: REGISTRY_STORAGE_DELETE_ENABLED
+              Value: "true"
           Secrets:
             - Name: REGISTRY_HTTP_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_TOKEN::"
@@ -85,6 +143,9 @@ Resources:
             - SourceVolume: registry-data
               ContainerPath: /var/lib/registry
               ReadOnly: false
+            - SourceVolume: registry-token-cert
+              ContainerPath: /etc/registry
+              ReadOnly: true
           HealthCheck:
             Command:
               - CMD-SHELL

@@ -6,11 +6,24 @@ import type { FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit';
 import { requireAuthUserId, withController } from '../helpers/controller-helper';
-import { User, Organization, UserOrganization } from '../models';
+import {
+  userProfileService,
+  PROFILE_USER_NOT_FOUND,
+  PROFILE_EMAIL_TAKEN,
+  PROFILE_INVALID_CREDENTIALS,
+  PROFILE_OWNER_HAS_ORGS,
+} from '../services';
 import { issueTokens } from '../utils/token';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation';
 
 const logger = createLogger('UserProfileController');
+
+const profileErrorMap = {
+  [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
+  [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
+  [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
+  [PROFILE_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
+};
 
 /** Compact organization summary included in user responses. */
 export interface OrgSummary {
@@ -46,11 +59,7 @@ export function toOverridesRecord(overrides?: Map<string, boolean> | Record<stri
   return overrides;
 }
 
-/**
- * Build a standardized user response object for API output.
- * @param user - User fields from DB
- * @param opts - Optional response enrichment fields
- */
+/** Build a standardized user response object for API output. */
 export function formatUserResponse(
   user: UserResponseInput,
   opts?: {
@@ -81,44 +90,20 @@ export function formatUserResponse(
   };
 }
 
-// User Profile Endpoints
-
-/**
- * Get current user profile
- * GET /user/profile
- */
+/** GET /user/profile — current user with active-org context. */
 export const getUser = withController('Get user profile', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  const user = await User.findById(userId)
-    .select('_id username email isEmailVerified lastActiveOrgId featureOverrides tokenVersion')
-    .lean();
-
-  if (!user) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  // Get all org memberships for this user
-  const memberships = await UserOrganization.find({ userId: user._id }).lean();
-  const orgIds = memberships.map(m => m.organizationId);
-
-  const orgs = orgIds.length > 0
-    ? await Organization.find({ _id: { $in: orgIds } }).select('_id name tier').lean()
-    : [];
-  const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
+  const { user, memberships, orgMap } = await userProfileService.getProfileWithOrgs(userId);
 
   const organizations: OrgMembership[] = memberships.map(m => {
     const org = orgMap.get(m.organizationId.toString());
-    return {
-      id: m.organizationId.toString(),
-      name: org?.name || 'Unknown',
-      role: m.role,
-    };
+    return { id: m.organizationId.toString(), name: org?.name || 'Unknown', role: m.role };
   });
 
-  // Resolve active org tier and features
-  const activeOrgId = req.user!.organizationId || user.lastActiveOrgId?.toString();
+  // Resolve active org tier and features for the JWT-active org.
+  const activeOrgId = req.user!.organizationId || (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
   let activeOrgName: string | null = null;
   let activeOrgRole: string | null = null;
   let tier: QuotaTier = 'developer';
@@ -135,11 +120,11 @@ export const getUser = withController('Get user profile', async (req, res) => {
     activeOrgRole = activeMembership?.role || null;
   }
 
-  const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
+  const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
   const features = resolveUserFeatures(tier, overrides, isSystem);
 
   sendSuccess(res, 200, {
-    user: formatUserResponse(user, {
+    user: formatUserResponse(user as UserResponseInput, {
       activeOrgRole: activeOrgRole || undefined,
       activeOrgName,
       organizations,
@@ -147,177 +132,61 @@ export const getUser = withController('Get user profile', async (req, res) => {
       features,
     }),
   });
-});
+}, profileErrorMap);
 
-/**
- * List all organizations the current user belongs to.
- * GET /user/organizations
- *
- * Returns all {@link UserOrganization} records for the authenticated user,
- * including org name, slug, role, isActive status, and joinedAt.
- */
+/** GET /user/organizations — all org memberships for the current user. */
 export const listUserOrganizations = withController('List user organizations', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  const memberships = await UserOrganization.find({ userId }).sort({ joinedAt: 1 }).lean();
-  const orgIds = memberships.map(m => m.organizationId);
-
-  const orgs = orgIds.length > 0
-    ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug').lean()
-    : [];
-  const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
-
-  const organizations = memberships.map(m => {
-    const org = orgMap.get(m.organizationId.toString());
-    return {
-      organizationId: m.organizationId.toString(),
-      organizationName: org?.name || 'Unknown',
-      slug: org?.slug,
-      role: m.role,
-      isActive: m.isActive,
-      joinedAt: m.joinedAt?.toISOString(),
-    };
-  });
-
+  const organizations = await userProfileService.listOrganizations(userId);
   sendSuccess(res, 200, { organizations });
 });
 
-/**
- * Update user profile
- * PATCH /user/profile
- */
+/** PATCH /user/profile — update username and/or email. */
 export const updateUser = withController('Update user profile', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
-
   const body = validateBody(updateProfileSchema, req.body, res);
   if (!body) return;
 
-  const updates: Partial<{ username: string; email: string; isEmailVerified: boolean }> = {};
+  const { user, organizationName, activeOrgRole } = await userProfileService.updateProfile(userId, body);
+  logger.info('Update user success', { userId });
+  sendSuccess(res, 200, { user: formatUserResponse(user as UserResponseInput, { activeOrgRole, activeOrgName: organizationName }) });
+}, profileErrorMap);
 
-  if (body.username) updates.username = body.username.trim().toLowerCase();
-  if (body.email) updates.email = body.email.trim().toLowerCase();
-
-  if (updates.email) {
-    const existing = await User.findOne({
-      email: updates.email,
-      _id: { $ne: new Types.ObjectId(userId) },
-    });
-    if (existing) {
-      return sendError(res, 409, 'Email already in use', 'EMAIL_TAKEN');
-    }
-    updates.isEmailVerified = false;
-  }
-
-  const updatedUser = await User.findByIdAndUpdate(
-    userId,
-    { $set: updates },
-    { returnDocument: 'after', runValidators: true },
-  ).lean();
-
-  if (!updatedUser) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  // Get active org role from membership
-  const activeOrgId = updatedUser.lastActiveOrgId?.toString();
-  let organizationName: string | null = null;
-  let activeOrgRole: string | undefined;
-
-  if (activeOrgId) {
-    const [org, membership] = await Promise.all([
-      Organization.findById(activeOrgId).select('name').lean(),
-      UserOrganization.findOne({ userId: updatedUser._id, organizationId: activeOrgId, isActive: true }).lean(),
-    ]);
-    organizationName = org?.name || null;
-    activeOrgRole = membership?.role;
-  }
-
-  logger.info(`[UPDATE USER] Success for user: ${userId}`);
-
-  sendSuccess(res, 200, { user: formatUserResponse(updatedUser, { activeOrgRole, activeOrgName: organizationName }) });
-});
-
-/**
- * Delete user account
- * DELETE /user/account
- */
+/** DELETE /user/account — refuses if user owns any orgs. */
 export const deleteUser = withController('Delete user account', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  const ownerCount = await UserOrganization.countDocuments({
-    userId: new Types.ObjectId(userId),
-    role: 'owner',
-  });
-  if (ownerCount > 0) {
-    return sendError(res, 400, 'Cannot delete account while you own an organization. Transfer ownership first.');
-  }
-
-  const result = await User.findByIdAndDelete(userId);
-
-  if (!result) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  await UserOrganization.deleteMany({ userId: new Types.ObjectId(userId) });
-
-  logger.info(`[DELETE USER] Account deleted: ${userId}`);
+  await userProfileService.deleteAccount(userId);
+  logger.info('Account deleted', { userId });
   audit(req, 'user.delete', { targetType: 'user', targetId: userId });
-
   sendSuccess(res, 200, undefined, 'Account successfully deleted');
-});
+}, profileErrorMap);
 
-/**
- * Change user password
- * POST /user/change-password
- */
+/** POST /user/change-password — verify current pw + bump tokenVersion. */
 export const changePassword = withController('Change password', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
-
   const body = validateBody(changePasswordSchema, req.body, res);
   if (!body) return;
 
-  const { currentPassword, newPassword } = body;
-
-  const user = await User.findById(userId).select('+password +tokenVersion');
-  if (!user || !user.password) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  const isMatch = await user.comparePassword(currentPassword);
-  if (!isMatch) {
-    return sendError(res, 401, 'Current password incorrect', 'INVALID_CREDENTIALS');
-  }
-
-  user.password = newPassword;
-  user.tokenVersion += 1;
-  await user.save();
-
-  logger.info(`[PASSWORD CHANGE] Success for user: ${userId}`);
-
+  await userProfileService.changePassword(userId, body.currentPassword, body.newPassword);
+  logger.info('Password change success', { userId });
   sendSuccess(res, 200, undefined, 'Password changed successfully');
-});
+}, profileErrorMap);
 
 /**
- * Generate new token pair with optional custom expiry.
  * POST /user/generate-token
- *
- * Body (optional):
- *   - expiresIn: number - token lifetime in seconds (default: server config, max: 365 days)
+ * Body: { expiresIn?: number } — token lifetime in seconds (max 365 days).
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  const user = await User.findById(userId).select('+tokenVersion');
-  if (!user) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  // Optional custom expiry (max 365 days = 31536000 seconds — matches pipeline-manager CLI cap).
+  // Custom expiry cap matches pipeline-manager CLI's --days 365 ceiling.
   const MAX_EXPIRES_IN = 365 * 24 * 60 * 60;
   let expiresIn: number | undefined;
   if (req.body?.expiresIn !== undefined) {
@@ -330,73 +199,30 @@ export const generateToken = withController('Generate token', async (req, res) =
     }
   }
 
-  const { accessToken, refreshToken, expiresIn: actualExpiresIn } = await issueTokens(user, user.lastActiveOrgId?.toString(), expiresIn);
+  const user = await userProfileService.findForTokenIssue(userId);
+  const { accessToken, refreshToken, expiresIn: actual } = await issueTokens(
+    user, user.lastActiveOrgId?.toString(), expiresIn,
+  );
+  sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actual });
+}, profileErrorMap);
 
-  sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actualExpiresIn });
-});
-
-/**
- * GET /user/tokens
- * Returns the user's token-issuance history (last 20 access tokens).
- * Each entry is annotated with computed status: active | expired | revoked.
- *
- * Status derivation (JWT is stateless — no per-token revocation):
- *   - expired:  now > expiresAt
- *   - revoked:  tokenVersionAtIssue !== current user.tokenVersion (covers
- *               "Sign out everywhere")
- *   - active:   neither of the above
- */
+/** GET /user/tokens — recent access-token history with computed status. */
 export const listTokenHistory = withController('List token history', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
-
-  const user = await User.findById(userId).select('+tokenVersion issuedTokens');
-  if (!user) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  const now = Date.now();
-  const tokens = (user.issuedTokens ?? []).map((t) => {
-    const expiresAt = t.expiresAt instanceof Date ? t.expiresAt : new Date(t.expiresAt);
-    const createdAt = t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt);
-    let status: 'active' | 'expired' | 'revoked';
-    if (expiresAt.getTime() <= now) status = 'expired';
-    else if (t.tokenVersionAtIssue !== user.tokenVersion) status = 'revoked';
-    else status = 'active';
-    return {
-      id: t.id,
-      createdAt: createdAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      status,
-    };
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
+  const tokens = await userProfileService.listTokenHistory(userId);
   sendSuccess(res, 200, { tokens });
-});
+}, profileErrorMap);
 
-/**
- * POST /user/tokens/revoke-all
- * "Sign out everywhere" — bumps the user's tokenVersion, which immediately
- * invalidates every previously-issued access token (auth middleware compares
- * the JWT's tokenVersion claim against the current value on every request).
- * The user's existing access token (used to make this call) is also invalidated;
- * the response includes a freshly-issued replacement so the dashboard can stay
- * logged in without a forced re-login.
- */
+/** POST /user/tokens/revoke-all — sign out everywhere + issue a fresh token. */
 export const revokeAllTokens = withController('Revoke all tokens', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  const user = await User.findById(userId).select('+tokenVersion issuedTokens');
-  if (!user) {
-    return sendError(res, 404, 'User not found', 'USER_NOT_FOUND');
-  }
-
-  await user.invalidateAllSessions();
+  const user = await userProfileService.revokeAllSessions(userId);
   audit(req, 'user.tokens.revoke-all', { targetType: 'user', targetId: userId });
 
-  // Issue a fresh token at the new version so the active session survives.
+  // Issue a fresh token at the new tokenVersion so the active session survives.
   const { accessToken, refreshToken, expiresIn } = await issueTokens(user, user.lastActiveOrgId?.toString());
-
   sendSuccess(res, 200, { revoked: true, accessToken, refreshToken, expiresIn });
-});
+}, profileErrorMap);

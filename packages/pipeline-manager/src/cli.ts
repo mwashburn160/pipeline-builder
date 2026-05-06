@@ -16,7 +16,6 @@ import { login } from './commands/login';
 import { register } from './commands/register';
 import { setupEvents } from './commands/setup-events';
 import { status } from './commands/status';
-import { storeRegistryCredentials } from './commands/store-registry-credentials';
 import { storeToken } from './commands/store-token';
 import { synth } from './commands/synth';
 import { uploadPlugin } from './commands/upload-plugin';
@@ -194,7 +193,6 @@ Examples:
   // Deployment commands
   printDebug('Registering deployment commands');
   storeToken(program); // Generate JWT token and store in Secrets Manager
-  storeRegistryCredentials(program); // Store Docker registry pull credentials for CodeBuild
   setupEvents(program); // Deploy EventBridge event ingestion infrastructure
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)

@@ -10,13 +10,13 @@ import {
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { type RuleTarget, schema, db } from '@pipeline-builder/pipeline-core';
-import { eq, and, or, isNull, gt } from 'drizzle-orm';
+import { type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
-import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
+import { evaluateRules } from '../engine/rule-engine';
 import { logComplianceCheck } from '../helpers/audit-logger';
 import { notifyComplianceBlock } from '../helpers/compliance-notifier';
+import { complianceExemptionService } from '../services/compliance-exemption-service';
 import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
@@ -57,36 +57,6 @@ const DryRunSchema = z.object({
 });
 
 /**
- * Fetch active, approved, non-expired exemptions for an entity.
- * Filters out expired exemptions in JS since expiresAt is nullable.
- */
-async function getActiveExemptions(
-  orgId: string,
-  entityId: string,
-): Promise<ActiveExemption[]> {
-  const now = new Date();
-  const rows = await db
-    .select({
-      id: schema.complianceExemption.id,
-      ruleId: schema.complianceExemption.ruleId,
-    })
-    .from(schema.complianceExemption)
-    .where(
-      and(
-        eq(schema.complianceExemption.orgId, orgId),
-        eq(schema.complianceExemption.entityId, entityId),
-        eq(schema.complianceExemption.status, 'approved'),
-        or(
-          isNull(schema.complianceExemption.expiresAt),
-          gt(schema.complianceExemption.expiresAt, now),
-        ),
-      ),
-    );
-
-  return rows.map((row) => ({ id: row.id, ruleId: row.ruleId }));
-}
-
-/**
  * Core validation logic shared by both plugin and pipeline endpoints.
  */
 async function validateEntity(
@@ -114,7 +84,9 @@ async function validateEntity(
   }
 
   const rules = await complianceRuleService.findActiveByOrgAndTarget(orgId, target);
-  const exemptions = entityId ? await getActiveExemptions(orgId, entityId) : [];
+  const exemptions = entityId
+    ? await complianceExemptionService.getActiveExemptionsForEntity(orgId, entityId)
+    : [];
   const result = evaluateRules(rules, attributes, exemptions);
 
   // Write audit log (skip for dry-runs). Log failures but don't block.

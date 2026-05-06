@@ -202,8 +202,8 @@ export const envVariablesTopic: HelpTopic = {
           rows: [
             ['IMAGE_REGISTRY_HOST', 'registry', 'Registry hostname'],
             ['IMAGE_REGISTRY_PORT', '5000', 'Registry port'],
-            ['IMAGE_REGISTRY_USER', 'admin', 'Registry username'],
-            ['IMAGE_REGISTRY_TOKEN', '—', 'Registry password/token'],
+            ['PLATFORM_BUILD_USERNAME', '—', 'Service-account username api/plugin sends to pipeline-image-registry /token endpoint to obtain push tokens'],
+            ['PLATFORM_BUILD_PASSWORD', '—', 'Password for PLATFORM_BUILD_USERNAME (token-flow auth, not registry creds)'],
             ['DOCKER_BUILD_STRATEGY', 'docker', 'Build strategy: docker (dind sidecar), podman (daemonless), kaniko (Fargate)'],
             ['DOCKER_BUILD_TIMEOUT_MS', '900000', 'Docker build timeout (15 min)'],
             ['PLUGIN_BUILD_CONCURRENCY', '1', 'Max concurrent Docker builds'],

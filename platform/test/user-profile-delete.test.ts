@@ -26,9 +26,25 @@ jest.mock('@pipeline-builder/api-core', () => ({
 
 jest.mock('mongoose', () => {
   class ObjectId { constructor(public id?: string) {} }
+  // The mongoose `Schema` constructor and its `Types.Mixed` are touched at
+  // module-init time by every Mongoose model loaded transitively (now via
+  // the services barrel which re-exports auditService → audit-event model).
+  class Schema {
+    constructor(_definition?: unknown, _options?: unknown) { /* no-op */ }
+    index(): void { /* no-op */ }
+    method(): void { /* no-op */ }
+    static Types = {
+      Mixed: class Mixed {},
+      ObjectId: class { constructor(public id?: string) {} },
+      String: String,
+      Number: Number,
+      Boolean: Boolean,
+      Date: Date,
+    };
+  }
   return {
     Types: { ObjectId },
-    Schema: class { index(): void { /* no-op */ } },
+    Schema,
     models: {} as Record<string, unknown>,
     model: jest.fn(),
   };
@@ -38,9 +54,24 @@ jest.mock('../src/helpers/audit', () => ({ audit: jest.fn() }));
 
 jest.mock('../src/helpers/controller-helper', () => ({
   requireAuthUserId: (req: any) => req.user?.sub,
-  // Wrap as Express handler so callers can pass `next`.
-  withController: (_label: string, fn: Function) =>
-    async (req: any, res: any, _next: any) => { await fn(req, res); },
+  // Wrap as Express handler so callers can pass `next`. Optional error map
+  // applies the same status/message mapping the real `withController` does
+  // — without it, a thrown service error like 'PROFILE_OWNER_HAS_ORGS' would
+  // bubble up uncaught and the test couldn't assert on the response.
+  withController: (_label: string, fn: Function, errorMap?: Record<string, { status: number; message: string }>) =>
+    async (req: any, res: any, _next: any) => {
+      try {
+        await fn(req, res);
+      } catch (err) {
+        const code = err instanceof Error ? err.message : String(err);
+        const mapped = errorMap?.[code];
+        if (mapped) {
+          res.status(mapped.status).json({ success: false, message: mapped.message });
+          return;
+        }
+        throw err;
+      }
+    },
 }));
 
 jest.mock('../src/models', () => ({
@@ -49,6 +80,25 @@ jest.mock('../src/models', () => ({
   UserOrganization: {
     countDocuments: (...args: unknown[]) => mockUserOrgCount(...args),
     deleteMany: (...args: unknown[]) => mockUserOrgDeleteMany(...args),
+  },
+}));
+
+// Mock the services barrel so the controller's `import from '../services'`
+// doesn't pull in auth-service / audit-service / etc. (which would
+// transitively load real config + JWT_SECRET enforcement).
+jest.mock('../src/services', () => ({
+  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
+  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
+  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
+  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
+  userProfileService: {
+    deleteAccount: async (userId: string) => {
+      const ownerCount = await mockUserOrgCount({ userId, role: 'owner' });
+      if (ownerCount > 0) throw new Error('PROFILE_OWNER_HAS_ORGS');
+      const result = await mockUserFindByIdAndDelete(userId);
+      if (!result) throw new Error('PROFILE_USER_NOT_FOUND');
+      await mockUserOrgDeleteMany({ userId });
+    },
   },
 }));
 

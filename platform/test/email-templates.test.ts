@@ -24,8 +24,8 @@ jest.mock('fs', () => {
   };
 });
 
-import { invitationTemplate, invitationAcceptedTemplate } from '../src/utils/email-templates';
 import type { InvitationEmailData } from '../src/utils/email';
+import { invitationTemplate, invitationAcceptedTemplate } from '../src/utils/email-templates';
 
 function buildData(overrides: Partial<InvitationEmailData> = {}): InvitationEmailData {
   return {

@@ -13,7 +13,7 @@
  * `papaparse` if/when the requirements grow.
  */
 
-export interface ParsedCsv {
+interface ParsedCsv {
   headers: string[];
   rows: Record<string, string>[];
   /** Number of data rows successfully parsed (excludes header). */

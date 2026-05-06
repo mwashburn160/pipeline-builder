@@ -12,11 +12,10 @@ import {
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, db, drizzleCount } from '@pipeline-builder/pipeline-core';
-import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { calculateNextRun, isValidCronExpression } from '../helpers/scan-scheduler';
+import { isValidCronExpression } from '../helpers/scan-scheduler';
+import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service';
 
 /**
  * CRUD routes for compliance scan schedules.
@@ -43,24 +42,7 @@ export function createScanScheduleRoutes(): Router {
   // GET / — list scan schedules for org (paginated)
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
-
-    const conditions = [eq(schema.complianceScanSchedule.orgId, orgId)];
-    const whereClause = and(...conditions);
-
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceScanSchedule)
-      .where(whereClause).then(r => drizzleCount(r));
-
-    const schedules = await db
-      .select()
-      .from(schema.complianceScanSchedule)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceScanSchedule.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const total = countResult?.count ?? 0;
+    const { schedules, total } = await complianceScanScheduleService.list(orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed scan schedules', { count: schedules.length });
     return sendPaginatedNested(res, 'schedules', schedules, {
       total, limit, offset, hasMore: offset + schedules.length < total,
@@ -78,21 +60,8 @@ export function createScanScheduleRoutes(): Router {
     if (!isValidCronExpression(cronExpression)) {
       return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
     }
-    const nextRunAt = calculateNextRun(cronExpression);
 
-    const [schedule] = await db
-      .insert(schema.complianceScanSchedule)
-      .values({
-        orgId,
-        target,
-        cronExpression,
-        isActive: true,
-        nextRunAt,
-        createdBy: userId,
-        updatedBy: userId,
-      })
-      .returning();
-
+    const schedule = await complianceScanScheduleService.create(orgId, userId, target, cronExpression);
     ctx.log('COMPLETED', 'Created scan schedule', { scheduleId: schedule.id, cronExpression });
     return sendSuccess(res, 201, { schedule });
   }));
@@ -107,29 +76,11 @@ export function createScanScheduleRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const updates: Record<string, unknown> = {
-      ...validation.value,
-      updatedBy: userId,
-      updatedAt: new Date(),
-    };
-
-    // Recalculate nextRunAt if cronExpression changed
-    if (validation.value.cronExpression) {
-      if (!isValidCronExpression(validation.value.cronExpression)) {
-        return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
-      }
-      updates.nextRunAt = calculateNextRun(validation.value.cronExpression);
+    if (validation.value.cronExpression && !isValidCronExpression(validation.value.cronExpression)) {
+      return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
     }
 
-    const [updated] = await db
-      .update(schema.complianceScanSchedule)
-      .set(updates)
-      .where(and(
-        eq(schema.complianceScanSchedule.id, id),
-        eq(schema.complianceScanSchedule.orgId, orgId),
-      ))
-      .returning();
-
+    const updated = await complianceScanScheduleService.update(id, orgId, userId, validation.value);
     if (!updated) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Updated scan schedule', { scheduleId: id });
@@ -146,36 +97,7 @@ export function createScanScheduleRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const updates: Record<string, unknown> = {
-      isActive: validation.value.isActive,
-      updatedBy: userId,
-      updatedAt: new Date(),
-    };
-
-    // Recalculate nextRunAt when activating
-    if (validation.value.isActive) {
-      const [existing] = await db
-        .select({ cronExpression: schema.complianceScanSchedule.cronExpression })
-        .from(schema.complianceScanSchedule)
-        .where(and(
-          eq(schema.complianceScanSchedule.id, id),
-          eq(schema.complianceScanSchedule.orgId, orgId),
-        ));
-
-      if (existing) {
-        updates.nextRunAt = calculateNextRun(existing.cronExpression);
-      }
-    }
-
-    const [updated] = await db
-      .update(schema.complianceScanSchedule)
-      .set(updates)
-      .where(and(
-        eq(schema.complianceScanSchedule.id, id),
-        eq(schema.complianceScanSchedule.orgId, orgId),
-      ))
-      .returning();
-
+    const updated = await complianceScanScheduleService.toggleActive(id, orgId, userId, validation.value.isActive);
     if (!updated) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Toggled scan schedule active', { scheduleId: id, isActive: validation.value.isActive });
@@ -187,15 +109,7 @@ export function createScanScheduleRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan schedule');
 
-    const [deleted] = await db
-      .update(schema.complianceScanSchedule)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(and(
-        eq(schema.complianceScanSchedule.id, id),
-        eq(schema.complianceScanSchedule.orgId, orgId),
-      ))
-      .returning();
-
+    const deleted = await complianceScanScheduleService.softDelete(id, orgId);
     if (!deleted) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Deleted scan schedule', { scheduleId: id });

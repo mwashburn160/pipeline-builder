@@ -2,15 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import mongoose from 'mongoose';
 import {
   isSystemAdmin,
   requireAuth,
   getAdminContext,
-  toOrgId,
   withController,
 } from '../helpers/controller-helper';
-import { Organization, User, UserOrganization } from '../models';
+import {
+  orgMembersService,
+  OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER,
+  OM_CANNOT_REMOVE_OWNER, OM_CANNOT_CHANGE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND,
+  OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE,
+} from '../services';
 import {
   validateBody,
   addMemberSchema,
@@ -20,209 +23,83 @@ import {
 
 const logger = createLogger('OrganizationMembersController');
 
-// Member Management (Admin endpoints)
-
-/**
- * Get organization members.
- * GET /organization/:id/members
- *
- * Queries the {@link UserOrganization} junction collection to list all
- * members of the organization, populating user details. Returns each
- * member's per-org role ('owner' | 'admin' | 'member').
- */
+/** GET /organization/:id/members */
 export const getOrganizationMembers = withController('Get members', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const { id } = req.params;
-  const isSysAdmin = isSystemAdmin(req);
-
-  if (!isSysAdmin && req.user!.organizationId !== id) {
+  const id = req.params.id as string;
+  if (!isSystemAdmin(req) && req.user!.organizationId !== id) {
     return sendError(res, 403, 'Forbidden: Can only view members of your organization');
   }
 
-  const org = await Organization.findById(toOrgId(id))
-    .select('name owner')
-    .populate('owner', '_id username email')
-    .lean();
+  const result = await orgMembersService.listMembers(id);
+  if (!result) return sendError(res, 404, 'Organization not found');
 
-  if (!org) {
-    return sendError(res, 404, 'Organization not found');
-  }
-
-  const memberships = await UserOrganization.find({ organizationId: toOrgId(id) })
-    .populate<{
-    userId: {
-      _id: mongoose.Types.ObjectId;
-      username: string;
-      email: string;
-      isEmailVerified: boolean;
-      createdAt?: Date;
-      updatedAt?: Date;
-    };
-  }>({ path: 'userId', select: '_id username email isEmailVerified createdAt updatedAt' })
-    .lean();
-
-  const members = memberships
-    .filter(m => m.userId) // skip if user was deleted
-    .map(m => ({
-      id: m.userId._id.toString(),
-      username: m.userId.username,
-      email: m.userId.email,
-      role: m.role,
-      isEmailVerified: m.userId.isEmailVerified,
-      isOwner: m.role === 'owner',
-      joinedAt: m.joinedAt,
-      createdAt: m.userId.createdAt,
-      updatedAt: m.userId.updatedAt,
-    }));
-
-  sendSuccess(res, 200, {
-    organizationId: id,
-    organizationName: org.name,
-    ownerId: org.owner?.toString(),
-    members,
-    total: members.length,
-  });
+  sendSuccess(res, 200, { ...result, total: result.members.length });
 });
 
-/**
- * Add member to organization.
- * POST /organization/:id/members
- *
- * Creates a {@link UserOrganization} record linking the user to the org.
- * Accepts `userId` or `email` to identify the user. Checks for existing
- * membership to prevent duplicates. Default role is 'member'.
- */
+/** POST /organization/:id/members */
 export const addMemberToOrganization = withController('Add member', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const session = await mongoose.startSession();
-  try {
-    const { id } = req.params;
-    const admin = getAdminContext(req);
-
-    if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
-      return sendError(res, 403, 'Forbidden: Admin access required for this organization');
-    }
-
-    const body = validateBody(addMemberSchema, req.body, res);
-    if (!body) return;
-
-    await session.withTransaction(async () => {
-      const org = await Organization.findById(toOrgId(id)).session(session);
-      if (!org) throw new Error('ORG_NOT_FOUND');
-
-      const user = body.userId
-        ? await User.findById(body.userId).session(session)
-        : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
-
-      if (!user) throw new Error('USER_NOT_FOUND');
-
-      const existing = await UserOrganization.findOne({
-        userId: user._id,
-        organizationId: toOrgId(id),
-      }).session(session);
-
-      if (existing) throw new Error('ALREADY_MEMBER');
-
-      await UserOrganization.create(
-        [{ userId: user._id, organizationId: toOrgId(id), role: body.role || 'member' }],
-        { session },
-      );
-    });
-
-    logger.info(`[ADD MEMBER TO ORG] User added to Org ${id} by ${admin.adminType} ${req.user!.sub}`);
-    sendSuccess(res, 200, undefined, 'Member added successfully');
-  } finally {
-    await session.endSession();
-  }
-}, {
-  ORG_NOT_FOUND: { status: 404, message: 'Organization not found' },
-  USER_NOT_FOUND: { status: 404, message: 'User not found' },
-  ALREADY_MEMBER: { status: 400, message: 'User is already a member of this organization' },
-});
-
-/**
- * Remove member from organization.
- * DELETE /organization/:id/members/:userId
- *
- * Deletes the {@link UserOrganization} record. Cannot remove the org owner
- * (transfer ownership first). Clears `User.lastActiveOrgId` if it pointed
- * to this organization.
- */
-export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
-
-  const session = await mongoose.startSession();
-  try {
-    const { id, userId } = req.params;
-    const admin = getAdminContext(req);
-
-    if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
-      return sendError(res, 403, 'Forbidden: Admin access required for this organization');
-    }
-
-    if (admin.isOrgAdmin && userId === req.user!.sub) {
-      return sendError(res, 400, 'Cannot remove yourself from the organization');
-    }
-
-    await session.withTransaction(async () => {
-      const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(id) }).session(session);
-      if (!membership) throw new Error('NOT_A_MEMBER');
-      if (membership.role === 'owner') throw new Error('CANNOT_REMOVE_OWNER');
-
-      await UserOrganization.deleteOne({ _id: membership._id }).session(session);
-      await User.updateOne(
-        { _id: userId, lastActiveOrgId: toOrgId(id) },
-        { $unset: { lastActiveOrgId: '' } },
-      ).session(session);
-    });
-
-    logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
-    sendSuccess(res, 200, undefined, 'Member removed successfully');
-  } finally {
-    await session.endSession();
-  }
-}, {
-  NOT_A_MEMBER: { status: 400, message: 'User is not a member of this organization' },
-  CANNOT_REMOVE_OWNER: { status: 400, message: 'Cannot remove organization owner. Transfer ownership first.' },
-});
-
-/**
- * Update member role in organization.
- * PATCH /organization/:id/members/:userId
- *
- * Updates the `role` field on the {@link UserOrganization} record.
- * Valid roles: 'owner' | 'admin' | 'member'. Cannot change the owner's
- * role directly -- use transferOrganizationOwnership instead.
- */
-export const updateMemberRole = withController('Update member role', async (req, res) => {
-  if (!requireAuth(req, res)) return;
-
-  const { id, userId } = req.params;
-  const body = validateBody(updateMemberRoleSchema, req.body, res);
-  if (!body) return;
-
+  const id = req.params.id as string;
   const admin = getAdminContext(req);
-
   if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
+  const body = validateBody(addMemberSchema, req.body, res);
+  if (!body) return;
+
+  await orgMembersService.addMember(id, body);
+  logger.info(`[ADD MEMBER TO ORG] User added to Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  sendSuccess(res, 200, undefined, 'Member added successfully');
+}, {
+  [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [OM_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
+  [OM_ALREADY_MEMBER]: { status: 400, message: 'User is already a member of this organization' },
+});
+
+/** DELETE /organization/:id/members/:userId */
+export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = req.params.id as string;
+  const userId = req.params.userId as string;
+  const admin = getAdminContext(req);
+  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+    return sendError(res, 403, 'Forbidden: Admin access required for this organization');
+  }
+  if (admin.isOrgAdmin && userId === req.user!.sub) {
+    return sendError(res, 400, 'Cannot remove yourself from the organization');
+  }
+
+  await orgMembersService.removeMember(id, userId);
+  logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  sendSuccess(res, 200, undefined, 'Member removed successfully');
+}, {
+  [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
+  [OM_CANNOT_REMOVE_OWNER]: { status: 400, message: 'Cannot remove organization owner. Transfer ownership first.' },
+});
+
+/** PATCH /organization/:id/members/:userId */
+export const updateMemberRole = withController('Update member role', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = req.params.id as string;
+  const userId = req.params.userId as string;
+  const body = validateBody(updateMemberRoleSchema, req.body, res);
+  if (!body) return;
+
+  const admin = getAdminContext(req);
+  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+    return sendError(res, 403, 'Forbidden: Admin access required for this organization');
+  }
   if (admin.isOrgAdmin && userId === req.user!.sub) {
     return sendError(res, 400, 'Cannot change your own role');
   }
 
-  const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(id) });
-
-  if (!membership) return sendError(res, 400, 'User is not a member of this organization');
-  if (membership.role === 'owner') return sendError(res, 400, 'Cannot change organization owner role. Transfer ownership first.');
-
-  membership.role = body.role;
-  await membership.save();
-
-  const user = await User.findById(userId).select('_id username email').lean();
-
+  const { user, role } = await orgMembersService.updateRole(id, userId, body.role);
   logger.info(`[UPDATE MEMBER ROLE] User ${userId} role updated to ${body.role} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
 
   sendSuccess(res, 200, {
@@ -230,130 +107,73 @@ export const updateMemberRole = withController('Update member role', async (req,
       id: user?._id.toString() ?? userId,
       username: user?.username,
       email: user?.email,
-      role: membership.role,
+      role,
     },
   }, 'Member role updated successfully');
+}, {
+  [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
+  [OM_CANNOT_CHANGE_OWNER]: { status: 400, message: 'Cannot change organization owner role. Transfer ownership first.' },
 });
 
-/**
- * Transfer organization ownership.
- * PATCH /organization/:id/transfer-owner
- *
- * Atomically updates {@link UserOrganization} records: demotes the current
- * owner to 'admin' and promotes the new owner to 'owner'. Also updates
- * the denormalized `Organization.owner` reference.
- */
+/** PATCH /organization/:id/transfer-owner */
 export const transferOrganizationOwnership = withController('Transfer ownership', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const { id } = req.params;
+  const id = req.params.id as string;
   const body = validateBody(transferOwnershipSchema, req.body, res);
   if (!body) return;
 
-  const { newOwnerId } = body;
   const isSysAdmin = isSystemAdmin(req);
-
-  const checkOrg = await Organization.findById(toOrgId(id));
-  if (!checkOrg) return sendError(res, 404, 'Organization not found');
-
-  const isOrgOwner = checkOrg.owner.toString() === req.user!.sub;
+  const isOrgOwner = await orgMembersService.isOrgOwner(id, req.user!.sub);
   if (!isSysAdmin && !isOrgOwner) {
     return sendError(res, 403, 'Forbidden: Only system admin or organization owner can transfer ownership');
   }
 
-  const session = await mongoose.startSession();
-  try {
-    await session.withTransaction(async () => {
-      const org = await Organization.findById(toOrgId(id)).session(session);
-      if (!org) throw new Error('ORG_NOT_FOUND');
-
-      const oldOwnerMembership = await UserOrganization.findOne({ organizationId: toOrgId(id), role: 'owner' }).session(session);
-      if (!oldOwnerMembership) throw new Error('OWNER_MEMBERSHIP_NOT_FOUND');
-
-      const newOwnerMembership = await UserOrganization.findOne({ userId: newOwnerId, organizationId: toOrgId(id) }).session(session);
-      if (!newOwnerMembership) throw new Error('NEW_OWNER_MUST_BE_MEMBER');
-
-      oldOwnerMembership.role = 'admin';
-      await oldOwnerMembership.save({ session });
-
-      newOwnerMembership.role = 'owner';
-      await newOwnerMembership.save({ session });
-
-      org.owner = new mongoose.Types.ObjectId(newOwnerId);
-      await org.save({ session });
-    });
-
-    const adminType = isSysAdmin ? 'system admin' : 'org owner';
-    logger.info(`[TRANSFER ORG OWNERSHIP] Org ${id} ownership transferred to ${newOwnerId} by ${adminType} ${req.user!.sub}`);
-    sendSuccess(res, 200, undefined, 'Ownership transferred successfully');
-  } finally {
-    await session.endSession();
-  }
+  await orgMembersService.transferOwnership(id, body.newOwnerId);
+  const adminType = isSysAdmin ? 'system admin' : 'org owner';
+  logger.info(`[TRANSFER ORG OWNERSHIP] Org ${id} ownership transferred to ${body.newOwnerId} by ${adminType} ${req.user!.sub}`);
+  sendSuccess(res, 200, undefined, 'Ownership transferred successfully');
 }, {
-  ORG_NOT_FOUND: { status: 404, message: 'Organization not found' },
-  OWNER_MEMBERSHIP_NOT_FOUND: { status: 500, message: 'Current owner membership record not found' },
-  NEW_OWNER_MUST_BE_MEMBER: { status: 400, message: 'New owner must be a member of the organization' },
+  [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [OM_OWNER_MEMBERSHIP_NOT_FOUND]: { status: 500, message: 'Current owner membership record not found' },
+  [OM_NEW_OWNER_MUST_BE_MEMBER]: { status: 400, message: 'New owner must be a member of the organization' },
 });
 
-/**
- * Deactivate a member (soft removal -- keeps {@link UserOrganization} record, revokes access).
- * PATCH /organization/:id/members/:userId/deactivate
- *
- * Sets `isActive: false` on the UserOrganization record. The deactivated
- * user can no longer switch to this org or access its resources. Clears
- * `User.lastActiveOrgId` if it pointed to this organization.
- */
+/** PATCH /organization/:id/members/:userId/deactivate */
 export const deactivateMember = withController('Deactivate member', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const { id, userId } = req.params;
+  const id = req.params.id as string;
+  const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-
   if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
-  const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(id) });
-  if (!membership) return sendError(res, 404, 'Membership not found');
-  if (membership.role === 'owner') return sendError(res, 400, 'Cannot deactivate organization owner. Transfer ownership first.');
-  if (!membership.isActive) return sendError(res, 400, 'Member is already inactive');
-
-  membership.isActive = false;
-  await membership.save();
-
-  await User.updateOne(
-    { _id: userId, lastActiveOrgId: toOrgId(id) },
-    { $unset: { lastActiveOrgId: '' } },
-  );
-
+  await orgMembersService.deactivateMember(id, userId);
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   sendSuccess(res, 200, undefined, 'Member deactivated successfully');
+}, {
+  [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
+  [OM_CANNOT_REMOVE_OWNER]: { status: 400, message: 'Cannot deactivate organization owner. Transfer ownership first.' },
+  [OM_ALREADY_INACTIVE]: { status: 400, message: 'Member is already inactive' },
 });
 
-/**
- * Reactivate a previously deactivated member.
- * PATCH /organization/:id/members/:userId/activate
- *
- * Sets `isActive: true` on the {@link UserOrganization} record, restoring
- * the user's access to the organization with their existing role.
- */
+/** PATCH /organization/:id/members/:userId/activate */
 export const activateMember = withController('Activate member', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const { id, userId } = req.params;
+  const id = req.params.id as string;
+  const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-
   if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
-  const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(id) });
-  if (!membership) return sendError(res, 404, 'Membership not found');
-  if (membership.isActive) return sendError(res, 400, 'Member is already active');
-
-  membership.isActive = true;
-  await membership.save();
-
+  await orgMembersService.activateMember(id, userId);
   logger.info(`[ACTIVATE MEMBER] User ${userId} reactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   sendSuccess(res, 200, undefined, 'Member reactivated successfully');
+}, {
+  [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
+  [OM_ALREADY_ACTIVE]: { status: 400, message: 'Member is already active' },
 });

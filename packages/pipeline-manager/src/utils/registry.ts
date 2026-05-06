@@ -54,7 +54,7 @@ export interface PipelineForRegistry {
 }
 
 /** Where pending registration intents are persisted between CLI invocations. */
-export const PENDING_INTENTS_DIR = join(homedir(), '.pipeline-manager', 'pending-registrations');
+const PENDING_INTENTS_DIR = join(homedir(), '.pipeline-manager', 'pending-registrations');
 
 /**
  * Build a RegistryPayload from the platform's pipeline metadata. Reaches out

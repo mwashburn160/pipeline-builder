@@ -1,14 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendPaginatedNested, sendBadRequest, ErrorCode, errorMessage, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import {
+  sendSuccess,
+  sendPaginatedNested,
+  sendBadRequest,
+  ErrorCode,
+  errorMessage,
+  getParam,
+  parsePaginationParams,
+  validateBody,
+} from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, db, buildPublishedRuleCatalogConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
-import { and, desc, eq, sql, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine';
-import { complianceRuleService, type ComplianceRule } from '../services/compliance-rule-service';
+import { complianceRuleService } from '../services/compliance-rule-service';
 import { subscriptionService } from '../services/subscription-service';
 
 const SubscribeSchema = z.object({
@@ -50,31 +57,13 @@ export function createPublishedRulesCatalogRoutes(): Router {
       tag: req.query.tag as string | undefined,
     };
 
-    const conditions = buildPublishedRuleCatalogConditions(filter);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceRule)
-      .where(whereClause).then(r => drizzleCount(r));
-
-    const rules = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceRule.priority))
-      .limit(limit)
-      .offset(offset);
+    const { rules, total } = await complianceRuleService.listPublishedCatalog(filter, limit, offset);
 
     // Attach subscription status for calling org
     const subscribedIds = new Set(await subscriptionService.getSubscribedRuleIds(orgId));
-    const catalog = rules.map(rule => ({
-      ...rule,
-      subscribed: subscribedIds.has(rule.id),
-    }));
+    const catalog = rules.map(rule => ({ ...rule, subscribed: subscribedIds.has(rule.id) }));
 
     ctx.log('COMPLETED', 'Listed published rules catalog', { count: catalog.length });
-    const total = countResult?.count ?? 0;
     return sendPaginatedNested(res, 'rules', catalog, {
       total, limit, offset, hasMore: offset + rules.length < total,
     });
@@ -97,20 +86,10 @@ export function createSubscriptionRoutes(): Router {
     const total = subscriptions.length;
     const paginatedSubs = subscriptions.slice(offset, offset + limit);
 
-    // Fetch rule details for paginated subscriptions
     const ruleIds = paginatedSubs.map(s => s.ruleId);
-    let rules: ComplianceRule[] = [];
-    if (ruleIds.length > 0) {
-      rules = await db
-        .select()
-        .from(schema.complianceRule)
-        .where(and(
-          inArray(schema.complianceRule.id, ruleIds),
-          isNull(schema.complianceRule.deletedAt),
-        )) as unknown as ComplianceRule[];
-    }
-
+    const rules = await complianceRuleService.findManyByIds(ruleIds);
     const rulesById = new Map(rules.map(r => [r.id, r]));
+
     const result = paginatedSubs.map(sub => ({
       ...sub,
       rule: rulesById.get(sub.ruleId) || null,
@@ -168,7 +147,6 @@ export function createSubscriptionRoutes(): Router {
     try {
       const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
       // No cache invalidation needed — subscriptions start inactive
-
       ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
       return sendSuccess(res, 201, { subscription });
     } catch (err) {
@@ -239,29 +217,14 @@ export function createSubscriptionRoutes(): Router {
     const validation = validateBody(req, SubscribeSchema); // shape: { ruleId: uuid }
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
-    const [rule] = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(and(eq(schema.complianceRule.id, validation.value.ruleId), isNull(schema.complianceRule.deletedAt)));
+    const rule = await complianceRuleService.findPublishedById(validation.value.ruleId);
     if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
 
     const target = rule.target as 'plugin' | 'pipeline';
     const SAMPLE_CAP = 10;
+    const ENTITY_FETCH_CAP = 1000;
 
-    // Fetch the caller's own active entities for this rule's target.
-    const entities: Array<{ id: string; name: string | null; raw: Record<string, unknown> }> = target === 'plugin'
-      ? await db
-        .select()
-        .from(schema.plugin)
-        .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
-        .limit(1000)
-        .then(rows => rows.map(r => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> })))
-      : await db
-        .select()
-        .from(schema.pipeline)
-        .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
-        .limit(1000)
-        .then(rows => rows.map(r => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> })));
+    const entities = await complianceRuleService.findOrgEntitiesForTarget(target, orgId, ENTITY_FETCH_CAP);
 
     let wouldPass = 0;
     let wouldFail = 0;
@@ -301,25 +264,15 @@ export function createSubscriptionRoutes(): Router {
 
     const { ruleId, sampleAttributes } = validation.value;
 
-    // Fetch the rule
-    const [rule] = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(and(
-        eq(schema.complianceRule.id, ruleId),
-        isNull(schema.complianceRule.deletedAt),
-      ));
-
+    const rule = await complianceRuleService.findPublishedById(ruleId);
     if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
 
-    // If sample attributes provided, evaluate against them
     if (sampleAttributes) {
       const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], sampleAttributes, []);
       ctx.log('COMPLETED', 'Subscription activation preview', { ruleId, blocked: result.blocked });
       return sendSuccess(res, 200, { preview: result });
     }
 
-    // Otherwise return rule details for the org to review
     ctx.log('COMPLETED', 'Subscription rule preview', { ruleId });
     return sendSuccess(res, 200, { rule });
   }));

@@ -1,16 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendPaginatedNested, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, parsePaginationParams, validateBody } from '@pipeline-builder/api-core';
+import {
+  sendSuccess,
+  sendPaginatedNested,
+  sendBadRequest,
+  sendEntityNotFound,
+  ErrorCode,
+  errorMessage,
+  getParam,
+  parsePaginationParams,
+  validateBody,
+} from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, db, buildComplianceExemptionConditions, drizzleCount } from '@pipeline-builder/pipeline-core';
-import { and, eq, desc, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
+import {
+  complianceExemptionService,
+  CE_NOT_FOUND,
+  CE_SELF_APPROVE,
+} from '../services/compliance-exemption-service';
 
-/**
- * Feature #3: Exemption CRUD routes.
- */
+/** Feature #3: Exemption CRUD routes. */
 
 const ExemptionCreateSchema = z.object({
   ruleId: z.string().uuid(),
@@ -43,23 +54,7 @@ export function createExemptionRoutes(): Router {
       status: req.query.status as 'pending' | 'approved' | 'rejected' | 'expired' | undefined,
     };
 
-    const conditions = buildComplianceExemptionConditions(filter, orgId);
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceExemption)
-      .where(whereClause).then(r => drizzleCount(r));
-
-    const exemptions = await db
-      .select()
-      .from(schema.complianceExemption)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceExemption.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const total = countResult?.count ?? 0;
+    const { exemptions, total } = await complianceExemptionService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed exemptions', { count: exemptions.length });
     return sendPaginatedNested(res, 'exemptions', exemptions, {
       total, limit, offset, hasMore: offset + exemptions.length < total,
@@ -69,40 +64,22 @@ export function createExemptionRoutes(): Router {
   // POST /bulk — bulk-create exemptions in one request (up to 500).
   // Skips any (ruleId, entityType, entityId) combination that already has an
   // active exemption for this org. Returns counts of created vs skipped.
-  // Useful when onboarding a noisy new rule that fails on a known set of
-  // existing entities — avoids 50 individual click-and-fill exemption requests.
   router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const rows = validation.value.exemptions.map((e) => ({
-      ...e,
-      orgId,
-      expiresAt: e.expiresAt ? new Date(e.expiresAt) : null,
-      status: 'pending' as const,
-      createdBy: userId,
-      updatedBy: userId,
-    }));
-
-    // ON CONFLICT DO NOTHING on (orgId, ruleId, entityType, entityId, status='pending')
-    // would be ideal, but the schema doesn't have that unique constraint by
-    // default. Best-effort: insert all, count successes; rely on app-layer
-    // dedup if the operator double-submits.
-    const inserted = await db
-      .insert(schema.complianceExemption)
-      .values(rows)
-      .returning({ id: schema.complianceExemption.id });
+    const ids = await complianceExemptionService.bulkCreate(validation.value.exemptions, orgId, userId);
 
     ctx.log('COMPLETED', 'Bulk exemption insert', {
       requested: validation.value.exemptions.length,
-      created: inserted.length,
+      created: ids.length,
     });
     return sendSuccess(res, 201, {
-      created: inserted.length,
-      skipped: validation.value.exemptions.length - inserted.length,
-      ids: inserted.map((r) => r.id),
+      created: ids.length,
+      skipped: validation.value.exemptions.length - ids.length,
+      ids,
     });
   }));
 
@@ -113,26 +90,12 @@ export function createExemptionRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const [exemption] = await db
-      .insert(schema.complianceExemption)
-      .values({
-        ...validation.value,
-        orgId,
-        expiresAt: validation.value.expiresAt ? new Date(validation.value.expiresAt) : null,
-        status: 'pending',
-        createdBy: userId,
-        updatedBy: userId,
-      })
-      .returning();
-
+    const exemption = await complianceExemptionService.create(validation.value, orgId, userId);
     ctx.log('COMPLETED', 'Requested exemption', { id: exemption.id, ruleId: validation.value.ruleId });
     return sendSuccess(res, 201, { exemption });
   }));
 
   // PUT /:id/review — approve or reject an exemption.
-  // Reviewer cannot be the same user that requested the exemption (self-approval
-  // would defeat the approval workflow). Rejecting your own request is allowed —
-  // only approval is blocked.
   router.put('/:id/review', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -142,41 +105,26 @@ export function createExemptionRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const [existing] = await db
-      .select({ createdBy: schema.complianceExemption.createdBy })
-      .from(schema.complianceExemption)
-      .where(and(
-        eq(schema.complianceExemption.id, id),
-        eq(schema.complianceExemption.orgId, orgId),
-        eq(schema.complianceExemption.status, 'pending'),
-      ));
-
-    if (!existing) return sendEntityNotFound(res, 'Exemption');
-
-    if (validation.value.status === 'approved' && existing.createdBy === userId) {
-      return sendBadRequest(res, 'Cannot approve an exemption you requested. Another reviewer must approve.', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    try {
+      const updated = await complianceExemptionService.review(
+        id, orgId, userId,
+        validation.value.status,
+        validation.value.rejectionReason,
+      );
+      ctx.log('COMPLETED', `Exemption ${validation.value.status}`, { id, status: validation.value.status });
+      return sendSuccess(res, 200, { exemption: updated });
+    } catch (err) {
+      const code = errorMessage(err);
+      if (code === CE_NOT_FOUND) return sendEntityNotFound(res, 'Exemption');
+      if (code === CE_SELF_APPROVE) {
+        return sendBadRequest(
+          res,
+          'Cannot approve an exemption you requested. Another reviewer must approve.',
+          ErrorCode.INSUFFICIENT_PERMISSIONS,
+        );
+      }
+      throw err;
     }
-
-    const [updated] = await db
-      .update(schema.complianceExemption)
-      .set({
-        status: validation.value.status,
-        approvedBy: validation.value.status === 'approved' ? userId : undefined,
-        rejectionReason: validation.value.rejectionReason ?? null,
-        updatedBy: userId,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(schema.complianceExemption.id, id),
-        eq(schema.complianceExemption.orgId, orgId),
-        eq(schema.complianceExemption.status, 'pending'),
-      ))
-      .returning();
-
-    if (!updated) return sendEntityNotFound(res, 'Exemption');
-
-    ctx.log('COMPLETED', `Exemption ${validation.value.status}`, { id, status: validation.value.status });
-    return sendSuccess(res, 200, { exemption: updated });
   }));
 
   // DELETE /:id — revoke an exemption
@@ -184,14 +132,7 @@ export function createExemptionRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const [deleted] = await db
-      .delete(schema.complianceExemption)
-      .where(and(
-        eq(schema.complianceExemption.id, id),
-        eq(schema.complianceExemption.orgId, orgId),
-      ))
-      .returning();
-
+    const deleted = await complianceExemptionService.delete(id, orgId);
     if (!deleted) return sendEntityNotFound(res, 'Exemption');
 
     ctx.log('COMPLETED', 'Deleted exemption', { id });

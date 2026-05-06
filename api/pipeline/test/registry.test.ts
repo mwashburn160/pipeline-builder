@@ -15,10 +15,12 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendBadRequest: jest.fn(),
   sendError: jest.fn(),
   sendPaginatedNested: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', NOT_FOUND: 'NOT_FOUND', CONFLICT: 'CONFLICT' },
+  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', NOT_FOUND: 'NOT_FOUND', CONFLICT: 'CONFLICT', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
+  errorMessage: (e: unknown) => e instanceof Error ? e.message : String(e),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   hashAccountInArn: (arn: string) => arn, // pass-through in tests
   hashId: (value: string) => value, // pass-through in tests
+  getParam: (p: any, k: string) => p[k],
   parsePaginationParams: (_q: unknown) => ({ limit: 50, offset: 0 }),
   validateBody: (req: any, schema: any) => {
     const result = schema.safeParse(req.body);

@@ -6,6 +6,7 @@ import {
   CoreConstants,
   CrudService,
   buildComplianceRuleConditions,
+  buildPublishedRuleCatalogConditions,
   schema,
   db,
   type ComplianceRuleFilter,
@@ -13,7 +14,7 @@ import {
   type RuleScope,
   drizzleCount,
 } from '@pipeline-builder/pipeline-core';
-import { SQL, eq, and, desc, sql } from 'drizzle-orm';
+import { SQL, eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { validateRuleRegexPatterns } from '../engine/rule-operators';
@@ -248,6 +249,86 @@ export class ComplianceRuleService extends CrudService<
   /** Fetch all rules belonging to a policy. */
   async findByPolicy(policyId: string, orgId: string): Promise<ComplianceRule[]> {
     return this.find({ policyId, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
+  }
+
+  /**
+   * Paginated browse of the published-rule catalog, filtered by name/target/
+   * severity/tag. Returns rules ordered by priority DESC plus the total count.
+   */
+  async listPublishedCatalog(
+    filter: { name?: string; target?: 'plugin' | 'pipeline'; severity?: 'warning' | 'error' | 'critical'; tag?: string },
+    limit: number,
+    offset: number,
+  ) {
+    const conditions = buildPublishedRuleCatalogConditions(filter);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.complianceRule)
+      .where(whereClause)
+      .then(r => drizzleCount(r));
+
+    const rules = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(whereClause)
+      .orderBy(desc(schema.complianceRule.priority))
+      .limit(limit)
+      .offset(offset);
+
+    return { rules: rules as unknown as ComplianceRule[], total: countResult?.count ?? 0 };
+  }
+
+  /** Batch lookup of non-deleted rules by id. */
+  async findManyByIds(ids: string[]): Promise<ComplianceRule[]> {
+    if (ids.length === 0) return [];
+    const rows = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(and(
+        inArray(schema.complianceRule.id, ids),
+        isNull(schema.complianceRule.deletedAt),
+      ));
+    return rows as unknown as ComplianceRule[];
+  }
+
+  /** Single rule by id, ignoring soft-deleted rows. Returns null on miss. */
+  async findPublishedById(id: string): Promise<ComplianceRule | null> {
+    const [rule] = await db
+      .select()
+      .from(schema.complianceRule)
+      .where(and(
+        eq(schema.complianceRule.id, id),
+        isNull(schema.complianceRule.deletedAt),
+      ));
+    return (rule ?? null) as ComplianceRule | null;
+  }
+
+  /**
+   * Fetch the caller's active plugins or pipelines for impact-preview
+   * evaluation. Each row is normalized to `{ id, name, raw }` so the rule
+   * engine can run against the raw record without target-specific code paths.
+   */
+  async findOrgEntitiesForTarget(
+    target: 'plugin' | 'pipeline',
+    orgId: string,
+    limit: number,
+  ): Promise<Array<{ id: string; name: string | null; raw: Record<string, unknown> }>> {
+    if (target === 'plugin') {
+      const rows = await db
+        .select()
+        .from(schema.plugin)
+        .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
+        .limit(limit);
+      return rows.map(r => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> }));
+    }
+    const rows = await db
+      .select()
+      .from(schema.pipeline)
+      .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
+      .limit(limit);
+    return rows.map(r => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> }));
   }
 
   /**

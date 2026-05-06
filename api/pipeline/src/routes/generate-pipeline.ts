@@ -12,16 +12,15 @@ import {
   validateBody,
   AIGenerateBodySchema,
   AIGenerateFromUrlBodySchema,
-  SYSTEM_ORG_ID,
   AccessModifier,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, incrementQuotaFromCtx, withRoute } from '@pipeline-builder/api-server';
-import { Config, CoreConstants, db, schema } from '@pipeline-builder/pipeline-core';
-import { eq, or, and, isNull } from 'drizzle-orm';
+import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';
 import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service';
+import { findExistingPluginNames } from '../services/plugin-lookup-service';
 
 const logger = createLogger('generate-pipeline');
 
@@ -397,34 +396,10 @@ async function autoCreateMissingPlugins(
 
   res.write(`data: ${JSON.stringify({ type: 'checking-plugins', data: { plugins: pluginNames } })}\n\n`);
 
-  // Check which plugins already exist
-  const existing: string[] = [];
-  const missing: string[] = [];
-
-  for (const name of pluginNames) {
-    const found = await db
-      .select({ name: schema.plugin.name })
-      .from(schema.plugin)
-      .where(
-        and(
-          eq(schema.plugin.name, name),
-          eq(schema.plugin.isActive, true),
-          isNull(schema.plugin.deletedAt),
-          eq(schema.plugin.accessModifier, AccessModifier.PUBLIC),
-          or(
-            eq(schema.plugin.orgId, orgId),
-            eq(schema.plugin.orgId, SYSTEM_ORG_ID),
-          ),
-        ),
-      )
-      .limit(1);
-
-    if (found.length > 0) {
-      existing.push(name);
-    } else {
-      missing.push(name);
-    }
-  }
+  // Check which plugins already exist (single batched query)
+  const existingSet = await findExistingPluginNames(pluginNames, orgId);
+  const existing: string[] = pluginNames.filter(n => existingSet.has(n));
+  const missing: string[] = pluginNames.filter(n => !existingSet.has(n));
 
   if (missing.length === 0) {
     res.write(`data: ${JSON.stringify({

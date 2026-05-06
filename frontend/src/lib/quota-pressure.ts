@@ -24,7 +24,7 @@ const TYPE_LABEL: Record<QuotaType, string> = {
 };
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */
-export function quotaPercent(q: QuotaSummary): number {
+function quotaPercent(q: QuotaSummary): number {
   if (q.unlimited || q.limit <= 0) return 0;
   return Math.min(100, Math.round((q.used / q.limit) * 100));
 }
@@ -36,7 +36,7 @@ export function quotaPercent(q: QuotaSummary): number {
  * - 95-99 → warning
  * - >=100 → critical
  */
-export function pressureLevel(percent: number): QuotaPressureLevel {
+function pressureLevel(percent: number): QuotaPressureLevel {
   if (percent >= 100) return 'critical';
   if (percent >= 95) return 'warning';
   if (percent >= 80) return 'info';

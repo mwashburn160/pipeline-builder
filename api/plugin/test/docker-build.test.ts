@@ -98,8 +98,6 @@ function makeRegistry(overrides: Partial<RegistryInfo> = {}): RegistryInfo {
   return {
     host: 'registry',
     port: 5000,
-    user: 'admin',
-    token: 'secret',
     network: '',
     http: true,
     insecure: true,
@@ -112,6 +110,7 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
     contextDir: '/tmp/build-ctx',
     dockerfile: 'Dockerfile',
     imageTag: 'p-test-abc123',
+    orgId: 'test-org',
     buildType: 'build_image' as const,
     registry: makeRegistry(),
     ...overrides,
@@ -121,6 +120,15 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
 // Tests
 
 describe('docker-build', () => {
+  beforeAll(() => {
+    // Token-flow auth (Phase 3): writeAuthJson reads these env vars and
+    // embeds them in the Docker auth config. Tests don't actually push
+    // anywhere — they just verify command construction — so the values
+    // are placeholder.
+    process.env.PLATFORM_BUILD_USERNAME = 'test-build-svc';
+    process.env.PLATFORM_BUILD_PASSWORD = 'test-build-pw';
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: spawn returns a child that exits with code 0
@@ -177,13 +185,13 @@ describe('docker-build', () => {
     it('accepts valid inputs', async () => {
       const req = makeRequest();
       const result = await buildAndPush(req);
-      expect(result.fullImage).toBe('registry:5000/plugin:p-test-abc123');
+      expect(result.fullImage).toBe('registry:5000/org-test-org/p-test-abc123:latest');
     });
 
     it('accepts valid network name', async () => {
       const req = makeRequest({ registry: makeRegistry({ network: 'my-compose_net' }) });
       const result = await buildAndPush(req);
-      expect(result.fullImage).toBe('registry:5000/plugin:p-test-abc123');
+      expect(result.fullImage).toBe('registry:5000/org-test-org/p-test-abc123:latest');
     });
   });
 
@@ -200,7 +208,8 @@ describe('docker-build', () => {
     it('writes auth config with base64 credentials', async () => {
       await buildAndPush(makeRequest());
 
-      const expectedAuth = Buffer.from('admin:secret').toString('base64');
+      // Auth carries build-service-account creds (token-flow), not registry creds.
+      const expectedAuth = Buffer.from('test-build-svc:test-build-pw').toString('base64');
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         '/tmp/build-ctx/.docker/config.json',
         JSON.stringify({
@@ -213,7 +222,8 @@ describe('docker-build', () => {
       mockStrategy = 'podman';
       await buildAndPush(makeRequest());
 
-      const expectedAuth = Buffer.from('admin:secret').toString('base64');
+      // Auth carries build-service-account creds (token-flow), not registry creds.
+      const expectedAuth = Buffer.from('test-build-svc:test-build-pw').toString('base64');
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         '/tmp/build-ctx/.docker/config.json',
         JSON.stringify({
@@ -236,13 +246,13 @@ describe('docker-build', () => {
       expect(buildArgs).toContain('--progress');
       expect(buildArgs).toContain('-f');
       expect(buildArgs).toContain('-t');
-      expect(buildArgs).toContain('registry:5000/plugin:p-test-abc123');
+      expect(buildArgs).toContain('registry:5000/org-test-org/p-test-abc123:latest');
 
       // Second call: docker push
       const [pushBinary, pushArgs] = mockSpawn.mock.calls[1];
       expect(pushBinary).toBe('docker');
       expect(pushArgs[0]).toBe('push');
-      expect(pushArgs).toContain('registry:5000/plugin:p-test-abc123');
+      expect(pushArgs).toContain('registry:5000/org-test-org/p-test-abc123:latest');
     });
 
     it('sets DOCKER_CONFIG env var for docker auth', async () => {
@@ -256,14 +266,14 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
         { stdio: 'ignore' },
       );
     });
 
     it('returns the full image reference', async () => {
       const result = await buildAndPush(makeRequest());
-      expect(result).toEqual({ fullImage: 'registry:5000/plugin:p-test-abc123' });
+      expect(result).toEqual({ fullImage: 'registry:5000/org-test-org/p-test-abc123:latest' });
     });
   });
 
@@ -427,7 +437,7 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'podman',
-        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
         { stdio: 'ignore' },
       );
     });
@@ -479,7 +489,7 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
         { stdio: 'ignore' },
       );
     });
@@ -499,7 +509,7 @@ describe('docker-build', () => {
       // rmi should still be called even though push failed
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/plugin:p-test-abc123'],
+        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
         { stdio: 'ignore' },
       );
     });

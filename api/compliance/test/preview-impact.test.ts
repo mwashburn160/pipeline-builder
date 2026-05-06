@@ -95,7 +95,21 @@ jest.mock('../src/engine/rule-engine', () => ({
 }));
 
 jest.mock('../src/services/compliance-rule-service', () => ({
-  complianceRuleService: { findActiveByOrgAndTarget: jest.fn() },
+  complianceRuleService: {
+    findActiveByOrgAndTarget: jest.fn(),
+    findPublishedById: async () => {
+      const rows = nextRuleResult as Array<Record<string, unknown>>;
+      return rows[0] ?? null;
+    },
+    findOrgEntitiesForTarget: async (target: 'plugin' | 'pipeline') => {
+      const rows = nextEntityResult as Array<Record<string, unknown>>;
+      return rows.map((r) => ({
+        id: r.id as string,
+        name: (target === 'plugin' ? r.name : r.pipelineName ?? r.name) as string | null,
+        raw: r,
+      }));
+    },
+  },
 }));
 
 jest.mock('../src/services/subscription-service', () => ({

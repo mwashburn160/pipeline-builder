@@ -206,6 +206,7 @@ export function createUploadPluginRoutes(
             contextDir: plugin.extractDir,
             dockerfile: plugin.dockerfile,
             imageTag: plugin.imageTag,
+            orgId,
             registry,
             buildArgs: s.buildArgs || {},
             buildType: plugin.buildType,
