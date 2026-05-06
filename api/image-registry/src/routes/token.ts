@@ -48,13 +48,15 @@ export function createTokenRoute(): Router {
     const basic = parseBasic(req.headers.authorization);
     if (!basic) {
       res.setHeader('WWW-Authenticate', 'Basic realm="pipeline-image-registry"');
-      return sendError(res, 401, 'Authentication required', ErrorCode.UNAUTHORIZED);
+      sendError(res, 401, 'Authentication required', ErrorCode.UNAUTHORIZED);
+      return;
     }
 
     const identity = await resolveIdentity(basic.username, basic.password);
     if (!identity) {
       res.setHeader('WWW-Authenticate', 'Basic realm="pipeline-image-registry"');
-      return sendError(res, 401, 'Invalid credentials', ErrorCode.UNAUTHORIZED);
+      sendError(res, 401, 'Invalid credentials', ErrorCode.UNAUTHORIZED);
+      return;
     }
 
     const scopes = collectScopes(req.query.scope);
@@ -71,7 +73,7 @@ export function createTokenRoute(): Router {
       scopeCount: scopes.length,
     });
 
-    return res.status(200).json({
+    res.status(200).json({
       token,
       access_token: token,
       expires_in: 300,
