@@ -71,7 +71,7 @@ export function validatePipelineTemplates(pipeline: PipelineLike): void {
   const cycleErrors = detectCycles(doc, isPipelineTemplatable, fieldToScopePath);
   if (cycleErrors.length) {
     throw new ValidationError(
-      `Pipeline has circular template references:\n` +
+      'Pipeline has circular template references:\n' +
       cycleErrors.map(e => `  • ${e.message}`).join('\n'),
     );
   }
@@ -95,7 +95,7 @@ export function resolvePipeline<T extends PipelineLike>(pipeline: T): T {
   );
   if (errors.length) {
     throw new ValidationError(
-      `Pipeline resolution failed:\n` +
+      'Pipeline resolution failed:\n' +
       errors.map(e => `  • [${e.field ?? '?'}] ${e.message}`).join('\n'),
     );
   }

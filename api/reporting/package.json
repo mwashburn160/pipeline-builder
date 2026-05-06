@@ -36,9 +36,9 @@
   },
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.0",
-    "@pipeline-builder/api-server": "workspace:*",
-    "@pipeline-builder/pipeline-core": "workspace:*",
-    "@pipeline-builder/pipeline-data": "workspace:*",
+    "@pipeline-builder/api-server": "3.4.0",
+    "@pipeline-builder/pipeline-core": "3.4.0",
+    "@pipeline-builder/pipeline-data": "3.4.0",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
     "pg": "8.18.0",

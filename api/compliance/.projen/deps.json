@@ -77,12 +77,12 @@
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "workspace:*",
+      "version": "3.4.0",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "workspace:*",
+      "version": "3.4.0",
       "type": "runtime"
     },
     {

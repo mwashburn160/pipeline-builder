@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.0",
-    "@pipeline-builder/pipeline-data": "workspace:*",
+    "@pipeline-builder/pipeline-data": "3.4.0",
     "aws-cdk-lib": "2.251.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",

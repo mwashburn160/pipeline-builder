@@ -68,15 +68,29 @@ class PipelineRegistryService {
     const [result] = await db
       .insert(schema.pipelineRegistry)
       .values({
-        pipelineId, orgId, pipelineArn, pipelineName,
-        accountId, region, project, organization, stackName,
+        pipelineId,
+        orgId,
+        pipelineArn,
+        pipelineName,
+        accountId,
+        region,
+        project,
+        organization,
+        stackName,
         lastDeployed: now,
       })
       .onConflictDoUpdate({
         target: schema.pipelineRegistry.pipelineArn,
         set: {
-          pipelineId, pipelineName, accountId, region, project, organization, stackName,
-          lastDeployed: now, updatedAt: now,
+          pipelineId,
+          pipelineName,
+          accountId,
+          region,
+          project,
+          organization,
+          stackName,
+          lastDeployed: now,
+          updatedAt: now,
         },
       })
       .returning();

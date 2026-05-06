@@ -13,11 +13,11 @@ jest.mock('../src/api/require-org-id', () => ({
   requireOrgId: jest.fn(() => 'REQUIRE_ORG_ID_MIDDLEWARE'),
 }));
 
+import { checkQuota } from '../src/api/check-quota';
 import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
 } from '../src/api/middleware-factory';
-import { checkQuota } from '../src/api/check-quota';
 import { requireOrgId } from '../src/api/require-org-id';
 
 describe('createProtectedRoute', () => {

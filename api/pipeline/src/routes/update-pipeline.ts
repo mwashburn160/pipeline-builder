@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, pickDefined, normalizeArrayFields } from '@pipeline-builder/api-core';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
 import { pipelineService } from '../services/pipeline-service';
 
 /**

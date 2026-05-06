@@ -33,8 +33,8 @@
   },
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.0",
-    "@pipeline-builder/api-server": "workspace:*",
-    "@pipeline-builder/pipeline-core": "workspace:*",
+    "@pipeline-builder/api-server": "3.4.0",
+    "@pipeline-builder/pipeline-core": "3.4.0",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",
     "next": "^16.1.6",

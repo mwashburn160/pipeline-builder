@@ -43,8 +43,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
 
 jest.mock('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
-    try { await h({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' }); }
-    catch (err: any) { res.status(500).json({ message: err.message }); }
+    try { await h({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }
   },
   incrementQuotaFromCtx: jest.fn(),
 }));
@@ -110,7 +109,9 @@ describe('GET /pipelines/:id ?resolve=true', () => {
 
   it('returns source (unresolved) when resolve is not set', async () => {
     mockFindById.mockResolvedValue({
-      id: 'pid-1', accessModifier: 'public', pipelineName: 'p1',
+      id: 'pid-1',
+      accessModifier: 'public',
+      pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
     });
@@ -124,7 +125,9 @@ describe('GET /pipelines/:id ?resolve=true', () => {
 
   it('returns resolved form when resolve=true', async () => {
     mockFindById.mockResolvedValue({
-      id: 'pid-1', accessModifier: 'public', pipelineName: 'p1',
+      id: 'pid-1',
+      accessModifier: 'public',
+      pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
     });
@@ -137,7 +140,9 @@ describe('GET /pipelines/:id ?resolve=true', () => {
 
   it('returns source when resolve=false (any value other than "true")', async () => {
     mockFindById.mockResolvedValue({
-      id: 'pid-1', accessModifier: 'public', pipelineName: 'p1',
+      id: 'pid-1',
+      accessModifier: 'public',
+      pipelineName: 'p1',
       metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
     });
     const res = mockRes();
@@ -154,7 +159,9 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       errors: [{ field: 'metadata.env', message: 'cycle detected', code: 'TEMPLATE_CYCLE' }],
     }));
     mockFindById.mockResolvedValue({
-      id: 'pid-1', accessModifier: 'public', pipelineName: 'p1',
+      id: 'pid-1',
+      accessModifier: 'public',
+      pipelineName: 'p1',
       metadata: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' },
     });
     const res = mockRes();
