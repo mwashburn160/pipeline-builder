@@ -111,6 +111,7 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
  * The registry uses this to look up which trusted public key signed the
  * token. We compute it once at startup and cache it.
  */
+/* eslint-disable no-bitwise -- bit-shifts are required for base32 encoding */
 function computeLibtrustKid(certPem: string): string {
   const pubKey = createPublicKey(certPem).export({ format: 'der', type: 'spki' });
   const digest = createHash('sha256').update(pubKey).digest();
@@ -135,6 +136,7 @@ function computeLibtrustKid(certPem: string): string {
   // Insert `:` every 4 chars
   return (out.match(/.{1,4}/g) ?? []).join(':');
 }
+/* eslint-enable no-bitwise */
 
 const kid = computeLibtrustKid(config.tokenSigning.certificatePem);
 logger.info('Initialized token service', { kid, issuer: config.tokenSigning.issuer });
