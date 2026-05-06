@@ -135,7 +135,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:3.3.33-docker
+          image: ghcr.io/mwashburn160/plugin:3.4.5-docker
           securityContext:
             runAsUser: 0
             privileged: true
