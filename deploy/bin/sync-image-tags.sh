@@ -2,12 +2,12 @@
 # Copyright 2026 Pipeline Builder Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Sync Docker image tags in deploy/ files to match each service's
-# package.json version.
+# Sync Docker image tags in deploy/ files to the latest version published
+# for each service.
 #
-# Hardcoded `image: ghcr.io/mwashburn160/<svc>:X.Y.Z[-suffix]` references
-# drift from package.json on every release. Run this script after a version
-# bump (or in CI before publishing manifests) to bring them back in sync.
+# Source of truth: the `release/<svc>/<version>` git tags emitted by `nx
+# release`. package.json is NOT used because nx resets it to 0.0.0 on every
+# working copy and only bumps it momentarily in CI right before publish.
 #
 # Targets:
 #   - deploy/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
@@ -21,22 +21,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# Service → path of its package.json (relative to repo root)
+# Services to sync. Tag prefix is always `release/<svc>/`.
 SERVICES=(
-  "billing:api/billing"
-  "compliance:api/compliance"
-  "pipeline:api/pipeline"
-  "plugin:api/plugin"
-  "quota:api/quota"
-  "message:api/message"
-  "reporting:api/reporting"
-  "image-registry:api/image-registry"
-  "platform:platform"
-  "frontend:frontend"
+  billing
+  compliance
+  pipeline
+  plugin
+  quota
+  message
+  reporting
+  image-registry
+  platform
+  frontend
 )
 
 FILES=(
   "$ROOT"/deploy/minikube/k8s/*.yaml
+  "$ROOT"/deploy/aws/ec2/k8s/*.yaml
   "$ROOT/deploy/local/docker-compose.yml"
   "$ROOT/deploy/aws/fargate/.env.example"
 )
@@ -50,12 +51,12 @@ sed_i() {
   fi
 }
 
-for entry in "${SERVICES[@]}"; do
-  svc="${entry%%:*}"
-  pkg="$ROOT/${entry##*:}/package.json"
-  [ -f "$pkg" ] || { echo "WARN: $pkg missing — skipping $svc"; continue; }
-
-  ver=$(node -p "require('$pkg').version" 2>/dev/null || jq -r .version "$pkg")
+for svc in "${SERVICES[@]}"; do
+  ver=$(git -C "$ROOT" tag --list "release/${svc}/*" --sort=-v:refname | head -1 | sed "s|release/${svc}/||")
+  if [ -z "$ver" ]; then
+    echo "WARN: no release tag for $svc — skipping"
+    continue
+  fi
   echo "→ $svc: $ver"
 
   # Match `ghcr.io/mwashburn160/<svc>:<old-version>[-<suffix>]` and replace
