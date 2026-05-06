@@ -197,6 +197,17 @@ secret registry-token-secret \
   --from-file=jwt-private.pem="$CERT_DIR/jwt-private.pem" \
   --from-file=jwt-public.pem="$CERT_DIR/jwt-public.pem"
 
+# Build-side credentials consumed by the image-registry proxy:
+#   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.
+#   PLATFORM_BUILD_*  — credentials api/plugin presents to obtain push tokens.
+# Both reuse the registry admin creds; rotate PLATFORM_BUILD_* separately if
+# you want platform→image-registry to authenticate as a distinct identity.
+secret image-registry-build-svc-secret \
+  --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" \
+  --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN" \
+  --from-literal=PLATFORM_BUILD_USERNAME="$IMAGE_REGISTRY_USER" \
+  --from-literal=PLATFORM_BUILD_PASSWORD="$IMAGE_REGISTRY_TOKEN"
+
 if command -v htpasswd >/dev/null 2>&1; then
   htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
 else
