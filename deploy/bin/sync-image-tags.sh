@@ -2,12 +2,10 @@
 # Copyright 2026 Pipeline Builder Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Sync Docker image tags in deploy/ files to the latest version published
-# for each service.
+# Sync Docker image tags in deploy/ files to each service's package.json
+# version. Run after a version bump (or in CI before publishing manifests).
 #
-# Source of truth: the `release/<svc>/<version>` git tags emitted by `nx
-# release`. package.json is NOT used because nx resets it to 0.0.0 on every
-# working copy and only bumps it momentarily in CI right before publish.
+# Source of truth: each service's package.json `version` field.
 #
 # Targets:
 #   - deploy/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
@@ -21,18 +19,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# Services to sync. Tag prefix is always `release/<svc>/`.
+# Service name → path of its package.json (relative to repo root).
 SERVICES=(
-  billing
-  compliance
-  pipeline
-  plugin
-  quota
-  message
-  reporting
-  image-registry
-  platform
-  frontend
+  "billing:api/billing"
+  "compliance:api/compliance"
+  "pipeline:api/pipeline"
+  "plugin:api/plugin"
+  "quota:api/quota"
+  "message:api/message"
+  "reporting:api/reporting"
+  "image-registry:api/image-registry"
+  "platform:platform"
+  "frontend:frontend"
 )
 
 FILES=(
@@ -52,10 +50,16 @@ sed_i() {
   fi
 }
 
-for svc in "${SERVICES[@]}"; do
-  ver=$(git -C "$ROOT" tag --list "release/${svc}/*" --sort=-v:refname | head -1 | sed "s|release/${svc}/||")
-  if [ -z "$ver" ]; then
-    echo "WARN: no release tag for $svc — skipping"
+for entry in "${SERVICES[@]}"; do
+  svc="${entry%%:*}"
+  pkg="$ROOT/${entry##*:}/package.json"
+  if [ ! -f "$pkg" ]; then
+    echo "WARN: $pkg missing — skipping $svc"
+    continue
+  fi
+  ver=$(node -p "require('$pkg').version" 2>/dev/null || jq -r .version "$pkg")
+  if [ -z "$ver" ] || [ "$ver" = "null" ]; then
+    echo "WARN: could not read version from $pkg — skipping $svc"
     continue
   fi
   echo "→ $svc: $ver"
