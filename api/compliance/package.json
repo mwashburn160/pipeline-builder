@@ -35,9 +35,9 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/api-core": "3.4.7",
-    "@pipeline-builder/api-server": "3.4.7",
-    "@pipeline-builder/pipeline-core": "3.4.7",
+    "@pipeline-builder/api-core": "3.4.8",
+    "@pipeline-builder/api-server": "3.4.8",
+    "@pipeline-builder/pipeline-core": "3.4.8",
     "bullmq": "5.34.8",
     "drizzle-orm": "0.45.1",
     "express": "5.2.1",
@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.8",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
