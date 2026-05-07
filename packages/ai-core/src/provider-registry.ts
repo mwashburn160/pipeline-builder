@@ -34,7 +34,10 @@ function initRegistry(): void {
   if (initialized) return;
   initialized = true;
 
-  const factories: Record<string, (key: string) => (modelId: string) => LanguageModel> = {
+  // Bedrock authenticates via the IAM role attached to the runtime (no key
+  // is passed); other providers take an API key. The factory signature
+  // accepts an optional key so both shapes share one type.
+  const factories: Record<string, (key?: string) => (modelId: string) => LanguageModel> = {
     'anthropic': (key) => createAnthropic({ apiKey: key }),
     'openai': (key) => createOpenAI({ apiKey: key }),
     'google': (key) => createGoogleGenerativeAI({ apiKey: key }),

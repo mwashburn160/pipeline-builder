@@ -22,7 +22,7 @@
  * **Utilities**
  * - createLogger — Winston-based structured logger factory
  * - sendSuccess, sendError, sendPaginated, sendBadRequest, sendInternalError — HTTP response helpers
- * - getParam, getRequiredParam, getParams, getOrgId, getAuthHeader — request parameter extraction
+ * - getParam, getOrgId, getAuthHeader — request parameter extraction
  * - parseQueryBoolean, parseQueryInt, parseQueryString — query string parsing
  * - getIdentity, validateIdentity — identity extraction from requests
  * - errorMessage — safe error-to-string conversion

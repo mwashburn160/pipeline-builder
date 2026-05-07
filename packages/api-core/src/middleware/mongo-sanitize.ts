@@ -24,7 +24,7 @@ export function mongoSanitize() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (req.body && typeof req.body === 'object') sanitizeObject(req.body);
     if (req.query && typeof req.query === 'object') sanitizeObject(req.query as Record<string, unknown>);
-    if (req.params && typeof req.params === 'object') sanitizeObject(req.params as unknown as Record<string, unknown>);
+    if (req.params && typeof req.params === 'object') sanitizeObject(req.params as Record<string, unknown>);
     next();
   };
 }
