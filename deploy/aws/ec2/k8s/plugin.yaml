@@ -135,13 +135,6 @@ spec:
                 name: jwt-secret
             - secretRef:
                 name: postgres-secret
-            - secretRef:
-                name: registry-secret
-            - secretRef:
-                # PLATFORM_BUILD_USERNAME / PLATFORM_BUILD_PASSWORD —
-                # api/plugin reads these at push time to authenticate with
-                # the image-registry /token endpoint.
-                name: image-registry-build-svc-secret
           env:
             - name: SERVICE_NAME
               value: "plugin"

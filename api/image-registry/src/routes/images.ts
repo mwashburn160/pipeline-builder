@@ -12,7 +12,7 @@ import {
   parsePaginationParams,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import {
   listRepositories,
@@ -28,7 +28,7 @@ const TagCopySchema = z.object({
 });
 
 /** Sysadmin guard. */
-function requireSystemAdminGuard(req: Parameters<typeof isSystemAdmin>[0], res: Parameters<typeof sendError>[0]): boolean {
+function requireSystemAdminGuard(req: Request, res: Response): boolean {
   if (!isSystemAdmin(req)) {
     sendError(res, 403, 'System admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
     return false;

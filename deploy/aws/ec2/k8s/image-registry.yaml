@@ -99,8 +99,9 @@ spec:
             - secretRef:
                 name: jwt-secret
             - secretRef:
-                # Two fields: PLATFORM_BUILD_USERNAME / PLATFORM_BUILD_PASSWORD.
-                # api/plugin presents these as Basic auth to obtain push tokens.
+                # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD —
+                # Basic auth used when image-registry talks to the
+                # underlying registry's management API.
                 name: image-registry-build-svc-secret
           env:
             - name: SERVICE_NAME
@@ -128,12 +129,10 @@ spec:
               value: "pipeline-image-registry"
             - name: REGISTRY_TOKEN_EXPIRES_IN
               value: "300"
-            # Underlying registry creds — read via secretRef. The
-            # registry-auth-secret is the same one the registry container
-            # uses for its htpasswd; we read it here as IMAGE_REGISTRY_*
-            # env. Operator must populate IMAGE_REGISTRY_USERNAME +
-            # IMAGE_REGISTRY_PASSWORD keys in image-registry-build-svc-secret
-            # alongside PLATFORM_BUILD_USERNAME/PASSWORD.
+            # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD come from
+            # the image-registry-build-svc-secret envFrom above. Same creds
+            # as the registry container's htpasswd; startup.sh keeps them
+            # in sync.
           volumeMounts:
             - name: registry-token
               mountPath: /etc/registry/jwt-private.pem

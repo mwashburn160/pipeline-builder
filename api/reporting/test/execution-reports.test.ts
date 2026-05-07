@@ -7,7 +7,6 @@
 
 const mockGetExecutionCount = jest.fn();
 const mockGetSuccessRate = jest.fn();
-const mockGetExecutionTimeline = jest.fn();
 const mockGetAverageDuration = jest.fn();
 const mockGetStageFailures = jest.fn();
 const mockGetStageBottlenecks = jest.fn();
@@ -32,7 +31,6 @@ jest.mock('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getExecutionCount: mockGetExecutionCount,
     getSuccessRate: mockGetSuccessRate,
-    getExecutionTimeline: mockGetExecutionTimeline,
     getAverageDuration: mockGetAverageDuration,
     getStageFailures: mockGetStageFailures,
     getStageBottlenecks: mockGetStageBottlenecks,

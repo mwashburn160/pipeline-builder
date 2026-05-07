@@ -78,7 +78,7 @@ export function createBulkPluginRoutes(): Router {
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });
 
     const updated = await pluginService.updateMany(
-      { id: ids } as unknown as Record<string, unknown>,
+      { id: ids },
       dataValidation.data,
       orgId,
       userId,

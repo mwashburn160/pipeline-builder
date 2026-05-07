@@ -3,18 +3,12 @@
 
 // Mock external dependencies — must be set up before importing the service
 const mockFind = jest.fn();
-const mockUpdate = jest.fn();
-const mockUpdateMany = jest.fn();
-const mockCount = jest.fn();
 const mockDbUpdate = jest.fn();
 const mockDbSelect = jest.fn();
 
 jest.mock('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
-    update = mockUpdate;
-    updateMany = mockUpdateMany;
-    count = mockCount;
   }
 
   return {
@@ -213,8 +207,6 @@ describe('MessageService', () => {
         updatedBy: 'user-1',
       }));
       expect(result).toEqual(updated);
-      // Sanity: updateMany (previous implementation) is no longer the call path.
-      void mockUpdateMany;
     });
   });
 

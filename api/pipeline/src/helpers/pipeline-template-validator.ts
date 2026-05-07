@@ -7,7 +7,6 @@ import {
   detectCycles,
   allowedScopeRoots,
   resolveSelfReferencing,
-  tokenize,
 } from '@pipeline-builder/pipeline-core';
 
 /**
@@ -102,5 +101,3 @@ export function resolvePipeline<T extends PipelineLike>(pipeline: T): T {
   return pipeline;
 }
 
-// Re-export tokenize for callers that need to inspect templates raw
-export { tokenize };

@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import type { AccessModifier } from '@pipeline-builder/api-core';
+import { CoreConstants, type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 import { v7 as uuid } from 'uuid';
 
 import type { BuildRequest, BuildType } from './docker-build';
@@ -26,15 +27,15 @@ export function generateImageTag(name: string): string {
 // Build job types & factory
 
 /** Plugin record data stored in the BullMQ job for DB insertion. */
-interface PluginRecordData {
+export interface PluginRecordData {
   orgId: string;
   name: string;
   description: string | null;
   version: string;
   category: string;
   metadata: Record<string, string | number | boolean>;
-  pluginType: string;
-  computeType: string;
+  pluginType: PluginType;
+  computeType: ComputeType;
   primaryOutputDirectory: string | null;
   dockerfile: string | null;
   env: Record<string, string>;
@@ -43,9 +44,9 @@ interface PluginRecordData {
   installCommands: string[];
   commands: string[];
   imageTag: string;
-  accessModifier: string;
+  accessModifier: AccessModifier;
   timeout: number | null;
-  failureBehavior: string;
+  failureBehavior: 'fail' | 'warn' | 'ignore';
   buildType: BuildType;
   secrets: Array<{ name: string; required: boolean; description?: string }>;
 }

@@ -15,7 +15,6 @@ import IORedis from 'ioredis';
 import { buildAndPush, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
-import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -370,7 +369,7 @@ export function startWorker(
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 
-        const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId);
+        const result = await pluginService.deployVersion(pluginRecord, userId);
 
         incrementQuota(quotaService, orgId, 'plugins', getServiceAuthHeader({ serviceName: 'plugin', orgId }), logger.warn.bind(logger));
 

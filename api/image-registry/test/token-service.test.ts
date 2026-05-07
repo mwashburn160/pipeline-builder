@@ -22,8 +22,6 @@ process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
 process.env.REGISTRY_TOKEN_ISSUER = 'test-platform';
 process.env.REGISTRY_TOKEN_SERVICE = 'test-registry';
 process.env.JWT_SECRET = 'test-jwt-secret';
-process.env.PLATFORM_BUILD_USERNAME = 'build-svc';
-process.env.PLATFORM_BUILD_PASSWORD = 'build-pw';
 
 import jwt from 'jsonwebtoken';
 import {
@@ -105,15 +103,23 @@ describe('authorizeScope', () => {
     expect(granted).toEqual(['pull', 'push']);
   });
 
-  it('grants build-service whatever it requests', () => {
+  it('grants management whatever it requests on any scope type', () => {
     const granted = authorizeScope(
-      { type: 'build-service' },
+      { type: 'management' },
       { type: 'repository', name: 'system/synth', actions: ['pull', 'push', '*'] },
     );
     expect(granted).toEqual(['pull', 'push', '*']);
   });
 
-  it('rejects non-repository scope types', () => {
+  it('grants management access on registry:catalog scope (used by registry-client)', () => {
+    const granted = authorizeScope(
+      { type: 'management' },
+      { type: 'registry', name: 'catalog', actions: ['*'] },
+    );
+    expect(granted).toEqual(['*']);
+  });
+
+  it('rejects non-repository scope types for external identities', () => {
     const granted = authorizeScope(
       { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true },
       { type: 'unknown', name: 'foo', actions: ['pull'] },

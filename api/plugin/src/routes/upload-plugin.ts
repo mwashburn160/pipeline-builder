@@ -8,14 +8,13 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, checkQuota, requireOrgId, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, Request, Response } from 'express';
-import type { RequestHandler } from 'express';
+import type { RequestHandler, ErrorRequestHandler } from 'express';
 import multer from 'multer';
 
 import { createBuildJobData } from '../helpers/plugin-helpers';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec';
 import { getQueue } from '../queue/plugin-build-queue';
 import { pluginService } from '../services/plugin-service';
-import type { PluginInsert } from '../services/plugin-service';
 
 const logger = createLogger('upload-plugin');
 
@@ -60,13 +59,14 @@ export function createUploadPluginRoutes(
     }) as RequestHandler,
     upload.single('plugin') as RequestHandler,
     // Handle multer/busboy errors (e.g. "Unexpected end of form") before proceeding
-    ((err: Error, _req: Request, res: Response, next: (err?: Error) => void) => {
+    ((err, _req, res, next) => {
       if (err) {
         logger.error('Multipart parse error', { error: err.message });
-        return sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
+        sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
+        return;
       }
       next();
-    }) as unknown as RequestHandler,
+    }) as ErrorRequestHandler,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     // Any authenticated org member may upload a plugin. The accessModifier is
@@ -152,15 +152,12 @@ export function createUploadPluginRoutes(
         }
 
         // -- Build plugin record --------------------------------------------------
-        const raw = s as unknown as Record<string, unknown>;
-        const category = typeof raw.category === 'string' ? raw.category : 'unknown';
-
         const pluginRecord = {
           orgId,
           name: s.name,
           description: s.description || null,
           version: s.version || '0.0.0',
-          category,
+          category: s.category || 'unknown',
           metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
           pluginType: s.pluginType || 'CodeBuildStep',
           computeType: s.computeType || 'SMALL',
@@ -181,7 +178,7 @@ export function createUploadPluginRoutes(
 
         // -- metadata_only: deploy directly (no Docker build needed) -----------
         if (plugin.buildType === 'metadata_only') {
-          const result = await pluginService.deployVersion(pluginRecord as unknown as PluginInsert, userId || 'system');
+          const result = await pluginService.deployVersion(pluginRecord, userId || 'system');
 
           ctx.log('INFO', 'Metadata-only plugin deployed', {
             pluginName: s.name,

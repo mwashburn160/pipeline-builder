@@ -40,6 +40,7 @@ FILES=(
   "$ROOT"/deploy/aws/ec2/k8s/*.yaml
   "$ROOT/deploy/local/docker-compose.yml"
   "$ROOT/deploy/aws/fargate/.env.example"
+  "$ROOT/deploy/aws/fargate/stacks/04-services.yaml"
 )
 
 # Cross-platform `sed -i` (BSD sed needs an explicit empty backup arg)

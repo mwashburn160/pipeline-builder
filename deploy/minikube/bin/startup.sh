@@ -156,7 +156,6 @@ rm -f "$CLEAN_ENV"
 secret jwt-secret        --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
 secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
-secret registry-secret   --from-literal=IMAGE_REGISTRY_USER="$IMAGE_REGISTRY_USER" --from-literal=IMAGE_REGISTRY_TOKEN="$IMAGE_REGISTRY_TOKEN"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
 secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
 secret grafana-secret    --from-literal=GF_SECURITY_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
@@ -199,14 +198,9 @@ secret registry-token-secret \
 
 # Build-side credentials consumed by the image-registry proxy:
 #   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.
-#   PLATFORM_BUILD_*  — credentials api/plugin presents to obtain push tokens.
-# Both reuse the registry admin creds; rotate PLATFORM_BUILD_* separately if
-# you want platform→image-registry to authenticate as a distinct identity.
 secret image-registry-build-svc-secret \
   --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" \
-  --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN" \
-  --from-literal=PLATFORM_BUILD_USERNAME="$IMAGE_REGISTRY_USER" \
-  --from-literal=PLATFORM_BUILD_PASSWORD="$IMAGE_REGISTRY_TOKEN"
+  --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
 
 if command -v htpasswd >/dev/null 2>&1; then
   htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"

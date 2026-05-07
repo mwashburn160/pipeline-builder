@@ -78,23 +78,12 @@ export interface AppConfig {
   };
 
   /**
-   * Service-account credentials that internal callers (e.g., `api/plugin`'s
-   * docker-build) present as Basic auth to obtain push tokens. Distinct
-   * from the underlying-registry credentials above; this account exists
-   * only for the `/token` endpoint.
-   */
-  readonly buildServiceAccount: {
-    readonly username: string;
-    readonly password: string;
-  };
-
-  /**
    * Platform service URL — used for the `docker login` flow (auth-resolver
-   * Path 3). Incoming Basic auth that doesn't decode as a JWT and isn't
-   * the build-service account is forwarded to platform's `/auth/login`,
-   * which returns a JWT we can introspect for org claims.
+   * Path 2). Incoming Basic auth that doesn't decode as a JWT is forwarded
+   * to platform's `/auth/login`, which returns a JWT we can introspect for
+   * org claims.
    *
-   * Empty string disables the platform-user path (defaults to disabled
+   * Empty string disables the `docker login` path (defaults to disabled
    * to avoid surprise outbound calls during testing).
    */
   readonly platformUrl: string;
@@ -128,11 +117,6 @@ export const config: AppConfig = {
     secret: resolveSecretValue('JWT_SECRET'),
     issuer: process.env.JWT_ISSUER,
     audience: process.env.JWT_AUDIENCE,
-  },
-
-  buildServiceAccount: {
-    username: resolveSecretValue('PLATFORM_BUILD_USERNAME'),
-    password: resolveSecretValue('PLATFORM_BUILD_PASSWORD'),
   },
 
   platformUrl: process.env.PLATFORM_BASE_URL || '',

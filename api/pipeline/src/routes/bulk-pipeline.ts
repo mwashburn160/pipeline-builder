@@ -119,7 +119,7 @@ export function createBulkPipelineRoutes(): Router {
     ctx.log('INFO', 'Bulk update pipelines', { count: ids.length });
 
     const updated = await pipelineService.updateMany(
-      { id: ids } as unknown as Record<string, unknown>,
+      { id: ids },
       data,
       orgId,
       userId,

@@ -58,26 +58,25 @@ export const ORG_NAMESPACE_PREFIX = 'org-';
  * deny the operation).
  *
  * Policy:
- *   - **build-service**: anything; pull/push on every repo, including delete
- *   - **jwt** (org user): pull on `system/*`; pull,push on `org-{orgId}/*`
- *   - **platform-user**: same as jwt
+ *   - **management** (internal only): anything; in-process self-issue
+ *   - **jwt** (org user / api/plugin service token): pull on `system/*`;
+ *     pull,push on `org-{orgId}/*`; admins also push on any org
  */
 export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
-  if (requested.type !== 'repository') {
-    // Distribution defines `repository` and `registry` types; other types
-    // are extension. Default deny for unknown types.
-    return [];
-  }
-
-  if (identity.type === 'build-service') {
-    // Build service runs api/plugin pushes; trust it for any action it asks for.
+  // Internal management identity bypasses scope-type filtering — it needs
+  // both `repository:*` (manifests/blobs) and `registry:catalog:*` access
+  // for the underlying registry's management API.
+  if (identity.type === 'management') {
     return requested.actions;
   }
 
-  const orgPrefix =
-    identity.type === 'jwt' || (identity.type === 'platform-user' && identity.orgId)
-      ? `${ORG_NAMESPACE_PREFIX}${identity.type === 'jwt' ? identity.orgId : identity.orgId}/`
-      : null;
+  if (requested.type !== 'repository') {
+    // Distribution defines `repository` and `registry` types; other types
+    // are extension. External callers only get `repository` scopes.
+    return [];
+  }
+
+  const orgPrefix = `${ORG_NAMESPACE_PREFIX}${identity.orgId}/`;
 
   // Anyone authenticated can pull system images
   if (requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
@@ -86,14 +85,11 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 
   // Org-prefixed repo: only the matching org can pull/push; system admins
   // get push too on any org.
-  if (orgPrefix && requested.name.startsWith(orgPrefix)) {
+  if (requested.name.startsWith(orgPrefix)) {
     return requested.actions.filter((a) => ['pull', 'push'].includes(a));
   }
 
-  if (
-    (identity.type === 'jwt' && identity.isAdmin) ||
-    (identity.type === 'platform-user' && identity.isAdmin)
-  ) {
+  if (identity.isAdmin) {
     return requested.actions.filter((a) => ['pull', 'push'].includes(a));
   }
 
@@ -155,11 +151,9 @@ export function issueRegistryToken(
   const payload = {
     iss: config.tokenSigning.issuer,
     sub:
-      identity.type === 'build-service'
-        ? 'build-service'
-        : identity.type === 'jwt'
-          ? `${identity.orgId}:${identity.userId}`
-          : `${identity.orgId ?? 'unknown'}:${identity.userId}`,
+      identity.type === 'management'
+        ? 'management'
+        : `${identity.orgId}:${identity.userId}`,
     aud: config.tokenSigning.service,
     exp: now + config.tokenSigning.expiresInSeconds,
     nbf: now,

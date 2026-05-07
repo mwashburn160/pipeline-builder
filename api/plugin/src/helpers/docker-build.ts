@@ -5,7 +5,7 @@ import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger, signServiceToken, ValidationError } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('docker-build');
@@ -61,17 +61,17 @@ export interface BuildResult {
 
 interface StrategyDef {
   binary: (cfg: DockerBuildCfg) => string;
-  setupAuth: (contextDir: string, registry: RegistryInfo) => string[];
+  setupAuth: (contextDir: string, registry: RegistryInfo, orgId: string) => string[];
   buildCli: (cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) => string[];
   pushCli: (image: string, registry: RegistryInfo, authArgs: string[]) => string[] | null;
   cleanup: (binary: string, image: string) => void;
   patchConfnew: boolean;
 }
 
-function ociAuthDir(contextDir: string, registry: RegistryInfo): string {
+function ociAuthDir(contextDir: string, registry: RegistryInfo, orgId: string): string {
   const dir = path.join(contextDir, '.docker');
   fs.mkdirSync(dir, { recursive: true });
-  writeAuthJson(dir, registry);
+  writeAuthJson(dir, registry, orgId);
   return dir;
 }
 
@@ -92,8 +92,8 @@ function podmanTls(registry: RegistryInfo): string[] {
 const strategies: Record<BuildStrategy, StrategyDef> = {
   docker: {
     binary: () => 'docker',
-    setupAuth(contextDir: string, registry: RegistryInfo) {
-      const dir = ociAuthDir(contextDir, registry);
+    setupAuth(contextDir: string, registry: RegistryInfo, orgId: string) {
+      const dir = ociAuthDir(contextDir, registry, orgId);
       process.env.DOCKER_CONFIG = dir;
       // Detect dind sidecar via DIND_HOST env var (set by docker-compose/K8s)
       const dindHost = process.env.DIND_HOST;
@@ -117,8 +117,8 @@ const strategies: Record<BuildStrategy, StrategyDef> = {
 
   podman: {
     binary: () => 'podman',
-    setupAuth(contextDir: string, registry: RegistryInfo) {
-      const dir = ociAuthDir(contextDir, registry);
+    setupAuth(contextDir: string, registry: RegistryInfo, orgId: string) {
+      const dir = ociAuthDir(contextDir, registry, orgId);
       return [`--authfile=${path.join(dir, 'config.json')}`];
     },
     buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) {
@@ -138,11 +138,11 @@ const strategies: Record<BuildStrategy, StrategyDef> = {
 
   kaniko: {
     binary: (cfg: DockerBuildCfg) => cfg.kanikoExecutor,
-    setupAuth(_contextDir: string, registry: RegistryInfo) {
+    setupAuth(_contextDir: string, registry: RegistryInfo, orgId: string) {
       const dir = process.env.DOCKER_CONFIG || '/kaniko/.docker';
       fs.mkdirSync(dir, { recursive: true });
       process.env.DOCKER_CONFIG = dir;
-      writeAuthJson(dir, registry);
+      writeAuthJson(dir, registry, orgId);
       return [];
     },
     buildCli(cfg: DockerBuildCfg, req: BuildRequest, image: string) {
@@ -218,7 +218,7 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
 
   logger.info('Building image', { strategy: ctx.cfg.strategy, image: ctx.image });
 
-  const authArgs = ctx.strategy.setupAuth(req.contextDir, req.registry);
+  const authArgs = ctx.strategy.setupAuth(req.contextDir, req.registry, req.orgId);
   patchDockerfile(req.contextDir, req.dockerfile, ctx.strategy.patchConfnew);
 
   await run(ctx.bin, ctx.strategy.buildCli(ctx.cfg, req, ctx.image, authArgs), ctx.cfg.timeoutMs);
@@ -241,7 +241,7 @@ export async function loadAndPush(
     throw new ValidationError('prebuilt build type is not supported with kaniko strategy');
   }
 
-  const authArgs = ctx.strategy.setupAuth(path.dirname(tarPath), registry);
+  const authArgs = ctx.strategy.setupAuth(path.dirname(tarPath), registry, orgId);
   logger.info('Loading prebuilt image', { image: ctx.image, tarPath });
 
   // Load tar → parse loaded image name
@@ -285,22 +285,17 @@ async function pushImage(
 // Helpers
 // -----------------------------------------------------------------------------
 
-function writeAuthJson(dir: string, registry: RegistryInfo) {
+function writeAuthJson(dir: string, registry: RegistryInfo, orgId: string) {
   const addr = `${registry.host}:${registry.port}`;
-  // Build-service-account creds, sent as HTTP Basic when the registry
-  // challenges with a Bearer realm pointing at pipeline-image-registry's
-  // /token endpoint. The Docker/podman/kaniko client handles the token
-  // exchange transparently — these creds get traded for a bearer token
-  // and the actual push uses the bearer.
-  const username = process.env.PLATFORM_BUILD_USERNAME;
-  const password = process.env.PLATFORM_BUILD_PASSWORD;
-  if (!username || !password) {
-    throw new ValidationError(
-      'PLATFORM_BUILD_USERNAME and PLATFORM_BUILD_PASSWORD must be set for registry push. ' +
-      'These authenticate to pipeline-image-registry, not to the underlying registry directly.',
-    );
-  }
-  const auth = Buffer.from(`${username}:${password}`).toString('base64');
+  // Mint a short-lived platform JWT scoped to this build's org and present
+  // it as the Basic-auth password. image-registry's /token endpoint verifies
+  // the JWT (auth-resolver path 1) and mints a Bearer registry token scoped
+  // to `org-<orgId>` (or `system` for system-org plugins). The Docker/
+  // podman/kaniko client handles the Basic→Bearer handoff transparently.
+  // Username is informational only — auth-resolver doesn't read it on the
+  // JWT path. We use `_token` per the convention Docker uses internally.
+  const password = signServiceToken({ serviceName: 'platform', orgId });
+  const auth = Buffer.from(`_token:${password}`).toString('base64');
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths: { [addr]: { auth } } }));
 }
 

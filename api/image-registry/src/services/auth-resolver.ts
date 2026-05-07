@@ -8,11 +8,17 @@ import { config } from '../config';
 
 const logger = createLogger('auth-resolver');
 
-/** Caller identity resolved from incoming Basic auth credentials. */
+/**
+ * Caller identity. The `jwt` variant is produced by `resolveIdentity` from
+ * incoming Basic auth (the password is verified as a platform JWT — both
+ * the Bearer-as-password path and the `docker login` → /auth/login round
+ * trip end up here). `management` is constructed directly in-process by
+ * `registry-client` for image-registry's own outbound calls and is NOT
+ * producible via any external auth path.
+ */
 export type Identity =
   | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean }
-  | { type: 'build-service' }
-  | { type: 'platform-user'; orgId?: string; userId: string; isAdmin: boolean };
+  | { type: 'management' };
 
 /**
  * Decoded shape of a platform JWT. Mirrors AccessTokenPayload as platform
@@ -34,13 +40,10 @@ interface PlatformJwtPayload {
  *   1. **password as platform JWT** — verifies signature with platform's
  *      `JWT_SECRET`. On success, identity carries the JWT's `organizationId`
  *      + `sub` so scope authorization can grant `org-{orgId}` access.
- *      This is the path customer CodeBuild + the plugin-lookup Lambda use.
+ *      This is the path customer CodeBuild, the plugin-lookup Lambda, and
+ *      `api/plugin` (during plugin uploads) all use.
  *
- *   2. **build service account** — fixed creds in env (`PLATFORM_BUILD_*`);
- *      grants full push access. Used only by `api/plugin` during plugin
- *      builds.
- *
- *   3. **platform user** — for direct `docker login`. Posts to platform's
+ *   2. **platform user** — for direct `docker login`. Posts to platform's
  *      `/auth/login` with the supplied creds; on success the returned JWT
  *      carries the same org/admin claims Path 1 looks for. Disabled when
  *      `PLATFORM_BASE_URL` is unset.
@@ -48,19 +51,12 @@ interface PlatformJwtPayload {
  * Returns `null` if all paths fail. Caller should respond 401 in that case.
  */
 export async function resolveIdentity(username: string, password: string): Promise<Identity | null> {
-  // Path 1: JWT — most common (CodeBuild / Lambda via Secrets Manager)
+  // Path 1: JWT — most common (CodeBuild / Lambda via Secrets Manager,
+  // and api/plugin minting service tokens for its own pushes).
   const fromJwt = verifyPlatformJwt(password);
   if (fromJwt) return fromJwt;
 
-  // Path 2: build service account — single shared identity
-  if (
-    username === config.buildServiceAccount.username &&
-    password === config.buildServiceAccount.password
-  ) {
-    return { type: 'build-service' };
-  }
-
-  // Path 3: platform user — `docker login` flow.
+  // Path 2: platform user — `docker login` flow.
   if (config.platformUrl) {
     return resolvePlatformUser(username, password);
   }

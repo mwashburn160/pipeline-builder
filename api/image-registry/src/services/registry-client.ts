@@ -20,8 +20,8 @@ const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
  * The registry will respond with 401 + Bearer challenge for token-auth
  * mode, but our service uses the registry's catalog/manifest/blob v2 API
  * for management ops only — and for those, we follow the same flow
- * customers do: we validate ourselves as the build-service identity via
- * `auth-resolver`, mint a token via `token-service`, and use it here.
+ * customers do: we construct a `management` identity in-process and mint
+ * a token via `token-service`, and use it here.
  *
  * For simplicity, the management endpoints use a self-issued token that
  * carries `*` actions on all repos.
@@ -36,7 +36,7 @@ const client: AxiosInstance = axios.create({
 
 let cachedManagementToken: { token: string; expiresAt: number } | null = null;
 
-/** Lazily compute the build-service token used for our outbound management calls. */
+/** Lazily compute the management token used for our outbound calls to the underlying registry. */
 async function getManagementToken(): Promise<string> {
   const now = Date.now();
   if (cachedManagementToken && cachedManagementToken.expiresAt > now + 30_000) {
@@ -46,7 +46,7 @@ async function getManagementToken(): Promise<string> {
   // Mint a token in-process for our own management calls — same logic the
   // /token endpoint runs for external callers, just skipping the HTTP hop.
   const token = authorizeAndIssue(
-    { type: 'build-service' as const },
+    { type: 'management' as const },
     [{ type: 'registry', name: 'catalog', actions: ['*'] }],
     'pipeline-image-registry-management',
   );

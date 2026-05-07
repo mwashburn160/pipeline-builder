@@ -289,22 +289,12 @@ const isPluginPath = allowedScopeRoots(PLUGIN_SCOPE_ROOTS);
  *    in `requiredVars` — unless the template uses the `| default:` filter.
  */
 export function validatePluginTemplates(pluginSpec: PluginSpec): void {
-  const spec = pluginSpec as unknown as {
-    description?: string;
-    commands?: string[];
-    installCommands?: string[];
-    env?: Record<string, string>;
-    buildArgs?: Record<string, string>;
-    requiredMetadata?: string[];
-    requiredVars?: string[];
-  };
-
   const docForScan = {
-    description: spec.description,
-    commands: spec.commands,
-    installCommands: spec.installCommands,
-    env: spec.env,
-    buildArgs: spec.buildArgs,
+    description: pluginSpec.description,
+    commands: pluginSpec.commands,
+    installCommands: pluginSpec.installCommands,
+    env: pluginSpec.env,
+    buildArgs: pluginSpec.buildArgs,
   };
 
   const { valid, errors } = validateTemplates(docForScan, isPluginTemplatable, isPluginPath);
@@ -316,19 +306,19 @@ export function validatePluginTemplates(pluginSpec: PluginSpec): void {
 
   // Contract validation: every referenced pipeline.metadata.X / pipeline.vars.X
   // must be in requiredMetadata / requiredVars (unless a default: is present)
-  const requiredMetadata = new Set((pluginSpec as unknown as { requiredMetadata?: string[] }).requiredMetadata ?? []);
-  const requiredVars = new Set((pluginSpec as unknown as { requiredVars?: string[] }).requiredVars ?? []);
-  const metadataTypes = (pluginSpec as unknown as { metadataTypes?: Record<string, string> }).metadataTypes ?? {};
-  const varsTypes = (pluginSpec as unknown as { varsTypes?: Record<string, string> }).varsTypes ?? {};
+  const requiredMetadata = new Set(pluginSpec.requiredMetadata ?? []);
+  const requiredVars = new Set(pluginSpec.requiredVars ?? []);
+  const metadataTypes = pluginSpec.metadataTypes ?? {};
+  const varsTypes = pluginSpec.varsTypes ?? {};
   const missing: string[] = [];
   const typeMismatches: string[] = [];
 
   const scanStrings: string[] = [];
-  if (spec.description) scanStrings.push(spec.description);
-  if (spec.commands) scanStrings.push(...spec.commands);
-  if (spec.installCommands) scanStrings.push(...spec.installCommands);
-  if (spec.env) scanStrings.push(...Object.values(spec.env));
-  if (spec.buildArgs) scanStrings.push(...Object.values(spec.buildArgs));
+  if (pluginSpec.description) scanStrings.push(pluginSpec.description);
+  if (pluginSpec.commands) scanStrings.push(...pluginSpec.commands);
+  if (pluginSpec.installCommands) scanStrings.push(...pluginSpec.installCommands);
+  if (pluginSpec.env) scanStrings.push(...Object.values(pluginSpec.env));
+  if (pluginSpec.buildArgs) scanStrings.push(...Object.values(pluginSpec.buildArgs));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { tokenize } = require('@pipeline-builder/pipeline-core');

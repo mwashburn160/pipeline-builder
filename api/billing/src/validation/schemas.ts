@@ -32,6 +32,3 @@ export const AdminSubscriptionUpdateSchema = z.object({
   cancelAtPeriodEnd: z.boolean().optional(),
 });
 
-export type ValidatedSubscriptionCreate = z.infer<typeof SubscriptionCreateSchema>;
-export type ValidatedSubscriptionUpdate = z.infer<typeof SubscriptionUpdateSchema>;
-export type ValidatedAdminSubscriptionUpdate = z.infer<typeof AdminSubscriptionUpdateSchema>;

@@ -13,8 +13,6 @@ process.env.IMAGE_REGISTRY_PASSWORD = 'pw';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
 process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
 process.env.JWT_SECRET = 'test-jwt-secret';
-process.env.PLATFORM_BUILD_USERNAME = 'build-svc';
-process.env.PLATFORM_BUILD_PASSWORD = 'build-pw';
 // Default: platform-user path disabled. Tests that exercise it set
 // PLATFORM_BASE_URL via jest.isolateModules to opt in per-test.
 
@@ -50,11 +48,7 @@ describe('resolveIdentity', () => {
     });
   });
 
-  it('falls back to build-service when password matches the build creds', async () => {
-    await expect(resolveIdentity('build-svc', 'build-pw')).resolves.toEqual({ type: 'build-service' });
-  });
-
-  it('returns null for invalid JWT and non-build creds (platform-user disabled)', async () => {
+  it('returns null for invalid JWT (platform-user disabled)', async () => {
     await expect(resolveIdentity('whoever', 'not-a-jwt')).resolves.toBeNull();
     // Platform-user path requires PLATFORM_BASE_URL — unset in this test
     // suite, so axios should never be called.
@@ -69,10 +63,6 @@ describe('resolveIdentity', () => {
   it('returns null for JWT signed with the wrong secret', async () => {
     const token = jwt.sign({ sub: 'user-x', organizationId: 'acme' }, 'different-secret');
     await expect(resolveIdentity('whoever', token)).resolves.toBeNull();
-  });
-
-  it('rejects build creds with wrong username', async () => {
-    await expect(resolveIdentity('not-build', 'build-pw')).resolves.toBeNull();
   });
 });
 

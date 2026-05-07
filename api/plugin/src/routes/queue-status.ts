@@ -257,8 +257,8 @@ export function createQueueStatusRoutes(): Router {
       }
     };
 
-    for (const j of failed) ingest(j as unknown as Parameters<typeof ingest>[0], 'queue');
-    for (const j of dlqJobs) ingest(j as unknown as Parameters<typeof ingest>[0], 'dlq');
+    for (const j of failed) ingest(j, 'queue');
+    for (const j of dlqJobs) ingest(j, 'dlq');
 
     const groups = Array.from(buckets.values())
       .map(b => ({

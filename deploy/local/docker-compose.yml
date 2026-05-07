@@ -95,16 +95,17 @@ services:
       - proxy-network
       - backend-network
     depends_on:
-      billing:    { condition: service_started }
-      compliance: { condition: service_started }
-      frontend:   { condition: service_started }
-      grafana:    { condition: service_started }
-      message:    { condition: service_started }
-      pipeline:   { condition: service_started }
-      platform:   { condition: service_started }
-      plugin:     { condition: service_started }
-      quota:      { condition: service_started }
-      reporting:  { condition: service_started }
+      billing:        { condition: service_started }
+      compliance:     { condition: service_started }
+      frontend:       { condition: service_started }
+      grafana:        { condition: service_started }
+      image-registry: { condition: service_started }
+      message:        { condition: service_started }
+      pipeline:       { condition: service_started }
+      platform:       { condition: service_started }
+      plugin:         { condition: service_started }
+      quota:          { condition: service_started }
+      reporting:      { condition: service_started }
     healthcheck:
       test: ["CMD-SHELL", "curl -sfk https://localhost:8443/health || exit 1"]
       interval: 30s
@@ -323,10 +324,6 @@ services:
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
-      # Credentials api/plugin uses to authenticate with image-registry's
-      # /token endpoint when pushing built plugin images.
-      PLATFORM_BUILD_USERNAME: ${PLATFORM_BUILD_USERNAME:-build-service}
-      PLATFORM_BUILD_PASSWORD: ${PLATFORM_BUILD_PASSWORD:-build-service-password}
       DOCKER_REGISTRY_HTTP: ${DOCKER_REGISTRY_HTTP:-false}
       DOCKER_REGISTRY_INSECURE: ${DOCKER_REGISTRY_INSECURE:-true}
       REDIS_HOST: ${REDIS_HOST:-redis}
@@ -527,8 +524,9 @@ services:
   # pipeline-image-registry — Docker registry token-auth issuer +
   # /api/images/* management API. Customer CodeBuild pulls go through
   # the underlying registry (which delegates token issuance here);
-  # api/plugin pushes get bearer tokens by Basic-auth'ing here as the
-  # build-service account.
+  # api/plugin pushes mint a short-lived platform JWT and present it as
+  # the Basic-auth password — image-registry verifies the JWT and issues
+  # a registry-scoped Bearer token.
   image-registry:
     image: 'ghcr.io/mwashburn160/image-registry:3.4.5'
     container_name: image-registry
@@ -555,10 +553,6 @@ services:
       REGISTRY_TOKEN_EXPIRES_IN: ${REGISTRY_TOKEN_EXPIRES_IN:-300}
       # JWT_SECRET is the platform's signing key — used here to verify
       # incoming Basic-auth-where-password-is-a-platform-JWT.
-      # Build service account creds — what api/plugin presents to obtain
-      # push tokens.
-      PLATFORM_BUILD_USERNAME: ${PLATFORM_BUILD_USERNAME:-build-service}
-      PLATFORM_BUILD_PASSWORD: ${PLATFORM_BUILD_PASSWORD:-build-service-password}
     volumes:
       - './certs/registry-token.key:/etc/registry/jwt-private.pem:ro'
       - './certs/registry-token.crt:/etc/registry/jwt-public.pem:ro'

@@ -60,6 +60,10 @@ jest.mock('@pipeline-builder/api-core', () => {
       debug: jest.fn(),
     }),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // writeAuthJson mints a platform JWT to use as Basic-auth password.
+    // Tests don't push anywhere — return a deterministic placeholder so
+    // assertions on the resulting `auth` field are stable.
+    signServiceToken: jest.fn(() => 'test-jwt-token'),
   };
 });
 
@@ -120,15 +124,6 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
 // Tests
 
 describe('docker-build', () => {
-  beforeAll(() => {
-    // Token-flow auth (Phase 3): writeAuthJson reads these env vars and
-    // embeds them in the Docker auth config. Tests don't actually push
-    // anywhere — they just verify command construction — so the values
-    // are placeholder.
-    process.env.PLATFORM_BUILD_USERNAME = 'test-build-svc';
-    process.env.PLATFORM_BUILD_PASSWORD = 'test-build-pw';
-  });
-
   beforeEach(() => {
     jest.clearAllMocks();
     // Default: spawn returns a child that exits with code 0
@@ -205,11 +200,12 @@ describe('docker-build', () => {
       );
     });
 
-    it('writes auth config with base64 credentials', async () => {
+    it('writes auth config with a platform-JWT-based credential', async () => {
       await buildAndPush(makeRequest());
 
-      // Auth carries build-service-account creds (token-flow), not registry creds.
-      const expectedAuth = Buffer.from('test-build-svc:test-build-pw').toString('base64');
+      // Auth carries `_token:<platform JWT>` — image-registry's /token
+      // endpoint verifies the JWT and trades it for a Bearer registry token.
+      const expectedAuth = Buffer.from('_token:test-jwt-token').toString('base64');
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         '/tmp/build-ctx/.docker/config.json',
         JSON.stringify({
@@ -222,8 +218,7 @@ describe('docker-build', () => {
       mockStrategy = 'podman';
       await buildAndPush(makeRequest());
 
-      // Auth carries build-service-account creds (token-flow), not registry creds.
-      const expectedAuth = Buffer.from('test-build-svc:test-build-pw').toString('base64');
+      const expectedAuth = Buffer.from('_token:test-jwt-token').toString('base64');
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         '/tmp/build-ctx/.docker/config.json',
         JSON.stringify({

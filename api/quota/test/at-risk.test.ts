@@ -34,7 +34,7 @@ jest.mock('../src/middleware/authorize-org', () => ({
 }));
 
 jest.mock('../src/helpers/quota-helpers', () => ({
-  AUTH_OPTS: {},
+  INTERNAL_AUTH_OPTS: {},
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 

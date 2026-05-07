@@ -23,6 +23,7 @@ export function createExecutionReportRoutes(): Router {
 
   router.get('/timeline', withRoute(async ({ req, res, orgId }) => {
     const interval = String(req.query.interval || 'week');
+    if (!VALID_INTERVALS.includes(interval)) return sendBadRequest(res, 'interval must be day, week, or month', ErrorCode.VALIDATION_ERROR);
     const { from, to } = parseRange(req.query);
     sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, from, to) });
   }));
