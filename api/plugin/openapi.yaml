@@ -257,8 +257,10 @@ components:
         commands:
           type: array
           items: { type: string }
-        imageTag:
+        uri:
           type: string
+          description: 'Computed image URI: <namespace>/<name>:<version>. Returned by read endpoints; not accepted on write.'
+          example: 'org-acme/nodejs-build:1.0.0'
         dockerfile:
           type: string
         accessModifier:
@@ -332,8 +334,9 @@ components:
           type: string
         version:
           type: string
-        imageTag:
+        uri:
           type: string
+          description: 'Computed image URI: <namespace>/<name>:<version>'
         fullImage:
           type: string
         accessModifier:

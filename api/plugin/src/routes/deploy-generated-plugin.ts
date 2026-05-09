@@ -20,7 +20,7 @@ import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import { createBuildJobData, generateImageTag } from '../helpers/plugin-helpers';
+import { createBuildJobData } from '../helpers/plugin-helpers';
 import { validateBuildArgs } from '../helpers/plugin-spec';
 import { getQueue } from '../queue/plugin-build-queue';
 
@@ -61,12 +61,9 @@ export function createDeployGeneratedPluginRoutes(
       // Validate buildArgs (throws ValidationError → handled by withRoute)
       validateBuildArgs(buildArgs);
 
-      const imageTag = generateImageTag(name);
-
       ctx.log('INFO', 'Deploying AI-generated plugin', {
         pluginName: name,
         version,
-        imageTag,
         accessModifier,
       });
 
@@ -83,7 +80,8 @@ export function createDeployGeneratedPluginRoutes(
         buildRequest: {
           contextDir: tempDir,
           dockerfile: 'Dockerfile',
-          imageTag,
+          name,
+          version,
           orgId,
           registry,
           buildArgs: buildArgs || {},
@@ -103,23 +101,22 @@ export function createDeployGeneratedPluginRoutes(
           keywords: keywords || [],
           installCommands: installCommands || [],
           commands,
-          imageTag,
           accessModifier,
           buildType: 'build_image',
         },
       });
 
-      await getQueue().add(`deploy-generated-${name}-${imageTag}`, jobData);
+      await getQueue().add(`deploy-generated-${name}-${version}`, jobData);
 
       ctx.log('INFO', 'Build queued', {
         pluginName: name,
-        imageTag,
+        version,
       });
 
       return sendSuccess(res, 202, {
         requestId: ctx.requestId,
         pluginName: name,
-        imageTag,
+        version,
       }, 'Plugin build queued');
     }),
   );

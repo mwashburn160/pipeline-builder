@@ -113,7 +113,8 @@ function makeRequest(overrides: Partial<BuildRequest> = {}): BuildRequest {
   return {
     contextDir: '/tmp/build-ctx',
     dockerfile: 'Dockerfile',
-    imageTag: 'p-test-abc123',
+    name: 'test-plugin',
+    version: '1.0.0',
     orgId: 'test-org',
     buildType: 'build_image' as const,
     registry: makeRegistry(),
@@ -162,14 +163,19 @@ describe('docker-build', () => {
       await expect(buildAndPush(req)).rejects.toThrow('Invalid registry port');
     });
 
-    it('rejects invalid image tag', async () => {
-      const req = makeRequest({ imageTag: 'UPPER-CASE' });
-      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag');
+    it('rejects plugin name with uppercase (Docker repo paths must be lowercase)', async () => {
+      const req = makeRequest({ name: 'UPPER-CASE' });
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid plugin name');
     });
 
-    it('rejects image tag starting with dot', async () => {
-      const req = makeRequest({ imageTag: '.hidden' });
-      await expect(buildAndPush(req)).rejects.toThrow('Invalid image tag');
+    it('rejects plugin name starting with dot', async () => {
+      const req = makeRequest({ name: '.hidden' });
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid plugin name');
+    });
+
+    it('rejects version starting with separator', async () => {
+      const req = makeRequest({ version: '-1.0.0' });
+      await expect(buildAndPush(req)).rejects.toThrow('Invalid plugin version');
     });
 
     it('rejects invalid network name', async () => {
@@ -180,13 +186,13 @@ describe('docker-build', () => {
     it('accepts valid inputs', async () => {
       const req = makeRequest();
       const result = await buildAndPush(req);
-      expect(result.fullImage).toBe('registry:5000/org-test-org/p-test-abc123:latest');
+      expect(result.fullImage).toBe('registry:5000/org-test-org/test-plugin:1.0.0');
     });
 
     it('accepts valid network name', async () => {
       const req = makeRequest({ registry: makeRegistry({ network: 'my-compose_net' }) });
       const result = await buildAndPush(req);
-      expect(result.fullImage).toBe('registry:5000/org-test-org/p-test-abc123:latest');
+      expect(result.fullImage).toBe('registry:5000/org-test-org/test-plugin:1.0.0');
     });
   });
 
@@ -241,13 +247,13 @@ describe('docker-build', () => {
       expect(buildArgs).toContain('--progress');
       expect(buildArgs).toContain('-f');
       expect(buildArgs).toContain('-t');
-      expect(buildArgs).toContain('registry:5000/org-test-org/p-test-abc123:latest');
+      expect(buildArgs).toContain('registry:5000/org-test-org/test-plugin:1.0.0');
 
       // Second call: docker push
       const [pushBinary, pushArgs] = mockSpawn.mock.calls[1];
       expect(pushBinary).toBe('docker');
       expect(pushArgs[0]).toBe('push');
-      expect(pushArgs).toContain('registry:5000/org-test-org/p-test-abc123:latest');
+      expect(pushArgs).toContain('registry:5000/org-test-org/test-plugin:1.0.0');
     });
 
     it('sets DOCKER_CONFIG env var for docker auth', async () => {
@@ -261,14 +267,14 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
+        ['rmi', 'registry:5000/org-test-org/test-plugin:1.0.0'],
         { stdio: 'ignore' },
       );
     });
 
     it('returns the full image reference', async () => {
       const result = await buildAndPush(makeRequest());
-      expect(result).toEqual({ fullImage: 'registry:5000/org-test-org/p-test-abc123:latest' });
+      expect(result).toEqual({ fullImage: 'registry:5000/org-test-org/test-plugin:1.0.0' });
     });
   });
 
@@ -432,7 +438,7 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'podman',
-        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
+        ['rmi', 'registry:5000/org-test-org/test-plugin:1.0.0'],
         { stdio: 'ignore' },
       );
     });
@@ -484,7 +490,7 @@ describe('docker-build', () => {
 
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
+        ['rmi', 'registry:5000/org-test-org/test-plugin:1.0.0'],
         { stdio: 'ignore' },
       );
     });
@@ -504,7 +510,7 @@ describe('docker-build', () => {
       // rmi should still be called even though push failed
       expect(mockExecFileSync).toHaveBeenCalledWith(
         'docker',
-        ['rmi', 'registry:5000/org-test-org/p-test-abc123:latest'],
+        ['rmi', 'registry:5000/org-test-org/test-plugin:1.0.0'],
         { stdio: 'ignore' },
       );
     });

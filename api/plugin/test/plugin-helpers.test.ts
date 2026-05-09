@@ -1,12 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { generateImageTag, createBuildJobData } from '../src/helpers/plugin-helpers';
-
-// Mocks
-jest.mock('uuid', () => ({
-  v7: () => 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-}));
+import { createBuildJobData, pluginUri, shapePlugin } from '../src/helpers/plugin-helpers';
 
 jest.mock('../src/helpers/docker-build', () => ({}));
 
@@ -20,45 +15,39 @@ jest.mock('@pipeline-builder/api-core', () => ({
     }
     return result;
   }),
-  sendEntityNotFound: jest.fn(),
-  validateQuery: jest.fn((_req: any, _schema: any) => ({ ok: true, value: {} })),
-  PluginFilterSchema: {},
+  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
-  CoreConstants: {
-    PLUGIN_IMAGE_PREFIX: 'p-',
-  },
-  schema: {
-    plugin: {
-      id: 'id',
-      name: 'name',
-      version: 'version',
-      createdAt: 'createdAt',
-      updatedAt: 'updatedAt',
-      isActive: 'isActive',
-      isDefault: 'isDefault',
-    },
-  },
-}));
-
-jest.mock('drizzle-orm', () => ({
-  asc: jest.fn(),
-  desc: jest.fn(),
-}));
+jest.mock('@pipeline-builder/pipeline-core', () => ({}));
 
 // Tests
 
 describe('plugin-helpers', () => {
-  describe('generateImageTag', () => {
-    it('should generate a lowercase tag with prefix and uuid suffix', () => {
-      const tag = generateImageTag('My-Plugin');
-      expect(tag).toBe('p-myplugin-aaaaaaaa');
+  describe('pluginUri', () => {
+    it('uses `system/<name>:<version>` for system-org plugins', () => {
+      expect(pluginUri({ orgId: 'system', name: 'cdk-synth', version: '1.0.0' }))
+        .toBe('system/cdk-synth:1.0.0');
     });
 
-    it('should strip non-alphanumeric characters', () => {
-      const tag = generateImageTag('test@plugin#v2');
-      expect(tag).toBe('p-testpluginv2-aaaaaaaa');
+    it('uses `org-<orgId>/<name>:<version>` for tenant-org plugins', () => {
+      expect(pluginUri({ orgId: 'acme', name: 'nodejs-build', version: '2.3.1' }))
+        .toBe('org-acme/nodejs-build:2.3.1');
+    });
+  });
+
+  describe('shapePlugin', () => {
+    it('attaches the computed uri', () => {
+      const result = shapePlugin({ orgId: 'acme', name: 'foo', version: '1.0.0' });
+      expect(result.uri).toBe('org-acme/foo:1.0.0');
+    });
+
+    it('preserves the original fields', () => {
+      const input = { orgId: 'acme', name: 'foo', version: '1.0.0', extra: 42 };
+      const result = shapePlugin(input);
+      expect(result.orgId).toBe('acme');
+      expect(result.name).toBe('foo');
+      expect(result.version).toBe('1.0.0');
+      expect((result as Record<string, unknown>).extra).toBe(42);
     });
   });
 
@@ -71,7 +60,9 @@ describe('plugin-helpers', () => {
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
-          imageTag: 'p-test-1234',
+          name: 'test',
+          version: '1.0.0',
+          
           orgId: 'org-1',
           buildType: 'build_image',
           registry: { host: 'reg', port: 5000, network: '', http: true, insecure: true },
@@ -81,7 +72,7 @@ describe('plugin-helpers', () => {
           name: 'test',
           version: '1.0.0',
           commands: ['echo hi'],
-          imageTag: 'p-test-1234',
+          
           accessModifier: 'private',
         },
       });
@@ -102,7 +93,9 @@ describe('plugin-helpers', () => {
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
-          imageTag: 'p-test-1234',
+          name: 'test',
+          version: '1.0.0',
+          
           orgId: 'org-1',
           buildType: 'build_image',
           registry: { host: 'reg', port: 5000, network: '', http: true, insecure: true },
@@ -112,7 +105,7 @@ describe('plugin-helpers', () => {
           name: 'test',
           version: '2.0.0',
           commands: ['npm run build'],
-          imageTag: 'p-test-1234',
+          
           accessModifier: 'public',
           pluginType: 'ManualApprovalStep',
           computeType: 'LARGE',

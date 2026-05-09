@@ -286,7 +286,6 @@ export const handler = async (
       secrets: plugin.secrets,
       failureBehavior: plugin.failureBehavior,
       timeout: plugin.timeout,
-      imageTag: plugin.imageTag,
     };
 
     const encoded = Buffer.from(JSON.stringify(slim), 'utf-8').toString('base64');

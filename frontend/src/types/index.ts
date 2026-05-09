@@ -197,7 +197,8 @@ export interface Plugin {
   primaryOutputDirectory?: string;
 
   // Docker configuration
-  imageTag: string;
+  /** Computed image URI: `<namespace>/<name>:<version>`. Server-side derived. */
+  uri: string;
   dockerfile?: string;
   
   // Access and visibility

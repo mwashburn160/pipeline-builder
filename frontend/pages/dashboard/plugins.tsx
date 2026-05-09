@@ -290,12 +290,12 @@ export default function PluginsPage() {
       render: (p) => <Badge color={p.accessModifier === 'public' ? 'green' : 'gray'}>{p.accessModifier}</Badge>,
     },
     {
-      id: 'imageTag',
-      header: 'Image Tag',
+      id: 'uri',
+      header: 'URI',
       hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400 font-mono',
-      sortValue: (p) => p.imageTag,
-      render: (p) => <span title={p.imageTag}>{p.imageTag}</span>,
+      sortValue: (p) => p.uri,
+      render: (p) => <span title={p.uri}>{p.uri}</span>,
     },
     {
       id: 'timeout',
@@ -526,8 +526,8 @@ export default function PluginsPage() {
                 </div>
               </div>
             )}
-            {viewPlugin.imageTag && (
-              <Detail label="Image Tag" value={viewPlugin.imageTag} />
+            {viewPlugin.uri && (
+              <Detail label="URI" value={viewPlugin.uri} />
             )}
             <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
               <div>Created: {new Date(viewPlugin.createdAt).toLocaleString()}</div>

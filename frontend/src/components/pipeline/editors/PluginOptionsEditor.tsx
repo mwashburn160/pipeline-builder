@@ -46,7 +46,6 @@ export default function PluginOptionsEditor({
         isActive: String(plugin.isActive),
         name: plugin.name,
         version: plugin.version,
-        imageTag: plugin.imageTag,
       },
     });
   }, [value, onChange]);
@@ -54,7 +53,7 @@ export default function PluginOptionsEditor({
   const hasFilter = value.filter.id !== '' || value.filter.orgId !== '' ||
     value.filter.accessModifier !== '' || value.filter.isDefault !== '' ||
     value.filter.isActive !== '' || value.filter.name !== '' ||
-    value.filter.version !== '' || value.filter.imageTag !== '';
+    value.filter.version !== '';
 
   return (
     <div className="space-y-3">
@@ -164,17 +163,6 @@ export default function PluginOptionsEditor({
               value={value.filter.version}
               onChange={(e) => updateFilter({ version: e.target.value })}
               placeholder="e.g. 1.0.0"
-              disabled={disabled}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label">Image Tag</label>
-            <input
-              type="text"
-              value={value.filter.imageTag}
-              onChange={(e) => updateFilter({ imageTag: e.target.value })}
-              placeholder="Docker image tag"
               disabled={disabled}
               className="input"
             />

@@ -27,6 +27,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
   },
   isSystemAdmin: mockIsSystemAdmin,
+  SYSTEM_ORG_ID: 'system',
   createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
@@ -172,7 +173,12 @@ describe('PUT /plugins/:id (update)', () => {
       'org-1',
       'user-1',
     );
-    expect(sendSuccess).toHaveBeenCalledWith(res, 200, { plugin: updatedPlugin });
+    // shapePlugin attaches the computed `uri` field to the response.
+    expect(sendSuccess).toHaveBeenCalledWith(
+      res,
+      200,
+      { plugin: expect.objectContaining({ ...updatedPlugin, uri: 'org-org-1/updated-plugin:1.0.0' }) },
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,

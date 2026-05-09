@@ -140,8 +140,8 @@ describe('queue-status route', () => {
     it('non-system admin sees only their own org\'s failed jobs', async () => {
       (isSystemAdmin as jest.Mock).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
-        { id: 'j-mine', name: 'p-mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine', imageTag: 't1' } }, opts: {}, attemptsMade: 1 },
-        { id: 'j-other', name: 'p-other', data: { orgId: 'org-OTHER', pluginRecord: { name: 'other', imageTag: 't2' } }, opts: {}, attemptsMade: 1 },
+        { id: 'j-mine', name: 'p-mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
+        { id: 'j-other', name: 'p-other', data: { orgId: 'org-OTHER', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1 },
         { id: 'j-orphan', name: 'p-orphan', data: { pluginRecord: { name: 'orphan' } }, opts: {}, attemptsMade: 1 }, // no orgId
       ]);
 

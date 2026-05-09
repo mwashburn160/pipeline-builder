@@ -41,7 +41,7 @@ export function resolvePluginTemplates(
 
   const scope = {
     ...pipelineScope,
-    plugin: { name: plugin.name, version: plugin.version, imageTag: plugin.imageTag },
+    plugin: { name: plugin.name, version: plugin.version },
     env: plugin.env ?? {},
   };
 

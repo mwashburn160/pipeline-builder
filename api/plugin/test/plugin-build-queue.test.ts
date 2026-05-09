@@ -134,7 +134,8 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
     buildRequest: {
       contextDir: '/tmp/build-ctx',
       dockerfile: 'Dockerfile',
-      imageTag: 'p-test-abc123',
+      name: 'my-plugin',
+      version: '1.0.0',
       orgId: 'org-1',
       buildType: 'build_image',
       registry: { host: 'registry', port: 5000, network: '', http: true, insecure: true },
@@ -154,7 +155,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       keywords: ['test'],
       installCommands: [],
       commands: ['echo hello'],
-      imageTag: 'p-test-abc123',
+      
       accessModifier: 'private',
       timeout: null,
       failureBehavior: 'fail',
@@ -313,7 +314,7 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const insertedPlugin = { id: 'plugin-1', name: 'my-plugin', version: '1.0.0', imageTag: 'p-test-abc123' };
+      const insertedPlugin = { id: 'plugin-1', name: 'my-plugin', version: '1.0.0' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'registry:5000/plugin:p-test-abc123' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
 
@@ -345,7 +346,7 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
+      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0',  };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
@@ -376,7 +377,7 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0', imageTag: 'tag' };
+      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0',  };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);

@@ -100,11 +100,6 @@ export interface PluginFilter extends CommonFilter {
   readonly version?: string;
 
   /**
-   * Docker image tag associated with the plugin
-   */
-  readonly imageTag?: string;
-
-  /**
    * Keyword to search within the keywords JSONB array (case-insensitive contains)
    */
   readonly keyword?: string;

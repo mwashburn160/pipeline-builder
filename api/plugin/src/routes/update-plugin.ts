@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { shapePlugin } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 
 /**
@@ -73,7 +74,7 @@ export function createUpdatePluginRoutes(): Router {
 
     ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 
-    return sendSuccess(res, 200, { plugin: normalizeArrayFields(updated, ['keywords', 'installCommands', 'commands']) });
+    return sendSuccess(res, 200, { plugin: shapePlugin(updated) });
   }));
 
   return router;

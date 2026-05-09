@@ -52,7 +52,6 @@
               "name": "dotnet-test",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "dotnet-8.0",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
@@ -100,7 +99,6 @@
               "name": "dotnet-test",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "dotnet-8.0",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
@@ -126,7 +124,6 @@
               "name": "dotnet-format",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "dotnet-8.0",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true

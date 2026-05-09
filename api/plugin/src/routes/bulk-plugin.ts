@@ -10,8 +10,9 @@ import { pluginService } from '../services/plugin-service';
 
 /**
  * Whitelist of plugin fields that may be set via bulk update.
- * Excludes `orgId`, `id`, `createdAt`, `createdBy`, `deletedAt`, `imageTag` —
- * those are either tenancy boundaries, immutable, or set by build pipeline.
+ * Excludes `orgId`, `id`, `createdAt`, `createdBy`, `deletedAt`, `name`,
+ * `version` — those are either tenancy boundaries, immutable, or part of
+ * the registry repo path (changing them would orphan pushed images).
  */
 const BulkPluginUpdateDataSchema = z.object({
   isActive: z.boolean().optional(),
@@ -68,8 +69,8 @@ export function createBulkPluginRoutes(): Router {
     }
 
     // Validate the update payload against a strict whitelist — without this,
-    // a caller could write internal fields (orgId, deletedAt, imageTag) on
-    // every plugin in the org with one call.
+    // a caller could write internal fields (orgId, deletedAt) or rename
+    // (name, version) every plugin in the org with one call.
     const dataValidation = BulkPluginUpdateDataSchema.safeParse(data);
     if (!dataValidation.success) {
       return sendBadRequest(res, `Invalid update data: ${dataValidation.error.message}`, ErrorCode.VALIDATION_ERROR);

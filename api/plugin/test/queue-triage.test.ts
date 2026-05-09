@@ -66,7 +66,7 @@ function makeRes() {
 const job = (id: string, orgId: string, error = 'Docker build failed') => ({
   id,
   data: {
-    pluginRecord: { name: `plugin-${id}`, orgId, imageTag: '1.0.0' },
+    pluginRecord: { name: `plugin-${id}`, orgId },
     lastError: error,
   },
   failedReason: error,

@@ -16,7 +16,6 @@ import { z } from 'zod';
 
 import { BUILD_TEMP_ROOT } from './docker-build';
 import type { BuildType } from './docker-build';
-import { generateImageTag } from './plugin-helpers';
 import type { PluginConfig } from './plugin-helpers';
 
 // -----------------------------------------------------------------------------
@@ -32,8 +31,6 @@ export interface ParsedPlugin {
   dockerfile: string;
   /** Raw Dockerfile content (for DB storage), or null if missing. */
   dockerfileContent: string | null;
-  /** Generated image tag (lowercase, safe characters only). */
-  imageTag: string;
   /** Build type from config.yaml (defaults to 'build_image'). */
   buildType: BuildType;
 }
@@ -131,22 +128,12 @@ const PluginConfigSchema = z.object({
   pluginSpec: z.string().optional(),
   dockerfile: z.string().optional(),
   buildType: z.enum(['build_image', 'prebuilt', 'metadata_only']).optional(),
-  imageTag: z.string().regex(/^p-[a-z0-9]+-[a-f0-9]{12}$/, 'imageTag must match p-{name}-{hash12}').optional(),
 }).strict()
   .refine(d => !(d.buildType === 'prebuilt' && d.dockerfile), {
     message: 'dockerfile is not allowed when buildType is prebuilt',
   })
-  .refine(d => !(d.buildType === 'prebuilt' && !d.imageTag), {
-    message: 'imageTag is required when buildType is prebuilt',
-  })
-  .refine(d => !(d.buildType === 'build_image' && d.imageTag), {
-    message: 'imageTag is not allowed when buildType is build_image',
-  })
   .refine(d => !(d.buildType === 'metadata_only' && d.dockerfile), {
     message: 'dockerfile is not allowed when buildType is metadata_only',
-  })
-  .refine(d => !(d.buildType === 'metadata_only' && d.imageTag), {
-    message: 'imageTag is not allowed when buildType is metadata_only',
   });
 
 /** Parse and validate config.yaml text. */
@@ -169,7 +156,6 @@ function parsePluginConfig(configText: string | undefined): PluginConfig {
     pluginSpec: data.pluginSpec ? validateSafePath('pluginSpec', data.pluginSpec) : undefined,
     dockerfile: data.dockerfile ? validateSafePath('dockerfile', data.dockerfile) : undefined,
     buildType: data.buildType,
-    imageTag: data.imageTag,
   };
 }
 
@@ -240,12 +226,7 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
       throw new ValidationError('image.tar is required in ZIP when buildType is prebuilt');
     }
 
-    // --- Image tag (not needed for metadata_only) ----------------------------
-    const imageTag = buildType === 'metadata_only'
-      ? ''
-      : (config.imageTag ?? generateImageTag(pluginSpec.name));
-
-    return { pluginSpec, extractDir, dockerfile, dockerfileContent, imageTag, buildType };
+    return { pluginSpec, extractDir, dockerfile, dockerfileContent, buildType };
   } catch (err) {
     // Clean up extracted files on any validation failure
     await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});

@@ -44,7 +44,6 @@ export interface FormPluginFilter {
   // Plugin-specific filter properties
   name: string;
   version: string;
-  imageTag: string;
 }
 
 /** Plugin selection with an optional alias, filter criteria, and per-plugin metadata. */
@@ -226,7 +225,7 @@ export function createEmptyNetworkConfig(): FormNetworkConfig {
  * @returns An empty {@link FormPluginFilter}.
  */
 export function createEmptyPluginFilter(): FormPluginFilter {
-  return { id: '', orgId: '', accessModifier: '', isDefault: '', isActive: '', name: '', version: '', imageTag: '' };
+  return { id: '', orgId: '', accessModifier: '', isDefault: '', isActive: '', name: '', version: '' };
 }
 
 /**

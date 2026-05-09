@@ -1,9 +1,9 @@
 {
-  "name": "block-latest-image-tag",
-  "description": "Docker images must not use the 'latest' tag — pin to a specific version for reproducible builds",
+  "name": "block-latest-version",
+  "description": "Plugin versions must not be the literal string 'latest' — pin to a specific semver for reproducible builds",
   "target": "plugin",
   "severity": "error",
-  "field": "imageTag",
+  "field": "version",
   "operator": "neq",
   "value": "latest",
   "priority": 90,

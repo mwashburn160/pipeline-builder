@@ -46,7 +46,7 @@ export interface PluginLookupProps {
    * Keyed by `alias || name` (matches the construct's normalize() output).
    * When a lookup hits this map, `plugin()` returns the resolved Plugin
    * directly — no custom resource is created. This is what makes the
-   * imageTag, commands, env, etc. available at synth time so the resulting
+   * name, version, commands, env, etc. available at synth time so the resulting
    * CFN template ships with the real values baked in.
    */
   readonly resolvedPlugins?: Record<string, Plugin>;
@@ -143,7 +143,7 @@ export class PluginLookup extends Construct {
 
     // Pre-resolved by `pipeline-manager synth` from the platform API.
     // Skip the custom resource entirely — we already know the plugin's
-    // imageTag, commands, env, etc. at synth time, so the resulting CFN
+    // name, version, commands, env, etc. at synth time, so the resulting CFN
     // template can ship with the real CodeBuild image baked in.
     const cacheKey = props.alias || props.name;
     const preResolved = this._resolvedPlugins?.[cacheKey];
@@ -297,7 +297,6 @@ export class PluginLookup extends Construct {
       buildArgs: {},
       installCommands: [],
       commands: [],
-      imageTag: '',
       dockerfile: null,
       buildType: 'metadata_only',
       accessModifier: 'public',

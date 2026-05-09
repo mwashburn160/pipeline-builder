@@ -37,7 +37,6 @@ function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
     description: 'Deploy to k8s',
     pluginType: 'CodeBuildStep',
     computeType: 'SMALL',
-    imageTag: 'p-kubectl-abc',
     commands: [],
     installCommands: [],
     env: {},

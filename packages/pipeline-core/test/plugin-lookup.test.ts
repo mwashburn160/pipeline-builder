@@ -267,7 +267,6 @@ describe('PluginLookup', () => {
         id: 'plugin-id',
         name: 'nodejs-build',
         version: '1.2.3',
-        imageTag: 'nodejs-build',
         commands: ['npm ci', 'npm test'],
         installCommands: [],
         buildType: 'build_image',
@@ -285,15 +284,16 @@ describe('PluginLookup', () => {
       mockCustomResource.mockClear();
       const result = lookup.plugin('nodejs-build');
 
-      // Returns the pre-resolved plugin verbatim — imageTag, commands, etc. intact.
+      // Returns the pre-resolved plugin verbatim — name, version, commands, etc. intact.
       expect(result).toBe(preResolved);
-      expect(result.imageTag).toBe('nodejs-build');
+      expect(result.name).toBe('nodejs-build');
+      expect(result.version).toBe('1.2.3');
       // Skips the custom resource entirely.
       expect(mockCustomResource).not.toHaveBeenCalled();
     });
 
     it('should match pre-resolved plugin by explicit alias', () => {
-      const preResolved = { name: 'snyk-scan', imageTag: 'snyk-scan', commands: [] };
+      const preResolved = { name: 'snyk-scan', version: '1.0.0', commands: [] };
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',

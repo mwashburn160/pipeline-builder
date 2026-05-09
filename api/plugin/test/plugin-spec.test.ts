@@ -83,7 +83,6 @@ commands:
     expect(result.pluginSpec.commands).toEqual(['npm run build']);
     expect(result.dockerfile).toBe('Dockerfile');
     expect(result.dockerfileContent).toContain('FROM node:20');
-    expect(result.imageTag).toMatch(/^p-myplugin-/);
     expect(result.buildType).toBe('build_image');
     expect(fs.existsSync(result.extractDir)).toBe(true);
   });
@@ -199,7 +198,6 @@ commands:
     const configYaml = `
 pluginSpec: plugin-spec.yaml
 buildType: prebuilt
-imageTag: p-prebuilttest-aabbccddee11
 `;
     const zipPath = buildZip({
       'plugin-spec.yaml': pluginSpecYaml,
@@ -209,7 +207,6 @@ imageTag: p-prebuilttest-aabbccddee11
 
     const result = await parsePluginZip(zipPath);
     expect(result.buildType).toBe('prebuilt');
-    expect(result.imageTag).toBe('p-prebuilttest-aabbccddee11');
     expect(result.dockerfile).toBe('');
     expect(result.dockerfileContent).toBeNull();
   });
@@ -252,25 +249,6 @@ buildType: invalid_type
     await expect(parsePluginZip(zipPath)).rejects.toThrow('config.yaml');
   });
 
-  it('should reject prebuilt without imageTag', async () => {
-    const pluginSpecYaml = `
-name: no-tag
-version: "1.0.0"
-commands:
-  - echo ok
-`;
-    const configYaml = `
-pluginSpec: plugin-spec.yaml
-buildType: prebuilt
-`;
-    const zipPath = buildZip({
-      'plugin-spec.yaml': pluginSpecYaml,
-      'config.yaml': configYaml,
-    });
-
-    await expect(parsePluginZip(zipPath)).rejects.toThrow('imageTag is required');
-  });
-
   it('should reject prebuilt with dockerfile', async () => {
     const pluginSpecYaml = `
 name: conflict
@@ -282,7 +260,6 @@ commands:
 pluginSpec: plugin-spec.yaml
 buildType: prebuilt
 dockerfile: Dockerfile
-imageTag: p-conflict-aabbccddee11
 `;
     const zipPath = buildZip({
       'plugin-spec.yaml': pluginSpecYaml,
@@ -290,46 +267,6 @@ imageTag: p-conflict-aabbccddee11
     });
 
     await expect(parsePluginZip(zipPath)).rejects.toThrow('dockerfile is not allowed');
-  });
-
-  it('should reject build_image with imageTag', async () => {
-    const pluginSpecYaml = `
-name: bad-combo
-version: "1.0.0"
-commands:
-  - echo ok
-`;
-    const configYaml = `
-pluginSpec: plugin-spec.yaml
-buildType: build_image
-imageTag: p-badcombo-aabbccddee11
-`;
-    const zipPath = buildZip({
-      'plugin-spec.yaml': pluginSpecYaml,
-      'config.yaml': configYaml,
-    });
-
-    await expect(parsePluginZip(zipPath)).rejects.toThrow('imageTag is not allowed');
-  });
-
-  it('should reject invalid imageTag format', async () => {
-    const pluginSpecYaml = `
-name: bad-tag
-version: "1.0.0"
-commands:
-  - echo ok
-`;
-    const configYaml = `
-pluginSpec: plugin-spec.yaml
-buildType: prebuilt
-imageTag: not-a-valid-tag
-`;
-    const zipPath = buildZip({
-      'plugin-spec.yaml': pluginSpecYaml,
-      'config.yaml': configYaml,
-    });
-
-    await expect(parsePluginZip(zipPath)).rejects.toThrow('imageTag must match');
   });
 
 });

@@ -64,8 +64,6 @@ CREATE TABLE IF NOT EXISTS plugins (
     install_commands    TEXT[] NOT NULL DEFAULT '{}',
     commands            TEXT[] NOT NULL DEFAULT '{}',
     
-    -- Docker Image
-    image_tag           VARCHAR(128) NOT NULL UNIQUE,
     
     -- Access Control & Status
     access_modifier     VARCHAR(10) NOT NULL DEFAULT 'public' 
@@ -292,8 +290,6 @@ CREATE INDEX IF NOT EXISTS idx_plugins_category
 CREATE INDEX IF NOT EXISTS idx_plugins_is_active
     ON plugins(is_active) WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_plugins_image_tag
-    ON plugins(image_tag) WHERE deleted_at IS NULL;
 
 -- Plugins composite indexes (matching Drizzle schema)
 CREATE INDEX IF NOT EXISTS plugin_org_access_idx

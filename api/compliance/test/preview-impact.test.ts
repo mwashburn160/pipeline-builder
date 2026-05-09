@@ -151,11 +151,11 @@ describe('POST /preview/impact', () => {
   });
 
   it('aggregates would-pass / would-fail across plugin entities', async () => {
-    nextRuleResult = [{ id: 'r1', name: 'block-latest-image', target: 'plugin' }];
+    nextRuleResult = [{ id: 'r1', name: 'block-latest-version', target: 'plugin' }];
     nextEntityResult = [
-      { id: 'p1', name: 'foo', imageTag: 'latest' },
-      { id: 'p2', name: 'bar', imageTag: '1.0.0' },
-      { id: 'p3', name: 'baz', imageTag: 'latest' },
+      { id: 'p1', name: 'foo', version: 'latest' },
+      { id: 'p2', name: 'bar', version: '1.0.0' },
+      { id: 'p3', name: 'baz', version: 'latest' },
     ];
     evaluateRulesMock
       .mockReturnValueOnce({ blocked: true, violations: [{ message: 'using :latest' }], warnings: [] })

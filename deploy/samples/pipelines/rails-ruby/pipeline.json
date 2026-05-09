@@ -52,7 +52,6 @@
               "name": "rails-test",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "ruby-3.3-sqlite",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true

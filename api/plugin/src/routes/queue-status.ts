@@ -68,7 +68,7 @@ export function createQueueStatusRoutes(): Router {
       id: job.id,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
-      imageTag: job.data?.pluginRecord?.imageTag ?? null,
+      version: job.data?.pluginRecord?.version ?? null,
       error: job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
@@ -104,7 +104,6 @@ export function createQueueStatusRoutes(): Router {
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
       version: job.data?.pluginRecord?.version ?? null,
-      imageTag: job.data?.pluginRecord?.imageTag ?? null,
       failureCategory: job.data?.failureCategory ?? null,
       lastError: job.data?.lastError ?? job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
@@ -209,7 +208,7 @@ export function createQueueStatusRoutes(): Router {
       samples: Array<{
         id: string | number | undefined;
         pluginName: string | null;
-        imageTag: string | null;
+        version: string | null;
         error: string | null;
         failedAt: string | null;
         source: 'queue' | 'dlq';
@@ -249,7 +248,7 @@ export function createQueueStatusRoutes(): Router {
         bucket.samples.push({
           id: job.id,
           pluginName,
-          imageTag: job.data?.pluginRecord?.imageTag ?? null,
+          version: job.data?.pluginRecord?.version ?? null,
           error: err,
           failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
           source,

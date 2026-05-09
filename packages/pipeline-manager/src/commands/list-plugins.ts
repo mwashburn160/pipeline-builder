@@ -17,7 +17,6 @@ interface PluginFilterParams extends CommonFilterParams {
   // Plugin-specific filters
   name?: string;
   version?: string;
-  imageTag?: string;
 }
 
 /**
@@ -52,7 +51,6 @@ export function listPlugins(program: Command): void {
     // Plugin-specific filter options
     .option('--name <name>', 'Filter by exact plugin name')
     .option('--version <version>', 'Filter by version (supports semver, e.g., "^1.0.0")')
-    .option('--image-tag <tag>', 'Filter by Docker image tag')
 
     // Output options
     .option('-f, --format <format>', 'Output format (json, yaml, table, csv)', 'table')
@@ -86,17 +84,12 @@ export function listPlugins(program: Command): void {
           filterParams.version = options.version;
         }
 
-        if (options.imageTag) {
-          filterParams.imageTag = options.imageTag;
-        }
-
         // Display active filters
         const activeFilters: Record<string, unknown> = {};
         if (filterParams.id) activeFilters.ID = filterParams.id;
         if (filterParams.isActive !== undefined) activeFilters['Is Active'] = filterParams.isActive;
         if (filterParams.name) activeFilters.Name = filterParams.name;
         if (filterParams.version) activeFilters.Version = filterParams.version;
-        if (filterParams.imageTag) activeFilters['Image Tag'] = filterParams.imageTag;
 
         if (Object.keys(activeFilters).length > 0) {
           printInfo('Active Filters');

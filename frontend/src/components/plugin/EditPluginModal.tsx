@@ -187,8 +187,8 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
                 <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg">{new Date(p.updatedAt).toLocaleString()}</p>
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image Tag</label>
-                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{p.imageTag}</p>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image URI</label>
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-lg break-all">{p.uri}</p>
               </div>
               {p.dockerfile && (
                 <div className="col-span-2">

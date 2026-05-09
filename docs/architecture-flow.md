@@ -74,7 +74,7 @@ sequenceDiagram
 
     Queue->>Dind: docker build
     Dind->>Reg: docker push
-    Queue->>DB: Store plugin (name, version, imageTag, commands, env)
+    Queue->>DB: Store plugin (name, version, commands, env)
     Queue-->>Dev: SSE: build complete
 ```
 
@@ -253,11 +253,11 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph Database
-        Plugin[Plugin Record<br/>name: eslint<br/>imageTag: p-eslint-a1b2c3<br/>commands: npx eslint .<br/>computeType: SMALL]
+        Plugin[Plugin Record<br/>name: eslint<br/>version: 1.0.0<br/>commands: npx eslint .<br/>computeType: SMALL]
     end
 
     subgraph "CDK Synth Time"
-        CBS[CodeBuildStep<br/>Image: registry/plugin:p-eslint-a1b2c3<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]
+        CBS[CodeBuildStep<br/>Image: registry/org-acme/eslint:1.0.0<br/>ComputeType: BUILD_GENERAL1_SMALL<br/>BuildSpec: npx eslint .]
     end
 
     subgraph "CodePipeline Runtime"

@@ -156,7 +156,6 @@ export class PluginService extends CrudService<
             buildArgs: data.buildArgs,
             installCommands: data.installCommands,
             commands: data.commands,
-            imageTag: data.imageTag,
             dockerfile: data.dockerfile,
             accessModifier: data.accessModifier as AccessModifier,
             isDefault: true,

@@ -38,12 +38,15 @@ export type BuildType = 'build_image' | 'prebuilt' | 'metadata_only';
 export interface BuildRequest {
   contextDir: string;
   dockerfile: string;
-  imageTag: string;
+  /** Plugin name — used as the Docker repository (e.g. `nodejs-build`). */
+  name: string;
+  /** Plugin version — used as the Docker tag (e.g. `1.0.0`). */
+  version: string;
   /**
    * Owning org of the plugin being built. Used to derive the registry
-   * namespace: `system/<imageTag>` for the system org, `org-<orgId>/<imageTag>`
-   * for tenant orgs. The token service grants pull/push permissions per
-   * namespace based on the caller's identity.
+   * namespace: `system/<name>:<version>` for the system org,
+   * `org-<orgId>/<name>:<version>` for tenant orgs. The token service grants
+   * pull/push permissions per namespace based on the caller's identity.
    */
   orgId: string;
   registry: RegistryInfo;
@@ -189,20 +192,20 @@ interface BuildContext {
 /**
  * Compute the registry-side image reference for a plugin. Namespace by
  * owning org so the token service's per-org scopes apply correctly:
- *   - `system` org → `system/<imageTag>:latest`
- *   - any tenant org → `org-<orgId>/<imageTag>:latest`
+ *   - `system` org → `system/<name>:<version>`
+ *   - any tenant org → `org-<orgId>/<name>:<version>`
  *
  * `orgId` is optional only on the prebuilt `loadAndPush` path; new
  * `buildAndPush` callers always supply it via BuildRequest.
  */
-function resolveContext(imageTag: string, registry: RegistryInfo, orgId?: string): BuildContext {
+function resolveContext(name: string, version: string, registry: RegistryInfo, orgId?: string): BuildContext {
   const cfg = getConfig();
   const strategy = strategies[cfg.strategy];
   const SYSTEM_ORG_ID = 'system';
   const namespace = !orgId || orgId === SYSTEM_ORG_ID ? 'system' : `org-${orgId}`;
   return {
     cfg,
-    image: `${registry.host}:${registry.port}/${namespace}/${imageTag}:latest`,
+    image: `${registry.host}:${registry.port}/${namespace}/${name}:${version}`,
     strategy,
     bin: strategy.binary(cfg),
   };
@@ -214,7 +217,7 @@ function resolveContext(imageTag: string, registry: RegistryInfo, orgId?: string
 
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   validate(req);
-  const ctx = resolveContext(req.imageTag, req.registry, req.orgId);
+  const ctx = resolveContext(req.name, req.version, req.registry, req.orgId);
 
   logger.info('Building image', { strategy: ctx.cfg.strategy, image: ctx.image });
 
@@ -232,10 +235,10 @@ export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
  * Used when buildType is 'prebuilt' — the image.tar is already extracted from the ZIP.
  */
 export async function loadAndPush(
-  tarPath: string, imageTag: string, registry: RegistryInfo, orgId: string,
+  tarPath: string, name: string, version: string, registry: RegistryInfo, orgId: string,
 ): Promise<BuildResult> {
-  validateRegistryAndTag(imageTag, registry);
-  const ctx = resolveContext(imageTag, registry, orgId);
+  validateRegistryAndName(name, registry);
+  const ctx = resolveContext(name, version, registry, orgId);
 
   if (ctx.cfg.strategy === 'kaniko') {
     throw new ValidationError('prebuilt build type is not supported with kaniko strategy');
@@ -320,19 +323,26 @@ function flagBuildArgs(args?: Record<string, string>, joined = false): string[] 
 // -----------------------------------------------------------------------------
 
 const RE_HOST = /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/;
-const RE_TAG = /^[a-z0-9][a-z0-9._-]*$/;
+// Docker repository name: lowercase letters/digits/separators (must start
+// with letter or digit). Used for the plugin's `name` field which becomes
+// the repo path component.
+const RE_REPO = /^[a-z0-9][a-z0-9._-]*$/;
+// Docker image tag: alphanumerics + `.`/`_`/`-`. Used for the plugin's
+// `version` field. Cannot start with a separator.
+const RE_TAG = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const RE_NET = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 const RE_ARG_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-function validateRegistryAndTag(imageTag: string, registry: RegistryInfo) {
+function validateRegistryAndName(name: string, registry: RegistryInfo) {
   if (!RE_HOST.test(registry.host)) throw new ValidationError(`Invalid registry host: ${registry.host}`);
   if (!Number.isInteger(registry.port) || registry.port < 1 || registry.port > 65535) throw new ValidationError(`Invalid registry port: ${registry.port}`);
-  if (!RE_TAG.test(imageTag)) throw new ValidationError(`Invalid image tag: ${imageTag}`);
+  if (!RE_REPO.test(name)) throw new ValidationError(`Invalid plugin name (must be a valid Docker repo path): ${name}`);
   if (registry.network && !RE_NET.test(registry.network)) throw new ValidationError(`Invalid network: ${registry.network}`);
 }
 
-function validate({ registry, imageTag, buildArgs }: BuildRequest) {
-  validateRegistryAndTag(imageTag, registry);
+function validate({ registry, name, version, buildArgs }: BuildRequest) {
+  validateRegistryAndName(name, registry);
+  if (!RE_TAG.test(version)) throw new ValidationError(`Invalid plugin version (must be a valid Docker tag): ${version}`);
   for (const [k, v] of Object.entries(buildArgs || {})) {
     if (!RE_ARG_KEY.test(k)) throw new ValidationError(`Invalid build arg key: ${k}`);
     if (typeof v !== 'string' || v.length > 4096) throw new ValidationError(`Invalid build arg value for ${k}`);

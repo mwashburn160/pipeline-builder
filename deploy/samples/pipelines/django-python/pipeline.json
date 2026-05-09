@@ -52,7 +52,6 @@
               "name": "python-pytest",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "python-3.12",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true

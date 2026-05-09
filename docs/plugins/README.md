@@ -343,7 +343,7 @@ Plugins support two build strategies, configured via `config.yaml`:
 | buildType | Description | config.yaml | plugin.zip contains |
 |-----------|-------------|-------------|---------------------|
 | `build_image` (default) | Build Docker image from Dockerfile at upload time | `buildType: build_image` + `dockerfile: Dockerfile` | plugin-spec.yaml + config.yaml + Dockerfile |
-| `prebuilt` | Use a pre-built Docker image (via `build-plugin-images.sh`) | `buildType: prebuilt` + `imageTag: p-{name}-{hash}` | plugin-spec.yaml + config.yaml + image.tar |
+| `prebuilt` | Use a pre-built Docker image (via `build-plugin-images.sh`) | `buildType: prebuilt` | plugin-spec.yaml + config.yaml + image.tar |
 
 To pre-build all plugin images:
 ```bash

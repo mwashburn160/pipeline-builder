@@ -37,10 +37,10 @@ export const RULE_TEMPLATES: RuleTemplate[] = [
   {
     id: 'tpl-block-latest-tag',
     name: 'block-latest-tag',
-    description: 'Block plugins using the "latest" Docker image tag',
+    description: 'Block plugins whose version is the literal string "latest" (mutable tag)',
     target: 'plugin',
     severity: 'error',
-    field: 'imageTag',
+    field: 'version',
     operator: 'neq',
     value: 'latest',
     priority: 90,

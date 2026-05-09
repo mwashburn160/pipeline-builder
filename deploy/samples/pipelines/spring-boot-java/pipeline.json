@@ -52,7 +52,6 @@
               "name": "java-corretto",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "corretto-17",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true
@@ -79,7 +78,6 @@
               "name": "java-corretto",
               "filter": {
                 "version": "1.0.0",
-                "imageTag": "corretto-17",
                 "accessModifier": "public",
                 "isActive": true,
                 "isDefault": true

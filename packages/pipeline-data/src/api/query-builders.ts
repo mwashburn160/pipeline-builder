@@ -103,10 +103,6 @@ export function buildPluginConditions(
     conditions.push(eq(schema.plugin.version, filter.version as string));
   }
 
-  if (filter.imageTag !== undefined) {
-    conditions.push(eq(schema.plugin.imageTag, filter.imageTag as string));
-  }
-
   if (filter.keyword !== undefined) {
     conditions.push(buildJsonbKeywordCondition(schema.plugin.keywords, normalizeStringFilter(filter.keyword)));
   }

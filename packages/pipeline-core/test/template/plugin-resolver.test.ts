@@ -13,7 +13,6 @@ function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
     description: 'Test plugin',
     pluginType: 'CodeBuildStep',
     computeType: 'SMALL',
-    imageTag: 'p-deploy-abc',
     commands: [],
     installCommands: [],
     env: {},

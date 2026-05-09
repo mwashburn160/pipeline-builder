@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, normalizeArrayFields, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants, db } from '@pipeline-builder/pipeline-core';
 import { sql } from 'drizzle-orm';
 import { Router } from 'express';
+import { shapePlugin } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
 
 export function createReadPluginRoutes(
@@ -68,7 +69,7 @@ export function createReadPluginRoutes(
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
-    return sendPaginatedNested(res, 'plugins', result.data.map(r => normalizeArrayFields(r, ['keywords', 'installCommands', 'commands'])), {
+    return sendPaginatedNested(res, 'plugins', result.data.map(r => shapePlugin(r)), {
       total: result.total, limit: result.limit, offset: result.offset, hasMore: result.hasMore, nextCursor: result.nextCursor,
     });
   }));
@@ -94,7 +95,7 @@ export function createReadPluginRoutes(
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
-    return sendSuccess(res, 200, { plugin: normalizeArrayFields(result, ['keywords', 'installCommands', 'commands']) });
+    return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   }));
 
   // GET /plugins/find — single plugin by filter
@@ -112,7 +113,7 @@ export function createReadPluginRoutes(
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
-    return sendSuccess(res, 200, { plugin: normalizeArrayFields(result, ['keywords', 'installCommands', 'commands']) });
+    return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   }));
 
   // GET /plugins/:id — single plugin by UUID
@@ -130,7 +131,7 @@ export function createReadPluginRoutes(
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 
-    return sendSuccess(res, 200, { plugin: normalizeArrayFields(result, ['keywords', 'installCommands', 'commands']) });
+    return sendSuccess(res, 200, { plugin: shapePlugin(result) });
   }));
 
   return router;

@@ -67,12 +67,6 @@ describe('buildPluginConditions', () => {
     expect(withVersion.length).toBeGreaterThan(withoutVersion.length);
   });
 
-  it('adds imageTag filter', () => {
-    const withTag = buildPluginConditions({ imageTag: 'latest' }, 'org-1');
-    const withoutTag = buildPluginConditions({}, 'org-1');
-    expect(withTag.length).toBeGreaterThan(withoutTag.length);
-  });
-
   it('adds orgId filter', () => {
     const withOrgId = buildPluginConditions({ orgId: 'specific-org' }, 'org-1');
     const withoutOrgId = buildPluginConditions({}, 'org-1');

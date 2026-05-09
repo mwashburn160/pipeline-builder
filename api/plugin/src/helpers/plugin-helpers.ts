@@ -1,9 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AccessModifier } from '@pipeline-builder/api-core';
-import { CoreConstants, type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
-import { v7 as uuid } from 'uuid';
+import { normalizeArrayFields, SYSTEM_ORG_ID, type AccessModifier } from '@pipeline-builder/api-core';
+import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 
 import type { BuildRequest, BuildType } from './docker-build';
 
@@ -12,16 +11,32 @@ export interface PluginConfig {
   pluginSpec?: string;
   dockerfile?: string;
   buildType?: BuildType;
-  imageTag?: string;
 }
 
-// Image tag generation
+/**
+ * Compute the namespace-relative image URI for a plugin:
+ *   - system-org plugins → `system/<name>:<version>`
+ *   - tenant-org plugins → `org-<orgId>/<name>:<version>`
+ *
+ * Host/port are deliberately omitted because they vary per environment.
+ * Callers prepend the registry host when they need a full pull-able ref.
+ */
+export function pluginUri(plugin: { orgId: string; name: string; version: string }): string {
+  const namespace = plugin.orgId === SYSTEM_ORG_ID ? 'system' : `org-${plugin.orgId}`;
+  return `${namespace}/${plugin.name}:${plugin.version}`;
+}
 
-const IMAGE_TAG_PREFIX = CoreConstants.PLUGIN_IMAGE_PREFIX;
-
-/** Generate a unique, lowercase image tag for a plugin. */
-export function generateImageTag(name: string): string {
-  return `${IMAGE_TAG_PREFIX}${name.replace(/[^a-z0-9]/gi, '')}-${uuid().slice(0, 8)}`.toLowerCase();
+/**
+ * Shape a Plugin row for HTTP responses: normalize array-typed columns and
+ * attach the computed `uri`. Single seam so all read routes return the
+ * same shape.
+ */
+const PLUGIN_ARRAY_FIELDS = ['keywords', 'installCommands', 'commands'] as const;
+export function shapePlugin<T extends { orgId: string; name: string; version: string }>(plugin: T): T & { uri: string } {
+  return {
+    ...normalizeArrayFields(plugin as unknown as Record<string, unknown>, PLUGIN_ARRAY_FIELDS as unknown as string[]) as unknown as T,
+    uri: pluginUri(plugin),
+  };
 }
 
 // Build job types & factory
@@ -43,7 +58,6 @@ export interface PluginRecordData {
   keywords: string[];
   installCommands: string[];
   commands: string[];
-  imageTag: string;
   accessModifier: AccessModifier;
   timeout: number | null;
   failureBehavior: 'fail' | 'warn' | 'ignore';
@@ -73,7 +87,7 @@ interface CreateBuildJobParams {
   orgId: string;
   userId: string;
   buildRequest: BuildRequest;
-  pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'imageTag' | 'accessModifier'>;
+  pluginRecord: Partial<PluginRecordData> & Pick<PluginRecordData, 'orgId' | 'name' | 'version' | 'commands' | 'accessModifier'>;
 }
 
 /** Create a PluginBuildJobData with defaults applied. */

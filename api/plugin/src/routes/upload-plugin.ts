@@ -121,7 +121,6 @@ export function createUploadPluginRoutes(
             commands: s.commands,
             accessModifier,
             secrets: s.secrets,
-            imageTag: plugin.imageTag,
             metadata: s.metadata,
             keywords: s.keywords,
             buildType: plugin.buildType,
@@ -168,7 +167,6 @@ export function createUploadPluginRoutes(
           keywords: s.keywords || [],
           installCommands: s.installCommands || [],
           commands: s.commands || [],
-          imageTag: plugin.imageTag,
           accessModifier,
           timeout: s.timeout ?? null,
           failureBehavior: s.failureBehavior || 'fail',
@@ -202,7 +200,8 @@ export function createUploadPluginRoutes(
           buildRequest: {
             contextDir: plugin.extractDir,
             dockerfile: plugin.dockerfile,
-            imageTag: plugin.imageTag,
+            name: s.name,
+            version: s.version || '0.0.0',
             orgId,
             registry,
             buildArgs: s.buildArgs || {},
@@ -212,7 +211,7 @@ export function createUploadPluginRoutes(
         });
 
         try {
-          await getQueue().add(plugin.imageTag, jobData);
+          await getQueue().add(`${s.name}:${s.version || '0.0.0'}`, jobData);
         } catch (queueErr) {
           ctx.log('ERROR', 'Failed to enqueue build job', {
             error: queueErr instanceof Error ? queueErr.message : String(queueErr),
@@ -222,13 +221,13 @@ export function createUploadPluginRoutes(
 
         ctx.log('INFO', 'Build queued', {
           pluginName: s.name,
-          imageTag: plugin.imageTag,
+          version: s.version || '0.0.0',
         });
 
         return sendSuccess(res, 202, {
           requestId: ctx.requestId,
           pluginName: s.name,
-          imageTag: plugin.imageTag,
+          version: s.version || '0.0.0',
         }, 'Plugin build queued');
       } finally {
         // Clean up uploaded zip (extract dir is cleaned up by the worker)

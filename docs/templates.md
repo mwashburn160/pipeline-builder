@@ -60,7 +60,7 @@ Plugin templates see a richer scope assembled per-synth from the pipeline invoki
 | `pipeline.orgId` | String — org UUID |
 | `pipeline.metadata.*` | Any key set on the pipeline's `metadata` object |
 | `pipeline.vars.*` | Any key set on the pipeline's `vars` object |
-| `plugin.name` / `plugin.version` / `plugin.imageTag` | Plugin record fields |
+| `plugin.name` / `plugin.version` | Plugin record fields |
 | `env.FOO` | Any key declared in the same plugin's `env:` map |
 
 Templatable fields in a plugin spec: `description`, `commands[]`, `installCommands[]`, `env.*` values, `buildArgs.*` values. Identity/security fields (`name`, `version`, `pluginType`, `computeType`, `timeout`, `secrets`, `failureBehavior`) are **not** templatable.

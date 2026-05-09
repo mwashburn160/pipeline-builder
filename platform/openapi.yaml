@@ -1200,7 +1200,7 @@ paths:
                           id: { type: string, format: uuid }
                           name: { type: string }
                           version: { type: string }
-                          imageTag: { type: string }
+                          uri: { type: string, description: 'Computed image URI: <namespace>/<name>:<version>' }
                           fullImage: { type: string }
                           accessModifier: { type: string }
                           isDefault: { type: boolean }

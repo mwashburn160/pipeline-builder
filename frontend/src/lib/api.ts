@@ -803,7 +803,7 @@ class ApiClient {
         samples: Array<{
           id: string | number;
           pluginName: string | null;
-          imageTag: string | null;
+          version: string | null;
           error: string | null;
           failedAt: string | null;
           source: 'queue' | 'dlq';

@@ -21,7 +21,7 @@ const DEFAULT_PAGE_SIZE = 10;
 interface FailedJob {
   id: string;
   pluginName?: string;
-  imageTag?: string;
+  version?: string;
   error?: string;
   attemptsMade?: number;
   maxAttempts?: number;

@@ -43,7 +43,6 @@ describe('createEmptyPluginFilter', () => {
     expect(filter.orgId).toBe('');
     expect(filter.name).toBe('');
     expect(filter.version).toBe('');
-    expect(filter.imageTag).toBe('');
   });
 });
 

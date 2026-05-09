@@ -57,7 +57,7 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
  * Pre-resolve plugins by calling the same `POST /api/plugins/lookup` endpoint
  * the deploy-time custom resource Lambda uses. Returning the full Plugin
  * record at synth time is what allows the resulting CFN template to ship
- * with real CodeBuild image URIs (`<host>/<imageTag>:latest`) rather than
+ * with real CodeBuild image URIs (`<host>/<ns>/<name>:<version>`) rather than
  * the `aws/codebuild/standard:7.0` fallback that the synth-time token path
  * forces.
  *

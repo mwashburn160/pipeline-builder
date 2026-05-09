@@ -140,7 +140,6 @@ function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<strin
   if (filter.isActive) result.isActive = filter.isActive === 'true';
   if (filter.name) result.name = filter.name;
   if (filter.version) result.version = filter.version;
-  if (filter.imageTag) result.imageTag = filter.imageTag;
   return Object.keys(result).length > 0 ? result : undefined;
 }
 

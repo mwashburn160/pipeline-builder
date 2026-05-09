@@ -1,6 +1,6 @@
-# block-latest-image-tag
+# block-latest-version
 
-Blocks plugins that use the `latest` Docker image tag. Using `latest` leads to non-reproducible builds because the underlying image can change without notice.
+Blocks plugins whose `version` is the literal string `latest`. Using `latest` as a version makes builds non-reproducible because the underlying image bytes can change without notice.
 
 **Target:** plugin
 **Severity:** error (blocking)
@@ -11,24 +11,26 @@ Blocks plugins that use the `latest` Docker image tag. Using `latest` leads to n
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `imageTag` | `neq` | `latest` |
+| `version` | `neq` | `latest` |
 
-The rule passes when `imageTag` is anything other than `latest`. If a plugin specifies `latest`, the upload is blocked.
+The rule passes when `version` is anything other than `latest`. If a plugin specifies `latest`, the upload is blocked.
 
 ## Rationale
 
-The `latest` tag is mutable — the image it points to changes over time. This means a pipeline that worked yesterday may break today with no code changes. Pinning to a specific version (e.g. `1.2.3`, `20-alpine`) ensures deterministic, auditable builds.
+When the plugin `version` is the string `latest`, the registry tag — `<namespace>/<name>:<version>` → `<namespace>/<name>:latest` — is mutable: the image bytes pointed to by `:latest` change every time someone re-uploads with the same version. This means a pipeline that worked yesterday may break today with no code changes. Pinning to a specific semver (e.g. `1.2.3`) ensures deterministic, auditable builds.
 
 ## Remediation
 
-Replace `latest` with a specific version tag in your plugin's Dockerfile or spec:
+Set a specific version in your plugin's `plugin-spec.yaml`:
 
 ```yaml
 # Before
-imageTag: latest
+name: my-plugin
+version: latest
 
 # After
-imageTag: 20-alpine
+name: my-plugin
+version: 1.2.3
 ```
 
 ## Tags

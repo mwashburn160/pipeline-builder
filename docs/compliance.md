@@ -169,7 +169,7 @@ Warnings are logged and returned but do not block. Blocked responses include vio
   "status": 403,
   "code": "COMPLIANCE_VIOLATION",
   "details": {
-    "violations": [{ "ruleName": "block-latest-image-tag", "severity": "error", "field": "imageTag" }]
+    "violations": [{ "ruleName": "block-latest-version", "severity": "error", "field": "version" }]
   }
 }
 ```
@@ -203,7 +203,7 @@ curl -X POST https://localhost:8443/api/compliance/validate/plugin/dry-run \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "attributes": { "name": "my-plugin", "accessModifier": "public", "imageTag": "latest" }
+    "attributes": { "name": "my-plugin", "accessModifier": "public", "version": "latest" }
   }'
 ```
 

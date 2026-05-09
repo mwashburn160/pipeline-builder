@@ -172,35 +172,31 @@ function toSecretEnvVars(
  *      explicitly in metadata, the metadata-builder passthrough handles it
  *      (via `metadataForBuildEnvironment`). This function returns
  *      `undefined` and the metadata wins.
- *   2. Otherwise, if the plugin has an `imageTag` AND the registry config
- *      is populated, build a `LinuxBuildImage.fromDockerRegistry()` image
- *      pointing at `<registry-host>:<port>/system/<imageTag>:latest`. CodeBuild
- *      authenticates by sending the per-org platform Secret as Basic auth to
- *      `pipeline-image-registry`'s `/token` endpoint, which the registry's
- *      bearer challenge points at; the JWT in `password` resolves to a
- *      registry token scoped to the org.
- *   3. If neither (e.g., a `metadata_only` plugin or one with no image),
- *      return `undefined` so CodeBuild uses its default (`standard:7.0`).
+ *   2. Otherwise, if the plugin has a `name`+`version` AND the registry
+ *      config is populated, build a `LinuxBuildImage.fromDockerRegistry()`
+ *      image pointing at `<registry-host>:<port>/<ns>/<name>:<version>`
+ *      where `<ns>` is `system` or `org-<orgId>`. CodeBuild authenticates by
+ *      sending the per-org platform Secret as Basic auth to
+ *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
+ *      resolves to a registry token scoped to the org.
+ *   3. If `metadata_only`, return `undefined` so CodeBuild uses its default
+ *      (`standard:7.0`).
  *
  * `scope` and `orgId` are required: the per-org platform Secret is named
  * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
  * needs a Construct to anchor the imported secret to.
  */
 export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin, orgId?: string): IBuildImage | undefined {
-  const imageTag = plugin.imageTag;
-
   // `metadata_only` plugins legitimately have no image — their work runs
   // in the default CodeBuild image. Quiet skip.
   if (plugin.buildType === 'metadata_only') return undefined;
 
-  // No image tag means there's nothing to pull. This SHOULDN'T happen for
-  // build_image / prebuilt plugins (the platform writes imageTag at upload
-  // time); if it does, the plugin record is malformed.
-  if (!imageTag || imageTag === '') {
+  // build_image / prebuilt plugins must have name + version (DB constraint
+  // makes both NOT NULL). Defensive check in case a malformed row slips in.
+  if (!plugin.name || !plugin.version) {
     log.warn(
-      `Plugin "${plugin.name}" has buildType=${plugin.buildType} but no imageTag — ` +
-      'CodeBuild will run on aws/codebuild/standard:7.0 and won\'t have the plugin\'s baked tools. ' +
-      'Verify the plugin was uploaded correctly via load-plugins.sh.',
+      `Plugin "${plugin.name}" has buildType=${plugin.buildType} but missing name/version — ` +
+      'CodeBuild will run on aws/codebuild/standard:7.0 and won\'t have the plugin\'s baked tools.',
     );
     return undefined;
   }
@@ -211,7 +207,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   } catch {
     // Config namespace not loaded (e.g., unit tests without full config).
     log.warn(
-      `Plugin "${plugin.name}" has imageTag="${imageTag}" but registry config not loaded — ` +
+      `Plugin "${plugin.name}:${plugin.version}" needs the registry config but it's not loaded — ` +
       'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
       'Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager\'s environment.',
     );
@@ -220,7 +216,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
 
   if (!registry?.host) {
     log.warn(
-      `Plugin "${plugin.name}" has imageTag="${imageTag}" but IMAGE_REGISTRY_HOST is empty — ` +
+      `Plugin "${plugin.name}:${plugin.version}" needs IMAGE_REGISTRY_HOST but it's empty — ` +
       'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
       'Set IMAGE_REGISTRY_HOST in pipeline-manager\'s environment to use the plugin image.',
     );
@@ -241,10 +237,10 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   }
 
   // Compose the image URI. Namespace by ownership:
-  //   - Plugins owned by the system org → `system/<imageTag>:latest`.
+  //   - Plugins owned by the system org → `system/<name>:<version>`.
   //     pipeline-image-registry's token service grants pull on `system/*`
   //     to any authenticated org user (read-only catalog of shared plugins).
-  //   - Plugins owned by a tenant org → `org-<orgId>/<imageTag>:latest`.
+  //   - Plugins owned by a tenant org → `org-<orgId>/<name>:<version>`.
   //     The token service grants pull,push only to members of that org.
   // The plugin's own `orgId` (not the caller's) decides the namespace —
   // tenant pipelines pulling shared system plugins still get the `system/`
@@ -256,7 +252,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   const namespace = plugin.orgId === SYSTEM_ORG_ID
     ? 'system'
     : `org-${plugin.orgId}`;
-  const imageUri = `${registry.host}${portPart}/${namespace}/${imageTag}:latest`;
+  const imageUri = `${registry.host}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
 
   // CodeBuild reads `pipeline-builder/<orgId>/platform` and sends its
   // `username`/`password` fields as HTTP Basic to the registry. The
@@ -368,7 +364,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
         ...metadataForShellStep(merged),
       });
     }
-    log.debug(`[CreateCodeBuildStep] SHELL_STEP plugin "${plugin.name}" has imageTag — promoting to CodeBuildStep so the plugin image is actually used`);
+    log.debug(`[CreateCodeBuildStep] SHELL_STEP plugin "${plugin.name}" has a registry image — promoting to CodeBuildStep so the plugin image is actually used`);
     // Fall through to the CodeBuildStep path below.
   }
 

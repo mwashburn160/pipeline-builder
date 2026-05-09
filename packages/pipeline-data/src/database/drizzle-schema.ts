@@ -135,8 +135,6 @@ export const plugin = pgTable('plugins', {
     .notNull(),
 
   // Docker configuration
-  imageTag: varchar('image_tag', { length: 255 })
-    .notNull(),
   dockerfile: text('dockerfile'),
   buildType: varchar('build_type', { length: 20 })
     .default('build_image')
@@ -162,7 +160,6 @@ export const plugin = pgTable('plugins', {
   nameIdx: index('plugin_name_idx').on(table.name),
   orgIdIdx: index('plugin_org_id_idx').on(table.orgId),
   versionIdx: index('plugin_version_idx').on(table.version),
-  imageTagIdx: index('plugin_image_tag_idx').on(table.imageTag),
   activeIdx: index('plugin_active_idx').on(table.isActive),
   createdAtIdx: index('plugin_created_at_idx').on(table.createdAt),
   updatedAtIdx: index('plugin_updated_at_idx').on(table.updatedAt),

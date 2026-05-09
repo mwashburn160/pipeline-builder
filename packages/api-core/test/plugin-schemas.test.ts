@@ -38,7 +38,6 @@ describe('PluginCreateSchema', () => {
     orgId: 'org-123',
     name: 'python-test',
     version: '1.0.0',
-    imageTag: 'python-test:1.0.0',
   };
 
   it('accepts valid plugin create body', () => {
@@ -60,12 +59,6 @@ describe('PluginCreateSchema', () => {
 
   it('requires version', () => {
     const { version: _, ...rest } = validPlugin;
-    const result = PluginCreateSchema.safeParse(rest);
-    expect(result.success).toBe(false);
-  });
-
-  it('requires imageTag', () => {
-    const { imageTag: _, ...rest } = validPlugin;
     const result = PluginCreateSchema.safeParse(rest);
     expect(result.success).toBe(false);
   });

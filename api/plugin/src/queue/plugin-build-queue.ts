@@ -338,7 +338,7 @@ export function startWorker(
 
       sseManager.send(requestId, 'INFO', 'Build started', {
         jobId: job.id,
-        imageTag: pluginRecord.imageTag,
+        plugin: `${pluginRecord.name}:${pluginRecord.version}`,
       });
 
       // Touch the build context directory to prevent cleanup during long queue waits
@@ -355,7 +355,7 @@ export function startWorker(
               if (!fs.existsSync(tarPath)) {
                 throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
               }
-              const result = await loadAndPush(tarPath, buildRequest.imageTag, buildRequest.registry, orgId);
+              const result = await loadAndPush(tarPath, buildRequest.name, buildRequest.version, buildRequest.registry, orgId);
               fullImage = result.fullImage;
               break;
             }
@@ -376,7 +376,6 @@ export function startWorker(
         recordBuildEvent(orgId, 'completed', job, {
           pluginName: result.name,
           pluginVersion: result.version,
-          imageTag: result.imageTag,
           pluginId: result.id,
         });
 
@@ -384,7 +383,6 @@ export function startWorker(
           id: result.id,
           name: result.name,
           version: result.version,
-          imageTag: result.imageTag,
           fullImage,
         });
 
@@ -431,7 +429,6 @@ export function startWorker(
     recordBuildEvent(orgId, 'failed', job, {
       pluginName: pluginRecord.name,
       pluginVersion: pluginRecord.version,
-      imageTag: pluginRecord.imageTag,
       errorMessage: error.message,
     });
 

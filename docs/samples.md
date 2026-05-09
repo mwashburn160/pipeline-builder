@@ -27,7 +27,7 @@ Language-specific CI/CD pipelines based on well-known open source repos. Each sa
 ### Patterns
 
 - **Plugin filters** — every plugin reference includes `filter` with `version`, `accessModifier`, `isActive`
-- **Multi-version testing** — same plugin with different `alias` and `imageTag` (e.g., Java 17 + 21)
+- **Multi-version testing** — same plugin with different `alias` and `version` (e.g., Java 17 + 21)
 - **Failure behavior** — advisory checks use `failureBehavior: "warn"`
 - **Step positioning** — primary steps use `"pre"`, supplementary use `"post"`
 - **Compute sizing** — heavy steps override to `MEDIUM` or `LARGE` via metadata

@@ -4,8 +4,8 @@
 /**
  * Tests for the BulkPluginUpdateDataSchema strict whitelist on
  * PUT /plugins/bulk/update. Without this validation a caller could write
- * internal fields (orgId, deletedAt, imageTag, secrets) on every plugin in
- * their org with one call.
+ * internal fields (orgId, deletedAt, secrets) or rename (name, version)
+ * every plugin in their org with one call.
  */
 
 const mockUpdateMany = jest.fn();
@@ -82,13 +82,13 @@ describe('PUT /plugins/bulk/update — strict update-data whitelist', () => {
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('rejects internal fields like deletedAt and imageTag', async () => {
+  it('rejects internal fields like deletedAt and immutable fields like name', async () => {
     const handler = getUpdateHandler();
     const { res, status } = makeRes();
     await handler({
       body: {
         ids: ['p1'],
-        data: { deletedAt: null, imageTag: 'spoofed:latest' },
+        data: { deletedAt: null, name: 'renamed' },
       },
     }, res);
     expect(status).toHaveBeenCalledWith(400);

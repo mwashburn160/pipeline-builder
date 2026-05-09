@@ -62,7 +62,6 @@ function parsePluginOptions(obj: unknown): FormPluginOptions {
       isActive: filter.isActive !== undefined ? String(filter.isActive) : '',
       name: String(filter.name || ''),
       version: String(filter.version || ''),
-      imageTag: String(filter.imageTag || ''),
     },
     metadata: parseMetadataEntries(p.metadata),
   };
