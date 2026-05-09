@@ -82,12 +82,12 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.4.10",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-data",
-      "version": "3.4.10",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

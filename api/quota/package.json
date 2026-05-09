@@ -38,7 +38,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.10",
     "@pipeline-builder/api-server": "3.4.10",
-    "@pipeline-builder/pipeline-core": "3.4.10",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "cors": "2.8.6",
     "express": "5.2.1",
     "express-rate-limit": "8.2.1",

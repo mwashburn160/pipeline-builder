@@ -24,12 +24,17 @@ const typescriptVersion = '5.9.3';
 const cdkVersion = '2.251.0';
 const expressVersion = '5.2.1';
 
-// Internal package versions — use workspace:* so pnpm resolves from local workspace
-// const ws = 'workspace:*';
+// Internal package versions — `workspace:*` so pnpm always resolves from
+// the local workspace. Using a pinned npm version causes pnpm to install
+// the published package from the registry, which means schema/API changes
+// in one workspace package don't propagate to its consumers in CI until
+// after a release. nx release rewrites these to a concrete version at
+// publish time, so consumers on npm still get an exact version.
+const ws = 'workspace:*';
 const pkg = {
   apiCore:        '3.4.10',
-  pipelineData:   '3.4.10',
-  pipelineCore:   '3.4.10',
+  pipelineData:   ws,
+  pipelineCore:   ws,
   apiServer:      '3.4.10',
   aiCore:         '3.4.10',
   pipelineEvents: '3.4.10'

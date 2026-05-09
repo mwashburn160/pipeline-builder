@@ -34,7 +34,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.10",
     "@pipeline-builder/api-server": "3.4.10",
-    "@pipeline-builder/pipeline-core": "3.4.10",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "framer-motion": "12.34.3",
     "lucide-react": "0.575.0",
     "next": "^16.1.6",
