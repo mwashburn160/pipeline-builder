@@ -100,7 +100,8 @@ yq_buildargs() {
 # compute_image_tag — deterministic image tag from plugin directory contents
 #
 # Hashes the SHA256 of every file in the plugin directory (except the build
-# outputs `image.tar` and `plugin.zip`), plus the plugin-spec.yaml buildArgs.
+# outputs `image.tar`, `plugin.zip`, and the `.image-hash` cache sidecar),
+# plus the plugin-spec.yaml buildArgs.
 # Files are listed in sorted order so the hash is stable across runs.
 #
 # Why hash the whole directory: previously this hashed only the Dockerfile +
@@ -131,6 +132,7 @@ compute_image_tag() {
     find . -type f \
       -not -name 'image.tar' \
       -not -name 'plugin.zip' \
+      -not -name '.image-hash' \
       -not -name '.DS_Store' \
       | LC_ALL=C sort \
       | while read -r _f; do

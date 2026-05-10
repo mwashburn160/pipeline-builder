@@ -241,9 +241,11 @@ while IFS= read -r plugin_dir; do
     label="${category}/${name}"
     tag=$(compute_image_tag "$plugin_dir")
 
-    # Check for existing image.tar
+    # Check for existing image.tar. The build hash lives in a sidecar
+    # `.image-hash` file (not config.yaml — that file ships in the plugin
+    # ZIP and its strict schema rejects unknown keys).
     if [ -f "$plugin_dir/image.tar" ] && [ "$FORCE" != true ]; then
-      existing_tag=$(grep '^imageTag:' "$plugin_dir/config.yaml" 2>/dev/null | sed 's/^imageTag: *//')
+      existing_tag=$(cat "$plugin_dir/.image-hash" 2>/dev/null || true)
       if [ "$existing_tag" = "$tag" ]; then
         echo "  [${CURRENT}/${TOTAL}] SKIP $label (image.tar exists, hash unchanged)"
         SKIPPED=$((SKIPPED + 1))
@@ -334,6 +336,11 @@ while IFS= read -r plugin_dir; do
 
     # Update config.yaml. Synthesize a minimal one if the plugin lacks it
     # (rare — but one outlier plugin shouldn't abort an otherwise-clean run).
+    # The schema's `.strict()` parser rejects unknown keys, so we MUST NOT
+    # write `imageTag:` here — it's no longer part of the upload contract.
+    # Image identity is `<name>:<version>` from plugin-spec.yaml; the local
+    # docker tag (`plugin:${tag}` saved into image.tar) is incidental and
+    # gets re-tagged at push time by `loadAndPush`.
     config="$plugin_dir/config.yaml"
     if [ ! -f "$config" ]; then
       printf 'pluginSpec: plugin-spec.yaml\ndockerfile: Dockerfile\nbuildType: build_image\n' > "$config"
@@ -341,7 +348,10 @@ while IFS= read -r plugin_dir; do
     sed_inplace 's/^buildType: build_image$/buildType: prebuilt/' "$config"
     sed_inplace '/^dockerfile:/d' "$config"
     sed_inplace '/^imageTag:/d' "$config"
-    echo "imageTag: ${tag}" >> "$config"
+
+    # Persist the build hash for the next-run cache-skip check (sidecar file,
+    # not packed into the zip).
+    echo "$tag" > "$plugin_dir/.image-hash"
 
     # Cleanup docker image
     docker rmi "plugin:${tag}" > /dev/null 2>&1 || true
