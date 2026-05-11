@@ -6,27 +6,54 @@
 # Reuses an existing certificate if it has >30 days validity remaining.
 #
 # Usage:
-#   bash bin/init-cert.sh [--region us-east-1]
+#   bash bin/init-cert.sh --domain pipeline.example.com [--region us-east-1]
+#
+# --domain is REQUIRED. Pass the hostname (or ALB DNS name from a prior deploy)
+# clients will use to reach the ALB. The cert's CN and Subject Alternative Name
+# both reflect this value — without a matching SAN, modern TLS clients
+# (OpenSSL 3+, Go stdlib) reject the cert with "certificate verify failed".
 #
 # Outputs:
 #   CERTIFICATE_ARN=arn:aws:acm:...
+#   CERTIFICATE_PEM_B64=<base64-encoded PEM>
 # =============================================================================
 set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
-CN="pipeline-builder"
+DOMAIN=""
 DAYS=365
 TAG_NAME="pipeline-builder-self-signed"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --region) REGION="$2"; shift 2 ;;
-    --cn) CN="$2"; shift 2 ;;
+    --domain) DOMAIN="$2"; shift 2 ;;
+    --cn) DOMAIN="$2"; shift 2 ;;  # back-compat alias
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
-# Check for existing valid cert
+if [ -z "$DOMAIN" ]; then
+  echo "ERROR: --domain is required (the hostname clients use to reach the ALB)" >&2
+  echo "  e.g. bash bin/init-cert.sh --domain pipeline.example.com" >&2
+  echo "  For a first deploy where the ALB DNS isn't known yet, pass a" >&2
+  echo "  placeholder (e.g. pipeline-builder.local), deploy once to get" >&2
+  echo "  the ALB DNS name, then re-run with --domain <alb-dns>." >&2
+  exit 1
+fi
+
+# OpenSSL/RFC 6125: IP literals need IP: SAN, hostnames need DNS: SAN.
+if printf '%s' "$DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+  SAN_ENTRY="IP:${DOMAIN}"
+else
+  SAN_ENTRY="DNS:${DOMAIN}"
+fi
+CN="$DOMAIN"
+
+# Check for existing valid cert. Matches on ACM's DomainName field which
+# mirrors the cert's CN — so re-running with the same --domain reuses the
+# cert when >30d valid. Changing --domain produces a fresh cert (correct,
+# since the SAN must match).
 EXISTING_ARN=$(aws acm list-certificates \
   --region "$REGION" \
   --query "CertificateSummaryList[?DomainName=='${CN}'].CertificateArn | [0]" \
@@ -71,6 +98,7 @@ openssl req -x509 -newkey rsa:2048 \
   -days "$DAYS" \
   -nodes \
   -subj "/CN=${CN}" \
+  -addext "subjectAltName=${SAN_ENTRY}" \
   2>/dev/null
 
 # Import to ACM

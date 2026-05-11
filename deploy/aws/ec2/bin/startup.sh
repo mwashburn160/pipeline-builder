@@ -183,8 +183,18 @@ if [ -n "$DOMAIN" ] && [ -d "$LE_DIR" ]; then
   kube create secret tls nginx-tls-secret --cert="$LE_DIR/fullchain.pem" --key="$LE_DIR/privkey.pem" -n "$NS"
 else
   CN="${DOMAIN:-localhost}"
+  # OpenSSL/RFC 6125: when the connection target is an IP literal, the cert
+  # MUST present an `IP:` SAN. A `DNS:` SAN with the same IP string is NOT
+  # accepted — verify will fail with "certificate verify failed" even though
+  # the CN matches. Emit the right SAN type based on whether CN is an IPv4
+  # literal.
+  if printf '%s' "$CN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    CN_SAN="IP:${CN}"
+  else
+    CN_SAN="DNS:${CN}"
+  fi
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
-    -subj "/CN=${CN}" -addext "subjectAltName=DNS:${CN},DNS:localhost,IP:127.0.0.1" 2>&1
+    -subj "/CN=${CN}" -addext "subjectAltName=${CN_SAN},DNS:localhost,IP:127.0.0.1" 2>&1
   chmod 644 "$CERT_DIR/nginx.key" "$CERT_DIR/nginx.crt"
   kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
 fi

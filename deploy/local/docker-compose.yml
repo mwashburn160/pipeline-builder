@@ -374,8 +374,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        set -e
         cp /etc/platform-ca/nginx.crt /usr/local/share/ca-certificates/platform.crt
-        update-ca-certificates
+        cat /etc/platform-ca/nginx.crt >> /etc/ssl/certs/ca-certificates.crt
+        if command -v update-ca-certificates >/dev/null 2>&1; then
+          update-ca-certificates
+        fi
         exec dockerd-entrypoint.sh --insecure-registry=registry:5000
     environment:
       DOCKER_TLS_CERTDIR: ${DOCKER_TLS_CERTDIR:-}

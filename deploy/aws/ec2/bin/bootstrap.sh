@@ -181,9 +181,16 @@ if [ -n "$DOMAIN" ]; then
     echo "  ERROR: certbot failed to obtain certificate for ${DOMAIN}" >&2
     echo "  Common causes: domain not pointing to this instance, port 80 blocked, Let's Encrypt rate limit" >&2
     echo "  Falling back to self-signed certificate" >&2
+    # OpenSSL/RFC 6125: IP literals require `IP:` SAN, not `DNS:`. Without
+    # this, verify fails when clients connect by IP.
+    if printf '%s' "$DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+      SAN="IP:${DOMAIN}"
+    else
+      SAN="DNS:${DOMAIN}"
+    fi
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
       -keyout "$TLS_CERT_DIR/tls.key" -out "$TLS_CERT_DIR/tls.crt" \
-      -subj "/CN=${DOMAIN}" -addext "subjectAltName=DNS:${DOMAIN}"
+      -subj "/CN=${DOMAIN}" -addext "subjectAltName=${SAN}"
   else
     # Symlink to standard location
     ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$TLS_CERT_DIR/tls.crt"

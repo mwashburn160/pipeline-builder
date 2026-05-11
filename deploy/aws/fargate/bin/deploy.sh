@@ -24,6 +24,11 @@ GHCR_USER="mwashburn160"
 REGION="${AWS_REGION:-us-east-1}"
 APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
 GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
+# DOMAIN is the hostname clients will use to reach the ALB. For the very
+# first deploy the ALB DNS isn't known yet — pass a placeholder, deploy,
+# then re-run with the real ALB DNS name (printed at the end) so the cert
+# gets a matching SAN. Subsequent re-deploys reuse the cert if >30d valid.
+DOMAIN="${DOMAIN:-pipeline-builder.local}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -32,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --ghcr-user) GHCR_USER="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     --stack-prefix) STACK_PREFIX="$2"; shift 2 ;;
+    --domain) DOMAIN="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -67,13 +73,14 @@ echo "Pipeline Builder - Fargate Deployment"
 echo "========================================"
 echo "  Region:         $REGION"
 echo "  Stack Prefix:   $STACK_PREFIX"
+echo "  Domain:         $DOMAIN"
 echo ""
 
 # -----------------------------------------------------------------------
 # Step 1: Generate self-signed certificate for HTTPS
 # -----------------------------------------------------------------------
 echo "=== Step 1: Ensure TLS certificate exists ==="
-CERT_OUTPUT=$(bash "$SCRIPT_DIR/init-cert.sh" --region "$REGION")
+CERT_OUTPUT=$(bash "$SCRIPT_DIR/init-cert.sh" --domain "$DOMAIN" --region "$REGION")
 CERTIFICATE_ARN=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_ARN=" | cut -d= -f2)
 CERTIFICATE_PEM_B64=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_PEM_B64=" | cut -d= -f2)
 if [ -z "$CERTIFICATE_ARN" ]; then

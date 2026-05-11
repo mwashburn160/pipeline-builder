@@ -85,8 +85,16 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              set -e
+              # Alpine's `update-ca-certificates` requires the `ca-certificates`
+              # package, which docker:27-dind doesn't always ship with. Append
+              # directly to the bundle — that's where libssl/wget actually read
+              # from on Alpine.
               cp /etc/platform-ca/tls.crt /usr/local/share/ca-certificates/platform.crt
-              update-ca-certificates
+              cat /etc/platform-ca/tls.crt >> /etc/ssl/certs/ca-certificates.crt
+              if command -v update-ca-certificates >/dev/null 2>&1; then
+                update-ca-certificates
+              fi
               exec dockerd-entrypoint.sh --insecure-registry=registry:5000
           securityContext:
             privileged: true
