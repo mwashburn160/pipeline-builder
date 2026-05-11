@@ -20,6 +20,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 require_yq
 
+# Fail fast with a useful message when the current user can't reach the
+# docker socket. Common case on EC2: the user is `ec2-user` who hasn't been
+# added to the docker group (bootstrap.sh adds them, but the user must
+# re-login or run `newgrp docker` for it to take effect).
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: cannot reach docker daemon (permission denied or daemon down)" >&2
+  echo "  Current user: $(id -un)" >&2
+  echo "  Fix: ensure your user is in the 'docker' group, then re-login or run:" >&2
+  echo "    newgrp docker && bash $0 $*" >&2
+  echo "  Or run this script with sudo." >&2
+  exit 1
+fi
+
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 FORCE=false
 RESET=false

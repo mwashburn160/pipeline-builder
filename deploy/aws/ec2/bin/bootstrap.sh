@@ -224,6 +224,18 @@ fi
 usermod -aG docker minikube
 echo "  Ensured 'minikube' is in docker group"
 
+# The interactive operator (typically ec2-user on Amazon Linux) also needs
+# docker group membership so they can run build-plugin-images.sh and other
+# scripts that talk to the host docker daemon without sudo. SUDO_USER is
+# set when bootstrap is invoked via `sudo`; fall back to ec2-user (the AMI
+# default) when bootstrap runs unattended at first boot.
+OPERATOR_USER="${SUDO_USER:-ec2-user}"
+if id "$OPERATOR_USER" &>/dev/null && [ "$OPERATOR_USER" != "root" ]; then
+  usermod -aG docker "$OPERATOR_USER"
+  echo "  Ensured '$OPERATOR_USER' is in docker group"
+  echo "  NOTE: $OPERATOR_USER must log out and back in (or run 'newgrp docker') for the group to take effect"
+fi
+
 # Data directory on dedicated EBS volume (mounted by UserData at /mnt/data)
 if mountpoint -q "/mnt/data" 2>/dev/null; then
   echo "  Using dedicated data volume at /mnt/data"
