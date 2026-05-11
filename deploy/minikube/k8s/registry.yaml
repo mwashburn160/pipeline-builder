@@ -142,16 +142,24 @@ spec:
             requests:
               cpu: "75m"
               memory: 256Mi
+          # HTTPS scheme: registry is TLS-terminating on port 5000. kubelet
+          # auto-skips cert verification on httpGet, so a self-signed cert is
+          # fine. Using tcpSocket here would spam the registry log with
+          # "TLS handshake error: EOF" on every probe.
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /v2/
               port: 5000
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /v2/
               port: 5000
+              scheme: HTTPS
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 5

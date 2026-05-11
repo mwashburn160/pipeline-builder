@@ -61,7 +61,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app.kubernetes.io/name: image-registry
+                    app: image-registry
                 topologyKey: kubernetes.io/hostname
       initContainers:
         - name: wait-for-registry
