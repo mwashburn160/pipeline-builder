@@ -14,6 +14,15 @@ Parameters:
     Default: ""
     Description: Application hostname (custom domain or ALB DNS name)
 
+  PlatformBaseUrl:
+    Type: String
+    Default: ""
+    Description: >
+      Public base URL clients use to reach the platform (e.g.
+      "https://example.com"). Used verbatim in the docker registry's bearer
+      challenge — must be resolvable by every docker client that pulls from
+      the registry. Computed by deploy.sh as scheme + DomainName.
+
   AppSecretsName:
     Type: String
     Default: pipeline-builder/app-secrets
@@ -126,8 +135,12 @@ Resources:
             # populates that file before this container starts.
             - Name: REGISTRY_AUTH
               Value: token
+            # The bearer realm URL is sent verbatim to clients in the
+            # WWW-Authenticate response, so it MUST be resolvable by every
+            # Docker client that pulls from this registry. PlatformBaseUrl
+            # (computed by deploy.sh) is the single canonical value.
             - Name: REGISTRY_AUTH_TOKEN_REALM
-              Value: !Sub "https://${DomainName}/image-registry/token"
+              Value: !Sub "${PlatformBaseUrl}/image-registry/token"
             - Name: REGISTRY_AUTH_TOKEN_SERVICE
               Value: pipeline-image-registry
             - Name: REGISTRY_AUTH_TOKEN_ISSUER

@@ -23,6 +23,7 @@ SECRET_NAME="pipeline-builder/app-secrets"
 GHCR_SECRET_NAME="pipeline-builder/ghcr-auth"
 GHCR_TOKEN=""
 GHCR_USER="mwashburn160"
+PLATFORM_CA_CERT_B64=""
 REGION="${AWS_REGION:-us-east-1}"
 
 while [[ $# -gt 0 ]]; do
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --ghcr-token) GHCR_TOKEN="$2"; shift 2 ;;
     --ghcr-user) GHCR_USER="$2"; shift 2 ;;
+    --platform-ca-cert-b64) PLATFORM_CA_CERT_B64="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     --secret-name) SECRET_NAME="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -89,6 +91,7 @@ SECRETS_JSON=$(cat <<EOF
   "IMAGE_REGISTRY_TOKEN": "${REGISTRY_TOKEN}",
   "REGISTRY_TOKEN_PRIVATE_KEY": "${REGISTRY_TOKEN_PRIVATE_KEY}",
   "REGISTRY_TOKEN_CERTIFICATE": "${REGISTRY_TOKEN_CERTIFICATE}",
+  "PLATFORM_CA_CERT": "${PLATFORM_CA_CERT_B64}",
   "ANTHROPIC_API_KEY": "",
   "OPENAI_API_KEY": "",
   "GOOGLE_GENERATIVE_AI_API_KEY": "",

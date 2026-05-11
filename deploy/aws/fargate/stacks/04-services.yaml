@@ -15,6 +15,15 @@ Parameters:
     Default: ""
     Description: ALB DNS name used as application hostname
 
+  PlatformBaseUrl:
+    Type: String
+    Default: ""
+    Description: >
+      Public base URL clients use to reach the platform (e.g.
+      "https://example.com"). Single source of truth for PLATFORM_BASE_URL,
+      PLATFORM_FRONTEND_URL, and NEXT_PUBLIC_API_URL across services.
+      Computed by deploy.sh as scheme + DomainName.
+
   PlatformImage:
     Type: String
     Default: ghcr.io/mwashburn160/platform:3.4.17
@@ -343,9 +352,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: platform
           Secrets:
@@ -520,9 +529,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: pipeline
             - Name: COMPLIANCE_SERVICE_HOST
@@ -692,6 +701,22 @@ Resources:
         - Name: plugin
           Image: !Ref PluginImage
           Essential: true
+          # Trust the ALB's self-signed cert (passed in via PLATFORM_CA_CERT,
+          # base64-encoded) before launching node, so kaniko can follow the
+          # registry's bearer-token challenge to ${PlatformBaseUrl}/image-registry/token.
+          # `--skip-tls-verify` on kaniko only covers the registry endpoint —
+          # the realm host is validated against the system CA bundle, which
+          # must include our self-signed cert. Append to both /etc/ssl/certs
+          # and /kaniko/ssl/certs since kaniko bundles its own root store.
+          EntryPoint: ["/bin/bash", "-c"]
+          Command:
+            - |
+              if [ -n "$PLATFORM_CA_CERT" ]; then
+                echo "$PLATFORM_CA_CERT" | base64 -d > /usr/local/share/ca-certificates/platform.crt
+                update-ca-certificates >/dev/null 2>&1 || true
+                cat /usr/local/share/ca-certificates/platform.crt >> /kaniko/ssl/certs/ca-certificates.crt
+              fi
+              exec node index.js
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -727,9 +752,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: plugin
             - Name: IMAGE_REGISTRY_HOST
@@ -782,6 +807,8 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
+            - Name: PLATFORM_CA_CERT
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PLATFORM_CA_CERT::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -943,9 +970,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: quota
           Secrets:
@@ -1120,9 +1147,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED
@@ -1301,9 +1328,9 @@ Resources:
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: message
           Secrets:
@@ -1462,7 +1489,7 @@ Resources:
             - Name: DATABASE
               Value: pipeline_builder
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: reporting
           Secrets:
@@ -1637,7 +1664,7 @@ Resources:
             - Name: PIPELINE_SERVICE_PORT
               Value: "3000"
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: compliance
           Secrets:
@@ -1790,7 +1817,7 @@ Resources:
               SourceVolume: tmp
           Environment:
             - Name: NEXT_PUBLIC_API_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_BASE_URL
               Value: "http://nginx.pipeline-builder.local:8080"
           HealthCheck:
@@ -1949,7 +1976,7 @@ Resources:
             - Name: REGISTRY_TOKEN_EXPIRES_IN
               Value: "300"
             - Name: PLATFORM_BASE_URL
-              Value: !Sub "http://${DomainName}"
+              Value: !Ref PlatformBaseUrl
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"

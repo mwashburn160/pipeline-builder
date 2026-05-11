@@ -93,7 +93,18 @@ spec:
         - name: dind
           image: docker:27-dind
           restartPolicy: Always
-          args: ["--insecure-registry=registry:5000"]
+          # Trust the platform's self-signed cert before dockerd starts so the
+          # docker daemon can follow the registry's bearer-token challenge to
+          # https://<PLATFORM_BASE_URL>/image-registry/token. `--insecure-registry`
+          # only covers the registry itself, NOT the realm host — without
+          # this step the realm fetch fails with TLS verify error and the
+          # subsequent push goes anonymous, yielding `denied` from the registry.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp /etc/platform-ca/tls.crt /usr/local/share/ca-certificates/platform.crt
+              update-ca-certificates
+              exec dockerd-entrypoint.sh --insecure-registry=registry:5000
           securityContext:
             privileged: true
           env:
@@ -106,6 +117,9 @@ spec:
               mountPath: /app/tmp
             - name: dind-storage
               mountPath: /var/lib/docker
+            - name: platform-ca
+              mountPath: /etc/platform-ca
+              readOnly: true
           resources:
             limits:
               cpu: "1000m"
@@ -237,6 +251,15 @@ spec:
         - name: dind-storage
           emptyDir:
             sizeLimit: 20Gi
+        # Platform's nginx TLS cert — mounted into dind so the docker daemon
+        # trusts https://<PLATFORM_BASE_URL>/image-registry/token during the
+        # bearer-challenge fetch. Same secret nginx serves to clients.
+        - name: platform-ca
+          secret:
+            secretName: nginx-tls-secret
+            items:
+              - key: tls.crt
+                path: tls.crt
 
 ---
 # =============================================================================

@@ -75,6 +75,7 @@ echo ""
 echo "=== Step 1: Ensure TLS certificate exists ==="
 CERT_OUTPUT=$(bash "$SCRIPT_DIR/init-cert.sh" --region "$REGION")
 CERTIFICATE_ARN=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_ARN=" | cut -d= -f2)
+CERTIFICATE_PEM_B64=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_PEM_B64=" | cut -d= -f2)
 if [ -z "$CERTIFICATE_ARN" ]; then
   echo "  WARNING: Failed to obtain certificate. HTTPS will be disabled."
 else
@@ -91,9 +92,26 @@ if ! aws secretsmanager describe-secret --secret-id "$APP_SECRETS_NAME" --region
   bash "$SCRIPT_DIR/init-secrets.sh" \
     --ghcr-token "$GHCR_TOKEN" \
     --ghcr-user "$GHCR_USER" \
+    --platform-ca-cert-b64 "$CERTIFICATE_PEM_B64" \
     --region "$REGION"
 else
   echo "  Secrets already exist in Secrets Manager"
+  # The ALB cert can rotate independently of the random secrets — refresh
+  # only the PLATFORM_CA_CERT field so the plugin task trusts the current
+  # cert without invalidating JWT_SECRET / DB passwords.
+  if [ -n "$CERTIFICATE_PEM_B64" ]; then
+    echo "  Refreshing PLATFORM_CA_CERT in app-secrets..."
+    CURRENT=$(aws secretsmanager get-secret-value \
+      --secret-id "$APP_SECRETS_NAME" \
+      --region "$REGION" \
+      --query "SecretString" --output text)
+    UPDATED=$(printf '%s' "$CURRENT" | jq --arg cert "$CERTIFICATE_PEM_B64" \
+      '.PLATFORM_CA_CERT = $cert')
+    aws secretsmanager put-secret-value \
+      --secret-id "$APP_SECRETS_NAME" \
+      --secret-string "$UPDATED" \
+      --region "$REGION" >/dev/null
+  fi
 fi
 
 # -----------------------------------------------------------------------
@@ -161,14 +179,24 @@ BASE_HOST=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='DomainName'].OutputValue" \
   --output text --region "$REGION")
 
+# Scheme tracks TLS availability: ALB has cert => https, else http.
+# Used as the canonical public base URL — passed to every stack so services
+# and the docker registry's bearer realm derive from the same source.
+if [ -n "$CERTIFICATE_ARN" ]; then
+  PLATFORM_BASE_URL="https://${BASE_HOST}"
+else
+  PLATFORM_BASE_URL="http://${BASE_HOST}"
+fi
+
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${BASE_HOST}")
 SECRETS_PARAMS=("AppSecretsName=${APP_SECRETS_NAME}" "GhcrAuthSecretName=${GHCR_AUTH_SECRET_NAME}")
+PLATFORM_URL_PARAM=("PlatformBaseUrl=${PLATFORM_BASE_URL}")
 
 deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}"
 deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
-deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
 deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
-deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
 
 # -----------------------------------------------------------------------
 # Done

@@ -109,8 +109,18 @@ spec:
             # disabled; htpasswd has been removed.
             - name: REGISTRY_AUTH
               value: "token"
+            # The bearer realm URL is sent verbatim to clients in the
+            # WWW-Authenticate response, so it MUST be resolvable by every
+            # Docker client that pulls from this registry: the in-cluster
+            # dind sidecar, and any external client. PLATFORM_BASE_URL
+            # (from app-env) is the single value that satisfies both.
+            - name: PLATFORM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-env
+                  key: PLATFORM_BASE_URL
             - name: REGISTRY_AUTH_TOKEN_REALM
-              value: "https://platform.local/image-registry/token"
+              value: "$(PLATFORM_BASE_URL)/image-registry/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE
               value: "pipeline-image-registry"
             - name: REGISTRY_AUTH_TOKEN_ISSUER
