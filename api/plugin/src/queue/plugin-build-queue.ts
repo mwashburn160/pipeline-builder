@@ -123,7 +123,7 @@ function classifyFailure(error: Error): FailureCategory {
   // Permanent: DB schema errors, constraint violations, compliance, validation
   if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
   if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';
-  if (msg.includes('missing image.tar') || msg.includes('not supported with kaniko') || msg.includes('Could not parse loaded image')) return 'permanent';
+  if (msg.includes('missing image.tar') || msg.includes('Tarball not found')) return 'permanent';
 
   return 'retryable';
 }

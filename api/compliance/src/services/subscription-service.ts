@@ -25,6 +25,11 @@ async function invalidateRulesFor(orgId: string): Promise<void> {
 
 export type ComplianceRuleSubscription = typeof schema.complianceRuleSubscription.$inferSelect;
 
+/**
+ * Manages an org's subscriptions to published compliance rules. Subscriptions
+ * default to inactive — the org must explicitly activate before the rule's
+ * enforcement kicks in. Mutations invalidate the per-org rules cache.
+ */
 export class ComplianceRuleSubscriptionService {
   /**
    * Subscribe an org to a published rule.

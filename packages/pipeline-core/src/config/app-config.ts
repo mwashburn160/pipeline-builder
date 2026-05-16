@@ -40,9 +40,6 @@ export class CoreConstants {
   static readonly HANDLER_MAX_RETRIES = parseInt(process.env.HANDLER_MAX_RETRIES || '2', 10);
   static readonly HANDLER_RETRY_DELAY_MS = parseInt(process.env.HANDLER_RETRY_DELAY_MS || '1000', 10); // 1s
 
-  // Plugin image configuration
-  static readonly PLUGIN_IMAGE_PREFIX = process.env.PLUGIN_IMAGE_PREFIX || 'p-';
-
   // Plugin build queue configuration
   static readonly PLUGIN_BUILD_QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';
   static readonly PLUGIN_BUILD_MAX_ATTEMPTS = parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10);

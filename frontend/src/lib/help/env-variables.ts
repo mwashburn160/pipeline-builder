@@ -202,8 +202,9 @@ export const envVariablesTopic: HelpTopic = {
           rows: [
             ['IMAGE_REGISTRY_HOST', 'registry', 'Registry hostname'],
             ['IMAGE_REGISTRY_PORT', '5000', 'Registry port'],
-            ['DOCKER_BUILD_STRATEGY', 'docker', 'Build strategy: docker (dind sidecar), podman (daemonless), kaniko (Fargate)'],
-            ['DOCKER_BUILD_TIMEOUT_MS', '900000', 'Docker build timeout (15 min)'],
+            ['IMAGE_REGISTRY_HTTP', 'true', 'Use plain HTTP for the in-cluster registry (false for TLS-fronted)'],
+            ['BUILDKIT_HOST', 'unix:///run/buildkit/buildkitd.sock', 'buildctl --addr for the rootless buildkitd sidecar'],
+            ['DOCKER_BUILD_TIMEOUT_MS', '900000', 'Plugin build timeout (15 min)'],
             ['PLUGIN_BUILD_CONCURRENCY', '1', 'Max concurrent Docker builds'],
             ['PLUGIN_BUILD_MAX_ATTEMPTS', '2', 'Max build attempts before moving to DLQ'],
             ['PLUGIN_DLQ_MAX_ATTEMPTS', '3', 'Max DLQ retry attempts (exponential backoff)'],

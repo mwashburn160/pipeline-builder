@@ -704,6 +704,11 @@ Resources:
         - Name: plugin
           Image: !Ref PluginImage
           Essential: true
+          # Soft reservations within the task budget (2048 CPU / 4096 MB total).
+          # plugin runs node + queue worker; buildkitd does the actual builds.
+          # Containers can burst above these values if the sibling is idle.
+          Cpu: 1024
+          Memory: 2048
           # Wait for the buildkitd sidecar to be HEALTHY before launching node,
           # so the build worker doesn't race the buildkitd startup.
           DependsOn:
@@ -820,6 +825,11 @@ Resources:
           Image: moby/buildkit:v0.16.0-rootless
           Essential: true
           User: "1000:1000"
+          # Soft reservations — see plugin container above. buildkitd does the
+          # heavy lifting during a build (compile/snapshot/push), so it gets
+          # the larger CPU share when the task is fully utilized.
+          Cpu: 1024
+          Memory: 1536
           EntryPoint: ["buildkitd"]
           Command:
             - --addr

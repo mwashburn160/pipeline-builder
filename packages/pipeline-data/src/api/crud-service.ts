@@ -71,19 +71,26 @@ export interface PaginatedResult<T> {
 }
 
 /**
- * Abstract CRUD service with access control and common operations.
+ * Abstract CRUD service with multi-tenant access control and pagination.
+ *
+ * Subclasses bind to a specific Drizzle table by implementing `schema`,
+ * `buildConditions`, `getSortColumn`, and the org/project-column accessors.
  *
  * @typeParam TEntity - Entity type extending BaseEntity
  * @typeParam TFilter - Filter type for query parameters
  * @typeParam TInsert - Insert DTO type
  * @typeParam TUpdate - Update DTO type
  *
- * Type assertions (`as any`, `as unknown as T`) are used throughout for Drizzle ORM compatibility.
- * This is safe because: access control filters by orgId, schema validation is at the DB level,
- * and each subclass is tested for type correctness.
+ * **A note on the type casts.** Drizzle's row types are inferred from
+ * `pgTable(...)` and don't generically narrow through the abstract `schema`
+ * getter, so the base class casts query results to `TEntity` and back. The
+ * cast is *not* a runtime safety guarantee — it relies on each subclass
+ * passing the matching entity type. Org-scoping is enforced by every
+ * subclass's `buildConditions` injecting `WHERE org_id = $1`; this class
+ * does not add that filter itself.
  *
- * Errors are not caught here — they propagate to the route-level error handler (`withRoute`)
- * which provides consistent logging with request context.
+ * **Error policy.** Errors propagate up to the route-level handler
+ * (`withRoute`); no catch-and-swallow here.
  *
  * @example
  * ```typescript

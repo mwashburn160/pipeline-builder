@@ -157,6 +157,7 @@ export function isSystemOrgId(orgId?: string, orgName?: string): boolean {
   return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_ID;
 }
 
+/** True when the request's JWT identifies the system (super-admin) org. */
 export function isSystemOrg(req: Request): boolean {
   if (!req.user) return false;
   return isSystemOrgId(req.user.organizationId, req.user.organizationName);

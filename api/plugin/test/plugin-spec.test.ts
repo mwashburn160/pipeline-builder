@@ -13,9 +13,7 @@ jest.mock('uuid', () => ({
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   __esModule: true,
-  CoreConstants: {
-    PLUGIN_IMAGE_PREFIX: 'p-',
-  },
+  CoreConstants: {},
   // Template-validator dependencies — minimal stubs so plugin-spec.ts loads
   allowedScopeRoots: () => () => true,
   validateTemplates: () => ({ valid: true, errors: [] }),

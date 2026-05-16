@@ -206,11 +206,15 @@ CRON
   echo "  Auto-renewal cron configured"
 else
   # --- Self-signed certificate (no domain) ---
+  # CN=localhost + matching SAN: modern TLS clients (OpenSSL 3+, Go stdlib)
+  # reject certs without a SAN entry that matches the connection target.
+  # localhost is the only meaningful target when no domain is configured.
   echo "  No domain provided — generating self-signed certificate..."
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$TLS_CERT_DIR/tls.key" \
     -out "$TLS_CERT_DIR/tls.crt" \
-    -subj "/CN=pipeline-builder/O=pipeline-builder"
+    -subj "/CN=localhost/O=pipeline-builder" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
   echo "  Self-signed certificate generated at ${TLS_CERT_DIR}/"
 fi
 
@@ -274,7 +278,8 @@ else
 fi
 
 # Create plugin working directories on data volume (hostPath mounts for K8s)
-# These back the plugin pod's /app/tmp and /app/uploads (dind uses emptyDir per-pod)
+# These back the plugin pod's /app/tmp and /app/uploads. The buildkitd
+# sidecar's socket + layer cache live in pod-local emptyDir, not here.
 mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads
 # UID 1000 matches the plugin container's user inside minikube
 chown -R 1000:1000 /mnt/data/plugins-data
